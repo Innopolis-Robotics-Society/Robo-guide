@@ -1,0 +1,25 @@
+# ROS 2 build directories
+build/
+install/
+log/
+
+# Python caching and packaging
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+.develop/
+dist/
+local/
+
+# IDE settings (optional but useful)
+.vscode/
+.idea/
+.clion.source.dir/
+*.user
+
+# System files
+.DS_Store
+Thumbs.db
