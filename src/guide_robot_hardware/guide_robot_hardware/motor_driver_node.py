@@ -3,6 +3,8 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 import math 
+from tf2_ros import TransformBroadcaster
+from geometry_msgs.msg import TransformStamped
 
 
 class MotorDriverNode(Node):
@@ -14,7 +16,8 @@ class MotorDriverNode(Node):
         self.wheel_radius=0.05
         self.left_encoder=0#(м/с) #(will be implemented later, just need to read serial port from driver
         self.right_encoder=0#(м/с)
-
+        self.tf_broadcaster = TransformBroadcaster(self) #
+        #position ans speeds of a robot
         self.dt=0.05
         self.x=0.0
         self.y=0.0
@@ -32,6 +35,7 @@ class MotorDriverNode(Node):
         self.x=self.x+self.dx
         self.y=self.y+self.dy
         self.odometry_publish()
+        self.publish_tf()
 
     # convert wheel speeds from encoders to actual linear and angular velocities of a body
     def actual_speeds(self):
@@ -50,10 +54,8 @@ class MotorDriverNode(Node):
         v_right= linear+(angular*self.wheel_base/2)
         w_left=v_left/self.wheel_radius
         w_right=v_right/self.wheel_radius
-        self.left_encoder=w_left
-        self.right_encoder=w_right
 
-
+        # there will be impelemented sending signals to motor driver using serial port/can 
         self.get_logger().info(f"w_left:{w_left} w_right:{w_right}")
 
   
@@ -82,6 +84,23 @@ class MotorDriverNode(Node):
 
     # Publish message to topic /odom
         self.odom_pub.publish(odom)
+
+    def publish_tf(self):
+        t= TransformStamped()
+        t.header.stamp=self.get_clock().now().to_msg()
+        t.header.frame_id= 'odom'
+        t.child_frame_id= '/base_link'
+
+        t.transform.translation.x=self.x
+        t.transform.translation.y=self.y
+        t.transform.translation.z=0.0
+
+        t.transform.rotation.x=0.0
+        t.transform.rotation.y=0.0
+        t.transform.rotation.z=math.sin(self.theta/2.0)
+        t.transform.rotation.w=math.cos(self.theta/2.0)
+
+        self.tf_broadcaster.sendTransform(t)
 
 
 def main(args=None):
