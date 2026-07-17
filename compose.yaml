@@ -36,3 +36,11 @@ services:
   #   tty: true
   #   devices:
   #     - "/dev/ttyACM0:/dev/ttyACM0"
+
+  old-terminal:
+    <<: *common-setup
+    image: fabook/iros:v0.0.1
+    stdin_open: true
+    tty: true
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"
