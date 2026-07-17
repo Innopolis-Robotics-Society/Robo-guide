@@ -14,11 +14,12 @@ __pycache__/
 dist/
 local/
 
-# IDE settings (optional but useful)
+
 .vscode/
 .idea/
 .clion.source.dir/
 *.user
+.md
 
 # System files
 .DS_Store

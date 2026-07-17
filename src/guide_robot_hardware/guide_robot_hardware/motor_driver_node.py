@@ -12,8 +12,8 @@ class MotorDriverNode(Node):
         super().__init__("motor_driver_node")
         self.create_subscription(Twist, "cmd_vel", self.cmd_vel_callback, 10)
         self.odom_pub=self.create_publisher(Odometry, "odom", 10)
-        self.wheel_base=0.3
-        self.wheel_radius=0.05
+        self.wheel_base=0.338
+        self.wheel_radius=0.075
         self.left_encoder=0#(м/с) #(will be implemented later, just need to read serial port from driver
         self.right_encoder=0#(м/с)
         self.tf_broadcaster = TransformBroadcaster(self) #
@@ -89,7 +89,7 @@ class MotorDriverNode(Node):
         t= TransformStamped()
         t.header.stamp=self.get_clock().now().to_msg()
         t.header.frame_id= 'odom'
-        t.child_frame_id= '/base_link'
+        t.child_frame_id= 'base_link'
 
         t.transform.translation.x=self.x
         t.transform.translation.y=self.y
