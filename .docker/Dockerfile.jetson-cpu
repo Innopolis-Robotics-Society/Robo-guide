@@ -1,0 +1,44 @@
+# ============================================================
+# arm64 CPU-only — lightweight image for Jetson/ARM logic & ROS2 testing
+#
+# Plain arm64 ubuntu (NOT l4t-jetpack): no CUDA/TensorRT, no GPU driver deps,
+# small and fast to build. Use for testing ROS2 nodes, navigation logic, CAN,
+# and CPU inference on a Jetson (or any arm64 board / arm64 CI) without pulling
+# the multi-GB JetPack stack. Won't use the GPU — that's the point.
+#
+# Build on the device (native) or cross-build:
+#   docker buildx build --platform linux/arm64 \
+#     -f .docker/Dockerfile.jetson-cpu -t fabook/iros:jetson-cpu --load .
+# Run:
+#   docker run -it fabook/iros:jetson-cpu      # no --runtime nvidia needed
+# ============================================================
+FROM arm64v8/ubuntu:22.04
+
+ENV ROS_DISTRO=humble
+ENV TZ=Etc/UTC
+ARG USERNAME=fabian
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG DEBIAN_FRONTEND=noninteractive
+ENV USERNAME=${USERNAME} USER_UID=${USER_UID} USER_GID=${USER_GID}
+
+# Headless by default — no Gazebo on the lightweight arm image.
+ARG WITH_GAZEBO=0
+ENV WITH_GAZEBO=${WITH_GAZEBO}
+
+COPY .docker/common/ /tmp/common/
+RUN bash /tmp/common/00-tools.sh
+RUN bash /tmp/common/10-ros2-repo.sh
+RUN bash /tmp/common/20-ros2-packages.sh
+RUN bash /tmp/common/25-can-utils.sh
+RUN bash /tmp/common/30-python-common.sh
+
+# --- CPU-only ML (onnxruntime CPU, no torch/CUDA) ---
+RUN bash /tmp/common/40-ml-jetson-cpu.sh
+
+RUN bash /tmp/common/90-user-setup.sh
+RUN rm -rf /tmp/common
+
+USER ${USERNAME}
+WORKDIR /home/${USERNAME}/ros2_ws
+CMD ["bash"]

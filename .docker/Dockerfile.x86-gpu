@@ -1,0 +1,35 @@
+# ============================================================
+# x86_64 + NVIDIA CUDA (dGPU) — full production/development image
+# Build from repo root:
+#   docker build -f .docker/Dockerfile.x86-gpu -t fabook/iros:x86-gpu .
+# Run with GPU:
+#   docker run --gpus all -it fabook/iros:x86-gpu
+# ============================================================
+FROM nvidia/cuda:12.9.0-devel-ubuntu22.04
+
+ENV ROS_DISTRO=humble
+ENV TZ=Etc/UTC
+ARG USERNAME=fabian
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG DEBIAN_FRONTEND=noninteractive
+ENV USERNAME=${USERNAME} USER_UID=${USER_UID} USER_GID=${USER_GID}
+
+# --- common layers (change rarely -> cached across rebuilds) ---
+COPY .docker/common/ /tmp/common/
+RUN bash /tmp/common/00-tools.sh
+RUN bash /tmp/common/10-ros2-repo.sh
+RUN bash /tmp/common/20-ros2-packages.sh
+RUN bash /tmp/common/25-can-utils.sh
+RUN bash /tmp/common/30-python-common.sh
+
+# --- platform-specific ML (CUDA) ---
+RUN bash /tmp/common/40-ml-x86-gpu.sh
+
+# --- user + workspace ---
+RUN bash /tmp/common/90-user-setup.sh
+RUN rm -rf /tmp/common
+
+USER ${USERNAME}
+WORKDIR /home/${USERNAME}/ros2_ws
+CMD ["bash"]

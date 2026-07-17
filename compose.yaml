@@ -1,0 +1,38 @@
+x-common: &common-setup
+  network_mode: host
+  privileged: true
+  volumes:
+    - ${HOME}/.Xauthority:/home/fabian/.Xauthority:rw
+    - .:/home/fabian/ros2_ws/src:rw
+    - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    - /dev/dri:/dev/dri:rw
+  environment:
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display
+    - DISPLAY
+    - QT_X11_NO_MITSHM=1
+  working_dir: /home/fabian/ros2_ws
+  group_add:
+    - "video"
+    - "44"
+  command: [
+    "/bin/bash","-lc","
+    exec bash"
+    ]
+
+services:
+  amd-terminal:
+    <<: *common-setup
+    image: fabook/iros:x86-cpu
+    stdin_open: true
+    tty: true
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"
+
+  # arm-terminal:
+  #   <<: *common-setup
+  #   image: fabook/iros:v0.0.1
+  #   stdin_open: true
+  #   tty: true
+  #   devices:
+  #     - "/dev/ttyACM0:/dev/ttyACM0"

@@ -1,0 +1,51 @@
+# ============================================================
+# NVIDIA Jetson (arm64 + JetPack/L4T) — full image with GPU ML
+#
+# CUDA / cuDNN / TensorRT are baked into the l4t-jetpack base image and are
+# pinned to the L4T version — they CANNOT be changed later. Pick the base tag
+# that matches the JetPack flashed on your device.
+#
+# Build ON the Jetson (native arm64) or cross-build with buildx + QEMU:
+#   # native, on the device:
+#   docker build -f .docker/Dockerfile.jetson -t fabook/iros:jetson .
+#   # cross from x86 host:
+#   docker buildx build --platform linux/arm64 \
+#     -f .docker/Dockerfile.jetson -t fabook/iros:jetson --load .
+# Run on device:
+#   docker run --runtime nvidia -it fabook/iros:jetson
+# ============================================================
+# JetPack 6.1 (L4T r36.4). Change to match your device's JetPack:
+FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0
+
+ENV ROS_DISTRO=humble
+ENV TZ=Etc/UTC
+ARG USERNAME=fabian
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG DEBIAN_FRONTEND=noninteractive
+ENV USERNAME=${USERNAME} USER_UID=${USER_UID} USER_GID=${USER_GID}
+
+# Match the pip index to the base image's JetPack/CUDA (see 40-ml-jetson.sh).
+ARG JETSON_PIP_INDEX=https://pypi.jetson-ai-lab.dev/jp6/cu126
+ENV JETSON_PIP_INDEX=${JETSON_PIP_INDEX}
+
+# Gazebo often skipped on-device (headless robot); flip to 1 if you need sim.
+ARG WITH_GAZEBO=0
+ENV WITH_GAZEBO=${WITH_GAZEBO}
+
+COPY .docker/common/ /tmp/common/
+RUN bash /tmp/common/00-tools.sh
+RUN bash /tmp/common/10-ros2-repo.sh
+RUN bash /tmp/common/20-ros2-packages.sh
+RUN bash /tmp/common/25-can-utils.sh
+RUN bash /tmp/common/30-python-common.sh
+
+# --- platform-specific ML (Jetson L4T wheels; GPU via nvidia runtime) ---
+RUN bash /tmp/common/40-ml-jetson.sh
+
+RUN bash /tmp/common/90-user-setup.sh
+RUN rm -rf /tmp/common
+
+USER ${USERNAME}
+WORKDIR /home/${USERNAME}/ros2_ws
+CMD ["bash"]
