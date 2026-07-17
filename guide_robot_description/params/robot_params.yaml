@@ -1,0 +1,69 @@
+# =============================================================================
+# Guide robot — физические параметры робота
+# Источники: RobotSetting.xml (механика) и config.txt (секция FURO)
+# Все числа собраны здесь, чтобы не дублировать их по URDF/YAML.
+# ЗАМЕЧАНИЕ: значения, помеченные [ПРОВЕРИТЬ], надо верифицировать на роботе.
+# =============================================================================
+
+mechanic:
+  # --- Привод (из RobotSetting.xml/Mechanic) ---
+  wheel_base:        0.338    # WheelBase, м  -> wheel_separation
+  wheel_diameter:    0.15     # WheelDiameter, м
+  wheel_radius:      0.075    # = WheelDiameter / 2
+
+  # Энкодерная константа: тиков на ОДИН оборот колеса.
+  # = MotorPulse * MotorMultiplier * GearRatio = 512 * 8 * 64
+  motor_pulse:       512
+  motor_multiplier:  8
+  gear_ratio:        64
+  ticks_per_rev:     262144  # 512 * 8 * 64
+
+  # Знаки направления вращения колёс
+  left_reverse:      -1       # RytSetting LeftReverse / config FURO_SIGN_LEFT
+  right_reverse:     1        # RightReverse / FURO_SIGN_RIGHT
+
+driving:
+  # Лимиты из RobotSetting.xml/Driving
+  max_linear_velocity:   0.3   # м/с
+  min_linear_velocity:  -0.3   # м/с
+  linear_acceleration:   0.01  # м/с^2 (штатный, очень мягкий)
+  max_angular_velocity:  0.5236 # 30 град/с -> рад/с
+  min_angular_velocity: -0.5236
+  angular_acceleration:  2.0   # рад/с^2 (штатный)
+  proximity_limit_range: 0.3   # м, дистанция срабатывания защиты
+
+serial:
+  # --- Порт и коэффициенты (из config.txt, секция FURO) ---
+  # ВНИМАНИЕ: config указывает COM7 для базы, тестовый скрипт слушал COM3.
+  # На Linux это будет /dev/ttyUSB* или /dev/ttyACM* — TO-DO
+  com_port_windows:  "COM7"          # FURO_ROBOT_COM_PORT
+  com_port_linux:    "/dev/ttyUSB0"  # TO-DO реальный узел
+  baud_rate:         115200
+
+  left_wheel_id:     0x2E   # 46 — ID левого драйва (из тестового Sync Write)
+  right_wheel_id:    0x2F   # 47 — ID правого драйва
+  swap_drives:       1      # FURO_SWAP_DRIVES — левый/правый переставлены!
+
+  speed_coefficient: 0.014     # FURO_ROBOT_SPEED_COEFFICIENT (попугаи -> м/с)
+  spin_coefficient:  3.0e-4    # FURO_ROBOT_SPIN_COEFFICIENT  (попугаи -> рад/с)
+  speed_scale:       1.0       # FURO_SPEED_SCALE
+
+# =============================================================================
+# Парктроники (RangeSensors из RobotSetting.xml)
+# Позиции даны в системе base_link. direction — азимут луча (градусы).
+# sensingAngle 65° — ширина конуса. Индексы соответствуют порядку в XML.
+# Нулевые/пустые сенсоры (#4 и #8 в XML) исключены как заглушки.
+# =============================================================================
+range_sensors:
+  frame_prefix: "range_sensor_"
+  field_of_view: 1.134   # 65 град -> рад
+  min_range: 0.1
+  max_range: 2.0         # TO-DO реальный диапазон парктроника
+  sensors:
+    - { id: 1, x:  0.061107, y:  0.215993, yaw:  42.03 }
+    - { id: 2, x: -0.040039, y:  0.260183, yaw:  90.0 }
+    - { id: 4, x: -0.393220, y:  0.132040, yaw: 138.03 }
+    - { id: 5, x: -0.435289, y:  0.000000, yaw: 180.0 }
+    - { id: 6, x: -0.393220, y: -0.132040, yaw: -138.03 }
+    - { id: 8, x: -0.040039, y: -0.260183, yaw: -90.0 }
+    - { id: 9, x:  0.061107, y: -0.215993, yaw: -42.03 }

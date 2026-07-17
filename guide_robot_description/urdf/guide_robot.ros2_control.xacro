@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<!-- =========================================================================
+     ros2_control интерфейс для Guide robot.
+
+     Аргумент use_sim переключает на mock-железо для проверки без робота.
+     ========================================================================= -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="use_mock_hardware" default="false"/>
+
+  <ros2_control name="GuideRobotSystem" type="system">
+
+    <hardware>
+      <xacro:if value="$(arg use_mock_hardware)">
+        <!-- Заглушка для запуска стека без реального робота -->
+        <plugin>mock_components/GenericSystem</plugin>
+        <param name="calculate_dynamics">true</param>
+      </xacro:if>
+      <xacro:unless value="$(arg use_mock_hardware)">
+        <!-- Реальный драйвер Dynamixel-базы Guide Robot -->
+        <plugin>guide_robot_hardware/GuideRobotSystem</plugin>
+        <param name="serial_port">COM7</param>  <!-- TO-DO -->
+        <param name="baud_rate">115200</param>
+        <param name="left_wheel_id">46</param>           <!-- 0x2E -->
+        <param name="right_wheel_id">47</param>          <!-- 0x2F -->
+        <param name="ticks_per_rev">262144</param>       <!-- 512*8*64 -->
+        <param name="left_sign">-1</param>               <!-- LeftReverse -->
+        <param name="right_sign">1</param>               <!-- RightReverse -->
+        <param name="swap_drives">1</param>              <!-- FURO_SWAP_DRIVES -->
+        <param name="speed_coefficient">0.014</param>    <!-- м/с -->
+        <param name="cmd_timeout">0.3</param>            <!-- watchdog, сек -->
+      </xacro:unless>
+    </hardware>
+
+    <!-- Левое колесо -->
+    <joint name="left_wheel_joint">
+      <command_interface name="velocity">
+        <param name="min">-6.98</param>   <!-- рад/с, ~= 0.3 м/с / 0.075 * запас -->
+        <param name="max">6.98</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- Правое колесо -->
+    <joint name="right_wheel_joint">
+      <command_interface name="velocity">
+        <param name="min">-6.98</param>
+        <param name="max">6.98</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+  </ros2_control>
+
+</robot>

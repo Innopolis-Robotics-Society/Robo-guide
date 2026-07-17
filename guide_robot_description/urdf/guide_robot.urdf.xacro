@@ -1,0 +1,146 @@
+<?xml version="1.0"?>
+<!-- =========================================================================
+     Guide robot — основное описание робота.
+     Геометрия из RobotSetting.xml. Меши пока заменены примитивами
+     (цилиндр корпуса + цилиндры колёс) — этого достаточно для costmap и TF.
+     Точные меши можно подключить позже в разделе <visual>.
+     ========================================================================= -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="guide_robot">
+
+  <!-- ===================== Параметры (из robot_params.yaml) ============== -->
+  <xacro:property name="wheel_separation" value="0.338"/>   <!-- WheelBase -->
+  <xacro:property name="wheel_radius"     value="0.075"/>    <!-- WheelDiameter/2 -->
+  <xacro:property name="wheel_width"      value="0.05"/>     <!-- TO-DO -->
+
+  <!-- Габариты корпуса — груба­я оценка top-heavy шасси, TO-DO -->
+  <xacro:property name="body_radius" value="0.25"/>
+  <xacro:property name="body_height" value="1.2"/>
+  <xacro:property name="body_z"      value="0.675"/>          <!-- центр корпуса по Z-->
+
+  <!-- Клиренс: ось колёс над полом = wheel_radius -->
+  <xacro:property name="base_z" value="${wheel_radius}"/>
+
+  <!-- ===================== Материалы для RViz ============================ -->
+  <material name="grey"><color rgba="0.4 0.4 0.45 1.0"/></material>
+  <material name="dark"><color rgba="0.15 0.15 0.15 1.0"/></material>
+  <material name="blue"><color rgba="0.1 0.4 0.8 0.6"/></material>
+
+  <!-- ===================== base_footprint / base_link =================== -->
+  <!-- base_footprint — проекция на пол (0 по Z), нужен для Nav2 -->
+  <link name="base_footprint"/>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${body_z - base_z}" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="${body_radius}" length="${body_height}"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${body_z - base_z}" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="${body_radius}" length="${body_height}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <!-- Масса/инерция — грубая оценка, TO-DO -->
+      <mass value="40.0"/>
+      <origin xyz="0 0 0.3" rpy="0 0 0"/>
+      <inertia ixx="5.0" ixy="0.0" ixz="0.0" iyy="5.0" iyz="0.0" izz="2.0"/>
+    </inertial>
+  </link>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+    <origin xyz="0 0 ${base_z}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===================== Макрос колеса ================================ -->
+  <xacro:macro name="wheel" params="prefix y_offset">
+    <link name="${prefix}_wheel_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+        <material name="dark"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="1.0"/>
+        <inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.003"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="${prefix}_wheel_link"/>
+      <origin xyz="0 ${y_offset} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel prefix="left"  y_offset="${ wheel_separation/2}"/>
+  <xacro:wheel prefix="right" y_offset="${-wheel_separation/2}"/>
+
+  <!-- ===================== Макрос парктроника =========================== -->
+  <!-- Каждый сенсор — фиксированный фрейм на корпусе. Данные позже
+       публикуются как sensor_msgs/Range в этих фреймах. -->
+  <xacro:macro name="sonar_sensor" params="id x y yaw">
+    <link name="sonar_sensor_${id}"/>
+    <joint name="sonar_sensor_${id}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="sonar_sensor_${id}"/>
+      <origin xyz="${x} ${y} 0.2" rpy="0 0 ${radians(yaw)}"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- Два спереди -->
+  <xacro:sonar_sensor id="1" x="0.061107"  y="0.215993"  yaw="0.7336"/>
+  <xacro:sonar_sensor id="9" x="0.061107"  y="-0.215993" yaw="-0.7336"/>
+  <!-- Левый борт -->
+  <xacro:sonar_sensor id="2" x="-0.040039" y="0.260183"  yaw="1.5708"/>
+  <xacro:sonar_sensor id="4" x="-0.393220" y="0.132040"  yaw="2.4091"/>
+  <!-- Правый борт -->
+  <xacro:sonar_sensor id="8" x="-0.040039" y="-0.260183" yaw="-1.5708"/>
+  <xacro:sonar_sensor id="6" x="-0.393220" y="-0.132040" yaw="-2.4091"/>
+  <!-- Один сзади -->
+  <xacro:sonar_sensor id="5" x="-0.435289" y="0.0"       yaw="3.1416"/>
+
+
+  <!-- ===================== LiDAR (место под будущие 2D лидары) =========== -->
+  <!-- TO-DO -->
+  <link name="laser_frame_left"/>
+  <joint name="laser_joint_left" type="fixed">
+    <parent link="base_link"/>
+    <child  link="laser_frame_left"/>
+    <origin xyz="0.0 -0.5 0.4" rpy="0 0 0"/>
+  </joint>
+
+  <link name="laser_frame_right"/>
+  <joint name="laser_joint_right" type="fixed">
+    <parent link="base_link"/>
+    <child  link="laser_frame_right"/>
+    <origin xyz="0.0 0.5 0.4" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===================== IMU ========================== -->
+  <!-- TO-DO -->
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===================== ros2_control интерфейс ======================= -->
+  <xacro:include filename="$(find guide_robot_description)/urdf/guide_robot.ros2_control.xacro"/>
+
+</robot>

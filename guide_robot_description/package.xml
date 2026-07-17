@@ -2,18 +2,24 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>guide_robot_description</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="a.sokovikov@innopolis.university">sokovikov</maintainer>
-  <license>TODO: License declaration</license>
+  <version>0.1.0</version>
+  <description>
+    URDF/xacro описание робота-гида Guide robot: дифференциальная база,
+    два колеса, 10 парктроников, ros2_control-интерфейс.
+    Геометрия взята из штатных файлов RobotSetting.xml и config.txt.
+  </description>
+
+  <maintainer email="e.shlomov@innopolis.university">Evgenii Shlomov</maintainer>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
-
-  <depend>urdf</depend>
-  <depend>xacro</depend>
+  <exec_depend>urdf</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher_gui</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>guide_robot_hardware</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
