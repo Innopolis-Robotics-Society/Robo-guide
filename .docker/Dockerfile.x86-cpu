@@ -15,8 +15,8 @@ ARG USER_GID=1000
 ARG DEBIAN_FRONTEND=noninteractive
 ENV USERNAME=${USERNAME} USER_UID=${USER_UID} USER_GID=${USER_GID}
 
-# Gazebo kept on for CPU sim testing; set to 0 for an even smaller image.
-ARG WITH_GAZEBO=1
+# no Gazebo
+ARG WITH_GAZEBO=0
 ENV WITH_GAZEBO=${WITH_GAZEBO}
 
 COPY .docker/common/ /tmp/common/
