@@ -1,0 +1,58 @@
+# To use:
+#   pre-commit install      # вешает хук на каждый git commit
+#   pre-commit run -a       # разовый прогон по всему репо
+#   pre-commit autoupdate   # обновить версии хуков
+# See https://github.com/pre-commit/pre-commit
+
+exclude: '\.(pgm|svg|stl|dae)$'   # карты, векторка, меши не трогаем
+
+repos:
+  # --- Гигиена (структура и набор — от Nav2) ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=500"]      # крупное — в LFS, не в git
+      - id: check-ast
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-xml
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+      - id: debug-statements
+      - id: end-of-file-fixer
+      - id: forbid-submodules
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+      - id: fix-byte-order-marker
+
+  # --- Python: ruff (заменяет flake8 + pep257 + isort) ---
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.0                     # проверьте актуальный релиз перед коммитом
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  # --- Опечатки ---
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        args: ["--toml=pyproject.toml"]
+        additional_dependencies: [tomli]
+
+  # --- Валидация ваших же GitHub workflow ---
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.31.1
+    hooks:
+      - id: check-github-workflows
+      - id: check-github-actions
+
+  # --- C++: clang-format (свой бинарник, ROS-окружение не нужно) ---
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v18.1.8
+    hooks:
+      - id: clang-format
+        files: \.(c|cc|cxx|cpp|h|hpp|hxx)$

@@ -49,7 +49,7 @@ RUN pip install --no-cache-dir -U pip setuptools wheel \
 
 # Common python libs
 RUN python3 -m pip install --no-cache-dir --upgrade pip \
- && python3 -m pip install --no-cache-dir \ 
+ && python3 -m pip install --no-cache-dir \
     onnxruntime==1.18.1 \
     ultralytics \
     "numpy<2" \
@@ -63,7 +63,7 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip \
     rapidfuzz \
     torch \
     torchvision \
-    segmentation-models-pytorch 
+    segmentation-models-pytorch
 
 # System tools
 RUN apt-get update && apt-get upgrade -y && \
@@ -122,7 +122,7 @@ RUN apt-get update && apt-get upgrade -y && \
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-image-transport \
-    ros-${ROS_DISTRO}-image-transport-plugins \ 
+    ros-${ROS_DISTRO}-image-transport-plugins \
     ros-${ROS_DISTRO}-compressed-image-transport \
     ros-${ROS_DISTRO}-image-publisher \
     ros-${ROS_DISTRO}-camera-info-manager \
@@ -156,7 +156,7 @@ RUN apt-get update && apt-get upgrade -y && \
 # ROS pkgs
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-    #ros-${ROS_DISTRO}-diagnostic-updater \ 
+    #ros-${ROS_DISTRO}-diagnostic-updater \
     #ros-${ROS_DISTRO}-diagnostic-msgs \
     #ros-${ROS_DISTRO}-statistics-msgs \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \

@@ -1,0 +1,24 @@
+[tool.ruff]
+line-length = 99          # ament-конвенция (не 79, не 88)
+target-version = "py310"  # Ubuntu 22.04 → Python 3.10
+extend-exclude = ["build", "install", "log"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle (стиль, замена части flake8)
+    "F",        # pyflakes (неиспользуемые импорты/переменные)
+    "I",        # isort (порядок импортов)
+    "D",        # pydocstyle (замена pep257)
+    "UP",       # pyupgrade (модернизация синтаксиса)
+    "B",        # flake8-bugbear (типичные баги)
+]
+ignore = [
+    "D100", "D104",  # не требовать докстринги на модуль/пакет
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.per-file-ignores]
+"**/test/**" = ["D"]   # в тестах докстринги не нужны
+"setup.py" = ["D"]
