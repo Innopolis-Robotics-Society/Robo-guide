@@ -20,6 +20,7 @@ local/
 .clion.source.dir/
 *.user
 .md
+.claude
 
 # System files
 .DS_Store

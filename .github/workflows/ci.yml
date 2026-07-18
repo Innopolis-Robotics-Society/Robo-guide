@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-22.04
     container:
       image: fabook/iros:x86-cpu          # публичный на Docker Hub — credentials не нужны
+      options: --user root
     steps:
       - uses: actions/checkout@v4
         with:
