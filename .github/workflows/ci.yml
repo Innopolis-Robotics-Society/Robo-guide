@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Линтеры: быстро, на чистой ubuntu, падает первым ──
+  pre-commit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: pre-commit/action@v3.0.1
+
+  # ── 2. Сборка + тесты внутри вашего образа ──
+  build-and-test:
+    runs-on: ubuntu-22.04
+    container:
+      image: fabook/iros:x86-cpu          # публичный на Docker Hub — credentials не нужны
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          path: src/Robo-guide
+
+      - name: Install dependencies (rosdep)
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          rosdep update --rosdistro humble || true
+          rosdep install --from-paths src --ignore-src -r -y || true
+
+      - name: Build
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build --event-handlers console_direct+ \
+            --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Test
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          source install/setup.bash
+          colcon test --event-handlers console_direct+ --return-code-on-test-failure
+
+      - name: Test results summary
+        if: always()
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon test-result --verbose
