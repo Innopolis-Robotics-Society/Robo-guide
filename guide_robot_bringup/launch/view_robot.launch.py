@@ -11,15 +11,16 @@ joint_state_publisher_gui (ползунки для колёс) и RViz.
 """
 
 import os
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import Command
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    """Собрать LaunchDescription для просмотра модели робота в RViz."""
     pkg_share_guide_robot_description = get_package_share_directory("guide_robot_description")
     pkg_share_guide_robot_bringup = get_package_share_directory("guide_robot_bringup")
 
@@ -32,8 +33,9 @@ def generate_launch_description():
     }
 
     gui_arg = DeclareLaunchArgument(
-        "gui", default_value="true",
-        description="Запустить joint_state_publisher_gui с ползунками колёс"
+        "gui",
+        default_value="true",
+        description="Запустить joint_state_publisher_gui с ползунками колёс",
     )
 
     robot_state_publisher = Node(
@@ -57,9 +59,11 @@ def generate_launch_description():
         arguments=["-d", rviz_config],
     )
 
-    return LaunchDescription([
-        gui_arg,
-        robot_state_publisher,
-        joint_state_publisher_gui,
-        rviz,
-    ])
+    return LaunchDescription(
+        [
+            gui_arg,
+            robot_state_publisher,
+            joint_state_publisher_gui,
+            rviz,
+        ]
+    )
