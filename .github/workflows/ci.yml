@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
 
 concurrency:
@@ -19,55 +19,39 @@ jobs:                    # ← оба job ВНУТРИ jobs:
       - uses: pre-commit/action@v3.0.1
 
   build-and-test:
-    runs-on: ubuntu-22.04
-    container:
-      image: fabook/iros:x86-cpu
-      options: --user root
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-          path: src/Robo-guide
+      runs-on: ubuntu-22.04
+      container:
+        image: fabook/iros:x86-cpu
+        options: --user root
+      steps:
+        - name: Install git-lfs
+          shell: bash
+          run: |
+            apt-get update && apt-get install -y git-lfs
+            git lfs install
 
-      - name: Debug layout
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          echo "PWD: $(pwd)"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          ls -la
-          echo "--- src/ ---"
-          ls -la src/ || echo "no src/"
-          find src -name package.xml || echo "no package.xml found"
+        - uses: actions/checkout@v4
+          with:
+            lfs: true
+            path: src/Robo-guide
 
-      - name: Install dependencies (rosdep)
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          source /opt/ros/humble/setup.bash
-          rosdep update --rosdistro humble || true
-          rosdep install --from-paths src --ignore-src -r -y || true
+        - name: Build
+          shell: bash
+          run: |
+            source /opt/ros/humble/setup.bash
+            colcon build --event-handlers console_direct+ \
+              --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
-      - name: Build
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          source /opt/ros/humble/setup.bash
-          colcon build --event-handlers console_direct+ \
-            --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        - name: Test
+          shell: bash
+          run: |
+            source /opt/ros/humble/setup.bash
+            source install/setup.bash
+            colcon test --event-handlers console_direct+ --return-code-on-test-failure
 
-      - name: Test
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          source /opt/ros/humble/setup.bash
-          source install/setup.bash
-          colcon test --event-handlers console_direct+ --return-code-on-test-failure
-
-      - name: Test results summary
-        if: always()
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          source /opt/ros/humble/setup.bash
-          colcon test-result --verbose
+        - name: Test results summary
+          if: always()
+          shell: bash
+          run: |
+            source /opt/ros/humble/setup.bash
+            colcon test-result --verbose
