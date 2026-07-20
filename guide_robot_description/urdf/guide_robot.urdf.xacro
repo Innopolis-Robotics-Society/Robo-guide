@@ -115,20 +115,19 @@
   <xacro:sonar_sensor id="5" x="-0.435289" y="0.0"       yaw="3.1416"/>
 
 
-  <!-- ===================== LiDAR (место под будущие 2D лидары) =========== -->
-  <!-- TO-DO -->
+  <!-- ===================== LiDAR ========================================= -->
   <link name="laser_frame_left"/>
   <joint name="laser_joint_left" type="fixed">
     <parent link="base_link"/>
     <child  link="laser_frame_left"/>
-    <origin xyz="0.0 -0.5 0.4" rpy="0 0 0"/>
+    <origin xyz="0.0 0.258 0.4" rpy="0 0 0"/>
   </joint>
 
   <link name="laser_frame_right"/>
   <joint name="laser_joint_right" type="fixed">
     <parent link="base_link"/>
     <child  link="laser_frame_right"/>
-    <origin xyz="0.0 0.5 0.4" rpy="0 0 0"/>
+    <origin xyz="0.0 -0.258 0.4" rpy="0 0 0"/>
   </joint>
 
   <!-- ===================== IMU ========================== -->
