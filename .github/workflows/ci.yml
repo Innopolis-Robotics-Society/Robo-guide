@@ -1,5 +1,4 @@
 name: CI
-
 on:
   push:
     branches: [main]
@@ -9,9 +8,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  # ── 1. Линтеры: быстро, на чистой ubuntu, падает первым ──
-  pre-commit:
+jobs:                    # ← оба job ВНУТРИ jobs:
+  pre-commit:            # ← 2 пробела отступа
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -20,12 +18,14 @@ jobs:
           python-version: "3.10"
       - uses: pre-commit/action@v3.0.1
 
-  # ── 2. Сборка + тесты внутри вашего образа ──
-  build-and-test:
+  build-and-test:        # ← 2 пробела отступа, ПОД jobs:, на одном уровне с pre-commit
     runs-on: ubuntu-22.04
     container:
-      image: fabook/iros:x86-cpu          # публичный на Docker Hub — credentials не нужны
+      image: fabook/iros:x86-cpu
       options: --user root
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
         with:
