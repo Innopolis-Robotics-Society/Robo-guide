@@ -18,12 +18,13 @@ class SonarNode(Node):
         super().__init__("sonar_node")
 
         # Declare parameters
-        self.declare_parameter("port", "/dev/ttyCH341USB0")
+        self.declare_parameter("port", "/dev/tty_sonar")
         self.declare_parameter("baudrate", 9600)
         self.declare_parameter("update_rate", 20.0)
         self.declare_parameter("min_range", 0.1)
         self.declare_parameter("max_range", 2.0)
-        self.declare_parameter("fov", 0.26)  # ~15 deg
+        self.declare_parameter("fov", 1.13)  # 65 deg (from robot XML config)
+        self.declare_parameter("publish_individual_topics", False)
 
         # Get parameters
         port = self.get_parameter("port").get_parameter_value().string_value
@@ -44,6 +45,14 @@ class SonarNode(Node):
         # Initialize publisher
         self.publisher = self.create_publisher(SonarRanges, "sonar/ranges", 10)
 
+        # Create individual publishers (always initialized,
+        # active only when publish_individual_topics is True)
+        self.individual_publishers = {}
+        for s_id, frame_id in self.sonar_mapping.items():
+            self.individual_publishers[s_id] = self.create_publisher(
+                Range, f"sonar/{frame_id}", 10
+            )
+
         # Initialize and start low-level C++ driver
         self.get_logger().info(f"Starting low-level C++ driver on {port} at {baudrate}...")
         self.driver = furo_sonars_cpp.SonarDriver(port, baudrate)
@@ -62,6 +71,8 @@ class SonarNode(Node):
         min_range = self.get_parameter("min_range").get_parameter_value().double_value
         max_range = self.get_parameter("max_range").get_parameter_value().double_value
         fov = self.get_parameter("fov").get_parameter_value().double_value
+        pub_ind = self.get_parameter("publish_individual_topics")
+        publish_individual = pub_ind.get_parameter_value().bool_value
 
         msg = SonarRanges()
         msg.header.stamp = now
@@ -87,6 +98,9 @@ class SonarNode(Node):
             range_msg.range = range_m
 
             msg.ranges.append(range_msg)
+
+            if publish_individual:
+                self.individual_publishers[s_id].publish(range_msg)
 
         self.publisher.publish(msg)
 
