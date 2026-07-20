@@ -35,6 +35,11 @@ jobs:                    # ← оба job ВНУТРИ jobs:
             lfs: true
             path: src/Robo-guide
 
+        - name: Upgrade pytest
+          shell: bash
+          run: |
+            python3 -m pip install -U "pytest>=7.0.0,<8.0.0"
+
         - name: Build
           shell: bash
           run: |

@@ -22,6 +22,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    """Generate launch description to launch two RPLIDAR C1 sensors and merge their scans."""
     # ── Launch arguments ──────────────────────────────────────────────────────
     declare_left_port = DeclareLaunchArgument(
         "left_port",
@@ -112,7 +113,7 @@ def generate_launch_description():
     # mich1342/ros2_laser_scan_merger outputs PointCloud2.
     # NOTE: This specific merger is not fully TF-aware for input poses,
     # it uses manual offset parameters. We set them to match the URDF:
-    # Left: Y = -0.5, Right: Y = +0.5
+    # Left: Y = -0.258, Right: Y = +0.258
     scan_merger_node = Node(
         package="ros2_laser_scan_merger",
         executable="ros2_laser_scan_merger",
@@ -123,18 +124,16 @@ def generate_launch_description():
                 "use_sim_time": use_sim_time,
                 "scanTopic1": "/scan_left",
                 "laser1XOff": 0.0,
-                "laser1YOff": -0.258,  # Swapped
+                "laser1YOff": -0.258,
                 "laser1ZOff": 0.0,
                 "laser1Alpha": 0.0,
                 "show1": True,
-
                 "scanTopic2": "/scan_right",
                 "laser2XOff": 0.0,
-                "laser2YOff": 0.258,   # Swapped
+                "laser2YOff": 0.258,
                 "laser2ZOff": 0.0,
                 "laser2Alpha": 0.0,
                 "show2": True,
-
                 "pointCloudTopic": "/scan_merged_cloud",
                 "pointCloutFrameId": merge_frame,
             }
@@ -179,7 +178,7 @@ def generate_launch_description():
             declare_merge_frame,
             declare_lidar_delay,
             lidar_left_node,
-            lidar_right_node,   # delayed via TimerAction
+            lidar_right_node,  # delayed via TimerAction
             scan_merger_node,
             pc_to_laserscan_node,
         ]
