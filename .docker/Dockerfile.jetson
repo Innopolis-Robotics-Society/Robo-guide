@@ -33,16 +33,39 @@ ENV JETSON_PIP_INDEX=${JETSON_PIP_INDEX}
 ARG WITH_GAZEBO=0
 ENV WITH_GAZEBO=${WITH_GAZEBO}
 
-COPY .docker/common/ /tmp/common/
+# ML stack (torch + onnxruntime from pypi.jetson-ai-lab.dev).
+# Set to 0 to skip if the index is unavailable or you don't need GPU inference.
+ARG WITH_ML=1
+ENV WITH_ML=${WITH_ML}
+
+# Each script is copied and run as a separate layer.
+# This way editing 35-sensor-tools.sh does NOT invalidate
+# the cache for 00..30 steps (which take ~10 min total).
+COPY .docker/common/00-tools.sh /tmp/common/00-tools.sh
 RUN bash /tmp/common/00-tools.sh
+
+COPY .docker/common/10-ros2-repo.sh /tmp/common/10-ros2-repo.sh
 RUN bash /tmp/common/10-ros2-repo.sh
+
+COPY .docker/common/20-ros2-packages.sh /tmp/common/20-ros2-packages.sh
 RUN bash /tmp/common/20-ros2-packages.sh
+
+COPY .docker/common/25-can-utils.sh /tmp/common/25-can-utils.sh
 RUN bash /tmp/common/25-can-utils.sh
+
+COPY .docker/common/30-python-common.sh /tmp/common/30-python-common.sh
 RUN bash /tmp/common/30-python-common.sh
 
-# --- platform-specific ML (Jetson L4T wheels; GPU via nvidia runtime) ---
-RUN bash /tmp/common/40-ml-jetson.sh
+# Sensor packages (sllidar_ros2 + ros2_laser_scan_merger).
+# Isolated layer — changes here reuse all layers above from cache.
+COPY .docker/common/35-sensor-tools.sh /tmp/common/35-sensor-tools.sh
+RUN bash /tmp/common/35-sensor-tools.sh
 
+# --- platform-specific ML (Jetson L4T wheels; GPU via nvidia runtime) ---
+COPY .docker/common/40-ml-jetson.sh /tmp/common/40-ml-jetson.sh
+RUN if [ "$WITH_ML" = "1" ]; then bash /tmp/common/40-ml-jetson.sh; fi
+
+COPY .docker/common/90-user-setup.sh /tmp/common/90-user-setup.sh
 RUN bash /tmp/common/90-user-setup.sh
 RUN rm -rf /tmp/common
 

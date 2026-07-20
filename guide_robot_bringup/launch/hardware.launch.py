@@ -18,7 +18,7 @@ def generate_launch_description():
 
     # urdf finder
     urdf_path = os.path.join(
-        get_package_share_directory("guide_robot_description"), "urdf", "guide_robot_urdf.xacro"
+        get_package_share_directory("guide_robot_description"), "urdf", "guide_robot.urdf.xacro"
     )
 
     robot_description = xacro.process_file(urdf_path).toxml()
