@@ -26,12 +26,12 @@ def generate_launch_description():
     # ── Launch arguments ──────────────────────────────────────────────────────
     declare_left_port = DeclareLaunchArgument(
         "left_port",
-        default_value="/dev/ttyUSB0",
+        default_value="/dev/tty_lidar_left",
         description="Serial port for the LEFT lidar",
     )
     declare_right_port = DeclareLaunchArgument(
         "right_port",
-        default_value="/dev/ttyUSB1",
+        default_value="/dev/tty_lidar_right",
         description="Serial port for the RIGHT lidar",
     )
     declare_baudrate = DeclareLaunchArgument(
