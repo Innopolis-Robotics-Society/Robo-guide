@@ -19,7 +19,7 @@
       <xacro:unless value="$(arg use_mock_hardware)">
         <!-- Реальный драйвер Dynamixel-базы Guide Robot -->
         <plugin>guide_robot_hardware/GuideRobotSystem</plugin>
-        <param name="serial_port">COM7</param>  <!-- TO-DO -->
+        <param name="serial_port">/dev/ttyUSB0</param>  <!-- TO-DO -->
         <param name="baud_rate">115200</param>
         <param name="left_wheel_id">46</param>           <!-- 0x2E -->
         <param name="right_wheel_id">47</param>          <!-- 0x2F -->

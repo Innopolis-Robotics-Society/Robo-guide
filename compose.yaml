@@ -15,8 +15,10 @@ x-common: &common-setup
   group_add:
     - "video"
     - "44"
+    - "20"   # dialout — нужно для доступа к /dev/ttyUSB*
   command: [
     "/bin/bash","-lc","
+    sudo chown -R $(whoami):$(whoami) /home/fabian/ros2_ws 2>/dev/null || true &&
     exec bash"
     ]
 
@@ -27,7 +29,7 @@ services:
     stdin_open: true
     tty: true
     devices:
-      - "/dev/ttyACM0:/dev/ttyACM0"
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
 
   # arm-terminal:
   #   <<: *common-setup
@@ -43,4 +45,4 @@ services:
     stdin_open: true
     tty: true
     devices:
-      - "/dev/ttyACM0:/dev/ttyACM0"
+      - "/dev/ttyUSB0:/dev/ttyUSB0"

@@ -22,6 +22,4 @@ diff_drive_controller:
     odom_frame_id: odom
     base_frame_id: base_footprint
     cmd_vel_timeout: 0.5
-
-
-
+    use_stamped_vel: false
