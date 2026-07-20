@@ -25,6 +25,7 @@ RUN bash /tmp/common/10-ros2-repo.sh
 RUN bash /tmp/common/20-ros2-packages.sh
 RUN bash /tmp/common/25-can-utils.sh
 RUN bash /tmp/common/30-python-common.sh
+RUN bash /tmp/common/35-sensor-tools.sh
 
 # --- platform-specific ML (CPU wheels) ---
 RUN bash /tmp/common/40-ml-x86-cpu.sh

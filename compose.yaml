@@ -15,6 +15,8 @@ x-common: &common-setup
   group_add:
     - "video"
     - "44"
+    - "dialout"
+    - "tty"
   command: [
     "/bin/bash","-lc","
     exec bash"
@@ -29,13 +31,17 @@ services:
     devices:
       - "/dev/ttyACM0:/dev/ttyACM0"
 
-  # arm-terminal:
-  #   <<: *common-setup
-  #   image: fabook/iros:v0.0.1
-  #   stdin_open: true
-  #   tty: true
-  #   devices:
-  #     - "/dev/ttyACM0:/dev/ttyACM0"
+  jetson:
+    <<: *common-setup
+    image: fabook/iros:jetson
+    runtime: nvidia
+    stdin_open: true
+    tty: true
+    volumes:
+      - ${HOME}/.Xauthority:/home/fabian/.Xauthority:rw
+      - .:/home/fabian/ros2_ws/src:rw
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev:/dev:rw   # Important for lidars (ttyUSB*) and motors (ttyACM*)
 
   old-terminal:
     <<: *common-setup
