@@ -8,13 +8,13 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="guide_robot">
 
   <!-- ===================== Параметры (из robot_params.yaml) ============== -->
-  <xacro:property name="wheel_separation" value="0.338"/>   <!-- WheelBase -->
-  <xacro:property name="wheel_radius"     value="0.075"/>    <!-- WheelDiameter/2 -->
-  <xacro:property name="wheel_width"      value="0.05"/>     <!-- TO-DO -->
+  <xacro:property name="wheel_separation" value="0.347"/>   <!-- WheelBase -->
+  <xacro:property name="wheel_radius"     value="0.075"/>    <!-- WheelDiameter/2 TO-DO -->
+  <xacro:property name="wheel_width"      value="0.048"/>    <!-- WheelWidth -->
 
-  <!-- Габариты корпуса — груба­я оценка top-heavy шасси, TO-DO -->
-  <xacro:property name="body_radius" value="0.25"/>
-  <xacro:property name="body_height" value="1.2"/>
+  <!-- Габариты корпуса — груба­я оценка top-heavy шасси -->
+  <xacro:property name="body_radius" value="0.31"/>
+  <xacro:property name="body_height" value="1.62"/>
   <xacro:property name="body_z"      value="0.675"/>          <!-- центр корпуса по Z-->
 
   <!-- Клиренс: ось колёс над полом = wheel_radius -->
@@ -45,7 +45,7 @@
     </collision>
     <inertial>
       <!-- Масса/инерция — грубая оценка, TO-DO -->
-      <mass value="40.0"/>
+      <mass value="62.0"/>
       <origin xyz="0 0 0.3" rpy="0 0 0"/>
       <inertia ixx="5.0" ixy="0.0" ixz="0.0" iyy="5.0" iyz="0.0" izz="2.0"/>
     </inertial>
