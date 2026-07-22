@@ -191,9 +191,9 @@ void SonarDriver::run_loop()
         std::lock_guard<std::mutex> lock(mutex_);
         latest_ranges_[id] = dist;
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      std::this_thread::sleep_for(std::chrono::milliseconds(8));
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 }
 

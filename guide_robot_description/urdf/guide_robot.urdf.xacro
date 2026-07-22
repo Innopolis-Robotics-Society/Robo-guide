@@ -103,16 +103,16 @@
   </xacro:macro>
 
   <!-- Два спереди -->
-  <xacro:sonar_sensor id="1" x="0.061107"  y="0.215993"  yaw="0.7336"/>
-  <xacro:sonar_sensor id="9" x="0.061107"  y="-0.215993" yaw="-0.7336"/>
+  <xacro:sonar_sensor id="1" x="0.15"  y="0.10"  yaw="0"/>
+  <xacro:sonar_sensor id="9" x="0.15"  y="-0.10" yaw="0"/>
   <!-- Левый борт -->
-  <xacro:sonar_sensor id="2" x="-0.040039" y="0.260183"  yaw="1.5708"/>
-  <xacro:sonar_sensor id="4" x="-0.393220" y="0.132040"  yaw="2.4091"/>
+  <xacro:sonar_sensor id="2" x="-0.040039" y="0.260183"  yaw="90"/>
+  <xacro:sonar_sensor id="4" x="-0.393220" y="0.132040"  yaw="138.03"/>
   <!-- Правый борт -->
-  <xacro:sonar_sensor id="8" x="-0.040039" y="-0.260183" yaw="-1.5708"/>
-  <xacro:sonar_sensor id="6" x="-0.393220" y="-0.132040" yaw="-2.4091"/>
+  <xacro:sonar_sensor id="8" x="-0.040039" y="-0.260183" yaw="-90"/>
+  <xacro:sonar_sensor id="6" x="-0.393220" y="-0.132040" yaw="-138.03"/>
   <!-- Один сзади -->
-  <xacro:sonar_sensor id="5" x="-0.435289" y="0.0"       yaw="3.1416"/>
+  <xacro:sonar_sensor id="5" x="-0.435289" y="0.0"       yaw="180"/>
 
 
   <!-- ===================== LiDAR ========================================= -->

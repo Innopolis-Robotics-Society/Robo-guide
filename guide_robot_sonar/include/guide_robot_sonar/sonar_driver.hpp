@@ -39,7 +39,7 @@ private:
   std::thread thread_;
   std::mutex mutex_;
   std::map<int, int> latest_ranges_;
-  std::vector<int> sonar_ids_{0, 1, 2, 3, 4, 5, 6};
+  std::vector<int> sonar_ids_{0, 3, 1, 4, 2, 5, 6};
 };
 
 }  // namespace guide_robot_sonar
