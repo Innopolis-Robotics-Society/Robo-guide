@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""ROS 2 wrapper node for FURO-D sonar sensors using a low-level C++ driver.
+"""
+ROS 2 wrapper node for FURO-D sonar sensors using a low-level C++ driver.
 
 Filtering strategy:
     A single median filter (window=5) is applied to raw sonar readings.
@@ -147,7 +148,8 @@ class SonarNode(Node):
     #  Cone marker builder
     # ─────────────────────────────────────────────────────────────────────
     def _build_cone_marker(self, stamp, frame_id, marker_id, range_m, max_range, fov):
-        """Build a TRIANGLE_LIST cone marker for one sonar sensor.
+        """
+        Build a TRIANGLE_LIST cone marker for one sonar sensor.
 
         Returns a Marker that is either ADD (visible cone) or DELETE
         (no obstacle / out of range).
