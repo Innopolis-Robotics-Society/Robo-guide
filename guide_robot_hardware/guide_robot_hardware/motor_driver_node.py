@@ -71,7 +71,7 @@ class MotorDriverNode(Node):
         # time and frames
         odom.header.stamp = self.get_clock().now().to_msg()
         odom.header.frame_id = "odom"
-        odom.child_frame_id = "base_link"
+        odom.child_frame_id = "base_footprint"
 
         # position
         odom.pose.pose.position.x = self.x
@@ -92,11 +92,11 @@ class MotorDriverNode(Node):
         self.odom_pub.publish(odom)
 
     def publish_tf(self):
-        """Broadcast the odom -> base_link transform."""
+        """Broadcast the odom -> base_footprint transform."""
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = "odom"
-        t.child_frame_id = "base_link"
+        t.child_frame_id = "base_footprint"
 
         t.transform.translation.x = self.x
         t.transform.translation.y = self.y
