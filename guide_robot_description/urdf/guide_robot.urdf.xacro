@@ -3,7 +3,7 @@
      Guide robot — основное описание робота.
      Геометрия из RobotSetting.xml. Меши пока заменены примитивами
      (цилиндр корпуса + цилиндры колёс) — этого достаточно для costmap и TF.
-     Точные меши можно подключить позже в разделе <visual>.
+     Крепления лидаров и соединительый профиль — реальные меши.
      ========================================================================= -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="guide_robot">
 
@@ -12,7 +12,7 @@
   <xacro:property name="wheel_radius"     value="0.075"/>    <!-- WheelDiameter/2 TO-DO -->
   <xacro:property name="wheel_width"      value="0.048"/>    <!-- WheelWidth -->
 
-  <!-- Габариты корпуса — груба­я оценка top-heavy шасси -->
+  <!-- Габариты корпуса — грубая оценка top-heavy шасси -->
   <xacro:property name="body_radius" value="0.31"/>
   <xacro:property name="body_height" value="1.62"/>
   <xacro:property name="body_z"      value="0.675"/>          <!-- центр корпуса по Z-->
@@ -20,23 +20,31 @@
   <!-- Клиренс: ось колёс над полом = wheel_radius -->
   <xacro:property name="base_z" value="${wheel_radius}"/>
 
+  <!-- Крепления лидаров + соединительная палка (2020 экструзия) -->
+  <xacro:property name="lidar_mount_mesh" value="package://guide_robot_description/meshes/lidars_mount.stl"/>
+  <xacro:property name="lidar_bar_mesh"   value="package://guide_robot_description/meshes/al_profile.stl"/>
+  <!-- TO-DO: если меши экспортированы из CAD в мм — нужен scale 0.001 0.001 0.001.
+       Проверить в RViz: огромная/крошечная модель = неверный scale. -->
+  <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
+  <xacro:property name="lidar_y_offset" value="0.258"/>       <!-- было в laser_joint_left/right -->
+  <xacro:property name="lidar_z" value="0.4"/>
+
   <!-- ===================== Материалы для RViz ============================ -->
   <material name="grey"><color rgba="0.4 0.4 0.45 1.0"/></material>
   <material name="dark"><color rgba="0.15 0.15 0.15 1.0"/></material>
   <material name="blue"><color rgba="0.1 0.4 0.8 0.6"/></material>
 
   <!-- ===================== base_footprint / base_link =================== -->
-  <!-- base_footprint — проекция на пол (0 по Z), нужен для Nav2 -->
   <link name="base_footprint"/>
 
   <link name="base_link">
-    <visual>
+    <!-- <visual>
       <origin xyz="0 0 ${body_z - base_z}" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="${body_radius}" length="${body_height}"/>
       </geometry>
       <material name="grey"/>
-    </visual>
+    </visual> -->
     <collision>
       <origin xyz="0 0 ${body_z - base_z}" rpy="0 0 0"/>
       <geometry>
@@ -91,8 +99,6 @@
   <xacro:wheel prefix="right" y_offset="${-wheel_separation/2}"/>
 
   <!-- ===================== Макрос парктроника =========================== -->
-  <!-- Каждый сенсор — фиксированный фрейм на корпусе. Данные позже
-       публикуются как sensor_msgs/Range в этих фреймах. -->
   <xacro:macro name="sonar_sensor" params="id x y yaw">
     <link name="sonar_sensor_${id}"/>
     <joint name="sonar_sensor_${id}_joint" type="fixed">
@@ -115,19 +121,86 @@
   <xacro:sonar_sensor id="5" x="-0.435289" y="0.0"       yaw="180"/>
 
 
+  <!-- ===================== Крепления лидаров + палка ===================== -->
+  <!-- Меш lidars_mount.stl — крепёжная площадка под каждый лидар.
+       Лазерные фреймы теперь висят на этих линках, а не напрямую на base_link. -->
+  <xacro:macro name="lidar_mount" params="prefix y_offset xyz_mesh:='0 0 0' rpy_mesh:='0 0 0'">
+    <link name="${prefix}_lidar_mount_link">
+      <visual>
+        <origin xyz="${xyz_mesh}" rpy="${rpy_mesh}"/>
+        <geometry>
+          <mesh filename="${lidar_mount_mesh}" scale="${mesh_scale}"/>
+        </geometry>
+        <material name="dark"/>
+      </visual>
+      <collision>
+        <!-- Упрощённый бокс вместо полного меша — дешевле для костмапа -->
+        <origin xyz="0 0 0.02" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.06 0.06 0.05"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.05"/>
+        <inertia ixx="0.00002" ixy="0" ixz="0" iyy="0.00002" iyz="0" izz="0.00002"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_lidar_mount_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="${prefix}_lidar_mount_link"/>
+      <origin xyz="0.075 ${y_offset} ${lidar_z}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:lidar_mount prefix="left"  y_offset="${ lidar_y_offset}"/>
+  <!-- TO-DO: правое крепление — вероятно зеркальное. Если меш в RViz "смотрит не туда",
+       крути rpy_mesh (обычно 180° по Z или по X, зависит от того как смоделирован STL). -->
+  <xacro:lidar_mount prefix="right" y_offset="${-lidar_y_offset}" rpy_mesh="0 0 0"/>
+
+  <!-- Соединительный профиль между двумя креплениями -->
+  <link name="lidar_bar_link">
+    <visual>
+      <origin xyz="0 -0.288 0.02" rpy="${radians(-90)} ${radians(11)} 0"/>
+      <geometry>
+        <mesh filename="${lidar_bar_mesh}" scale="0.001 0.001 0.0115"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <!-- TO-DO: сверить длину/сечение с реальным bounding box 2020.stl -->
+        <box size="0.02 ${lidar_y_offset*2} 0.02"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.0001"/>
+    </inertial>
+  </link>
+
+  <joint name="lidar_bar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="lidar_bar_link"/>
+    <origin xyz="0.077 0.0 ${lidar_z}" rpy="0 0 0"/>
+  </joint>
+
   <!-- ===================== LiDAR ========================================= -->
+  <!-- Лазерные фреймы теперь на креплениях, а не на base_link.
+       z-offset 0.03 — плейсхолдер высоты корпуса лидара над плитой крепления, TO-DO уточнить. -->
   <link name="laser_frame_left"/>
   <joint name="laser_joint_left" type="fixed">
-    <parent link="base_link"/>
+    <parent link="left_lidar_mount_link"/>
     <child  link="laser_frame_left"/>
-    <origin xyz="0.0 0.258 0.4" rpy="0 0 0"/>
+    <origin xyz="0 0 0.03" rpy="0 0 0"/>
   </joint>
 
   <link name="laser_frame_right"/>
   <joint name="laser_joint_right" type="fixed">
-    <parent link="base_link"/>
+    <parent link="right_lidar_mount_link"/>
     <child  link="laser_frame_right"/>
-    <origin xyz="0.0 -0.258 0.4" rpy="0 0 0"/>
+    <origin xyz="0 0 0.03" rpy="0 0 0"/>
   </joint>
 
   <!-- ===================== IMU ========================== -->
