@@ -145,7 +145,7 @@ int SonarDriver::query_sonar(int sonar_id)
   tcdrain(serial_fd_);
 
   uint8_t response[5];
-  if (read_bytes(response, 5, 40)) {
+  if (read_bytes(response, 5, 60)) {
     if (response[0] == 0xCC) {
       uint8_t calc_checksum = response[0] ^ response[1] ^ response[2] ^ response[3];
       if (calc_checksum == response[4]) {
@@ -191,7 +191,12 @@ void SonarDriver::run_loop()
         std::lock_guard<std::mutex> lock(mutex_);
         latest_ranges_[id] = dist;
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(8));
+      // 30ms delay: the direct-path echo for max_range (2m) dies down in ~12ms,
+      // but indoor multipath (wall/floor reflections of the previous ping) can
+      // persist longer and get misread as the next sensor's echo, which is the
+      // dominant source of the 10-15cm cross-sensor jitter. The extra margin
+      // trades a bit of update latency for a cleaner raw signal.
+      std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }

@@ -2,15 +2,31 @@
 """
 ROS 2 wrapper node for FURO-D sonar sensors using a low-level C++ driver.
 
-Filtering strategy:
-    A single median filter (window=5) is applied to raw sonar readings.
-    The median naturally rejects single-frame outliers caused by acoustic
-    crosstalk between adjacent sensors without the instability introduced
-    by adaptive buffer resets or multi-stage debounce logic.
+Filtering strategy (see _RangeFilter) — kept deliberately latency-bounded
+since these sensors are intended to feed a safety loop later on:
+    1. Median filter (window=3) over raw readings. Rejects the occasional
+       single-frame outlier (acoustic crosstalk between adjacent sensors)
+       without averaging/EMA-style stages that accumulate multi-tick
+       convergence delay.
+    2. Deadband: the published value only moves when the new median
+       differs from it by more than `deadband_m`. This is what actually
+       kills the ~10-15 cm hop a median alone leaves when raw readings
+       flip-flop between two close values as the window slides — but
+       unlike a moving average, a genuine change is reported immediately
+       (no settling time), so it doesn't add latency on top of the median.
+    3. Range-boundary hysteresis: a target sitting right at `max_range`
+       (typical for sensors aimed down open corridors) can cause the
+       in/out-of-range decision to flip every cycle, which reads as the
+       cone marker rapidly appearing/disappearing. `range_hysteresis_m`
+       requires the median to clear max_range by a margin before the
+       in-range state flips, in either direction.
 
-    At ~14 Hz hardware polling rate, the median switches after 3 consistent
-    readings (~210 ms) — fast enough for a safety contour while rejecting
-    noise spikes that last only 1–2 frames.
+    Worst-case end-to-end latency is dominated by the hardware: 7 sensors
+    round-robin on one UART with a settle delay between pings (see
+    sonar_driver.cpp), so a single sensor's cached reading refreshes only
+    every ~200-250 ms regardless of this node's update_rate. Publishing
+    faster than that just republishes the latest cached value, which is
+    the expected/normal behavior for a steady-rate safety topic.
 """
 
 import math
@@ -31,6 +47,43 @@ from guide_robot_msgs.msg import SonarRanges
 _CONE_SEGMENTS = 16
 
 
+class _RangeFilter:
+    """Per-sensor filter: median (reject spikes) -> deadband + range hysteresis."""
+
+    def __init__(self, window_size, deadband_m, range_hysteresis_m):
+        self._history = deque(maxlen=window_size)
+        self._deadband_m = deadband_m
+        self._range_hysteresis_m = range_hysteresis_m
+        self._last_published = float("inf")
+        self._in_range = False
+
+    def update(self, raw_m, max_range):
+        """Feed one raw reading (meters, or inf) and return the filtered range."""
+        self._history.append(raw_m)
+        finite = [v for v in self._history if v != float("inf")]
+        median_m = statistics.median(finite) if finite else float("inf")
+
+        # Schmitt-trigger around max_range so a target sitting right at the
+        # edge doesn't flip the in/out-of-range decision every cycle.
+        if self._in_range:
+            if median_m > max_range + self._range_hysteresis_m:
+                self._in_range = False
+        else:
+            if median_m <= max_range - self._range_hysteresis_m:
+                self._in_range = True
+
+        if not self._in_range:
+            self._last_published = float("inf")
+            return float("inf")
+
+        if self._last_published == float("inf") or (
+            abs(median_m - self._last_published) >= self._deadband_m
+        ):
+            self._last_published = median_m
+
+        return self._last_published
+
+
 class SonarNode(Node):
     """ROS 2 node that polls sonar sensors via serial and publishes ranges."""
 
@@ -46,13 +99,19 @@ class SonarNode(Node):
         self.declare_parameter("max_range", 2.0)
         self.declare_parameter("fov", 1.13)  # 65 deg (from robot XML config)
         self.declare_parameter("publish_individual_topics", False)
-        self.declare_parameter("filter_window_size", 5)
+        self.declare_parameter("filter_window_size", 3)
+        self.declare_parameter("deadband_m", 0.03)
+        self.declare_parameter("range_hysteresis_m", 0.05)
 
         port = self.get_parameter("port").get_parameter_value().string_value
         baudrate = self.get_parameter("baudrate").get_parameter_value().integer_value
         update_rate = self.get_parameter("update_rate").get_parameter_value().double_value
         filter_window = (
             self.get_parameter("filter_window_size").get_parameter_value().integer_value
+        )
+        deadband_m = self.get_parameter("deadband_m").get_parameter_value().double_value
+        range_hysteresis_m = (
+            self.get_parameter("range_hysteresis_m").get_parameter_value().double_value
         )
 
         # ── Sonar ID → URDF frame mapping ───────────────────────────────
@@ -66,8 +125,11 @@ class SonarNode(Node):
             6: "sonar_sensor_9",  # Front Right
         }
 
-        # ── Median filter buffers (one deque per sonar) ─────────────────
-        self.history = {s_id: deque(maxlen=filter_window) for s_id in self.sonar_mapping}
+        # ── Per-sensor filters ───────────────────────────────────────────
+        self.filters = {
+            s_id: _RangeFilter(filter_window, deadband_m, range_hysteresis_m)
+            for s_id in self.sonar_mapping
+        }
 
         # ── Publishers ──────────────────────────────────────────────────
         self.publisher = self.create_publisher(SonarRanges, "sonar/ranges", 10)
@@ -99,9 +161,17 @@ class SonarNode(Node):
         min_range = self.get_parameter("min_range").get_parameter_value().double_value
         max_range = self.get_parameter("max_range").get_parameter_value().double_value
         fov = self.get_parameter("fov").get_parameter_value().double_value
+        update_rate = self.get_parameter("update_rate").get_parameter_value().double_value
         publish_individual = (
             self.get_parameter("publish_individual_topics").get_parameter_value().bool_value
         )
+
+        # Marker lifetime is tied to the actual publish period with margin,
+        # not a hardcoded constant: if it were pinned near the nominal period,
+        # ordinary timer jitter makes a marker expire in RViz/Foxglove right
+        # before its replacement arrives, which reads as every cone flickering
+        # in sync every time a publish is a few ms late.
+        marker_lifetime_s = max(0.3, 3.0 / update_rate) if update_rate > 0 else 0.3
 
         sonar_ranges_msg = SonarRanges()
         sonar_ranges_msg.header.stamp = now
@@ -117,10 +187,8 @@ class SonarNode(Node):
             else:
                 raw_m = val_mm / 1000.0
 
-            # ── Median filter ───────────────────────────────────────────
-            self.history[s_id].append(raw_m)
-            valid = [v for v in self.history[s_id] if v != float("inf") and v <= max_range]
-            range_m = statistics.median(valid) if valid else float("inf")
+            # ── Median + deadband/hysteresis filter ─────────────────────
+            range_m = self.filters[s_id].update(raw_m, max_range)
 
             # ── Range message ───────────────────────────────────────────
             range_msg = Range()
@@ -138,7 +206,9 @@ class SonarNode(Node):
                 self.individual_publishers[s_id].publish(range_msg)
 
             # ── 3D cone marker ──────────────────────────────────────────
-            marker = self._build_cone_marker(now, frame_id, s_id, range_m, max_range, fov)
+            marker = self._build_cone_marker(
+                now, frame_id, s_id, range_m, max_range, fov, marker_lifetime_s
+            )
             marker_array.markers.append(marker)
 
         self.publisher.publish(sonar_ranges_msg)
@@ -147,7 +217,7 @@ class SonarNode(Node):
     # ─────────────────────────────────────────────────────────────────────
     #  Cone marker builder
     # ─────────────────────────────────────────────────────────────────────
-    def _build_cone_marker(self, stamp, frame_id, marker_id, range_m, max_range, fov):
+    def _build_cone_marker(self, stamp, frame_id, marker_id, range_m, max_range, fov, lifetime_s):
         """
         Build a TRIANGLE_LIST cone marker for one sonar sensor.
 
@@ -213,7 +283,10 @@ class SonarNode(Node):
             marker.points.append(base_center)
             marker.points.append(p2)
 
-        marker.lifetime = Duration(sec=0, nanosec=200_000_000)
+        lifetime_sec = int(lifetime_s)
+        marker.lifetime = Duration(
+            sec=lifetime_sec, nanosec=int((lifetime_s - lifetime_sec) * 1e9)
+        )
         return marker
 
     # ─────────────────────────────────────────────────────────────────────
