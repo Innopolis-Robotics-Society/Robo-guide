@@ -1,0 +1,156 @@
+<?xml version="1.0"?>
+<!-- =========================================================================
+     Guide robot - Gazebo Classic 11 plugins and sensors.
+     Link/joint names come from guide_robot.urdf.xacro:
+       wheels      : left_wheel_joint / right_wheel_joint
+       lidar (sim) : laser_frame_left (primary /scan for Nav2 and SLAM)
+       base        : base_link / base_footprint
+     Included from the main xacro only when use_sim:=true.
+
+     IMPORTANT: comments MUST stay ASCII-only (see note in guide_robot.urdf.xacro).
+     ========================================================================= -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===================================================================== -->
+  <!--  1. gazebo_ros2_control - drives wheels through the ros2_control block -->
+  <!--     Reads controllers.yaml, which provides diff_drive_controller and    -->
+  <!--     joint_state_broadcaster: /odom, TF odom->base_link, /cmd_vel input. -->
+  <!--     NOTE: do NOT add robot_param / robot_param_node here - pulling the  -->
+  <!--     URDF from robot_state_publisher breaks the CLI param parser.        -->
+  <!-- ===================================================================== -->
+<gazebo>
+    <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+      <parameters>$(find guide_robot_description)/params/temp_controllers.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+  <!-- ===================================================================== -->
+  <!--  2. LiDAR (ray sensor) -> /scan (sensor_msgs/LaserScan)               -->
+  <!--     Mounted on laser_frame_left. Profile approximates LD19/RPLIDAR A1: -->
+  <!--     360 samples, 0.15..12 m, 10 Hz. Tune for the target sensor.        -->
+  <!-- ===================================================================== -->
+  <gazebo reference="laser_frame_left">
+    <sensor type="ray" name="lidar_left">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>true</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.141592653589793</min_angle>
+            <max_angle> 3.141592653589793</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.65</min>
+          <max>15.0</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </ray>
+      <plugin name="lidar_left_controller" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <remapping>~/out:=scan_left</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>laser_frame_left</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="laser_frame_right">
+    <sensor type="ray" name="lidar_right">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>true</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.141592653589793</min_angle>
+            <max_angle> 3.141592653589793</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.65</min>
+          <max>12.0</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </ray>
+      <plugin name="lidar_right_controller" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <remapping>~/out:=scan_right</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>laser_frame_right</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- ===================================================================== -->
+  <!--  3. IMU -> /imu/data (for robot_localization EKF later)               -->
+  <!-- ===================================================================== -->
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>50</update_rate>
+      <visualize>false</visualize>
+      <plugin filename="libgazebo_ros_imu_sensor.so" name="imu_plugin">
+        <ros>
+          <remapping>~/out:=imu/data</remapping>
+        </ros>
+        <frame_name>imu_link</frame_name>
+        <initial_orientation_as_reference>false</initial_orientation_as_reference>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- ===================================================================== -->
+  <!--  4. Gazebo materials and surface properties                           -->
+  <!-- ===================================================================== -->
+  <gazebo reference="base_link">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="left_wheel_link">
+    <material>Gazebo/DarkGrey</material>
+    <mu1>1.0</mu1>   <!-- wheel friction - without it the robot slips -->
+    <mu2>1.0</mu2>
+  </gazebo>
+  <gazebo reference="right_wheel_link">
+    <material>Gazebo/DarkGrey</material>
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+  </gazebo>
+
+  <!-- Casters: ZERO friction so they slide freely and do not bias odometry.
+       Sphere contact geometry rolls with no preferred direction.
+       kp/kd left at Gazebo defaults - stiff contact plus low inertia makes
+       the ODE solver unstable. -->
+  <gazebo reference="left_caster_link">
+    <material>Gazebo/DarkGrey</material>
+    <mu1>0.0</mu1>
+    <mu2>0.0</mu2>
+  </gazebo>
+  <gazebo reference="right_caster_link">
+    <material>Gazebo/DarkGrey</material>
+    <mu1>0.0</mu1>
+    <mu2>0.0</mu2>
+  </gazebo>
+
+  <!-- TO-DO: 7 sonars as Gazebo ray sensors -> guide_robot_msgs/SonarRanges.
+       Skipped for now: /scan alone is enough for the Nav2 baseline. -->
+
+</robot>

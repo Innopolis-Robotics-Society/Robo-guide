@@ -16,8 +16,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ENV USERNAME=${USERNAME} USER_UID=${USER_UID} USER_GID=${USER_GID}
 
 # no Gazebo
-ARG WITH_GAZEBO=0
-ENV WITH_GAZEBO=${WITH_GAZEBO}
+ARG WITH_GAZEBO=1
 
 COPY .docker/common/ /tmp/common/
 RUN bash /tmp/common/00-tools.sh

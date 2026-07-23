@@ -31,7 +31,6 @@ ENV JETSON_PIP_INDEX=${JETSON_PIP_INDEX}
 
 # Gazebo often skipped on-device (headless robot); flip to 1 if you need sim.
 ARG WITH_GAZEBO=0
-ENV WITH_GAZEBO=${WITH_GAZEBO}
 
 # ML stack (torch + onnxruntime from pypi.jetson-ai-lab.dev).
 # Set to 0 to skip if the index is unavailable or you don't need GPU inference.

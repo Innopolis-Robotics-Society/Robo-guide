@@ -50,3 +50,50 @@ services:
     tty: true
     devices:
       - "/dev/ttyACM0:/dev/ttyACM0"
+
+  # Здесь покоится некогда живая надежда на работу в Isaac Sim
+  # isaac-sim:
+  #   image: nvcr.io/nvidia/isaac-sim:5.1.0
+  #   # Isaac работает под root внутри контейнера — НЕ наследуем anchor fabian.
+  #   network_mode: host          # один DDS-домен с хостом по localhost, без проброса портов
+  #   privileged: true
+  #   runtime: nvidia             # RTX обязателен для RTX-LiDAR и рендера
+  #   stdin_open: true
+  #   tty: true
+  #   entrypoint: /bin/bash
+  #   working_dir: /isaac-sim
+  #   environment:
+  #     - ACCEPT_EULA=Y
+  #     - PRIVACY_CONSENT=Y
+  #     - NVIDIA_VISIBLE_DEVICES=all
+  #     - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display
+  #     - DISPLAY=${DISPLAY}
+  #     - QT_X11_NO_MITSHM=1
+  #     - ROS_DISTRO=humble
+  #     - LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib
+  #     - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+  #     - ROS_DOMAIN_ID=42
+  #     - OMNI_KIT_ALLOW_ROOT=1
+  #   volumes:
+  #     # --- GUI (X11) ---
+  #     - /tmp/.X11-unix:/tmp/.X11-unix:rw
+  #     - ${HOME}/.Xauthority:/root/.Xauthority:rw
+  #     - /dev/dri:/dev/dri:rw
+  #     # --- Твой ROS 2 workspace виден внутри Isaac (URDF/USD/скрипты) ---
+  #     - .:/root/ros2_ws/src:rw
+  #     # --- КЭШИ Isaac: без них шейдеры пересобираются каждый старт (минуты) ---
+  #     - ~/docker/isaac-sim/cache/kit:/isaac-sim/kit/cache:rw
+  #     - ~/docker/isaac-sim/cache/ov:/root/.cache/ov:rw
+  #     - ~/docker/isaac-sim/cache/pip:/root/.cache/pip:rw
+  #     - ~/docker/isaac-sim/cache/glcache:/root/.cache/nvidia/GLCache:rw
+  #     - ~/docker/isaac-sim/cache/computecache:/root/.nv/ComputeCache:rw
+  #     - ~/docker/isaac-sim/logs:/root/.nvidia-omniverse/logs:rw
+  #     - ~/docker/isaac-sim/data:/root/.local/share/ov/data:rw
+  #     - ~/docker/isaac-sim/documents:/root/Documents:rw
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
