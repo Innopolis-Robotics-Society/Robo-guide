@@ -30,6 +30,8 @@ rosdep update || true
 
 # Source ROS in the user's bashrc
 echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/$USERNAME/.bashrc
+# Source the sensor packages workspace if it was built (see 35-sensor-tools.sh)
+echo "[ -f /opt/ros/sensors/setup.bash ] && source /opt/ros/sensors/setup.bash" >> /home/$USERNAME/.bashrc
 
 # Prepare workspace
 mkdir -p /home/$USERNAME/ros2_ws/src

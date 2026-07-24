@@ -35,9 +35,8 @@ driving:
 serial:
   # --- Порт и коэффициенты (из config.txt, секция FURO) ---
   # ВНИМАНИЕ: config указывает COM7 для базы, тестовый скрипт слушал COM3.
-  # На Linux это будет /dev/ttyUSB* или /dev/ttyACM* — TO-DO
   com_port_windows:  "COM7"          # FURO_ROBOT_COM_PORT
-  com_port_linux:    "/dev/ttyUSB0"  # TO-DO реальный узел
+  com_port_linux:    "/dev/tty_motors"
   baud_rate:         115200
 
   left_wheel_id:     0x2E   # 46 — ID левого драйва (из тестового Sync Write)

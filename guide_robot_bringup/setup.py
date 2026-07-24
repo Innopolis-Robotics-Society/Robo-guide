@@ -21,7 +21,7 @@ setup(
     maintainer="sokovikov",
     maintainer_email="a.sokovikov@innopolis.university",
     description="TODO: Package description",
-    license="TODO: License declaration",
+    license="Apache License, Version 2.0",
     extras_require={
         "test": [
             "pytest",

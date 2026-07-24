@@ -1,0 +1,16 @@
+# Udev rules for FURO Robot Serial Devices (Orin Nano)
+#
+# Since the CH341 USB-to-Serial adapters do not have unique serial numbers,
+# we distinguish them based on the physical USB port they are plugged into.
+
+# FURO Sonar controller (connected to USB port 1-2.3)
+SUBSYSTEM=="tty", KERNELS=="1-2.3", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_sonar", MODE="0666"
+
+# FURO Motor controller (connected to USB port 1-2.4)
+SUBSYSTEM=="tty", KERNELS=="1-2.4", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_motors", MODE="0666"
+
+# RPLIDAR C1 Left (Serial: 0001)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0001", SYMLINK+="tty_lidar_left", MODE="0666"
+
+# RPLIDAR C1 Right (Serial: LIDAR)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="LIDAR", SYMLINK+="tty_lidar_right", MODE="0666"

@@ -17,6 +17,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import Command
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -29,7 +30,10 @@ def generate_launch_description():
 
     # robot_description получаем прогоном xacro в runtime
     robot_description = {
-        "robot_description": Command(["xacro ", xacro_file, " use_mock_hardware:=true"])
+        "robot_description": ParameterValue(
+            Command(["xacro ", xacro_file, " use_mock_hardware:=true"]),
+            value_type=str,
+        )
     }
 
     gui_arg = DeclareLaunchArgument(

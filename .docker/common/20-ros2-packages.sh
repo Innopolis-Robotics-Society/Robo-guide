@@ -73,9 +73,10 @@ apt-get install -y --no-install-recommends \
 # Gazebo (heavy; optional for headless / lightweight targets)
 if [ "$WITH_GAZEBO" = "1" ]; then
     apt-get install -y --no-install-recommends \
-        ros-${ROS_DISTRO}-ros-gz-sim \
-        ros-${ROS_DISTRO}-ros-gz-bridge \
-        ros-${ROS_DISTRO}-ign-ros2-control
+        ros-${ROS_DISTRO}-gazebo-ros \
+        ros-${ROS_DISTRO}-gazebo-ros-pkgs \
+        ros-${ROS_DISTRO}-gazebo-ros2-control \
+        ros-${ROS_DISTRO}-gazebo-plugins
 fi
 
 rm -rf /var/lib/apt/lists/*

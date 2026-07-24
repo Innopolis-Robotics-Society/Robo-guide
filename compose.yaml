@@ -16,7 +16,9 @@ x-common: &common-setup
   group_add:
     - "video"
     - "44"
-    - "20"   # dialout — нужно для доступа к /dev/ttyUSB*
+    - "20"
+    - "dialout"
+    - "tty"
   command: [
     "/bin/bash","-lc","
     sudo chown -R $(whoami):$(whoami) /home/fabian/ros2_ws 2>/dev/null || true &&
@@ -29,6 +31,20 @@ services:
     image: fabook/iros:x86-cpu
     stdin_open: true
     tty: true
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"
+
+  jetson:
+    <<: *common-setup
+    image: fabook/iros:jetson
+    runtime: nvidia
+    stdin_open: true
+    tty: true
+    volumes:
+      - ${HOME}/.Xauthority:/home/fabian/.Xauthority:rw
+      - .:/home/fabian/ros2_ws/src:rw
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev:/dev:rw   # Important for lidars (ttyUSB*) and motors (ttyACM*)
 
   old-terminal:
     <<: *common-setup

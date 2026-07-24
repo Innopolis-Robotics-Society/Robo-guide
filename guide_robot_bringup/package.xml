@@ -5,13 +5,15 @@
   <version>0.0.0</version>
   <description>TODO: Package description</description>
   <maintainer email="a.sokovikov@innopolis.university">sokovikov</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache 2.0</license>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>python3-pytest</test_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>guide_robot_hardware</exec_depend>
   <exec_depend>guide_robot_description</exec_depend>
+  <exec_depend>sllidar_ros2</exec_depend>
+  <exec_depend>ros2_laser_scan_merger</exec_depend>
 
 
   <export>
