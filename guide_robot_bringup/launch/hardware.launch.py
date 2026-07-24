@@ -1,29 +1,38 @@
-import os
-
-import xacro
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-
+from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
-    """Launch robot_state_publisher and the motor_driver node on real hardware."""
+    """Generate the launch description for the Guide Robot hardware stack."""
     # parameters
     declare_use_sim_time = DeclareLaunchArgument(
         name="use_sim_time", default_value="false", description="Use simulation clock if true"
     )
     use_sim_time = LaunchConfiguration("use_sim_time")
 
-    # urdf finder
-    urdf_path = os.path.join(
-        get_package_share_directory("guide_robot_description"), "urdf", "guide_robot.urdf.xacro"
+    declare_mock = DeclareLaunchArgument(
+        name="use_mock_hardware",
+        default_value="false",
+        description="Launch robot without hardware",
     )
 
-    robot_description = xacro.process_file(urdf_path).toxml()
+    use_mock_hardware = LaunchConfiguration("use_mock_hardware")
 
-    # nodes
+    urdf_path = PathJoinSubstitution(
+        [FindPackageShare("guide_robot_description"), "urdf", "guide_robot.urdf.xacro"]
+    )
+
+    robot_description = Command(
+        [FindExecutable(name="xacro"), " ", urdf_path, " use_mock_hardware:=", use_mock_hardware]
+    )
+
+    controllers_path = PathJoinSubstitution(
+        [FindPackageShare("guide_robot_bringup"), "config", "guide_robot_controllers.yaml"]
+    )
+
     robot_state_publisher_node = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
@@ -36,21 +45,38 @@ def generate_launch_description():
         ],
     )
 
-    motor_driver_node = Node(
-        package="guide_robot_hardware",
-        executable="motor_driver",
-        output="screen",
+    rviz_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("guide_robot_bringup"), "launch", "view_robot.launch.py"]
+            )
+        )
+    )
+    controller_manager_node = Node(
+        package="controller_manager",
+        executable="ros2_control_node",
         parameters=[
-            {
-                "use_sim_time": use_sim_time,
-            }
+            {"robot_description": robot_description},
+            controllers_path,
         ],
+    )
+
+    diff_drive_controller = Node(
+        package="controller_manager", executable="spawner", arguments=["diff_drive_controller"]
+    )
+
+    joint_state_broadcaster = Node(
+        package="controller_manager", executable="spawner", arguments=["joint_state_broadcaster"]
     )
 
     return LaunchDescription(
         [
             declare_use_sim_time,
+            declare_mock,
             robot_state_publisher_node,
-            motor_driver_node,
+            controller_manager_node,
+            diff_drive_controller,
+            joint_state_broadcaster,
+            rviz_launch,
         ]
     )

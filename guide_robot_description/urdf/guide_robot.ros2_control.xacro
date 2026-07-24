@@ -22,6 +22,22 @@
              Drives the same velocity interfaces as the real base. -->
         <plugin>gazebo_ros2_control/GazeboSystem</plugin>
       </xacro:if>
+<<<<<<< HEAD
+      <xacro:unless value="$(arg use_mock_hardware)">
+        <!-- Реальный драйвер Dynamixel-базы Guide Robot -->
+        <plugin>guide_robot_hardware/GuideRobotSystem</plugin>
+        <param name="serial_port">/dev/ttyUSB1</param>
+        <param name="baud_rate">115200</param>
+        <param name="left_wheel_id">46</param>           <!-- 0x2E -->
+        <param name="right_wheel_id">47</param>          <!-- 0x2F -->
+        <param name="ticks_per_rev">262144</param>       <!-- 512*8*64 -->
+        <param name="left_sign">1</param>
+        <param name="right_sign">-1</param>
+        <param name="swap_drives">1</param>              <!-- FURO_SWAP_DRIVES -->
+        <param name="speed_coefficient">0.0008</param>   <!-- м/с на 1 unit (0.2 м/с -> 250 units) -->
+        <param name="wheel_radius">0.075</param>            <!-- радиус колеса в метрах -->
+        <param name="cmd_timeout">0.3</param>            <!-- watchdog, сек -->
+=======
       <xacro:unless value="$(arg use_sim)">
         <xacro:if value="$(arg use_mock_hardware)">
           <!-- Stub for running the stack without real hardware -->
@@ -42,6 +58,7 @@
           <param name="speed_coefficient">0.014</param>     <!-- m/s -->
           <param name="cmd_timeout">0.3</param>             <!-- watchdog, sec -->
         </xacro:unless>
+>>>>>>> dev
       </xacro:unless>
     </hardware>
 
