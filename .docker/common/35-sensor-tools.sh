@@ -34,6 +34,10 @@ git clone --depth 1 --branch main \
     https://github.com/mich1342/ros2_laser_scan_merger.git \
     "${SENSOR_WS}/src/ros2_laser_scan_merger"
 
+git clone --depth 1 --branch humble \
+    https://github.com/pradyum/dual_laser_merger.git \
+    "${SENSOR_WS}/src/dual_laser_merger"
+
 # ── Build & install into the system ROS prefix ───────────────────────────────
 # Only runs if at least one package was cloned (sllidar via apt skips src/).
 if [ -n "$(ls -A "${SENSOR_WS}/src")" ]; then

@@ -6,7 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
-        - /LaserScan1
+        - /InteractiveMarkers1
       Splitter Ratio: 0.5
     Tree Height: 793
   - Class: rviz_common/Selection
@@ -26,7 +26,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: LaserScan
+    SyncSource: ""
 Visualization Manager:
   Class: ""
   Displays:
@@ -126,30 +126,37 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
+          Value: true
         sonar_sensor_2:
           Alpha: 1
           Show Axes: false
           Show Trail: false
+          Value: true
         sonar_sensor_4:
           Alpha: 1
           Show Axes: false
           Show Trail: false
+          Value: true
         sonar_sensor_5:
           Alpha: 1
           Show Axes: false
           Show Trail: false
+          Value: true
         sonar_sensor_6:
           Alpha: 1
           Show Axes: false
           Show Trail: false
+          Value: true
         sonar_sensor_8:
           Alpha: 1
           Show Axes: false
           Show Trail: false
+          Value: true
         sonar_sensor_9:
           Alpha: 1
           Show Axes: false
           Show Trail: false
+          Value: true
       Mass Properties:
         Inertia: false
         Mass: false
@@ -171,7 +178,11 @@ Visualization Manager:
           Value: true
         laser_frame_left:
           Value: true
+        laser_frame_left_calibrated:
+          Value: true
         laser_frame_right:
+          Value: true
+        laser_frame_right_calibrated:
           Value: true
         left_caster_link:
           Value: true
@@ -180,8 +191,6 @@ Visualization Manager:
         left_wheel_link:
           Value: true
         lidar_bar_link:
-          Value: true
-        map:
           Value: true
         odom:
           Value: true
@@ -211,43 +220,7 @@ Visualization Manager:
       Show Axes: true
       Show Names: false
       Tree:
-        map:
-          {}
-        odom:
-          base_footprint:
-            base_link:
-              imu_link:
-                {}
-              left_caster_link:
-                {}
-              left_lidar_mount_link:
-                laser_frame_left:
-                  {}
-              left_wheel_link:
-                {}
-              lidar_bar_link:
-                {}
-              right_caster_link:
-                {}
-              right_lidar_mount_link:
-                laser_frame_right:
-                  {}
-              right_wheel_link:
-                {}
-              sonar_sensor_1:
-                {}
-              sonar_sensor_2:
-                {}
-              sonar_sensor_4:
-                {}
-              sonar_sensor_5:
-                {}
-              sonar_sensor_6:
-                {}
-              sonar_sensor_8:
-                {}
-              sonar_sensor_9:
-                {}
+        {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -455,10 +428,129 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /marker
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: MarkerArray
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /slam_toolbox/graph_visualization
+      Value: true
+    - Class: rviz_default_plugins/InteractiveMarkers
+      Enable Transparency: true
+      Enabled: true
+      Interactive Markers Namespace: /slam_toolbox
+      Name: InteractiveMarkers
+      Show Axes: false
+      Show Descriptions: true
+      Show Visual Aids: false
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 255; 255
+      Enabled: true
+      Name: Range
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar/raw/sonar_9
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 255; 255
+      Enabled: true
+      Name: Range
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar/raw/sonar_8
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 255; 255
+      Enabled: true
+      Name: Range
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar/raw/sonar_6
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 255; 255
+      Enabled: true
+      Name: Range
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar/raw/sonar_5
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 255; 255
+      Enabled: true
+      Name: Range
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar/raw/sonar_4
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 255; 255
+      Enabled: true
+      Name: Range
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar/raw/sonar_2
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 255; 255
+      Enabled: true
+      Name: Range
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar/raw/sonar_1
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: odom
+    Fixed Frame: map
     Frame Rate: 30
   Name: root
   Tools:
@@ -501,25 +593,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 11.739727973937988
+      Distance: 9.087645530700684
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 1.9663729667663574
-        Y: 0.08971409499645233
-        Z: 0.40365079045295715
+        X: 0.045396797358989716
+        Y: 0.7500619292259216
+        Z: 0.9036546349525452
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.9353989958763123
+      Pitch: 0.5553994178771973
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.913562774658203
+      Yaw: 2.503545045852661
     Saved: ~
 Window Geometry:
   Displays:

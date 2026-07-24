@@ -11,7 +11,7 @@
 #        ros2 run controller_manager spawner diff_drive_controller
 #
 #  Run:
-#    ros2 launch guide_robot_bringup simulation.launch.py
+#    ros2 launch guide_robot_simulation simulation.launch.py
 #  Teleop:
 #    ros2 run teleop_twist_keyboard teleop_twist_keyboard \
 #      --ros-args -r /cmd_vel:=/diff_drive_controller/cmd_vel
@@ -41,6 +41,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     """Launch Gazebo."""
     pkg_description = get_package_share_directory("guide_robot_description")
+    pkg_simulation = get_package_share_directory("guide_robot_simulation")
 
     # --- Arguments ---
     use_sim_time_arg = DeclareLaunchArgument(
@@ -51,7 +52,7 @@ def generate_launch_description():
 
     world_arg = DeclareLaunchArgument(
         name="world",
-        default_value=os.path.join(pkg_description, "worlds", "simple.world"),
+        default_value=os.path.join(pkg_simulation, "worlds", "simple.world"),
         description="Path to the Gazebo world file",
     )
 
@@ -136,7 +137,7 @@ def generate_launch_description():
     )
 
     # JSB после запуска gazebo, diff_drive - после JSB
-    delayed_jsb = TimerAction(period=8.0, actions=[joint_state_broadcaster_spawner])
+    delayed_jsb = TimerAction(period=2.0, actions=[joint_state_broadcaster_spawner])
 
     diff_drive_after_jsb = RegisterEventHandler(
         OnProcessExit(
@@ -159,6 +160,27 @@ def generate_launch_description():
         output="screen",
     )
 
+    sonar_merge = Node(
+        package="guide_robot_simulation",
+        executable="sonar_merge",
+        name="sonar_merge",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": True,
+                "sensor_ids": [
+                    "sonar_1",
+                    "sonar_2",
+                    "sonar_4",
+                    "sonar_5",
+                    "sonar_6",
+                    "sonar_8",
+                    "sonar_9",
+                ],
+            }
+        ],
+    )
+
     return LaunchDescription(
         [
             use_sim_time_arg,
@@ -173,5 +195,6 @@ def generate_launch_description():
             diff_drive_after_jsb,
             cmd_vel_relay,
             rqt_robot_steering,
+            sonar_merge,
         ]
     )

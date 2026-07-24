@@ -12,7 +12,7 @@ diff_drive_controller:
     use_sim_time: true
     left_wheel_names:  ["left_wheel_joint"]
     right_wheel_names: ["right_wheel_joint"]
-    wheel_separation: 0.338      # <-- from mechanic.wheel_base, not 0.347
+    wheel_separation: 0.387 # NOTE: это ложь, исправить в проде
     wheel_radius: 0.075
     base_frame_id: base_footprint
     odom_frame_id: odom

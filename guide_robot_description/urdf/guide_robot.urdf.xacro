@@ -152,13 +152,22 @@
 
   <!-- ===================== Sonar (parking sensor) macro ================= -->
   <xacro:macro name="sonar_sensor" params="id x y yaw">
-    <link name="sonar_sensor_${id}"/>
-    <joint name="sonar_sensor_${id}_joint" type="fixed">
-      <parent link="base_link"/>
-      <child  link="sonar_sensor_${id}"/>
-      <origin xyz="${x} ${y} 0.2" rpy="0 0 ${radians(yaw)}"/>
-    </joint>
-  </xacro:macro>
+      <link name="sonar_sensor_${id}">
+        <visual>
+          <geometry><box size="0.01 0.02 0.01"/></geometry>
+          <material name="dark"/>
+        </visual>
+        <inertial>
+          <mass value="0.01"/>
+          <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+        </inertial>
+      </link>
+      <joint name="sonar_sensor_${id}_joint" type="fixed">
+        <parent link="base_link"/>
+        <child  link="sonar_sensor_${id}"/>
+        <origin xyz="${x} ${y} 0.2" rpy="0 0 ${radians(yaw)}"/>
+      </joint>
+    </xacro:macro>
 
   <!-- Two front -->
   <xacro:sonar_sensor id="1" x="0.15"  y="0.10"  yaw="0"/>

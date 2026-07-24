@@ -40,20 +40,21 @@ def generate_launch_description():
     """Launch entire Simulator stack."""
     pkg_bringup = get_package_share_directory("guide_robot_bringup")
     pkg_navigation = get_package_share_directory("guide_robot_navigation")
+    pkg_simulation = get_package_share_directory("guide_robot_simulation")
 
     # ------------------------------------------------------------------
     #  Launch arguments
     # ------------------------------------------------------------------
     slam_arg = DeclareLaunchArgument(
         "slam",
-        default_value="true",
-        description="true  -> SLAM Toolbox builds a map online. "
-        "false -> AMCL localizes against the map given by map:=",
+        default_value="False",
+        description="True  -> SLAM Toolbox builds a map online. "
+        "False -> AMCL localizes against the map given by map:=",
     )
 
     map_arg = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg_navigation, "map", "my_map.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "simple.yaml"),
         description="Map yaml, used only when slam:=false",
     )
 
@@ -82,7 +83,7 @@ def generate_launch_description():
     #     Reuses the existing gazebo.launch.py as-is.
     # ------------------------------------------------------------------
     gazebo = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(pkg_bringup, "launch", "gazebo.launch.py")),
+        PythonLaunchDescriptionSource(os.path.join(pkg_simulation, "launch", "gazebo.launch.py")),
         launch_arguments={"use_sim_time": "true"}.items(),
     )
 
@@ -93,58 +94,37 @@ def generate_launch_description():
     # it uses manual offset parameters. We set them to match the URDF:
     # Left: Y = -0.258, Right: Y = +0.258
     # ------------------------------------------------------------------
-    scan_merger = Node(
-        package="ros2_laser_scan_merger",
-        executable="ros2_laser_scan_merger",
-        name="scan_merger",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": True,
-                "scanTopic1": "/scan_left",
-                "laser1XOff": 0.0,
-                "laser1YOff": -0.258,
-                "laser1ZOff": 0.0,
-                "laser1Alpha": 0.0,
-                "show1": True,
-                "scanTopic2": "/scan_right",
-                "laser2XOff": 0.0,
-                "laser2YOff": 0.258,
-                "laser2ZOff": 0.0,
-                "laser2Alpha": 0.0,
-                "show2": True,
-                "pointCloudTopic": "/scan_merged_cloud",
-                "pointCloutFrameId": "base_footprint",
-            }
-        ],
-    )
-
-    # Convert the merged PointCloud2 back into a unified LaserScan on /scan
-    pc_to_laserscan = Node(
-        package="pointcloud_to_laserscan",
-        executable="pointcloud_to_laserscan_node",
-        name="pc_to_laserscan",
+    merger = Node(
+        package="dual_laser_merger",
+        executable="dual_laser_merger_node",
+        name="dual_laser_merger",
         output="screen",
         remappings=[
-            ("cloud_in", "/scan_merged_cloud"),
-            ("scan", "/scan"),
+            ("merged", "/scan"),
+            ("merged_cloud", "/scan_merged_cloud"),
         ],
         parameters=[
+            {"use_sim_time": True},
             {
-                "use_sim_time": True,
+                "laser_1_topic": "/scan_left",
+                "laser_2_topic": "/scan_right",
                 "target_frame": "base_footprint",
-                "transform_tolerance": 0.01,
-                "min_height": -0.5,
-                "max_height": 1.5,
-                "angle_min": -3.14159,
-                "angle_max": 3.14159,
+                "tolerance": 0.05,
+                "queue_size": 10,
                 "angle_increment": 0.005,
                 "scan_time": 0.1,
                 "range_min": 0.1,
                 "range_max": 12.0,
+                "min_height": -0.5,
+                "max_height": 1.5,
+                "angle_min": -3.141592654,
+                "angle_max": 3.141592654,
                 "use_inf": True,
                 "inf_epsilon": 1.0,
-            }
+                "enable_calibration": False,
+                "enable_average_filter": False,
+                "enable_shadow_filter": False,
+            },
         ],
     )
 
@@ -209,8 +189,7 @@ def generate_launch_description():
             # simulation
             gazebo,
             # perception
-            scan_merger,
-            pc_to_laserscan,
+            merger,
             # localization
             delayed_slam,
             # navigation

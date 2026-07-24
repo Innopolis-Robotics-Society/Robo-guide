@@ -150,7 +150,62 @@
     <mu2>0.0</mu2>
   </gazebo>
 
-  <!-- TO-DO: 7 sonars as Gazebo ray sensors -> guide_robot_msgs/SonarRanges.
-       Skipped for now: /scan alone is enough for the Nav2 baseline. -->
+  <!-- ===================================================================== -->
+  <!--  5. Sonars (parking sensors) -> /sonar/raw/sonar_<id> (sensor_msgs/Range)   -->
+  <!--     Aggregated into guide_robot_msgs/SonarRanges by sonar_aggregator. -->
+  <!--     Typical automotive parking sensor: ~40 kHz, 0.2..2.5 m, cone 30 deg -->
+  <!-- ===================================================================== -->
+  <xacro:macro name="sonar_gazebo" params="id">
+    <gazebo reference="sonar_sensor_${id}">
+      <sensor type="ray" name="sonar_${id}">
+        <pose>0 0 0 0 0 0</pose>
+        <visualize>true</visualize>
+        <update_rate>10</update_rate>
+        <ray>
+          <scan>
+            <horizontal>
+              <samples>7</samples>
+              <resolution>1</resolution>
+              <min_angle>-0.52</min_angle>   <!-- +-30 deg = 60 deg cone -->
+              <max_angle> 0.52</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>5</samples>
+              <resolution>1</resolution>
+              <min_angle>-0.26</min_angle>
+              <max_angle> 0.26</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.20</min>
+            <max>2.50</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.01</stddev>
+          </noise>
+        </ray>
+        <plugin name="sonar_${id}_controller" filename="libgazebo_ros_ray_sensor.so">
+          <ros>
+            <remapping>~/out:=sonar/raw/sonar_${id}</remapping>
+          </ros>
+          <!-- Range output takes the MINIMUM over all rays in the cone -->
+          <output_type>sensor_msgs/Range</output_type>
+          <radiation_type>ultrasound</radiation_type>
+          <frame_name>sonar_sensor_${id}</frame_name>
+        </plugin>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:sonar_gazebo id="1"/>
+  <xacro:sonar_gazebo id="2"/>
+  <xacro:sonar_gazebo id="4"/>
+  <xacro:sonar_gazebo id="5"/>
+  <xacro:sonar_gazebo id="6"/>
+  <xacro:sonar_gazebo id="8"/>
+  <xacro:sonar_gazebo id="9"/>
 
 </robot>
