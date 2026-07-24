@@ -31,7 +31,7 @@
         <xacro:unless value="$(arg use_mock_hardware)">
           <!-- Real FURO Dynamixel base driver. -->
           <plugin>guide_robot_hardware/GuideRobotSystem</plugin>
-          <param name="serial_port">/dev/ttyUSB1</param>         <!-- motors USB adapter -->
+          <param name="serial_port">/dev/tty_motors</param>      <!-- udev symlink, see scripts/99-furo-devices.rules -->
           <param name="baud_rate">115200</param>
           <param name="left_wheel_id">46</param>                 <!-- 0x2E -->
           <param name="right_wheel_id">47</param>                <!-- 0x2F -->

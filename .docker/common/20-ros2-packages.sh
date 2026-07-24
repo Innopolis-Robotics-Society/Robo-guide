@@ -68,7 +68,8 @@ apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
     ros-${ROS_DISTRO}-imu-tools \
     ros-${ROS_DISTRO}-topic-tools \
-    ros-${ROS_DISTRO}-rosbridge-suite
+    ros-${ROS_DISTRO}-rosbridge-suite \
+    ros-${ROS_DISTRO}-foxglove-bridge
 
 # Gazebo (heavy; optional for headless / lightweight targets)
 if [ "$WITH_GAZEBO" = "1" ]; then

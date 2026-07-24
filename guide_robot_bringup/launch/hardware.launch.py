@@ -1,5 +1,9 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -9,20 +13,60 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     """Generate the launch description for the Guide Robot hardware stack."""
-    # parameters
+    pkg_bringup = get_package_share_directory("guide_robot_bringup")
+    pkg_navigation = get_package_share_directory("guide_robot_navigation")
+    pkg_slam_toolbox = get_package_share_directory("slam_toolbox")
+
+    # ── Launch arguments ──────────────────────────────────────────────────────
     declare_use_sim_time = DeclareLaunchArgument(
         name="use_sim_time", default_value="false", description="Use simulation clock if true"
     )
-    use_sim_time = LaunchConfiguration("use_sim_time")
-
     declare_mock = DeclareLaunchArgument(
         name="use_mock_hardware",
         default_value="false",
         description="Launch robot without hardware",
     )
+    declare_launch_sensors = DeclareLaunchArgument(
+        name="launch_sensors",
+        default_value="true",
+        description="Launch lidar sensors and scan merger",
+    )
+    declare_launch_sonar = DeclareLaunchArgument(
+        name="launch_sonar",
+        default_value="true",
+        description="Launch sonar range node",
+    )
+    declare_launch_foxglove = DeclareLaunchArgument(
+        name="launch_foxglove",
+        default_value="true",
+        description="Launch Foxglove Bridge",
+    )
+    declare_slam = DeclareLaunchArgument(
+        name="slam",
+        default_value="true",
+        description="Launch SLAM Toolbox for mapping",
+    )
+    declare_slam_params = DeclareLaunchArgument(
+        name="slam_params_file",
+        default_value=os.path.join(pkg_navigation, "params", "mapper_params_online_async.yaml"),
+        description="Full path to SLAM Toolbox parameters file",
+    )
+    declare_launch_rviz = DeclareLaunchArgument(
+        name="launch_rviz",
+        default_value="false",
+        description="Launch RViz (requires a display; keep off on the headless robot)",
+    )
 
+    use_sim_time = LaunchConfiguration("use_sim_time")
     use_mock_hardware = LaunchConfiguration("use_mock_hardware")
+    launch_sensors = LaunchConfiguration("launch_sensors")
+    launch_sonar = LaunchConfiguration("launch_sonar")
+    launch_foxglove = LaunchConfiguration("launch_foxglove")
+    slam = LaunchConfiguration("slam")
+    slam_params_file = LaunchConfiguration("slam_params_file")
+    launch_rviz = LaunchConfiguration("launch_rviz")
 
+    # ── Robot Description & Hardware ──────────────────────────────────────────
     urdf_path = PathJoinSubstitution(
         [FindPackageShare("guide_robot_description"), "urdf", "guide_robot.urdf.xacro"]
     )
@@ -44,6 +88,10 @@ def generate_launch_description():
         [FindPackageShare("guide_robot_bringup"), "config", "guide_robot_controllers.yaml"]
     )
 
+    rviz_config = PathJoinSubstitution(
+        [FindPackageShare("guide_robot_bringup"), "rviz", "view_robot.rviz"]
+    )
+
     robot_state_publisher_node = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
@@ -56,13 +104,6 @@ def generate_launch_description():
         ],
     )
 
-    rviz_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution(
-                [FindPackageShare("guide_robot_bringup"), "launch", "view_robot.launch.py"]
-            )
-        )
-    )
     controller_manager_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
@@ -80,14 +121,81 @@ def generate_launch_description():
         package="controller_manager", executable="spawner", arguments=["joint_state_broadcaster"]
     )
 
+    # ── Sensors Launch (Lidars + Scan Merger) ──────────────────────────────────
+    sensors_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(pkg_bringup, "launch", "sensors.launch.py")),
+        condition=IfCondition(launch_sensors),
+        launch_arguments={"use_sim_time": use_sim_time}.items(),
+    )
+
+    # ── Sonar Node ─────────────────────────────────────────────────────────────
+    sonar_node = Node(
+        package="guide_robot_sonar",
+        executable="sonar_node.py",
+        name="sonar_node",
+        output="screen",
+        condition=IfCondition(launch_sonar),
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    # ── Foxglove Bridge Node ───────────────────────────────────────────────────
+    foxglove_bridge_node = Node(
+        package="foxglove_bridge",
+        executable="foxglove_bridge",
+        name="foxglove_bridge",
+        output="screen",
+        condition=IfCondition(launch_foxglove),
+        parameters=[
+            {
+                "port": 8765,
+                "address": "0.0.0.0",
+                "send_buffer_limit": 100000000,
+                "use_sim_time": use_sim_time,
+            }
+        ],
+    )
+
+    # ── SLAM (Mapping) ─────────────────────────────────────────────────────────
+    slam_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_slam_toolbox, "launch", "online_async_launch.py")
+        ),
+        condition=IfCondition(slam),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "slam_params_file": slam_params_file,
+        }.items(),
+    )
+
+    # ── RViz2 (Optional) ───────────────────────────────────────────────────────
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="screen",
+        arguments=["-d", rviz_config],
+        condition=IfCondition(launch_rviz),
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
     return LaunchDescription(
         [
             declare_use_sim_time,
             declare_mock,
+            declare_launch_sensors,
+            declare_launch_sonar,
+            declare_launch_foxglove,
+            declare_slam,
+            declare_slam_params,
+            declare_launch_rviz,
             robot_state_publisher_node,
             controller_manager_node,
             diff_drive_controller,
             joint_state_broadcaster,
-            rviz_launch,
+            sensors_launch,
+            sonar_node,
+            foxglove_bridge_node,
+            slam_launch,
+            rviz_node,
         ]
     )
