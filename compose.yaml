@@ -6,6 +6,7 @@ x-common: &common-setup
     - .:/home/fabian/ros2_ws/src:rw
     - /tmp/.X11-unix:/tmp/.X11-unix:rw
     - /dev/dri:/dev/dri:rw
+    - /dev:/dev:rw
   environment:
     - NVIDIA_VISIBLE_DEVICES=all
     - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display
@@ -28,21 +29,9 @@ services:
     image: fabook/iros:x86-cpu
     stdin_open: true
     tty: true
-    devices:
-      - "/dev/ttyUSB0:/dev/ttyUSB0"
-
-  # arm-terminal:
-  #   <<: *common-setup
-  #   image: fabook/iros:v0.0.1
-  #   stdin_open: true
-  #   tty: true
-  #   devices:
-  #     - "/dev/ttyACM0:/dev/ttyACM0"
 
   old-terminal:
     <<: *common-setup
     image: fabook/iros:v0.0.1
     stdin_open: true
     tty: true
-    devices:
-      - "/dev/ttyUSB0:/dev/ttyUSB0"

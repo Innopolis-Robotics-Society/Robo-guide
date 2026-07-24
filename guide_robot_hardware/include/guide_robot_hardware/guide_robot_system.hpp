@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -42,7 +43,22 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
+  // -------------------------------------------------------
+  // Вспомогательные методы для работы с энкодерами
+  // -------------------------------------------------------
+
+  /// Отправить запрос чтения регистра 0xa0 у мотора с заданным ID.
+  /// Пакет: ff ff <id> 04 03 a0 05 <chk>
+  void sendEncoderRequest(uint8_t motor_id);
+
+  /// Попытаться прочитать один 19-байтный пакет ответа.
+  /// Возвращает true если пакет успешно принят и контрольная сумма верна.
+  /// enc[0..2] — три int32 из поля DATA (b[6:10], b[10:14], b[14:18]).
+  bool parseEncoderResponse(uint8_t motor_id, int32_t enc[3]);
+
+  // -------------------------------------------------------
   // Serial
+  // -------------------------------------------------------
   int serial_fd_{-1};
   std::string serial_port_;
   int baud_rate_{115200};
@@ -50,9 +66,9 @@ private:
   // Параметры моторов из URDF
   int left_wheel_id_{46};
   int right_wheel_id_{47};
-  double left_sign_{-1.0};
-  double right_sign_{1.0};
-  double speed_coefficient_{0.014};
+  double left_sign_{1.0};
+  double right_sign_{-1.0};
+  double speed_coefficient_{0.0008};
   double wheel_radius_{0.075};
 
   // Clock для RCLCPP_INFO_THROTTLE (должен жить дольше вызова макроса)
@@ -67,6 +83,13 @@ private:
   double right_position_{0.0};
   double left_velocity_{0.0};
   double right_velocity_{0.0};
+
+  double ticks_per_rev_{262144.0};
+
+  // Буфер для неблокирующего чтения ответа энкодеров
+  std::vector<uint8_t> rx_buffer_;
+  bool initialized_encoders_{false};
+  int enc_request_counter_{0};  // счётчик для отправки запросов с пониженной частотой
 };
 
 }  // namespace guide_robot_hardware
