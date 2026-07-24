@@ -142,15 +142,13 @@ hardware_interface::return_type GuideRobotSystem::read(
 
   // 1. Отправляем запрос только раз в 5 циклов (≈10 Hz при update_rate=50 Hz).
   //    Пакет: ff ff 2e 04 03 a0 05 25
-  bool request_sent = false;
   if (++enc_request_counter_ >= 5) {
     enc_request_counter_ = 0;
     uint8_t req[8] = {0xFF, 0xFF, static_cast<uint8_t>(left_wheel_id_), 0x04, 0x03, 0xA0,
                       0x05, 0x25};
     ::write(serial_fd_, req, sizeof(req));
-    // Ждём ответа: при 115200 бод 8+19 байт ≈ 2.4мс, даём 5мс запаса
+    // Wait for response: at 115200 baud 8+19 bytes ~ 2.4ms, 5ms margin
     usleep(5000);
-    request_sent = true;
   }
 
   // 2. Мгновенно выгребаем из порта все доступные байты (неблокирующее чтение, без usleep!)

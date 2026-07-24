@@ -3,7 +3,9 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+
 
 def generate_launch_description():
     """Generate the launch description for the Guide Robot hardware stack."""
@@ -25,8 +27,17 @@ def generate_launch_description():
         [FindPackageShare("guide_robot_description"), "urdf", "guide_robot.urdf.xacro"]
     )
 
-    robot_description = Command(
-        [FindExecutable(name="xacro"), " ", urdf_path, " use_mock_hardware:=", use_mock_hardware]
+    robot_description = ParameterValue(
+        Command(
+            [
+                FindExecutable(name="xacro"),
+                " ",
+                urdf_path,
+                " use_mock_hardware:=",
+                use_mock_hardware,
+            ]
+        ),
+        value_type=str,
     )
 
     controllers_path = PathJoinSubstitution(

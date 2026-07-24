@@ -20,7 +20,7 @@ local/
 .idea/
 .clion.source.dir/
 *.user
-.md
+*.md
 .claude
 
 # System files
