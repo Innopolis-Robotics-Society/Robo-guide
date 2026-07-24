@@ -33,6 +33,7 @@ install(TARGETS furo_sonars_cpp
 # Install Python scripts
 install(PROGRAMS
   scripts/sonar_node.py
+  scripts/sonar_node_mult.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
