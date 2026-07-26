@@ -56,6 +56,11 @@ def generate_launch_description():
         default_value="false",
         description="Launch RViz (requires a display; keep off on the headless robot)",
     )
+    declare_cmd_vel_relay = DeclareLaunchArgument(
+        name="cmd_vel_relay",
+        default_value="true",
+        description="Relay /cmd_vel to diff_drive_controller (needed by teleop_twist_keyboard)",
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_mock_hardware = LaunchConfiguration("use_mock_hardware")
@@ -65,6 +70,7 @@ def generate_launch_description():
     slam = LaunchConfiguration("slam")
     slam_params_file = LaunchConfiguration("slam_params_file")
     launch_rviz = LaunchConfiguration("launch_rviz")
+    cmd_vel_relay = LaunchConfiguration("cmd_vel_relay")
 
     # ── Robot Description & Hardware ──────────────────────────────────────────
     urdf_path = PathJoinSubstitution(
@@ -119,6 +125,23 @@ def generate_launch_description():
 
     joint_state_broadcaster = Node(
         package="controller_manager", executable="spawner", arguments=["joint_state_broadcaster"]
+    )
+
+    # ── cmd_vel bridge ─────────────────────────────────────────────────────────
+    # Nothing in this repo connected /cmd_vel to the controller, so teleop_twist_keyboard
+    # (which publishes a plain Twist on /cmd_vel) drove nothing: the wheels never turned,
+    # odom stayed at the origin and odom->base_footprint never moved.
+    # guide_robot_controllers.yaml sets use_stamped_vel: false, which on Humble makes
+    # diff_drive_controller listen on ~/cmd_vel_unstamped (Twist) rather than ~/cmd_vel
+    # (TwistStamped) — hence this exact target topic.
+    cmd_vel_relay_node = Node(
+        package="topic_tools",
+        executable="relay",
+        name="cmd_vel_relay",
+        output="screen",
+        condition=IfCondition(cmd_vel_relay),
+        arguments=["/cmd_vel", "/diff_drive_controller/cmd_vel_unstamped"],
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     # ── Sensors Launch (Lidars + Scan Merger) ──────────────────────────────────
@@ -188,10 +211,12 @@ def generate_launch_description():
             declare_slam,
             declare_slam_params,
             declare_launch_rviz,
+            declare_cmd_vel_relay,
             robot_state_publisher_node,
             controller_manager_node,
             diff_drive_controller,
             joint_state_broadcaster,
+            cmd_vel_relay_node,
             sensors_launch,
             sonar_node,
             foxglove_bridge_node,
