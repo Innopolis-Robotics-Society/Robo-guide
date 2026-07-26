@@ -28,6 +28,9 @@ setup(
         ],
     },
     entry_points={
-        "console_scripts": [],
+        "console_scripts": [
+            "laser_sector_blanker = guide_robot_bringup.laser_sector_blanker:main",
+            "laser_blind_sector_finder = guide_robot_bringup.laser_blind_sector_finder:main",
+        ],
     },
 )
