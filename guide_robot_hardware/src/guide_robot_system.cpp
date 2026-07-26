@@ -24,6 +24,9 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_init(
   baud_rate_ = std::stoi(info_.hardware_parameters.at("baud_rate"));
   left_wheel_id_ = std::stoi(info_.hardware_parameters.at("left_wheel_id"));
   right_wheel_id_ = std::stoi(info_.hardware_parameters.at("right_wheel_id"));
+  if (info_.hardware_parameters.count("swap_drives") > 0) {
+    swap_drives_ = std::stoi(info_.hardware_parameters.at("swap_drives")) != 0;
+  }
   left_sign_ = std::stod(info_.hardware_parameters.at("left_sign"));
   right_sign_ = std::stod(info_.hardware_parameters.at("right_sign"));
   speed_coefficient_ = std::stod(info_.hardware_parameters.at("speed_coefficient"));
@@ -247,8 +250,16 @@ hardware_interface::return_type GuideRobotSystem::write(
     return static_cast<int16_t>(units);
   };
 
-  int16_t l_spd = to_motor_units(left_vel_cmd_, left_sign_);
-  int16_t r_spd = to_motor_units(right_vel_cmd_, right_sign_);
+  // Слоты пакета адресуются по ПОЗИЦИИ (проверено на железе: смена ID байта
+  // в слоте эффекта не даёт). left_sign_/right_sign_ компенсируют зеркальную
+  // установку мотора В КОНКРЕТНОМ слоте (см. работающую езду прямо), поэтому
+  // при swap_drives меняем местами именно ИСТОЧНИК команды, а не готовые
+  // знаковые значения — иначе компенсация знака съезжает не на тот мотор.
+  double slot1_cmd = swap_drives_ ? right_vel_cmd_ : left_vel_cmd_;
+  double slot2_cmd = swap_drives_ ? left_vel_cmd_ : right_vel_cmd_;
+
+  int16_t l_spd = to_motor_units(slot1_cmd, left_sign_);
+  int16_t r_spd = to_motor_units(slot2_cmd, right_sign_);
 
   constexpr uint16_t ACCEL = 1000;
 

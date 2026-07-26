@@ -66,6 +66,7 @@ private:
   // Параметры моторов из URDF
   int left_wheel_id_{46};
   int right_wheel_id_{47};
+  bool swap_drives_{false};
   double left_sign_{1.0};
   double right_sign_{-1.0};
   double speed_coefficient_{0.0008};
