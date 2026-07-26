@@ -7,16 +7,30 @@
 
 mechanic:
   # --- Привод (из RobotSetting.xml/Mechanic) ---
-  wheel_base:        0.338    # WheelBase, м  -> wheel_separation
-  wheel_diameter:    0.15     # WheelDiameter, м
-  wheel_radius:      0.075    # = WheelDiameter / 2
+  # ИЗМЕРЕНО (2026-07-26): рулетка между серединами протекторов дала 0.347.
+  # RobotSetting.xml утверждал 0.338 — соврал и здесь тоже.
+  # Тест вращением на 360 град дал ЭФФЕКТИВНУЮ колею 0.3559 (шины скребут боком
+  # при развороте на месте). В контроллер идёт 0.347 * wheel_separation_multiplier
+  # 1.0259; в URDF — физические 0.347. Подробности в guide_robot_controllers.yaml.
+  wheel_base:        0.347    # WheelBase, м (геометрическая)
+  wheel_base_effective: 0.3559 # то, что видит одометрия
+  # ИЗМЕРЕНО на роботе (2026-07-26): прокат по полу на 3.157 м дал 30.758 рад
+  # в /joint_states -> r = 3.157 / 30.758 = 0.1026 м. Это РАДИУС КАЧЕНИЯ под
+  # нагрузкой, именно он нужен одометрии. Замер рулеткой по диаметру давал 20 см
+  # (занижен на 2.5%). RobotSetting.xml утверждал 0.15 м — неверно для
+  # установленных колёс, железо переделывали.
+  wheel_diameter:    0.2052   # WheelDiameter, м
+  wheel_radius:      0.1026   # = WheelDiameter / 2
 
   # Энкодерная константа: тиков на ОДИН оборот колеса.
-  # = MotorPulse * MotorMultiplier * GearRatio = 512 * 8 * 64
+  # = MotorPulse * MotorMultiplier * GearRatio = 512 * 4 * 64
+  # ИЗМЕРЕНО: один оборот колеса вручную даёт 3.03 рад в /joint_states вместо
+  # 2*pi при ticks_per_rev=262144 -> константа была завышена ровно вдвое.
+  # Квадратурный декодер даёт x4, а не x8 как было записано из документации.
   motor_pulse:       512
-  motor_multiplier:  8
+  motor_multiplier:  4
   gear_ratio:        64
-  ticks_per_rev:     262144  # 512 * 8 * 64
+  ticks_per_rev:     131072  # 512 * 4 * 64
 
   # Знаки направления вращения колёс
   left_reverse:      -1       # RytSetting LeftReverse / config FURO_SIGN_LEFT
@@ -43,7 +57,13 @@ serial:
   right_wheel_id:    0x2F   # 47 — ID правого драйва
   swap_drives:       1      # FURO_SWAP_DRIVES — левый/правый переставлены!
 
-  speed_coefficient: 0.014     # FURO_ROBOT_SPEED_COEFFICIENT (попугаи -> м/с)
+  # ИЗМЕРЕНО на роботе (2026-07-26): команда 0.2 м/с дала в среднем 0.0426 м/с
+  # по одометрии (3 прогона по 5с: 0.0418/0.0436/0.0425, разброс ~4%) ->
+  # реальный коэффициент 0.0008 * (0.0426/0.2) = 0.0001706 м/с/единицу. Это
+  # близко к вендорскому config.txt (0.014 СМ/с = 0.00014 м/с), расхождение
+  # ~20%, а не в 5.7 раз как было со старым 0.0008 в ros2_control.xacro.
+  # Значение применено в guide_robot.ros2_control.xacro и в hpp-дефолте.
+  speed_coefficient: 0.014     # FURO_ROBOT_SPEED_COEFFICIENT (попугаи -> СМ/с), справочно
   spin_coefficient:  3.0e-4    # FURO_ROBOT_SPIN_COEFFICIENT  (попугаи -> рад/с)
   speed_scale:       1.0       # FURO_SPEED_SCALE
 

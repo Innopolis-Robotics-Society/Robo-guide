@@ -69,8 +69,8 @@ private:
   bool swap_drives_{false};
   double left_sign_{1.0};
   double right_sign_{-1.0};
-  double speed_coefficient_{0.0008};
-  double wheel_radius_{0.075};
+  double speed_coefficient_{0.0001706};
+  double wheel_radius_{0.1026};
 
   // Clock для RCLCPP_INFO_THROTTLE (должен жить дольше вызова макроса)
   rclcpp::Clock::SharedPtr clock_;
@@ -85,7 +85,7 @@ private:
   double left_velocity_{0.0};
   double right_velocity_{0.0};
 
-  double ticks_per_rev_{262144.0};
+  double ticks_per_rev_{131072.0};
 
   // Буфер для неблокирующего чтения ответа энкодеров
   std::vector<uint8_t> rx_buffer_;

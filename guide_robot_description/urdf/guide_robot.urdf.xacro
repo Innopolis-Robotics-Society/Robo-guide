@@ -17,8 +17,12 @@
   <xacro:arg name="use_sim" default="false"/>
 
   <!-- ===================== Parameters (from robot_params.yaml) =========== -->
-  <xacro:property name="wheel_separation" value="0.338"/>   <!-- WheelBase -->
-  <xacro:property name="wheel_radius"     value="0.075"/>    <!-- WheelDiameter/2 -->
+  <!-- Geometric track width, tape-measured wheel centerline to centerline
+       (RobotSetting.xml said 0.338 - wrong, like the wheel diameter).
+       The controller uses a slightly larger EFFECTIVE value, see
+       guide_robot_controllers.yaml - do not sync the two numbers. -->
+  <xacro:property name="wheel_separation" value="0.347"/>
+  <xacro:property name="wheel_radius"     value="0.1026"/>   <!-- rolling radius, measured (RobotSetting.xml said 0.075 - wrong) -->
   <xacro:property name="wheel_width"      value="0.048"/>    <!-- WheelWidth -->
 
   <!-- Body dimensions - rough estimate of top-heavy chassis -->
@@ -134,9 +138,9 @@
         </geometry>
       </collision>
       <inertial>
-        <!-- Sphere inertia: I = 2/5 * m * r^2 = 2/5 * 0.2 * 0.075^2 -->
+        <!-- Sphere inertia: I = 2/5 * m * r^2 = 2/5 * 0.2 * 0.1026^2 -->
         <mass value="0.2"/>
-        <inertia ixx="0.00045" ixy="0" ixz="0" iyy="0.00045" iyz="0" izz="0.00045"/>
+        <inertia ixx="0.00084" ixy="0" ixz="0" iyy="0.00084" iyz="0" izz="0.00084"/>
       </inertial>
     </link>
 

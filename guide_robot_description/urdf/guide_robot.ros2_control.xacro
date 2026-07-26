@@ -35,12 +35,12 @@
           <param name="baud_rate">115200</param>
           <param name="left_wheel_id">46</param>                 <!-- 0x2E -->
           <param name="right_wheel_id">47</param>                <!-- 0x2F -->
-          <param name="ticks_per_rev">262144</param>             <!-- 512*8*64 -->
+          <param name="ticks_per_rev">131072</param>             <!-- 512*4*64, quadrature is x4 not x8 (measured) -->
           <param name="left_sign">1</param>
           <param name="right_sign">-1</param>                    <!-- right wheel inverted physically -->
           <param name="swap_drives">1</param>                    <!-- FURO_SWAP_DRIVES -->
-          <param name="speed_coefficient">0.0008</param>         <!-- m/s per motor unit -->
-          <param name="wheel_radius">0.075</param>               <!-- wheel radius in meters -->
+          <param name="speed_coefficient">0.0001706</param>      <!-- m/s per motor unit, measured (2026-07-26): cmd 0.2 m/s -> odom avg 0.0426 m/s over 3 runs -->
+          <param name="wheel_radius">0.1026</param>              <!-- rolling radius, measured: 3.157 m over 30.758 rad -->
           <param name="cmd_timeout">0.3</param>                  <!-- watchdog, seconds -->
         </xacro:unless>
       </xacro:unless>
