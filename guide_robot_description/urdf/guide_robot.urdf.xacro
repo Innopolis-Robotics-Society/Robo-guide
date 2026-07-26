@@ -45,7 +45,11 @@
        Check in RViz: huge or tiny model means wrong scale. -->
   <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
   <xacro:property name="lidar_y_offset" value="0.258"/>      <!-- from laser_joint_left/right -->
-  <xacro:property name="lidar_z" value="0.4"/>
+  <!-- Measured floor->lidar height 0.495 m; lidar_z = 0.495 - base_z - 0.03 -->
+  <xacro:property name="lidar_z" value="0.3624"/>
+  <!-- Measured: wheel/floor point to wall 0.363 m, lidar to wall 0.283 m;
+       lidar_x_offset = 0.363 - 0.283 -->
+  <xacro:property name="lidar_x_offset" value="0.08"/>
 
   <!-- ===================== RViz materials =============================== -->
   <material name="grey"><color rgba="0.4 0.4 0.45 1.0"/></material>
@@ -213,7 +217,7 @@
     <joint name="${prefix}_lidar_mount_joint" type="fixed">
       <parent link="base_link"/>
       <child  link="${prefix}_lidar_mount_link"/>
-      <origin xyz="0.075 ${y_offset} ${lidar_z}" rpy="0 0 0"/>
+      <origin xyz="${lidar_x_offset} ${y_offset} ${lidar_z}" rpy="0 0 0"/>
     </joint>
   </xacro:macro>
 
@@ -247,7 +251,7 @@
   <joint name="lidar_bar_joint" type="fixed">
     <parent link="base_link"/>
     <child  link="lidar_bar_link"/>
-    <origin xyz="0.077 0.0 ${lidar_z}" rpy="0 0 0"/>
+    <origin xyz="${lidar_x_offset} 0.0 ${lidar_z}" rpy="0 0 0"/>
   </joint>
 
   <!-- ===================== LiDAR frames ================================ -->
