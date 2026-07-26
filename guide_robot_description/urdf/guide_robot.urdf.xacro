@@ -248,19 +248,24 @@
 
   <!-- ===================== LiDAR frames ================================ -->
   <!-- Laser frames sit on the mounts, not on base_link.
-       z-offset 0.03 is a placeholder for lidar body height, TO-DO verify. -->
+       z-offset 0.03 is a placeholder for lidar body height, TO-DO verify.
+       Both lidars are physically mounted upside-down AND front-to-back
+       reversed. Rotating about pitch (not roll) flips X (forward->backward)
+       and Z (up/down), while leaving Y (left/right) untouched - this is
+       what makes the raw angle-0 ray, which pointed toward robot-forward,
+       point toward robot-backward instead, matching the real mount. -->
   <link name="laser_frame_left"/>
   <joint name="laser_joint_left" type="fixed">
     <parent link="left_lidar_mount_link"/>
     <child  link="laser_frame_left"/>
-    <origin xyz="0 0 0.03" rpy="${pi} 0 0"/>
+    <origin xyz="0 0 0.03" rpy="0 ${pi} 0"/>
   </joint>
 
   <link name="laser_frame_right"/>
   <joint name="laser_joint_right" type="fixed">
     <parent link="right_lidar_mount_link"/>
     <child  link="laser_frame_right"/>
-    <origin xyz="0 0 0.03" rpy="${pi} 0 0"/>
+    <origin xyz="0 0 0.03" rpy="0 ${pi} 0"/>
   </joint>
 
   <!-- ===================== IMU ========================================= -->
