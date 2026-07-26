@@ -175,25 +175,34 @@ hardware_interface::return_type GuideRobotSystem::read(
 
       if (chk_calc == rx_buffer_[18]) {
         // Контрольная сумма верна!
-        // ВНИМАНИЕ: при тестировании выявлено что протокол возвращает данные в порядке:
-        //   buf[6..9]   = данные ПРАВОГО физического колеса (в ROS — левое после знакового
-        //   преобразования) buf[10..13] = данные ЛЕВОГО  физического колеса buf[14..17] = aux
-        //   (третий энкодер)
-        int32_t enc_right_phys = 0;  // в протоколе b[6..9] = правое физическое
-        int32_t enc_left_phys = 0;  // в протоколе b[10..13] = левое физическое
+        // Ответ адресуется теми же ПОЗИЦИОННЫМИ слотами, что и командный пакет
+        // в write(): b[6..9] = слот 1, b[10..13] = слот 2, b[14..17] = aux
+        // (третий энкодер).
+        //
+        // Обратная связь ОБЯЗАНА зеркалить write(): там слот 1 всегда
+        // масштабируется left_sign_, слот 2 — right_sign_, а swap_drives_
+        // решает, КАКОЙ сустав ROS попадает в какой слот. Раньше read() знака
+        // swap_drives_ не знал и вешал left_sign_/right_sign_ на слоты
+        // наоборот — оба колеса возвращали скорость с обратным знаком.
+        // В дифдрайве это переворачивает и v = R/2*(wL+wR), и w = R/W*(wR-wL),
+        // из-за чего одометрия ехала назад при движении вперёд и вращалась
+        // вправо при повороте влево.
+        int32_t enc_slot1 = 0;
+        int32_t enc_slot2 = 0;
         int32_t enc_aux = 0;
-        std::memcpy(&enc_right_phys, &rx_buffer_[6], 4);
-        std::memcpy(&enc_left_phys, &rx_buffer_[10], 4);
+        std::memcpy(&enc_slot1, &rx_buffer_[6], 4);
+        std::memcpy(&enc_slot2, &rx_buffer_[10], 4);
         std::memcpy(&enc_aux, &rx_buffer_[14], 4);
 
         double dt = period.seconds();
         if (dt <= 0.0) dt = 0.02;
 
         constexpr double TWO_PI = 2.0 * M_PI;
-        double new_left_pos =
-          (static_cast<double>(enc_left_phys) / ticks_per_rev_) * TWO_PI * left_sign_;
-        double new_right_pos =
-          (static_cast<double>(enc_right_phys) / ticks_per_rev_) * TWO_PI * right_sign_;
+        double slot1_pos = (static_cast<double>(enc_slot1) / ticks_per_rev_) * TWO_PI * left_sign_;
+        double slot2_pos = (static_cast<double>(enc_slot2) / ticks_per_rev_) * TWO_PI * right_sign_;
+
+        double new_left_pos = swap_drives_ ? slot2_pos : slot1_pos;
+        double new_right_pos = swap_drives_ ? slot1_pos : slot2_pos;
 
         if (!initialized_encoders_) {
           left_position_ = new_left_pos;
@@ -210,10 +219,9 @@ hardware_interface::return_type GuideRobotSystem::read(
 
         RCLCPP_INFO_THROTTLE(
           rclcpp::get_logger("GuideRobotSystem"), *clock_, 500,
-          "[read] L_ticks=%d (pos=%.3f rad, vel=%.3f rad/s) | R_ticks=%d (pos=%.3f rad, vel=%.3f "
-          "rad/s)",
-          enc_left_phys, left_position_, left_velocity_, enc_right_phys, right_position_,
-          right_velocity_);
+          "[read] slot1_ticks=%d slot2_ticks=%d | L pos=%.3f rad vel=%.3f rad/s | R pos=%.3f rad "
+          "vel=%.3f rad/s",
+          enc_slot1, enc_slot2, left_position_, left_velocity_, right_position_, right_velocity_);
 
         rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + 19);
         continue;
