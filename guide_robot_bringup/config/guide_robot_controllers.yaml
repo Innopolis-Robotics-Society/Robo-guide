@@ -62,12 +62,22 @@ diff_drive_controller:
     # нуля) — плавный разгон и быстрая остановка, а не наоборот.
     # has_velocity_limits/has_acceleration_limits считаются deprecated в этой
     # версии контроллера (NaN = лимит выключен), поэтому здесь не выставлены.
-    linear.x.max_velocity: 0.3
-    linear.x.min_velocity: -0.3
-    linear.x.max_acceleration: 0.05
-    linear.x.max_deceleration: 0.5
+    # ПОДНЯТО 2026-07-27 с 0.05: заводские 0.05 м/с^2 давали разгон до 0.25 м/с
+    # за 5 с, и Nav2 не успевал пройти required_movement_radius за отведённое
+    # время -> "Failed to make progress" на каждой цели. 0.3 м/с^2 = 0.03 g.
+    #
+    # УДВОЕНО 2026-07-27 (по запросу). Это ВЫШЕ заводского потолка из
+    # RobotSetting.xml, откуда брались 0.3 / 0.5236, — то есть значения больше
+    # ничем не подтверждены, кроме того, что мотор их отработает. Робот высокий
+    # (1.6 м) и тяжёлый: первый выезд делать с рукой на стопе.
+    # Эти же числа продублированы в velocity_smoother и DWB
+    # (guide_robot_navigation/params/first_iter_nav2.yaml) — менять тройками.
+    linear.x.max_velocity: 0.6
+    linear.x.min_velocity: -0.6
+    linear.x.max_acceleration: 0.6
+    linear.x.max_deceleration: 1.0
 
-    angular.z.max_velocity: 0.5236
-    angular.z.min_velocity: -0.5236
-    angular.z.max_acceleration: 1.0
-    angular.z.max_deceleration: 2.0
+    angular.z.max_velocity: 1.0472
+    angular.z.min_velocity: -1.0472
+    angular.z.max_acceleration: 2.0
+    angular.z.max_deceleration: 4.0

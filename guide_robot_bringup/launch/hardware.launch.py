@@ -2,8 +2,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.conditions import IfCondition
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -16,6 +16,7 @@ def generate_launch_description():
     pkg_bringup = get_package_share_directory("guide_robot_bringup")
     pkg_navigation = get_package_share_directory("guide_robot_navigation")
     pkg_slam_toolbox = get_package_share_directory("slam_toolbox")
+    pkg_nav2_bringup = get_package_share_directory("nav2_bringup")
 
     # ── Launch arguments ──────────────────────────────────────────────────────
     declare_use_sim_time = DeclareLaunchArgument(
@@ -44,16 +45,31 @@ def generate_launch_description():
     declare_slam = DeclareLaunchArgument(
         name="slam",
         default_value="true",
-        description="Launch SLAM Toolbox for mapping",
+        description="true — строить карту SLAM Toolbox; false — AMCL по готовой карте из map",
     )
     declare_slam_params = DeclareLaunchArgument(
         name="slam_params_file",
         default_value=os.path.join(pkg_navigation, "params", "mapper_params_online_async.yaml"),
         description="Full path to SLAM Toolbox parameters file",
     )
+    declare_map = DeclareLaunchArgument(
+        name="map",
+        default_value=os.path.join(pkg_navigation, "map", "lab_map.yaml"),
+        description="Готовая карта для режима slam:=false (map_server + AMCL)",
+    )
+    declare_nav = DeclareLaunchArgument(
+        name="nav",
+        default_value="true",
+        description="Launch Nav2 (planner, controller, behaviors, bt_navigator)",
+    )
+    declare_nav_params = DeclareLaunchArgument(
+        name="nav_params_file",
+        default_value=os.path.join(pkg_navigation, "params", "first_iter_nav2.yaml"),
+        description="Full path to Nav2 parameters file",
+    )
     declare_launch_rviz = DeclareLaunchArgument(
         name="launch_rviz",
-        default_value="false",
+        default_value="true",
         description="Launch RViz (requires a display; keep off on the headless robot)",
     )
     declare_cmd_vel_relay = DeclareLaunchArgument(
@@ -69,6 +85,9 @@ def generate_launch_description():
     launch_foxglove = LaunchConfiguration("launch_foxglove")
     slam = LaunchConfiguration("slam")
     slam_params_file = LaunchConfiguration("slam_params_file")
+    map_yaml_file = LaunchConfiguration("map")
+    nav = LaunchConfiguration("nav")
+    nav_params_file = LaunchConfiguration("nav_params_file")
     launch_rviz = LaunchConfiguration("launch_rviz")
     cmd_vel_relay = LaunchConfiguration("cmd_vel_relay")
 
@@ -110,6 +129,12 @@ def generate_launch_description():
         ],
     )
 
+    # diff_drive_controller публикует одометрию в ~/odom, то есть в
+    # /diff_drive_controller/odom. Ремапа не было, поэтому топика /odom не
+    # существовало вовсе, хотя bt_navigator (odom_topic: /odom) и OdomSmoother
+    # controller_server-а его ждут: DWB каждый цикл считал, что робот стоит.
+    # Навигация при этом работала, потому что TF odom->base_footprint контроллер
+    # публикует сам, а SLAM живёт на TF, а не на топике.
     controller_manager_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
@@ -117,6 +142,7 @@ def generate_launch_description():
             {"robot_description": robot_description},
             controllers_path,
         ],
+        remappings=[("/diff_drive_controller/odom", "/odom")],
     )
 
     diff_drive_controller = Node(
@@ -190,6 +216,46 @@ def generate_launch_description():
         }.items(),
     )
 
+    # ── Локализация по готовой карте (альтернатива SLAM) ───────────────────────
+    # localization_launch.py = map_server + AMCL. map->odom даёт AMCL вместо
+    # slam_toolbox, поэтому режимы взаимоисключающи: slam:=true строит карту,
+    # slam:=false ездит по готовой. Путь к карте подставляется в
+    # map_server.yaml_filename самим localization_launch.py (RewrittenYaml),
+    # значение в first_iter_nav2.yaml роли не играет.
+    #
+    # AMCL стартует с облаком частиц вокруг (0, 0) — задать реальную позу можно
+    # либо "2D Pose Estimate" в RViz, либо set_initial_pose в секции amcl
+    # (guide_robot_navigation/params/first_iter_nav2.yaml).
+    localization_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_nav2_bringup, "launch", "localization_launch.py")
+        ),
+        condition=UnlessCondition(slam),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "params_file": nav_params_file,
+            "map": map_yaml_file,
+        }.items(),
+    )
+
+    # ── Nav2 ───────────────────────────────────────────────────────────────────
+    # Без этого RViz "2D Goal Pose" публиковал /goal_pose в пустоту: bt_navigator
+    # не запускался нигде, кроме simulation.launch.py.
+    # navigation_launch.py = planner/controller/behaviors/bt_navigator без
+    # локализации; map->odom даёт slam_toolbox выше.
+    nav2_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_nav2_bringup, "launch", "navigation_launch.py")
+        ),
+        condition=IfCondition(nav),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "params_file": nav_params_file,
+        }.items(),
+    )
+    # Nav2 и AMCL нужно готовое TF-дерево и /scan до конфигурации нод.
+    delayed_nav2 = TimerAction(period=10.0, actions=[localization_launch, nav2_launch])
+
     # ── RViz2 (Optional) ───────────────────────────────────────────────────────
     rviz_node = Node(
         package="rviz2",
@@ -210,6 +276,9 @@ def generate_launch_description():
             declare_launch_foxglove,
             declare_slam,
             declare_slam_params,
+            declare_map,
+            declare_nav,
+            declare_nav_params,
             declare_launch_rviz,
             declare_cmd_vel_relay,
             robot_state_publisher_node,
@@ -221,6 +290,7 @@ def generate_launch_description():
             sonar_node,
             foxglove_bridge_node,
             slam_launch,
+            delayed_nav2,
             rviz_node,
         ]
     )

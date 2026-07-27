@@ -46,11 +46,20 @@
       </xacro:unless>
     </hardware>
 
+    <!-- Per-wheel envelope must cover the WORST CASE of the base limits in
+         guide_robot_controllers.yaml, which is full linear PLUS full angular:
+           v_wheel = v_max + w_max * wheel_separation_eff / 2
+                   = 0.6 + 1.0472 * 0.35597 / 2 = 0.7864 m/s
+           w_wheel = 0.7864 / 0.1026 = 7.66 rad/s
+         The old 6.98 was below that after the 2026-07-27 speed doubling, so a
+         simultaneous drive+turn at full command would have sat outside the
+         declared range. Raised to 8.0 rad/s (0.82 m/s) to keep margin.
+         Recompute this whenever the yaml limits or wheel_radius change. -->
     <!-- Left wheel -->
     <joint name="left_wheel_joint">
       <command_interface name="velocity">
-        <param name="min">-6.98</param>   <!-- rad/s -->
-        <param name="max">6.98</param>
+        <param name="min">-8.0</param>   <!-- rad/s -->
+        <param name="max">8.0</param>
       </command_interface>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
@@ -59,8 +68,8 @@
     <!-- Right wheel -->
     <joint name="right_wheel_joint">
       <command_interface name="velocity">
-        <param name="min">-6.98</param>
-        <param name="max">6.98</param>
+        <param name="min">-8.0</param>
+        <param name="max">8.0</param>
       </command_interface>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
