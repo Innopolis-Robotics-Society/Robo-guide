@@ -546,3 +546,83 @@ waypoint_follower:
       plugin: "nav2_waypoint_follower::WaitAtWaypoint"
       enabled: True
       waypoint_pause_duration: 200
+
+collision_monitor:
+  ros__parameters:
+    use_sim_time: False
+    base_frame_id: "base_footprint"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel"
+    cmd_vel_out_topic: "/diff_drive_controller/cmd_vel_unstamped"
+    transform_tolerance: 0.5
+    source_timeout: 0.5
+    base_shift_correction: True
+    stop_pub_timeout: 2.0
+
+    polygons: ["FootprintApproach", "SonarStopFront", "SonarSlow"]
+
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: "/local_costmap/published_footprint"
+      time_before_collision: 1.5
+      simulation_time_step: 0.1
+      max_points: 5
+      visualize: False
+      enabled: True
+
+    SonarStopFront:
+      type: "polygon"
+      action_type: "stop"
+      points: [0.35, 0.28, 0.35, -0.28, -0.05, -0.28, -0.05, 0.28]
+      max_points: 1
+      visualize: True
+      polygon_pub_topic: "sonar_stop_polygon"
+      enabled: True
+
+    SonarSlow:
+      type: "polygon"
+      action_type: "slowdown"
+      slowdown_ratio: 0.4
+      points: [0.55, 0.34, 0.55, -0.34, -0.10, -0.34, -0.10, 0.34]
+      max_points: 1
+      visualize: True
+      polygon_pub_topic: "sonar_slow_polygon"
+      enabled: True
+
+    observation_sources: ["scan", "sonar_1", "sonar_9", "sonar_2",
+                          "sonar_8", "sonar_4", "sonar_6", "sonar_5"]
+
+    scan:
+      type: "scan"
+      topic: "/scan"
+      enabled: True
+
+    sonar_1:
+      type: "range"
+      topic: "/sonar/range/sonar_sensor_1"
+      enabled: True
+    sonar_9:
+      type: "range"
+      topic: "/sonar/range/sonar_sensor_9"
+      enabled: True
+    sonar_2:
+      type: "range"
+      topic: "/sonar/range/sonar_sensor_2"
+      enabled: True
+    sonar_8:
+      type: "range"
+      topic: "/sonar/range/sonar_sensor_8"
+      enabled: True
+    sonar_4:
+      type: "range"
+      topic: "/sonar/range/sonar_sensor_4"
+      enabled: True
+    sonar_6:
+      type: "range"
+      topic: "/sonar/range/sonar_sensor_6"
+      enabled: True
+    sonar_5:
+      type: "range"
+      topic: "/sonar/range/sonar_sensor_5"
+      enabled: True

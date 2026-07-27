@@ -193,7 +193,7 @@ def generate_launch_description():
             gazebo,
             delayed_jsb,
             diff_drive_after_jsb,
-            cmd_vel_relay,
+            #cmd_vel_relay,
             rqt_robot_steering,
             #sonar_merge,
         ]
