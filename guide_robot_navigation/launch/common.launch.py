@@ -23,7 +23,7 @@ def generate_launch_description():
         description="Use simulation clock",
     )
     declare_autostart = DeclareLaunchArgument(
-        "autostart", default_value="true",
+        "autostart", default_value="false",
         description="Autostart the nav2 lifecycle nodes",
     )
     declare_nav2_params = DeclareLaunchArgument(

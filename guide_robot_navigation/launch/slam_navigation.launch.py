@@ -13,6 +13,9 @@ def generate_launch_description():
         get_package_share_directory("slam_toolbox"), "launch"
     )
 
+    autostart = LaunchConfiguration("autostart")
+    nav2_params = LaunchConfiguration("nav2_params_file")
+
     use_sim_time = LaunchConfiguration("use_sim_time")
     slam_params = LaunchConfiguration("slam_params_file")
 
@@ -26,6 +29,15 @@ def generate_launch_description():
             pkg, "params", "mapper_params_online_async.yaml"
         ),
         description="slam_toolbox parameters file",
+    )
+    declare_autostart = DeclareLaunchArgument(
+        "autostart", default_value="false",
+        description="Autostart lifecycle nodes",
+    )
+    declare_nav2_params = DeclareLaunchArgument(
+        "nav2_params_file",
+        default_value=os.path.join(pkg, "params", "first_iter_nav2.yaml"),
+        description="Nav2 parameters file",
     )
 
     slam = IncludeLaunchDescription(
@@ -44,12 +56,16 @@ def generate_launch_description():
         ),
         launch_arguments={
             "use_sim_time": use_sim_time,
+            "autostart": autostart,
+            "nav2_params_file": nav2_params,
         }.items(),
     )
 
     return LaunchDescription([
         declare_use_sim_time,
         declare_slam_params,
+        declare_autostart,
+        declare_nav2_params,
         slam,
         common,
     ])
