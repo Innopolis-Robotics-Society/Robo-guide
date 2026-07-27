@@ -217,7 +217,7 @@ hardware_interface::return_type GuideRobotSystem::read(
           right_position_ = new_right_pos;
         }
 
-        RCLCPP_INFO_THROTTLE(
+        RCLCPP_DEBUG_THROTTLE(
           rclcpp::get_logger("GuideRobotSystem"), *clock_, 500,
           "[read] slot1_ticks=%d slot2_ticks=%d | L pos=%.3f rad vel=%.3f rad/s | R pos=%.3f rad "
           "vel=%.3f rad/s",
@@ -305,8 +305,8 @@ hardware_interface::return_type GuideRobotSystem::write(
   // 5. Отправка + проверка результата
   ssize_t written = ::write(serial_fd_, packet, sizeof(packet));
 
-  // Всегда логируем (раз в 2с) — для диагностики
-  RCLCPP_INFO_THROTTLE(
+  // Диагностика: включается через --ros-args --log-level GuideRobotSystem:=debug
+  RCLCPP_DEBUG_THROTTLE(
     rclcpp::get_logger("GuideRobotSystem"), *clock_, 2000,
     "[write] L_cmd=%.3f rad/s -> units=%d | R_cmd=%.3f rad/s -> units=%d | fd=%d | sent=%zd/%zu",
     left_vel_cmd_, l_spd, right_vel_cmd_, r_spd, serial_fd_, written, sizeof(packet));

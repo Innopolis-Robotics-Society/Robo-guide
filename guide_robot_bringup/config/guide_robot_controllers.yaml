@@ -62,9 +62,12 @@ diff_drive_controller:
     # нуля) — плавный разгон и быстрая остановка, а не наоборот.
     # has_velocity_limits/has_acceleration_limits считаются deprecated в этой
     # версии контроллера (NaN = лимит выключен), поэтому здесь не выставлены.
+    # ПОДНЯТО 2026-07-27 с 0.05: заводские 0.05 м/с^2 давали разгон до 0.25 м/с
+    # за 5 с, и Nav2 не успевал пройти required_movement_radius за отведённое
+    # время -> "Failed to make progress" на каждой цели. 0.3 м/с^2 = 0.03 g.
     linear.x.max_velocity: 0.3
     linear.x.min_velocity: -0.3
-    linear.x.max_acceleration: 0.05
+    linear.x.max_acceleration: 0.3
     linear.x.max_deceleration: 0.5
 
     angular.z.max_velocity: 0.5236

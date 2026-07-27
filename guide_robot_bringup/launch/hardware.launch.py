@@ -2,7 +2,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
@@ -16,6 +16,7 @@ def generate_launch_description():
     pkg_bringup = get_package_share_directory("guide_robot_bringup")
     pkg_navigation = get_package_share_directory("guide_robot_navigation")
     pkg_slam_toolbox = get_package_share_directory("slam_toolbox")
+    pkg_nav2_bringup = get_package_share_directory("nav2_bringup")
 
     # ── Launch arguments ──────────────────────────────────────────────────────
     declare_use_sim_time = DeclareLaunchArgument(
@@ -51,6 +52,16 @@ def generate_launch_description():
         default_value=os.path.join(pkg_navigation, "params", "mapper_params_online_async.yaml"),
         description="Full path to SLAM Toolbox parameters file",
     )
+    declare_nav = DeclareLaunchArgument(
+        name="nav",
+        default_value="true",
+        description="Launch Nav2 (planner, controller, behaviors, bt_navigator)",
+    )
+    declare_nav_params = DeclareLaunchArgument(
+        name="nav_params_file",
+        default_value=os.path.join(pkg_navigation, "params", "first_iter_nav2.yaml"),
+        description="Full path to Nav2 parameters file",
+    )
     declare_launch_rviz = DeclareLaunchArgument(
         name="launch_rviz",
         default_value="false",
@@ -69,6 +80,8 @@ def generate_launch_description():
     launch_foxglove = LaunchConfiguration("launch_foxglove")
     slam = LaunchConfiguration("slam")
     slam_params_file = LaunchConfiguration("slam_params_file")
+    nav = LaunchConfiguration("nav")
+    nav_params_file = LaunchConfiguration("nav_params_file")
     launch_rviz = LaunchConfiguration("launch_rviz")
     cmd_vel_relay = LaunchConfiguration("cmd_vel_relay")
 
@@ -190,6 +203,24 @@ def generate_launch_description():
         }.items(),
     )
 
+    # ── Nav2 ───────────────────────────────────────────────────────────────────
+    # Без этого RViz "2D Goal Pose" публиковал /goal_pose в пустоту: bt_navigator
+    # не запускался нигде, кроме simulation.launch.py.
+    # navigation_launch.py = planner/controller/behaviors/bt_navigator без
+    # локализации; map->odom даёт slam_toolbox выше.
+    nav2_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_nav2_bringup, "launch", "navigation_launch.py")
+        ),
+        condition=IfCondition(nav),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "params_file": nav_params_file,
+        }.items(),
+    )
+    # Nav2 нужно готовое TF-дерево и /scan до конфигурации нод.
+    delayed_nav2 = TimerAction(period=10.0, actions=[nav2_launch])
+
     # ── RViz2 (Optional) ───────────────────────────────────────────────────────
     rviz_node = Node(
         package="rviz2",
@@ -210,6 +241,8 @@ def generate_launch_description():
             declare_launch_foxglove,
             declare_slam,
             declare_slam_params,
+            declare_nav,
+            declare_nav_params,
             declare_launch_rviz,
             declare_cmd_vel_relay,
             robot_state_publisher_node,
@@ -221,6 +254,7 @@ def generate_launch_description():
             sonar_node,
             foxglove_bridge_node,
             slam_launch,
+            delayed_nav2,
             rviz_node,
         ]
     )
