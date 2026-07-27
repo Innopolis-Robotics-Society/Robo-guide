@@ -38,6 +38,16 @@ amcl:
     z_rand: 0.5
     z_short: 0.05
     scan_topic: scan
+    # Стартовая поза для режима slam:=false. По умолчанию AMCL рассыпает частицы
+    # вокруг (0, 0) и ждёт "2D Pose Estimate" из RViz. Если робот всегда стартует
+    # с одного и того же места (док/парковка), поставить true и вписать позу —
+    # тогда стек поднимается локализованным без ручного вмешательства.
+    set_initial_pose: false
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
 
 amcl_map_client:
   ros__parameters:
@@ -296,6 +306,9 @@ global_costmap:
 map_server:
   ros__parameters:
     use_sim_time: False
+    # Значение-заглушка: localization_launch.py подменяет yaml_filename путём из
+    # аргумента map: (hardware.launch.py, по умолчанию map/lab_map.yaml).
+    # Правится ТАМ, а не здесь.
     yaml_filename: "map.yaml"
 
 map_saver:
@@ -348,6 +361,28 @@ behavior_server:
 robot_state_publisher:
   ros__parameters:
     use_sim_time: False
+
+# navigation_launch.py (Humble) поднимает velocity_smoother и ставит его ПОСЛЕДНИМ
+# в цепочке до колёс: controller_server -> cmd_vel_nav -> velocity_smoother ->
+# cmd_vel_smoothed -> cmd_vel. Без своей секции он работал на дефолтах
+# (max_velocity [0.5, 0.0, 2.5], max_accel [2.5, 0.0, 3.2]), то есть последняя
+# ступень была втрое-впятеро шире всего, что настроено ниже по стеку, и реально
+# ограничивал только лимитер diff_drive_controller.
+# Значения обязаны совпадать с guide_robot_controllers.yaml.
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: False
+    smoothing_frequency: 20.0
+    scale_velocities: False
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.3, 0.0, 0.5236]
+    min_velocity: [-0.3, 0.0, -0.5236]
+    max_accel: [0.3, 0.0, 1.0]
+    max_decel: [-0.5, 0.0, -2.0]
+    odom_topic: "odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
 
 waypoint_follower:
   ros__parameters:

@@ -1,7 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "hardware_interface/handle.hpp"
@@ -18,6 +21,8 @@ class GuideRobotSystem : public hardware_interface::SystemInterface
 public:
   RCLCPP_SHARED_PTR_DEFINITIONS(GuideRobotSystem)
 
+  ~GuideRobotSystem() override;
+
   // Жизненный цикл
   hardware_interface::CallbackReturn on_init(
     const hardware_interface::HardwareInfo & info) override;
@@ -29,6 +34,12 @@ public:
     const rclcpp_lifecycle::State & previous_state) override;
 
   hardware_interface::CallbackReturn on_deactivate(
+    const rclcpp_lifecycle::State & previous_state) override;
+
+  // Порт открывается в on_configure, поэтому закрывается СИММЕТРИЧНО здесь,
+  // а не в on_deactivate: deactivate→activate — штатная операция
+  // controller_manager, после неё драйвер обязан продолжать работать.
+  hardware_interface::CallbackReturn on_cleanup(
     const rclcpp_lifecycle::State & previous_state) override;
 
   // Интерфейсы состояния и команд
@@ -44,17 +55,28 @@ public:
 
 private:
   // -------------------------------------------------------
-  // Вспомогательные методы для работы с энкодерами
+  // Протокол
   // -------------------------------------------------------
 
-  /// Отправить запрос чтения регистра 0xa0 у мотора с заданным ID.
-  /// Пакет: ff ff <id> 04 03 a0 05 <chk>
-  void sendEncoderRequest(uint8_t motor_id);
+  /// Отправить запрос чтения регистра 0xa0 у мотора left_wheel_id_.
+  /// Пакет: ff ff <id> 04 03 a0 05 <chk>, контрольная сумма считается по факту.
+  void sendEncoderRequest();
 
-  /// Попытаться прочитать один 19-байтный пакет ответа.
-  /// Возвращает true если пакет успешно принят и контрольная сумма верна.
-  /// enc[0..2] — три int32 из поля DATA (b[6:10], b[10:14], b[14:18]).
-  bool parseEncoderResponse(uint8_t motor_id, int32_t enc[3]);
+  /// Собрать и отправить 18-байтный пакет скоростей (слоты адресуются по позиции).
+  /// Возвращает false, если пакет ушёл не полностью.
+  bool writeSpeedPacket(double slot1_cmd, double slot2_cmd);
+
+  /// рад/с → motor units с учётом знака конкретного слота.
+  int16_t toMotorUnits(double omega, double sign) const;
+
+  /// Сторожевой таймер: шлёт нулевые скорости, если write() не вызывался
+  /// дольше cmd_timeout_ (зависший или убитый управляющий цикл).
+  void watchdogLoop();
+  void startWatchdog();
+  void stopWatchdog();
+
+  /// Остановить моторы и закрыть порт. Идемпотентно.
+  void closePort();
 
   // -------------------------------------------------------
   // Serial
@@ -62,6 +84,10 @@ private:
   int serial_fd_{-1};
   std::string serial_port_;
   int baud_rate_{115200};
+
+  // Единственный мьютекс на все ::write в порт: watchdogLoop() пишет из своего
+  // потока параллельно с read()/write() управляющего цикла.
+  std::mutex serial_mutex_;
 
   // Параметры моторов из URDF
   int left_wheel_id_{46};
@@ -71,6 +97,7 @@ private:
   double right_sign_{-1.0};
   double speed_coefficient_{0.0001706};
   double wheel_radius_{0.1026};
+  double cmd_timeout_{0.0};  // с; 0 — сторож выключен
 
   // Clock для RCLCPP_INFO_THROTTLE (должен жить дольше вызова макроса)
   rclcpp::Clock::SharedPtr clock_;
@@ -91,6 +118,16 @@ private:
   std::vector<uint8_t> rx_buffer_;
   bool initialized_encoders_{false};
   int enc_request_counter_{0};  // счётчик для отправки запросов с пониженной частотой
+
+  // Время, накопленное с прошлого УСПЕШНО разобранного пакета энкодеров.
+  // Кадр приходит раз в 5 циклов, поэтому делить дельту позиции на период
+  // одного цикла нельзя — скорость завышалась впятеро.
+  double enc_elapsed_{0.0};
+
+  // Сторожевой таймер
+  std::thread watchdog_thread_;
+  std::atomic<bool> watchdog_running_{false};
+  std::atomic<int64_t> last_write_ns_{0};  // steady_clock, момент последнего write()
 };
 
 }  // namespace guide_robot_hardware
