@@ -16,8 +16,7 @@ x-common: &common-setup
   group_add:
     - "video"
     - "44"
-    - "20"
-    - "dialout"
+    - "${DIALOUT_GID:-20}"
     - "tty"
   command: [
     "/bin/bash","-lc","

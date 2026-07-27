@@ -26,7 +26,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: LaserScan
 Visualization Manager:
   Class: ""
   Displays:
@@ -192,6 +192,8 @@ Visualization Manager:
           Value: true
         lidar_bar_link:
           Value: true
+        map:
+          Value: true
         odom:
           Value: true
         right_caster_link:
@@ -220,7 +222,44 @@ Visualization Manager:
       Show Axes: true
       Show Names: false
       Tree:
-        {}
+        map:
+          odom:
+            base_footprint:
+              base_link:
+                imu_link:
+                  {}
+                left_caster_link:
+                  {}
+                left_lidar_mount_link:
+                  laser_frame_left:
+                    laser_frame_left_calibrated:
+                      {}
+                left_wheel_link:
+                  {}
+                lidar_bar_link:
+                  {}
+                right_caster_link:
+                  {}
+                right_lidar_mount_link:
+                  laser_frame_right:
+                    laser_frame_right_calibrated:
+                      {}
+                right_wheel_link:
+                  {}
+                sonar_sensor_1:
+                  {}
+                sonar_sensor_2:
+                  {}
+                sonar_sensor_4:
+                  {}
+                sonar_sensor_5:
+                  {}
+                sonar_sensor_6:
+                  {}
+                sonar_sensor_8:
+                  {}
+                sonar_sensor_9:
+                  {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -420,7 +459,7 @@ Visualization Manager:
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        {}
+        ValidTrajectories: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -432,7 +471,8 @@ Visualization Manager:
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        {}
+        slam_toolbox: true
+        slam_toolbox_edges: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -461,7 +501,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /sonar/raw/sonar_9
+        Value: /sonar/range/sonar_sensor_9
       Value: true
     - Alpha: 0.5
       Buffer Length: 1
@@ -475,7 +515,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /sonar/raw/sonar_8
+        Value: /sonar/range/sonar_sensor_8
       Value: true
     - Alpha: 0.5
       Buffer Length: 1
@@ -489,7 +529,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /sonar/raw/sonar_6
+        Value: /sonar/range/sonar_sensor_6
       Value: true
     - Alpha: 0.5
       Buffer Length: 1
@@ -503,7 +543,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /sonar/raw/sonar_5
+        Value: /sonar/range/sonar_sensor_5
       Value: true
     - Alpha: 0.5
       Buffer Length: 1
@@ -517,7 +557,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /sonar/raw/sonar_4
+        Value: /sonar/range/sonar_sensor_4
       Value: true
     - Alpha: 0.5
       Buffer Length: 1
@@ -531,7 +571,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /sonar/raw/sonar_2
+        Value: /sonar/range/sonar_sensor_2
       Value: true
     - Alpha: 0.5
       Buffer Length: 1
@@ -545,7 +585,59 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /sonar/raw/sonar_1
+        Value: /sonar/range/sonar_sensor_1
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/Polygon
+      Color: 25; 255; 0
+      Enabled: true
+      Name: Polygon
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /global_costmap/published_footprint
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/Polygon
+      Color: 25; 255; 0
+      Enabled: true
+      Name: Polygon
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_costmap/published_footprint
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/Polygon
+      Color: 255; 255; 0
+      Enabled: true
+      Name: Polygon
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar_slow_polygon
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/Polygon
+      Color: 255; 0; 0
+      Enabled: true
+      Name: Polygon
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar_stop_polygon
       Value: true
   Enabled: true
   Global Options:
@@ -593,25 +685,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 9.087645530700684
+      Distance: 10.294290542602539
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.045396797358989716
-        Y: 0.7500619292259216
-        Z: 0.9036546349525452
+        X: 4.240406513214111
+        Y: -0.06750057637691498
+        Z: 0.7928295731544495
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5553994178771973
+      Pitch: 0.8797969818115234
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 2.503545045852661
+      Yaw: 2.2135419845581055
     Saved: ~
 Window Geometry:
   Displays:

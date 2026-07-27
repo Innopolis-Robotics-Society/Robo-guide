@@ -189,7 +189,7 @@
         </ray>
         <plugin name="sonar_${id}_controller" filename="libgazebo_ros_ray_sensor.so">
           <ros>
-            <remapping>~/out:=sonar/raw/sonar_${id}</remapping>
+            <remapping>~/out:=sonar/range/sonar_sensor_${id}</remapping>
           </ros>
           <!-- Range output takes the MINIMUM over all rays in the cone -->
           <output_type>sensor_msgs/Range</output_type>

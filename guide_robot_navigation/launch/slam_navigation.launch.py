@@ -8,66 +8,48 @@ from launch.substitutions import LaunchConfiguration
 
 
 def generate_launch_description():
-    """Launch Nav2 + SLAM stack."""
-    use_sim_time = LaunchConfiguration("use_sim_time", default="false")
-    map_dir = LaunchConfiguration(
-        "map",
-        default=os.path.join(
-            get_package_share_directory("guide_robot_navigation"), "map", "map.yaml"
-        ),
+    pkg = get_package_share_directory("guide_robot_navigation")
+    slam_launch_dir = os.path.join(
+        get_package_share_directory("slam_toolbox"), "launch"
     )
 
-    nav2_params_file = LaunchConfiguration(
-        "nav2_params_file",
-        default=os.path.join(
-            get_package_share_directory("guide_robot_navigation"), "params", "first_iter_nav2.yaml"
-        ),
-    )
+    use_sim_time = LaunchConfiguration("use_sim_time")
+    slam_params = LaunchConfiguration("slam_params_file")
 
-    slam_params_file = LaunchConfiguration(
+    declare_use_sim_time = DeclareLaunchArgument(
+        "use_sim_time", default_value="false",
+        description="Use simulation clock",
+    )
+    declare_slam_params = DeclareLaunchArgument(
         "slam_params_file",
-        default=os.path.join(
-            get_package_share_directory("guide_robot_navigation"), "params", "first_iter_nav2.yaml"
+        default_value=os.path.join(
+            pkg, "params", "mapper_params_online_async.yaml"
         ),
+        description="slam_toolbox parameters file",
     )
 
-    nav2_launch_file_dir = os.path.join(get_package_share_directory("nav2_bringup"), "launch")
-
-    slam_launch_file_dir = os.path.join(get_package_share_directory("slam_toolbox"), "launch")
-
-    return LaunchDescription(
-        [
-            DeclareLaunchArgument(
-                "map", default_value=map_dir, description="Full path to map file to load"
-            ),
-            DeclareLaunchArgument(
-                "nav2_params_file",
-                default_value=nav2_params_file,
-                description="Full path to param file to load",
-            ),
-            DeclareLaunchArgument(
-                "slam_params_file",
-                default_value=nav2_params_file,
-                description="Full path to param file to load",
-            ),
-            DeclareLaunchArgument(
-                "use_sim_time",
-                default_value="false",
-                description="Use simulation (Gazebo) clock if true",
-            ),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource([slam_launch_file_dir, "/online_async_launch.py"]),
-                launch_arguments={
-                    "use_sim_time": "True",
-                    "slam_params_file": slam_params_file,
-                }.items(),
-            ),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource([nav2_launch_file_dir, "/navigation_launch.py"]),
-                launch_arguments={
-                    "use_sim_time": use_sim_time,
-                    "params_file": nav2_params_file,
-                }.items(),
-            ),
-        ]
+    slam = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(slam_launch_dir, "online_async_launch.py")
+        ),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "slam_params_file": slam_params,
+        }.items(),
     )
+
+    common = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg, "launch", "common.launch.py")
+        ),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+        }.items(),
+    )
+
+    return LaunchDescription([
+        declare_use_sim_time,
+        declare_slam_params,
+        slam,
+        common,
+    ])
