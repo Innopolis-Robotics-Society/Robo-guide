@@ -195,6 +195,6 @@ def generate_launch_description():
             diff_drive_after_jsb,
             cmd_vel_relay,
             rqt_robot_steering,
-            sonar_merge,
+            #sonar_merge,
         ]
     )

@@ -17,7 +17,6 @@ x-common: &common-setup
     - "video"
     - "44"
     - "20"
-    - "dialout"
     - "tty"
   command: [
     "/bin/bash","-lc","
