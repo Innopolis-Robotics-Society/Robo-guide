@@ -58,7 +58,7 @@ def generate_launch_description():
     )
     declare_slam_params = DeclareLaunchArgument(
         name="slam_params_file",
-        default_value=os.path.join(pkg_navigation, "params", "mapper_params_online_async.yaml"),
+        default_value=os.path.join(pkg_navigation, "config", "mapper_params_online_async.yaml"),
         description="Full path to SLAM Toolbox parameters file",
     )
     declare_map = DeclareLaunchArgument(
@@ -73,7 +73,7 @@ def generate_launch_description():
     )
     declare_nav_params = DeclareLaunchArgument(
         name="nav_params_file",
-        default_value=os.path.join(pkg_navigation, "params", "first_iter_nav2.yaml"),
+        default_value=os.path.join(pkg_navigation, "config", "first_iter_nav2.yaml"),
         description="Full path to Nav2 parameters file",
     )
     declare_launch_rviz = DeclareLaunchArgument(
@@ -83,7 +83,7 @@ def generate_launch_description():
     )
     declare_autostart = DeclareLaunchArgument(
         name="autostart",
-        default_value="true",
+        default_value="false",
         description="Autostart Nav2 lifecycle nodes",
     )
 

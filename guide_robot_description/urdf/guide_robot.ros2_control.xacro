@@ -7,12 +7,42 @@
        use_mock_hardware=true -> mock_components stub for stack testing
        otherwise              -> real Dynamixel base driver (FURO)
 
+     NOT standalone-processable: relies on properties declared by
+     guide_robot.urdf.xacro before the include point - p, wheel_separation,
+     wheel_radius. Process the main xacro, not this file.
+
      IMPORTANT: comments MUST stay ASCII-only (see note in guide_robot.urdf.xacro).
      ========================================================================= -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="use_sim"           default="false"/>
   <xacro:arg name="use_mock_hardware" default="false"/>
+
+  <xacro:property name="lim" value="${p['limits']}"/>
+  <xacro:property name="drv" value="${p['drive']}"/>
+
+  <!-- Per-wheel command envelope. Worst case is full linear PLUS full angular
+       applied at once:
+         v_wheel = v_max + w_max * wheel_separation / 2
+         w_wheel = v_wheel / wheel_radius * wheel_limit_margin
+       With the current robot_params.yaml this evaluates to 8.38 rad/s.
+       This is an ENVELOPE, not a limit: actual clamping is done by
+       diff_drive_controller. Too narrow drops commands, too wide is harmless,
+       hence the margin. Recomputed automatically - do not hardcode. -->
+  <xacro:property name="w_wheel_max"
+    value="${((lim['max_linear_velocity'] + lim['max_angular_velocity']*wheel_separation/2)
+              / wheel_radius * lim['wheel_limit_margin'])}"/>
+
+  <xacro:macro name="wheel_iface" params="name">
+    <joint name="${name}">
+      <command_interface name="velocity">
+        <param name="min">${-w_wheel_max}</param>   <!-- rad/s -->
+        <param name="max">${w_wheel_max}</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
 
   <ros2_control name="GuideRobotSystem" type="system">
 
@@ -29,51 +59,27 @@
           <param name="calculate_dynamics">true</param>
         </xacro:if>
         <xacro:unless value="$(arg use_mock_hardware)">
-          <!-- Real FURO Dynamixel base driver. -->
+          <!-- Real FURO Dynamixel base driver. All values come from
+               config/robot_params.yaml, section 'drive' - see that file for
+               measurement provenance. -->
           <plugin>guide_robot_hardware/GuideRobotSystem</plugin>
-          <param name="serial_port">/dev/tty_motors</param>      <!-- udev symlink, see scripts/99-furo-devices.rules -->
-          <param name="baud_rate">115200</param>
-          <param name="left_wheel_id">46</param>                 <!-- 0x2E -->
-          <param name="right_wheel_id">47</param>                <!-- 0x2F -->
-          <param name="ticks_per_rev">131072</param>             <!-- 512*4*64, quadrature is x4 not x8 (measured) -->
-          <param name="left_sign">1</param>
-          <param name="right_sign">-1</param>                    <!-- right wheel inverted physically -->
-          <param name="swap_drives">1</param>                    <!-- FURO_SWAP_DRIVES -->
-          <param name="speed_coefficient">0.0001706</param>      <!-- m/s per motor unit, measured (2026-07-26): cmd 0.2 m/s -> odom avg 0.0426 m/s over 3 runs -->
-          <param name="wheel_radius">0.1026</param>              <!-- rolling radius, measured: 3.157 m over 30.758 rad -->
-          <param name="cmd_timeout">0.3</param>                  <!-- watchdog, seconds -->
+          <param name="serial_port">${drv['serial_port']}</param>
+          <param name="baud_rate">${drv['baud_rate']}</param>
+          <param name="left_wheel_id">${drv['left_wheel_id']}</param>
+          <param name="right_wheel_id">${drv['right_wheel_id']}</param>
+          <param name="ticks_per_rev">${drv['ticks_per_rev']}</param>
+          <param name="left_sign">${drv['left_sign']}</param>
+          <param name="right_sign">${drv['right_sign']}</param>
+          <param name="swap_drives">${drv['swap_drives']}</param>
+          <param name="speed_coefficient">${drv['speed_coefficient']}</param>
+          <param name="wheel_radius">${wheel_radius}</param>
+          <param name="cmd_timeout">${drv['cmd_timeout']}</param>
         </xacro:unless>
       </xacro:unless>
     </hardware>
 
-    <!-- Per-wheel envelope must cover the WORST CASE of the base limits in
-         guide_robot_controllers.yaml, which is full linear PLUS full angular:
-           v_wheel = v_max + w_max * wheel_separation_eff / 2
-                   = 0.6 + 1.0472 * 0.35597 / 2 = 0.7864 m/s
-           w_wheel = 0.7864 / 0.1026 = 7.66 rad/s
-         The old 6.98 was below that after the 2026-07-27 speed doubling, so a
-         simultaneous drive+turn at full command would have sat outside the
-         declared range. Raised to 8.0 rad/s (0.82 m/s) to keep margin.
-         Recompute this whenever the yaml limits or wheel_radius change. -->
-    <!-- Left wheel -->
-    <joint name="left_wheel_joint">
-      <command_interface name="velocity">
-        <param name="min">-8.0</param>   <!-- rad/s -->
-        <param name="max">8.0</param>
-      </command_interface>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-    </joint>
-
-    <!-- Right wheel -->
-    <joint name="right_wheel_joint">
-      <command_interface name="velocity">
-        <param name="min">-8.0</param>
-        <param name="max">8.0</param>
-      </command_interface>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-    </joint>
+    <xacro:wheel_iface name="left_wheel_joint"/>
+    <xacro:wheel_iface name="right_wheel_joint"/>
 
   </ros2_control>
 

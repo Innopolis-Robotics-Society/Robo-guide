@@ -18,9 +18,11 @@
   <!--     NOTE: do NOT add robot_param / robot_param_node here - pulling the  -->
   <!--     URDF from robot_state_publisher breaks the CLI param parser.        -->
   <!-- ===================================================================== -->
-<gazebo>
+  <xacro:arg name="controllers_file"
+           default="$(find guide_robot_description)/config/controllers.yaml"/>
+  <gazebo>
     <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
-      <parameters>$(find guide_robot_description)/params/temp_controllers.yaml</parameters>
+      <parameters>$(arg controllers_file)</parameters>
     </plugin>
   </gazebo>
 

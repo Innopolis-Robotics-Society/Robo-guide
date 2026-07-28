@@ -17,39 +17,29 @@
   <xacro:arg name="use_sim" default="false"/>
 
   <!-- ===================== Parameters (from robot_params.yaml) =========== -->
-  <!-- Geometric track width, tape-measured wheel centerline to centerline
-       (RobotSetting.xml said 0.338 - wrong, like the wheel diameter).
-       The controller uses a slightly larger EFFECTIVE value, see
-       guide_robot_controllers.yaml - do not sync the two numbers. -->
-  <xacro:property name="wheel_separation" value="0.347"/>
-  <xacro:property name="wheel_radius"     value="0.1026"/>   <!-- rolling radius, measured (RobotSetting.xml said 0.075 - wrong) -->
-  <xacro:property name="wheel_width"      value="0.048"/>    <!-- WheelWidth -->
+  <xacro:property name="params_file"
+                  value="$(find guide_robot_description)/config/robot_params.yaml"/>
+  <xacro:property name="p" value="${xacro.load_yaml(params_file)}"/>
+  <xacro:property name="g" value="${p['geometry']}"/>
 
-  <!-- Body dimensions - rough estimate of top-heavy chassis -->
-  <xacro:property name="body_radius" value="0.31"/>
-  <xacro:property name="body_height" value="1.62"/>
-  <xacro:property name="body_z"      value="0.885"/>         <!-- body center Z -->
-
-  <!-- Ground clearance: wheel axle height above floor = wheel_radius -->
-  <xacro:property name="base_z" value="${wheel_radius}"/>
-
-  <!-- Rear casters (real support) -->
-  <xacro:property name="caster_radius" value="${base_z}"/>   <!-- = wheel_radius, keeps robot level -->
-  <xacro:property name="caster_x"      value="-0.3"/>       <!-- behind base center, ~20 cm -->
-  <xacro:property name="caster_y"      value="0.12"/>        <!-- lateral spacing -->
+  <xacro:property name="wheel_separation" value="${g['wheel_separation']}"/>
+  <xacro:property name="wheel_radius"     value="${g['wheel_radius']}"/>
+  <xacro:property name="wheel_width"      value="${g['wheel_width']}"/>
+  <xacro:property name="body_radius"      value="${g['body_radius']}"/>
+  <xacro:property name="body_height"      value="${g['body_height']}"/>
+  <xacro:property name="body_z"           value="${g['body_z']}"/>
+  <xacro:property name="caster_x"         value="${g['caster_x']}"/>
+  <xacro:property name="caster_y"         value="${g['caster_y']}"/>
+  <xacro:property name="lidar_x_offset"   value="${g['lidar_x_offset']}"/>
+  <xacro:property name="lidar_y_offset"   value="${g['lidar_y_offset']}"/>
+  <xacro:property name="lidar_z"          value="${g['lidar_z']}"/>
+  <xacro:property name="base_z"           value="${wheel_radius}"/>
+  <xacro:property name="caster_radius"    value="${wheel_radius}"/>
 
   <!-- Lidar mounts + connecting bar (2020 extrusion) -->
   <xacro:property name="lidar_mount_mesh" value="package://guide_robot_description/meshes/lidars_mount.stl"/>
   <xacro:property name="lidar_bar_mesh"   value="package://guide_robot_description/meshes/al_profile.stl"/>
-  <!-- TO-DO: if meshes were exported from CAD in mm, scale 0.001 is required.
-       Check in RViz: huge or tiny model means wrong scale. -->
   <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
-  <xacro:property name="lidar_y_offset" value="0.258"/>      <!-- from laser_joint_left/right -->
-  <!-- Measured floor->lidar height 0.495 m; lidar_z = 0.495 - base_z - 0.03 -->
-  <xacro:property name="lidar_z" value="0.3624"/>
-  <!-- Measured: wheel/floor point to wall 0.363 m, lidar to wall 0.283 m;
-       lidar_x_offset = 0.363 - 0.283 -->
-  <xacro:property name="lidar_x_offset" value="0.08"/>
 
   <!-- ===================== RViz materials =============================== -->
   <material name="grey"><color rgba="0.4 0.4 0.45 1.0"/></material>

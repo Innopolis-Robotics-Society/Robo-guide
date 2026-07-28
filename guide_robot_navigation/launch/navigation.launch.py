@@ -33,7 +33,7 @@ def generate_launch_description():
     )
     declare_nav2_params = DeclareLaunchArgument(
         "nav2_params_file",
-        default_value=os.path.join(pkg, "params", "first_iter_nav2.yaml"),
+        default_value=os.path.join(pkg, "config", "first_iter_nav2.yaml"),
         description="Nav2 parameters file",
     )
 

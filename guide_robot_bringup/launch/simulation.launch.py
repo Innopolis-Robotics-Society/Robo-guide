@@ -62,13 +62,13 @@ def generate_launch_description():
 
     nav_params_arg = DeclareLaunchArgument(
         "nav_params",
-        default_value=os.path.join(pkg_navigation, "params", "first_iter_nav2.yaml"),
+        default_value=os.path.join(pkg_navigation, "config", "first_iter_nav2.yaml"),
         description="Nav2 parameter file",
     )
 
     slam_params_arg = DeclareLaunchArgument(
         "slam_params",
-        default_value=os.path.join(pkg_navigation, "params", "mapper_params_online_async.yaml"),
+        default_value=os.path.join(pkg_navigation, "config", "mapper_params_online_async.yaml"),
         description="SLAM Toolbox parameter file",
     )
 

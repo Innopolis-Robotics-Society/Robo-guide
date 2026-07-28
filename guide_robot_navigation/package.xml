@@ -9,11 +9,9 @@
   <maintainer email="fabian@todo.todo">fabian</maintainer>
   <license>Apache 2.0</license>
 
-  <!-- Плагин контроллера, на который ссылается params/first_iter_nav2.yaml
-       (FollowPath.plugin). Загружается по имени в рантайме, поэтому сборка
-       без него проходит, а стек падает при конфигурации controller_server. -->
   <exec_depend>nav2_rotation_shim_controller</exec_depend>
-
+  <depend>guide_robot_description</depend>
+  <depend>ament_index_python</depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>python3-pytest</test_depend>
 

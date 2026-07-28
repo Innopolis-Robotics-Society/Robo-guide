@@ -1,0 +1,164 @@
+geometry:
+  # Замерена рулеткой, центр-в-центр. RobotSetting.xml говорил 0.338 - неверно.
+  wheel_separation: 0.347
+  # Катучий радиус, замер 2026-07-26: 3.157 м за 30.758 рад.
+  # RobotSetting.xml говорил 0.075 - неверно.
+  wheel_radius: 0.1026
+  wheel_width: 0.048
+
+  body_radius: 0.31
+  body_height: 1.62
+  body_z: 0.885
+  body_x_offset: -0.12
+
+  caster_x: -0.3
+  caster_y: 0.12
+
+  lidar_x_offset: 0.08          # 0.363 - 0.283, замер по стене
+  lidar_y_offset: 0.258
+  lidar_z: 0.3624               # 0.495 - base_z - 0.03
+  sonar_z: 0.2
+
+  footprint_radius: 0.43
+
+odometry:
+  # ИЗМЕРЕНО вращением на месте (2026-07-26): поворот ровно на 360 град дал
+  # (dR - dL) = 21.792 рад в /joint_states -> эффективная колея
+  # 0.1026 * 21.792 / 2pi = 0.3559 м, что на 2.6% больше геометрических 0.347.
+  # Широкие шины при развороте скребут боком, пятно контакта уползает наружу.
+  # Геометрия остаётся честной (нужна для TF), разницу забирает множитель:
+  # 0.3559 / 0.347 = 1.0259. Точность прогона ~1.4%.
+  wheel_separation_multiplier: 1.0259
+  # Осознанно 1.0: борта разошлись на 0.15%, ниже шума одного прогона.
+  # Разделять при систематическом уводе по дуге на прямой.
+  left_wheel_radius_multiplier: 1.0
+  right_wheel_radius_multiplier: 1.0
+
+limits:
+  # УДВОЕНО 2026-07-27. Выше заводского потолка RobotSetting.xml, ничем не
+  # подтверждено кроме того, что мотор отработает. Робот 1.6 м и тяжёлый -
+  # первый выезд с рукой на стопе.
+  # Тормоз намеренно выше разгона: это единственный тормоз, доступный ПО.
+  max_linear_velocity: 0.6
+  max_linear_accel: 0.6
+  max_linear_decel: 1.0
+  max_angular_velocity: 1.0472
+  max_angular_accel: 2.0
+  max_angular_decel: 4.0
+  # Запас конверта command_interface над худшим случаем v+w.
+  # 1.10 переживает перенастройку wheel_separation_multiplier.
+  wheel_limit_margin: 1.10
+
+drive:
+  serial_port: /dev/tty_motors     # udev, scripts/99-furo-devices.rules
+  baud_rate: 115200
+  left_wheel_id: 46                # 0x2E
+  right_wheel_id: 47               # 0x2F
+  ticks_per_rev: 131072            # 512 * 4 (квадратура x4, не x8) * 64
+  left_sign: 1
+  right_sign: -1                   # правое колесо перевёрнуто физически
+  swap_drives: 1
+  speed_coefficient: 0.0001706     # м/с на единицу, замер 2026-07-26
+  cmd_timeout: 0.3
+
+sensors:
+  # RPLIDAR C1. Этим же числом режет dual_laser_merger в sensors.launch.py,
+  # и по нему AMCL решает, считать ли возврат "максимальной дальностью".
+  lidar_range_max: 12.0
+
+controller_manager:
+  update_rate: 50
+  publish_rate: 50.0               # точка обязательна: параметр типа double
+
+
+
+
+
+# =============================================================================
+# Guide robot — физические параметры робота
+# Источники: RobotSetting.xml (механика) и config.txt (секция FURO)
+# Все числа собраны здесь, чтобы не дублировать их по URDF/YAML.
+# ЗАМЕЧАНИЕ: значения, помеченные [ПРОВЕРИТЬ], надо верифицировать на роботе.
+# =============================================================================
+old:
+  mechanic:
+    # --- Привод (из RobotSetting.xml/Mechanic) ---
+    # ИЗМЕРЕНО (2026-07-26): рулетка между серединами протекторов дала 0.347.
+    # RobotSetting.xml утверждал 0.338 — соврал и здесь тоже.
+    # Тест вращением на 360 град дал ЭФФЕКТИВНУЮ колею 0.3559 (шины скребут боком
+    # при развороте на месте). В контроллер идёт 0.347 * wheel_separation_multiplier
+    # 1.0259; в URDF — физические 0.347. Подробности в guide_robot_controllers.yaml.
+    wheel_base:        0.347    # WheelBase, м (геометрическая)
+    wheel_base_effective: 0.3559 # то, что видит одометрия
+    # ИЗМЕРЕНО на роботе (2026-07-26): прокат по полу на 3.157 м дал 30.758 рад
+    # в /joint_states -> r = 3.157 / 30.758 = 0.1026 м. Это РАДИУС КАЧЕНИЯ под
+    # нагрузкой, именно он нужен одометрии. Замер рулеткой по диаметру давал 20 см
+    # (занижен на 2.5%). RobotSetting.xml утверждал 0.15 м — неверно для
+    # установленных колёс, железо переделывали.
+    wheel_diameter:    0.2052   # WheelDiameter, м
+    wheel_radius:      0.1026   # = WheelDiameter / 2
+
+    # Энкодерная константа: тиков на ОДИН оборот колеса.
+    # = MotorPulse * MotorMultiplier * GearRatio = 512 * 4 * 64
+    # ИЗМЕРЕНО: один оборот колеса вручную даёт 3.03 рад в /joint_states вместо
+    # 2*pi при ticks_per_rev=262144 -> константа была завышена ровно вдвое.
+    # Квадратурный декодер даёт x4, а не x8 как было записано из документации.
+    motor_pulse:       512
+    motor_multiplier:  4
+    gear_ratio:        64
+    ticks_per_rev:     131072  # 512 * 4 * 64
+
+    # Знаки направления вращения колёс
+    left_reverse:      -1       # RytSetting LeftReverse / config FURO_SIGN_LEFT
+    right_reverse:     1        # RightReverse / FURO_SIGN_RIGHT
+
+  driving:
+    # Лимиты из RobotSetting.xml/Driving
+    max_linear_velocity:   0.3   # м/с
+    min_linear_velocity:  -0.3   # м/с
+    linear_acceleration:   0.01  # м/с^2 (штатный, очень мягкий)
+    max_angular_velocity:  0.5236 # 30 град/с -> рад/с
+    min_angular_velocity: -0.5236
+    angular_acceleration:  2.0   # рад/с^2 (штатный)
+    proximity_limit_range: 0.3   # м, дистанция срабатывания защиты
+
+  serial:
+    # --- Порт и коэффициенты (из config.txt, секция FURO) ---
+    # ВНИМАНИЕ: config указывает COM7 для базы, тестовый скрипт слушал COM3.
+    com_port_windows:  "COM7"          # FURO_ROBOT_COM_PORT
+    com_port_linux:    "/dev/tty_motors"
+    baud_rate:         115200
+
+    left_wheel_id:     0x2E   # 46 — ID левого драйва (из тестового Sync Write)
+    right_wheel_id:    0x2F   # 47 — ID правого драйва
+    swap_drives:       1      # FURO_SWAP_DRIVES — левый/правый переставлены!
+
+    # ИЗМЕРЕНО на роботе (2026-07-26): команда 0.2 м/с дала в среднем 0.0426 м/с
+    # по одометрии (3 прогона по 5с: 0.0418/0.0436/0.0425, разброс ~4%) ->
+    # реальный коэффициент 0.0008 * (0.0426/0.2) = 0.0001706 м/с/единицу. Это
+    # близко к вендорскому config.txt (0.014 СМ/с = 0.00014 м/с), расхождение
+    # ~20%, а не в 5.7 раз как было со старым 0.0008 в ros2_control.xacro.
+    # Значение применено в guide_robot.ros2_control.xacro и в hpp-дефолте.
+    speed_coefficient: 0.014     # FURO_ROBOT_SPEED_COEFFICIENT (попугаи -> СМ/с), справочно
+    spin_coefficient:  3.0e-4    # FURO_ROBOT_SPIN_COEFFICIENT  (попугаи -> рад/с)
+    speed_scale:       1.0       # FURO_SPEED_SCALE
+
+  # =============================================================================
+  # Парктроники (RangeSensors из RobotSetting.xml)
+  # Позиции даны в системе base_link. direction — азимут луча (градусы).
+  # sensingAngle 65° — ширина конуса. Индексы соответствуют порядку в XML.
+  # Нулевые/пустые сенсоры (#4 и #8 в XML) исключены как заглушки.
+  # =============================================================================
+  range_sensors:
+    frame_prefix: "range_sensor_"
+    field_of_view: 1.134   # 65 град -> рад
+    min_range: 0.1
+    max_range: 2.0         # TO-DO реальный диапазон парктроника
+    sensors:
+      - { id: 1, x:  0.061107, y:  0.215993, yaw:  42.03 }
+      - { id: 2, x: -0.040039, y:  0.260183, yaw:  90.0 }
+      - { id: 4, x: -0.393220, y:  0.132040, yaw: 138.03 }
+      - { id: 5, x: -0.435289, y:  0.000000, yaw: 180.0 }
+      - { id: 6, x: -0.393220, y: -0.132040, yaw: -138.03 }
+      - { id: 8, x: -0.040039, y: -0.260183, yaw: -90.0 }
+      - { id: 9, x:  0.061107, y: -0.215993, yaw: -42.03 }
