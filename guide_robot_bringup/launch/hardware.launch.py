@@ -2,10 +2,20 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    IncludeLaunchDescription,
+    TimerAction,
+)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    Command,
+    FindExecutable,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -16,7 +26,6 @@ def generate_launch_description():
     pkg_bringup = get_package_share_directory("guide_robot_bringup")
     pkg_navigation = get_package_share_directory("guide_robot_navigation")
     pkg_slam_toolbox = get_package_share_directory("slam_toolbox")
-    pkg_nav2_bringup = get_package_share_directory("nav2_bringup")
 
     # ── Launch arguments ──────────────────────────────────────────────────────
     declare_use_sim_time = DeclareLaunchArgument(
@@ -44,7 +53,7 @@ def generate_launch_description():
     )
     declare_slam = DeclareLaunchArgument(
         name="slam",
-        default_value="true",
+        default_value="false",
         description="true — строить карту SLAM Toolbox; false — AMCL по готовой карте из map",
     )
     declare_slam_params = DeclareLaunchArgument(
@@ -60,7 +69,7 @@ def generate_launch_description():
     declare_nav = DeclareLaunchArgument(
         name="nav",
         default_value="true",
-        description="Launch Nav2 (planner, controller, behaviors, bt_navigator)",
+        description="Launch Nav2 stack (planner, controller, behaviors, collision_monitor)",
     )
     declare_nav_params = DeclareLaunchArgument(
         name="nav_params_file",
@@ -72,10 +81,10 @@ def generate_launch_description():
         default_value="true",
         description="Launch RViz (requires a display; keep off on the headless robot)",
     )
-    declare_cmd_vel_relay = DeclareLaunchArgument(
-        name="cmd_vel_relay",
+    declare_autostart = DeclareLaunchArgument(
+        name="autostart",
         default_value="true",
-        description="Relay /cmd_vel to diff_drive_controller (needed by teleop_twist_keyboard)",
+        description="Autostart Nav2 lifecycle nodes",
     )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -89,7 +98,7 @@ def generate_launch_description():
     nav = LaunchConfiguration("nav")
     nav_params_file = LaunchConfiguration("nav_params_file")
     launch_rviz = LaunchConfiguration("launch_rviz")
-    cmd_vel_relay = LaunchConfiguration("cmd_vel_relay")
+    autostart = LaunchConfiguration("autostart")
 
     # ── Robot Description & Hardware ──────────────────────────────────────────
     urdf_path = PathJoinSubstitution(
@@ -129,12 +138,6 @@ def generate_launch_description():
         ],
     )
 
-    # diff_drive_controller публикует одометрию в ~/odom, то есть в
-    # /diff_drive_controller/odom. Ремапа не было, поэтому топика /odom не
-    # существовало вовсе, хотя bt_navigator (odom_topic: /odom) и OdomSmoother
-    # controller_server-а его ждут: DWB каждый цикл считал, что робот стоит.
-    # Навигация при этом работала, потому что TF odom->base_footprint контроллер
-    # публикует сам, а SLAM живёт на TF, а не на топике.
     controller_manager_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
@@ -153,23 +156,6 @@ def generate_launch_description():
         package="controller_manager", executable="spawner", arguments=["joint_state_broadcaster"]
     )
 
-    # ── cmd_vel bridge ─────────────────────────────────────────────────────────
-    # Nothing in this repo connected /cmd_vel to the controller, so teleop_twist_keyboard
-    # (which publishes a plain Twist on /cmd_vel) drove nothing: the wheels never turned,
-    # odom stayed at the origin and odom->base_footprint never moved.
-    # guide_robot_controllers.yaml sets use_stamped_vel: false, which on Humble makes
-    # diff_drive_controller listen on ~/cmd_vel_unstamped (Twist) rather than ~/cmd_vel
-    # (TwistStamped) — hence this exact target topic.
-    cmd_vel_relay_node = Node(
-        package="topic_tools",
-        executable="relay",
-        name="cmd_vel_relay",
-        output="screen",
-        condition=IfCondition(cmd_vel_relay),
-        arguments=["/cmd_vel", "/diff_drive_controller/cmd_vel_unstamped"],
-        parameters=[{"use_sim_time": use_sim_time}],
-    )
-
     # ── Sensors Launch (Lidars + Scan Merger) ──────────────────────────────────
     sensors_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_bringup, "launch", "sensors.launch.py")),
@@ -180,11 +166,16 @@ def generate_launch_description():
     # ── Sonar Node ─────────────────────────────────────────────────────────────
     sonar_node = Node(
         package="guide_robot_sonar",
-        executable="sonar_node.py",
+        executable="sonar_node_mult.py",
         name="sonar_node",
         output="screen",
         condition=IfCondition(launch_sonar),
-        parameters=[{"use_sim_time": use_sim_time}],
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+                "publish_inf_as_out_of_range": True,
+            }
+        ],
     )
 
     # ── Foxglove Bridge Node ───────────────────────────────────────────────────
@@ -204,57 +195,60 @@ def generate_launch_description():
         ],
     )
 
-    # ── SLAM (Mapping) ─────────────────────────────────────────────────────────
-    slam_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_slam_toolbox, "launch", "online_async_launch.py")
-        ),
-        condition=IfCondition(slam),
-        launch_arguments={
-            "use_sim_time": use_sim_time,
-            "slam_params_file": slam_params_file,
-        }.items(),
-    )
-
-    # ── Локализация по готовой карте (альтернатива SLAM) ───────────────────────
-    # localization_launch.py = map_server + AMCL. map->odom даёт AMCL вместо
-    # slam_toolbox, поэтому режимы взаимоисключающи: slam:=true строит карту,
-    # slam:=false ездит по готовой. Путь к карте подставляется в
-    # map_server.yaml_filename самим localization_launch.py (RewrittenYaml),
-    # значение в first_iter_nav2.yaml роли не играет.
-    #
-    # AMCL стартует с облаком частиц вокруг (0, 0) — задать реальную позу можно
-    # либо "2D Pose Estimate" в RViz, либо set_initial_pose в секции amcl
-    # (guide_robot_navigation/params/first_iter_nav2.yaml).
-    localization_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_nav2_bringup, "launch", "localization_launch.py")
-        ),
-        condition=UnlessCondition(slam),
-        launch_arguments={
-            "use_sim_time": use_sim_time,
-            "params_file": nav_params_file,
-            "map": map_yaml_file,
-        }.items(),
-    )
-
-    # ── Nav2 ───────────────────────────────────────────────────────────────────
-    # Без этого RViz "2D Goal Pose" публиковал /goal_pose в пустоту: bt_navigator
-    # не запускался нигде, кроме simulation.launch.py.
-    # navigation_launch.py = planner/controller/behaviors/bt_navigator без
-    # локализации; map->odom даёт slam_toolbox выше.
-    nav2_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_nav2_bringup, "launch", "navigation_launch.py")
-        ),
+    # ── Navigation & SLAM Stack (matching simulation.launch.py) ───────────────
+    # Uses guide_robot_navigation launch files which include common.launch.py
+    # (Nav2 + nav2_collision_monitor + lifecycle_manager_safety).
+    nav_group = GroupAction(
         condition=IfCondition(nav),
-        launch_arguments={
-            "use_sim_time": use_sim_time,
-            "params_file": nav_params_file,
-        }.items(),
+        actions=[
+            # slam:=true -> SLAM Toolbox + Nav2 + collision_monitor
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg_navigation, "launch", "slam_navigation.launch.py")
+                ),
+                condition=IfCondition(slam),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "autostart": autostart,
+                    "slam_params_file": slam_params_file,
+                    "nav2_params_file": nav_params_file,
+                }.items(),
+            ),
+            # slam:=false -> AMCL + map_server + Nav2 + collision_monitor
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg_navigation, "launch", "navigation.launch.py")
+                ),
+                condition=UnlessCondition(slam),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "autostart": autostart,
+                    "map": map_yaml_file,
+                    "nav2_params_file": nav_params_file,
+                }.items(),
+            ),
+        ],
     )
-    # Nav2 и AMCL нужно готовое TF-дерево и /scan до конфигурации нод.
-    delayed_nav2 = TimerAction(period=10.0, actions=[localization_launch, nav2_launch])
+
+    # Standalone SLAM when nav:=false and slam:=true
+    slam_only = GroupAction(
+        condition=UnlessCondition(nav),
+        actions=[
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg_slam_toolbox, "launch", "online_async_launch.py")
+                ),
+                condition=IfCondition(slam),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "slam_params_file": slam_params_file,
+                }.items(),
+            ),
+        ],
+    )
+
+    # Wait 10s for hardware controllers, sensors, and TF tree to initialize before starting Nav2
+    delayed_nav = TimerAction(period=10.0, actions=[nav_group, slam_only])
 
     # ── RViz2 (Optional) ───────────────────────────────────────────────────────
     rviz_node = Node(
@@ -280,17 +274,15 @@ def generate_launch_description():
             declare_nav,
             declare_nav_params,
             declare_launch_rviz,
-            declare_cmd_vel_relay,
+            declare_autostart,
             robot_state_publisher_node,
             controller_manager_node,
             diff_drive_controller,
             joint_state_broadcaster,
-            cmd_vel_relay_node,
             sensors_launch,
             sonar_node,
             foxglove_bridge_node,
-            slam_launch,
-            delayed_nav2,
+            delayed_nav,
             rviz_node,
         ]
     )

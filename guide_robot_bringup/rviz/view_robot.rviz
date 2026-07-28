@@ -517,17 +517,103 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /goal_pose
       Value: true
-    - Class: rviz_default_plugins/MarkerArray
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 153; 0
       Enabled: true
-      Name: Sonar Cones
-      Namespaces:
-        {}
+      Name: Sonar 1 (front left)
       Topic:
         Depth: 5
         Durability Policy: Volatile
+        Filter size: 10
         History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /sonar/markers
+        Reliability Policy: Best Effort
+        Value: /sonar/range/sonar_sensor_1
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 153; 0
+      Enabled: true
+      Name: Sonar 9 (front right)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /sonar/range/sonar_sensor_9
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 204; 0
+      Enabled: true
+      Name: Sonar 2 (left front)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /sonar/range/sonar_sensor_2
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 204; 0
+      Enabled: true
+      Name: Sonar 8 (right front)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /sonar/range/sonar_sensor_8
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 200; 200; 0
+      Enabled: true
+      Name: Sonar 4 (left rear)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /sonar/range/sonar_sensor_4
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 200; 200; 0
+      Enabled: true
+      Name: Sonar 6 (right rear)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /sonar/range/sonar_sensor_6
+      Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 160; 200; 0
+      Enabled: true
+      Name: Sonar 5 (rear center)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /sonar/range/sonar_sensor_5
       Value: true
   Enabled: true
   Global Options:

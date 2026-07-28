@@ -42,20 +42,33 @@ _SENSOR_QOS = QoSProfile(
 
 
 class _RangeFilter:
-    """Per-sensor filter: median (reject spikes) -> deadband + range hysteresis."""
+    """Медиана по различающимся опросам -> удержание детекта -> deadband."""
 
-    def __init__(self, window_size, deadband_m, range_hysteresis_m):
+    def __init__(self, window_size, deadband_m, range_hysteresis_m, hold_time_s):
         self._history = deque(maxlen=window_size)
         self._deadband_m = deadband_m
         self._range_hysteresis_m = range_hysteresis_m
+        self._hold_time_s = hold_time_s
         self._last_published = float("inf")
+        self._last_finite_t = None
         self._in_range = False
 
-    def update(self, raw_m, max_range):
+    def update(self, raw_m, max_range, now_s):
         """Feed one raw reading (meters, or inf) and return the filtered range."""
-        self._history.append(raw_m)
-        finite = [v for v in self._history if v != float("inf")]
-        median_m = statistics.median(finite) if finite else float("inf")
+        if raw_m != float("inf"):
+            self._last_finite_t = now_s
+            if not self._history or raw_m != self._history[-1]:
+                self._history.append(raw_m)
+        elif self._last_finite_t is None or now_s - self._last_finite_t >= self._hold_time_s:
+            self._history.clear()
+            self._in_range = False
+            self._last_published = float("inf")
+            return float("inf")
+
+        if not self._history:
+            return float("inf")
+
+        median_m = statistics.median_low(self._history)
 
         # Schmitt-trigger around max_range so a target sitting right at the
         # edge doesn't flip the in/out-of-range decision every cycle.
@@ -95,11 +108,16 @@ class SonarNode(Node):
         self.declare_parameter("filter_window_size", 3)
         self.declare_parameter("deadband_m", 0.03)
         self.declare_parameter("range_hysteresis_m", 0.05)
+        self.declare_parameter("hold_time_s", 0.6)
         # collision_monitor treats a reading outside [min_range, max_range] as
         # "no detection". +inf is the sensor_msgs/Range convention, but
         # max_range + eps is more portable across consumers that do a naive
         # numeric comparison and choke on inf.
         self.declare_parameter("publish_inf_as_out_of_range", True)
+        # Драйвер отдаёт время пролёта эха, а не миллиметры
+        self.declare_parameter("range_scale", 0.0026104)
+        self.declare_parameter("range_offset", -0.01303)
+        self.declare_parameter("status_log_period_s", 0.0)
 
         port = self.get_parameter("port").get_parameter_value().string_value
         baudrate = self.get_parameter("baudrate").get_parameter_value().integer_value
@@ -125,8 +143,9 @@ class SonarNode(Node):
             6: "sonar_sensor_9",  # Front Right
         }
 
+        hold_time_s = self.get_parameter("hold_time_s").get_parameter_value().double_value
         self.filters = {
-            s_id: _RangeFilter(filter_window, deadband_m, range_hysteresis_m)
+            s_id: _RangeFilter(filter_window, deadband_m, range_hysteresis_m, hold_time_s)
             for s_id in self.sonar_mapping
         }
 
@@ -141,13 +160,34 @@ class SonarNode(Node):
         self.driver = furo_sonars_cpp.SonarDriver(port, baudrate)
         self.driver.start()
 
+        # [эхо, нет эха (0xFFFF), ошибка чтения (-1)] на каждый датчик
+        self._status = {s_id: [0, 0, 0] for s_id in self.sonar_mapping}
+        status_period = self.get_parameter("status_log_period_s").value
+        if status_period > 0.0:
+            self.create_timer(status_period, self._log_status)
+
         self.timer = self.create_timer(1.0 / update_rate, self.publish_ranges)
         self.get_logger().info(f"Sonar node initialized: {len(self.sonar_mapping)} sensors.")
+
+    def _log_status(self):
+        """Доля тиков в каждом состоянии за период, по датчикам."""
+        parts = []
+        for s_id, frame in self.sonar_mapping.items():
+            ok, no_echo, err = self._status[s_id]
+            total = max(1, ok + no_echo + err)
+            parts.append(
+                f"{frame.rsplit('_', 1)[-1]}: эхо {100 * ok // total}% "
+                f"нет {100 * no_echo // total}% ошибок {100 * err // total}%"
+            )
+            self._status[s_id] = [0, 0, 0]
+        self.get_logger().info(" | ".join(parts))
 
     def publish_ranges(self):
         """Fetch latest ranges from the C++ driver, filter, and publish."""
         ranges_data = self.driver.get_ranges()
-        now = self.get_clock().now().to_msg()
+        now_time = self.get_clock().now()
+        now = now_time.to_msg()
+        now_s = now_time.nanoseconds * 1e-9
 
         min_range = self.get_parameter("min_range").get_parameter_value().double_value
         max_range = self.get_parameter("max_range").get_parameter_value().double_value
@@ -155,17 +195,25 @@ class SonarNode(Node):
         publish_inf = (
             self.get_parameter("publish_inf_as_out_of_range").get_parameter_value().bool_value
         )
+        range_scale = self.get_parameter("range_scale").get_parameter_value().double_value
+        range_offset = self.get_parameter("range_offset").get_parameter_value().double_value
 
         no_detection_value = float("inf") if publish_inf else max_range + 0.01
 
         for s_id, frame_id in self.sonar_mapping.items():
-            val_mm = ranges_data.get(s_id, -1)
-            if val_mm == 0xFFFF or val_mm < 0:
+            counts = ranges_data.get(s_id, -1)
+            if counts == 0xFFFF:
+                self._status[s_id][1] += 1
+                raw_m = float("inf")
+            elif counts < 0:
+                self._status[s_id][2] += 1
                 raw_m = float("inf")
             else:
-                raw_m = val_mm / 1000.0
+                self._status[s_id][0] += 1
+                # max(): offset отрицательный, на малых counts даёт минус.
+                raw_m = max(0.0, counts * range_scale + range_offset)
 
-            filtered_m = self.filters[s_id].update(raw_m, max_range)
+            filtered_m = self.filters[s_id].update(raw_m, max_range, now_s)
 
             # The filter's internal "no detection" sentinel is always inf;
             # translate it once, here, to the configured wire value.
