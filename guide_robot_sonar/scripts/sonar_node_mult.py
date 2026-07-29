@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ROS 2 wrapper node for FURO-D sonar sensors using a low-level C++ driver.
+ROS 2 wrapper node for Guide-Robot sonar sensors using a low-level C++ driver.
 
 Publishes one sensor_msgs/Range topic per sensor:
     sonar/range/<frame_id>
@@ -132,7 +132,7 @@ class SonarNode(Node):
         topic_prefix = self.get_parameter("topic_prefix").get_parameter_value().string_value
 
         # Sonar ID → URDF frame. Frame numbering is non-contiguous because it
-        # follows the original FURO-D harness labels, not the driver poll order.
+        # follows the original Guide-Robot harness labels, not the driver poll order.
         self.sonar_mapping = {
             0: "sonar_sensor_1",  # Front Left
             1: "sonar_sensor_2",  # Left Front

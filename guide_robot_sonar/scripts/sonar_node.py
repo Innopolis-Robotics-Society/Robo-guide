@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ROS 2 wrapper node for FURO-D sonar sensors using a low-level C++ driver.
+ROS 2 wrapper node for Guide-Robot sonar sensors using a low-level C++ driver.
 
 Filtering strategy (see _RangeFilter) — kept deliberately latency-bounded
 since these sensors are intended to feed a safety loop later on:

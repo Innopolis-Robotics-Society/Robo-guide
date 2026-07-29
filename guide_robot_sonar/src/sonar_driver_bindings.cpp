@@ -7,7 +7,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(furo_sonars_cpp, m)
 {
-  m.doc() = "C++ low-level FURO-D serial sonar driver python bindings";
+  m.doc() = "C++ low-level Guide-Robot serial sonar driver python bindings";
 
   py::class_<guide_robot_sonar::SonarDriver>(m, "SonarDriver")
     .def(
