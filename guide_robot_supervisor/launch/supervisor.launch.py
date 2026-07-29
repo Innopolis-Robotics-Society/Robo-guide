@@ -9,7 +9,7 @@ def generate_launch_description():
     pkg = get_package_share_directory("guide_robot_supervisor")
 
     config_file = LaunchConfiguration("config_file")
-    autostart = LaunchConfiguration("autostart")
+    autostart_supervisor = LaunchConfiguration("autostart_supervisor")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
     return LaunchDescription([
@@ -17,7 +17,7 @@ def generate_launch_description():
             "config_file",
             default_value=PathJoinSubstitution([pkg, "config", "supervisor.yaml"]),
         ),
-        DeclareLaunchArgument("autostart", default_value="true"),
+        DeclareLaunchArgument("autostart_supervisor", default_value="true"),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         Node(
             package="guide_robot_supervisor",
@@ -27,7 +27,7 @@ def generate_launch_description():
             emulate_tty=True,
             parameters=[{
                 "config_file": config_file,
-                "autostart": autostart,
+                "autostart_supervisor": autostart_supervisor,
                 "use_sim_time": use_sim_time,
                 "loop_period": 0.2,
                 "estop_topic": "/supervisor/estop",

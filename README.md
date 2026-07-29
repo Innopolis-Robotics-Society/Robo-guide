@@ -1,6 +1,6 @@
 # Robo-guide
 
-Autonomous navigation stack for the **FURo-D** tour-guide robot (Future Robot Co.), migrating the platform from manual/joystick (pult) control to fully autonomous navigation on **ROS 2 Humble** and LLM models.
+Autonomous navigation stack for the **Guide-Robot** tour-guide robot (Future Robot Co.), migrating the platform from manual/joystick (pult) control to fully autonomous navigation on **ROS 2 Humble** and LLM models.
 
 Built and maintained by the **Innopolis Robotics Society** team.
 
@@ -14,9 +14,16 @@ Target stack: ROS 2 Humble · Nav2 · SLAM Toolbox · `ros2_control` + `diff_dri
 
 | Package | Type | Purpose |
 |---------|------|---------|
-| `guide_robot_description` | CMake (ament) | URDF/Xacro model, `ros2_control` description, robot params, meshes |
-| `guide_robot_hardware` | Python (ament) | Hardware interface — `motor_driver_node` bridging the drive base to ROS 2 |
-| `guide_robot_bringup` | Python (ament) | Launch files and RViz config to bring up hardware and visualize the robot |
+| [`guide_robot_description`](guide_robot_description/README.md) | CMake (ament) | URDF/Xacro model, `ros2_control` description, robot params, meshes |
+| [`guide_robot_hardware`](guide_robot_hardware/README.md) | C++17 (ament_cmake, pluginlib) | `hardware_interface::SystemInterface` plugin bridging the FURO drive base to `ros2_control` |
+| [`guide_robot_sonar`](guide_robot_sonar/README.md) | C++/Python (ament) | Low-level serial sonar driver + ROS 2 wrapper nodes publishing `sensor_msgs/Range` per sensor |
+| [`guide_robot_msgs`](guide_robot_msgs/README.md) | msg/srv (ament) | Shared interface definitions (currently just `SonarRanges.msg`, largely unused — see package README) |
+| [`guide_robot_navigation`](guide_robot_navigation/README.md) | Python (ament) | Nav2 + SLAM Toolbox configuration, maps, launch files, collision monitor |
+| [`guide_robot_simulation`](guide_robot_simulation/README.md) | Python (ament) | Gazebo Classic simulation launch, worlds, sonar/sensor plugins |
+| [`guide_robot_supervisor`](guide_robot_supervisor/README.md) | Python (ament) | Lifecycle-node supervisor and watchdogs for coordinated bring-up |
+| [`guide_robot_bringup`](guide_robot_bringup/README.md) | Python (ament) | Top-level launch orchestration (real hardware, simulation, RViz) tying all packages together |
+
+Each package now has its own `README.md` with a detailed technical breakdown and a "Известные проблемы" (known issues) section — see the links above for specifics. Note: `.gitignore` excludes `*.md` repo-wide, so these files need `git add -f` to be committed.
 
 ## Sensors
 
@@ -70,11 +77,11 @@ See [`.docker/README.md`](.docker/README.md) for Jetson builds, bake targets, an
 
 ## Roadmap
 
-- [ ] Wire up `motor_driver_node` to the real base
-- [ ] Integrate 2× RPLIDAR + laser scan merging
+- [x] Wire up `motor_driver_node` to the real base
+- [x] Integrate 2× RPLIDAR + laser scan merging
 - [ ] `robot_localization` EKF (encoders/IMU or `rf2o` fallback)
-- [ ] Nav2 + SLAM Toolbox mapping & navigation
-- [ ] Tour-guide deployment tuning (glass walls, featureless halls, crowds, docking/charging)
+- [x] Nav2 + SLAM Toolbox mapping & navigation
+- [x] Tour-guide deployment tuning (glass walls, featureless halls, crowds, docking/charging)
 - [ ] LLM integration
 
 ## License

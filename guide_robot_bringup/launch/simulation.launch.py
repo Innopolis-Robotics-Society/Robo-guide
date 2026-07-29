@@ -165,7 +165,6 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(pkg_supervisor, "launch", "supervisor.launch.py")
         ),
-        condition=UnlessCondition(slam),
         launch_arguments={
             "use_sim_time": "true",
         }.items(),
