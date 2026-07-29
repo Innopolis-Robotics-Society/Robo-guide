@@ -27,6 +27,5 @@ setup(
         ],
     },
     entry_points={
-        "console_scripts": ["sonar_merge = guide_robot_simulation.sonar_merge:main"],
     },
 )

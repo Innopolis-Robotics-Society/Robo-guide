@@ -12,6 +12,8 @@
 
   <depend>guide_robot_msgs</depend>
 
+  <exec_depend>guide_robot_description</exec_depend>
+
   <export>
     <build_type>ament_python</build_type>
   </export>

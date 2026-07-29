@@ -136,9 +136,6 @@ def generate_launch_description():
         arguments=["diff_drive_controller", "--controller-manager", "/controller_manager"],
     )
 
-    # JSB после запуска gazebo, diff_drive - после JSB
-    delayed_jsb = TimerAction(period=2.0, actions=[joint_state_broadcaster_spawner])
-
     diff_drive_after_jsb = RegisterEventHandler(
         OnProcessExit(
             target_action=joint_state_broadcaster_spawner,
@@ -146,39 +143,11 @@ def generate_launch_description():
         )
     )
 
-    cmd_vel_relay = Node(
-        package="topic_tools",
-        executable="relay",
-        arguments=["/cmd_vel", "/diff_drive_controller/cmd_vel_unstamped"],
-        output="screen",
-    )
-
     rqt_robot_steering = Node(
         package="rqt_robot_steering",
         executable="rqt_robot_steering",
         name="rqt_robot_steering",
         output="screen",
-    )
-
-    sonar_merge = Node(
-        package="guide_robot_simulation",
-        executable="sonar_merge",
-        name="sonar_merge",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": True,
-                "sensor_ids": [
-                    "sonar_1",
-                    "sonar_2",
-                    "sonar_4",
-                    "sonar_5",
-                    "sonar_6",
-                    "sonar_8",
-                    "sonar_9",
-                ],
-            }
-        ],
     )
 
     return LaunchDescription(
@@ -191,10 +160,8 @@ def generate_launch_description():
             robot_state_publisher_node,
             spawn_entity,
             gazebo,
-            delayed_jsb,
+            joint_state_broadcaster_spawner,
             diff_drive_after_jsb,
-            #cmd_vel_relay,
             rqt_robot_steering,
-            #sonar_merge,
         ]
     )
