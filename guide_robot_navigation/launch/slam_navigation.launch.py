@@ -26,7 +26,7 @@ def generate_launch_description():
     declare_slam_params = DeclareLaunchArgument(
         "slam_params_file",
         default_value=os.path.join(
-            pkg, "params", "mapper_params_online_async.yaml"
+            pkg, "config", "mapper_params_online_async.yaml"
         ),
         description="slam_toolbox parameters file",
     )

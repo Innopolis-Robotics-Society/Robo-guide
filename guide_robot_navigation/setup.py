@@ -43,6 +43,7 @@ setup(
         (f"share/{package_name}/config", glob(f"{GEN_DIR}/*.yaml")),
         (f"share/{package_name}/launch", glob("launch/*.launch.py")),
         (f"share/{package_name}/map", glob("map/*")),
+        (f"share/{package_name}/config", glob("config/*.yaml")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

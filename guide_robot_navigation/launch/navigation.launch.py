@@ -28,7 +28,7 @@ def generate_launch_description():
     )
     declare_map = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg, "map", "map.yaml"),
+        default_value=os.path.join(pkg, "map", "simple.yaml"),
         description="Full path to map yaml",
     )
     declare_nav2_params = DeclareLaunchArgument(
