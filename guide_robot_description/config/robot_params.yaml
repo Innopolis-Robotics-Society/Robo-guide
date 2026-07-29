@@ -50,7 +50,7 @@ limits:
   wheel_limit_margin: 1.10
 
 drive:
-  serial_port: /dev/tty_motors     # udev, scripts/99-furo-devices.rules
+  serial_port: /dev/tty_motors     # udev, scripts/99-Guide-Robotevices.rules
   baud_rate: 115200
   left_wheel_id: 46                # 0x2E
   right_wheel_id: 47               # 0x2F
