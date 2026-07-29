@@ -5,7 +5,7 @@ set -e
 
 # Get the directory of this script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-RULES_FILE="${SCRIPT_DIR}/99-furo-devices.rules"
+RULES_FILE="${SCRIPT_DIR}/99-Guide-Robot-devices.rules"
 
 echo "Installing FURO udev rules..."
 if [ ! -f "$RULES_FILE" ]; then
