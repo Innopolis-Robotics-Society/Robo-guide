@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>guide_robot_supervisor</name>
+  <version>0.1.0</version>
+  <description>System Supervisor: порядок запуска слоёв робота (YASMIN FSM).</description>
+  <maintainer email="mook@example.com">mook</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>controller_manager_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rosidl_runtime_py</exec_depend>
+  <exec_depend>yasmin</exec_depend>
+  <exec_depend>yasmin_ros</exec_depend>
+  <exec_depend>yasmin_viewer</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

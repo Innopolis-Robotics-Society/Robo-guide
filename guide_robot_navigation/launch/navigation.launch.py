@@ -14,7 +14,7 @@ def generate_launch_description():
     )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
-    autostart = LaunchConfiguration("autostart")
+    autostart_nav = LaunchConfiguration("autostart_nav")
     map_yaml = LaunchConfiguration("map")
     nav2_params = LaunchConfiguration("nav2_params_file")
 
@@ -22,8 +22,8 @@ def generate_launch_description():
         "use_sim_time", default_value="false",
         description="Use simulation clock",
     )
-    declare_autostart = DeclareLaunchArgument(
-        "autostart", default_value="false",
+    declare_autostart_nav = DeclareLaunchArgument(
+        "autostart_nav", default_value="false",
         description="Autostart lifecycle nodes",
     )
     declare_map = DeclareLaunchArgument(
@@ -44,7 +44,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             "use_sim_time": use_sim_time,
-            "autostart": autostart,
+            "autostart": autostart_nav,
             "params_file": nav2_params,
             "map": map_yaml,
             "use_composition": "False",
@@ -57,14 +57,14 @@ def generate_launch_description():
         ),
         launch_arguments={
             "use_sim_time": use_sim_time,
-            "autostart": autostart,
+            "autostart": autostart_nav,
             "nav2_params_file": nav2_params,
         }.items(),
     )
 
     return LaunchDescription([
         declare_use_sim_time,
-        declare_autostart,
+        declare_autostart_nav,
         declare_map,
         declare_nav2_params,
         localization,

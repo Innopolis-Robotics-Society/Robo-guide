@@ -1,0 +1,36 @@
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    pkg = get_package_share_directory("guide_robot_supervisor")
+
+    config_file = LaunchConfiguration("config_file")
+    autostart = LaunchConfiguration("autostart")
+    use_sim_time = LaunchConfiguration("use_sim_time")
+
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            "config_file",
+            default_value=PathJoinSubstitution([pkg, "config", "supervisor.yaml"]),
+        ),
+        DeclareLaunchArgument("autostart", default_value="true"),
+        DeclareLaunchArgument("use_sim_time", default_value="false"),
+        Node(
+            package="guide_robot_supervisor",
+            executable="supervisor",
+            name="supervisor",
+            output="screen",
+            emulate_tty=True,
+            parameters=[{
+                "config_file": config_file,
+                "autostart": autostart,
+                "use_sim_time": use_sim_time,
+                "loop_period": 0.2,
+                "estop_topic": "/supervisor/estop",
+            }],
+        ),
+    ])

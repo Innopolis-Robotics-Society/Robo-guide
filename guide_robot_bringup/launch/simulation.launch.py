@@ -41,6 +41,7 @@ def generate_launch_description():
     pkg_bringup = get_package_share_directory("guide_robot_bringup")
     pkg_navigation = get_package_share_directory("guide_robot_navigation")
     pkg_simulation = get_package_share_directory("guide_robot_simulation")
+    pkg_supervisor = get_package_share_directory("guide_robot_supervisor")
 
     # ------------------------------------------------------------------
     #  Launch arguments
@@ -165,6 +166,16 @@ def generate_launch_description():
     delayed_nav2 = TimerAction(period=10.0, actions=[nav2])
     delayed_slam = TimerAction(period=10.0, actions=[slam_launch])
 
+    supervisor = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_supervisor, "launch", "supervisor.launch.py")
+        ),
+        condition=UnlessCondition(slam),
+        launch_arguments={
+            "use_sim_time": "true",
+        }.items(),
+    )
+
     # ------------------------------------------------------------------
     #  RViz with the simulation config
     # ------------------------------------------------------------------
@@ -194,6 +205,8 @@ def generate_launch_description():
             delayed_slam,
             # navigation
             delayed_nav2,
+            # supervisor
+            supervisor,
             # visualization
             rviz,
         ]

@@ -15,15 +15,15 @@ def generate_launch_description():
     )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
-    autostart = LaunchConfiguration("autostart")
+    autostart_nav = LaunchConfiguration("autostart_nav")
     nav2_params = LaunchConfiguration("nav2_params_file")
 
     declare_use_sim_time = DeclareLaunchArgument(
         "use_sim_time", default_value="false",
         description="Use simulation clock",
     )
-    declare_autostart = DeclareLaunchArgument(
-        "autostart", default_value="false",
+    declare_autostart_nav = DeclareLaunchArgument(
+        "autostart_nav", default_value="false",
         description="Autostart the nav2 lifecycle nodes",
     )
     declare_nav2_params = DeclareLaunchArgument(
@@ -39,7 +39,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             "use_sim_time": use_sim_time,
-            "autostart": autostart,
+            "autostart": autostart_nav,
             "params_file": nav2_params,
             "use_composition": "False",
         }.items(),
@@ -66,15 +66,15 @@ def generate_launch_description():
         output="screen",
         parameters=[{
             "use_sim_time": use_sim_time,
-            "autostart": autostart,
+            "autostart": autostart_nav,
             "node_names": ["collision_monitor"],
-            "bond_timeout": 1.0,
+            "bond_timeout": 4.0,
         }],
     )
 
     return LaunchDescription([
         declare_use_sim_time,
-        declare_autostart,
+        declare_autostart_nav,
         declare_nav2_params,
         nav2,
         collision_monitor,

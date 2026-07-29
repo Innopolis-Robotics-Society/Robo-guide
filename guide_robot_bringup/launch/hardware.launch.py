@@ -26,6 +26,7 @@ def generate_launch_description():
     pkg_bringup = get_package_share_directory("guide_robot_bringup")
     pkg_navigation = get_package_share_directory("guide_robot_navigation")
     pkg_slam_toolbox = get_package_share_directory("slam_toolbox")
+    pkg_supervisor = get_package_share_directory("guide_robot_supervisor")
 
     # ── Launch arguments ──────────────────────────────────────────────────────
     declare_use_sim_time = DeclareLaunchArgument(
@@ -86,6 +87,12 @@ def generate_launch_description():
         default_value="false",
         description="Autostart Nav2 lifecycle nodes",
     )
+    declare_autostart_nav = DeclareLaunchArgument(
+        name="autostart_nav",
+        default_value="false",
+        description="Autostart Nav2 lifecycle nodes",
+    )
+
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_mock_hardware = LaunchConfiguration("use_mock_hardware")
@@ -98,6 +105,7 @@ def generate_launch_description():
     nav = LaunchConfiguration("nav")
     nav_params_file = LaunchConfiguration("nav_params_file")
     launch_rviz = LaunchConfiguration("launch_rviz")
+    autostart_nav = LaunchConfiguration("autostart_nav")
     autostart = LaunchConfiguration("autostart")
 
     # ── Robot Description & Hardware ──────────────────────────────────────────
@@ -209,7 +217,7 @@ def generate_launch_description():
                 condition=IfCondition(slam),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
-                    "autostart": autostart,
+                    "autostart": autostart_nav,
                     "slam_params_file": slam_params_file,
                     "nav2_params_file": nav_params_file,
                 }.items(),
@@ -222,7 +230,7 @@ def generate_launch_description():
                 condition=UnlessCondition(slam),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
-                    "autostart": autostart,
+                    "autostart": autostart_nav,
                     "map": map_yaml_file,
                     "nav2_params_file": nav_params_file,
                 }.items(),
@@ -250,6 +258,16 @@ def generate_launch_description():
     # Wait 10s for hardware controllers, sensors, and TF tree to initialize before starting Nav2
     delayed_nav = TimerAction(period=10.0, actions=[nav_group, slam_only])
 
+    supervisor = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_supervisor, "launch", "supervisor.launch.py")
+        ),
+        condition=UnlessCondition(slam),
+        launch_arguments={
+            "use_sim_time": "true",
+        }.items(),
+    )
+
     # ── RViz2 (Optional) ───────────────────────────────────────────────────────
     rviz_node = Node(
         package="rviz2",
@@ -275,6 +293,7 @@ def generate_launch_description():
             declare_nav_params,
             declare_launch_rviz,
             declare_autostart,
+            declare_autostart_nav,
             robot_state_publisher_node,
             controller_manager_node,
             diff_drive_controller,
