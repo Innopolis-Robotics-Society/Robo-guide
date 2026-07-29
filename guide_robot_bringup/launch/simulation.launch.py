@@ -28,7 +28,6 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
-    TimerAction,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -157,14 +156,10 @@ def generate_launch_description():
         condition=UnlessCondition(slam),
         launch_arguments={
             "use_sim_time": "true",
-            "params_file": nav_params,
+            "nav2_params_file": nav_params,
             "map": map_yaml,
         }.items(),
     )
-
-    # Nav2 needs a TF tree and a /scan before it starts planning.
-    delayed_nav2 = TimerAction(period=10.0, actions=[nav2])
-    delayed_slam = TimerAction(period=10.0, actions=[slam_launch])
 
     supervisor = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -202,9 +197,9 @@ def generate_launch_description():
             # perception
             merger,
             # localization
-            delayed_slam,
+            slam_launch,
             # navigation
-            delayed_nav2,
+            nav2,
             # supervisor
             supervisor,
             # visualization

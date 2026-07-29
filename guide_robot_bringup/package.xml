@@ -11,7 +11,6 @@
   <test_depend>python3-pytest</test_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>topic_tools</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>guide_robot_hardware</exec_depend>
   <exec_depend>guide_robot_description</exec_depend>
@@ -21,6 +20,11 @@
   <exec_depend>guide_robot_sonar</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>guide_robot_navigation</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_publisher_gui</exec_depend>
+  <exec_depend>guide_robot_supervisor</exec_depend>
+  <exec_depend>guide_robot_simulation</exec_depend>
 
 
   <export>

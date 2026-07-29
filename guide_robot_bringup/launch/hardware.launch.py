@@ -6,7 +6,6 @@ from launch.actions import (
     DeclareLaunchArgument,
     GroupAction,
     IncludeLaunchDescription,
-    TimerAction,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -27,6 +26,7 @@ def generate_launch_description():
     pkg_navigation = get_package_share_directory("guide_robot_navigation")
     pkg_slam_toolbox = get_package_share_directory("slam_toolbox")
     pkg_supervisor = get_package_share_directory("guide_robot_supervisor")
+    pkg_description = get_package_share_directory("guide_robot_description")
 
     # ── Launch arguments ──────────────────────────────────────────────────────
     declare_use_sim_time = DeclareLaunchArgument(
@@ -84,8 +84,8 @@ def generate_launch_description():
     )
     declare_autostart = DeclareLaunchArgument(
         name="autostart",
-        default_value="true",
-        description="Autostart Nav2 lifecycle nodes",
+        default_value="false",
+        description="Autostart supervisor node",
     )
     declare_autostart_nav = DeclareLaunchArgument(
         name="autostart_nav",
@@ -127,11 +127,11 @@ def generate_launch_description():
     )
 
     controllers_path = PathJoinSubstitution(
-        [FindPackageShare("guide_robot_bringup"), "config", "guide_robot_controllers.yaml"]
+        [pkg_description, "config", "controllers.yaml"]
     )
 
     rviz_config = PathJoinSubstitution(
-        [FindPackageShare("guide_robot_bringup"), "rviz", "view_robot.rviz"]
+        [pkg_bringup, "rviz", "view_robot.rviz"]
     )
 
     robot_state_publisher_node = Node(
@@ -255,16 +255,13 @@ def generate_launch_description():
         ],
     )
 
-    # Wait 10s for hardware controllers, sensors, and TF tree to initialize before starting Nav2
-    delayed_nav = TimerAction(period=10.0, actions=[nav_group, slam_only])
-
     supervisor = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_supervisor, "launch", "supervisor.launch.py")
         ),
         condition=UnlessCondition(slam),
         launch_arguments={
-            "use_sim_time": "true",
+            "use_sim_time": use_sim_time,
         }.items(),
     )
 
@@ -301,7 +298,9 @@ def generate_launch_description():
             sensors_launch,
             sonar_node,
             foxglove_bridge_node,
-            delayed_nav,
+            nav_group,
+            slam_only,
+            supervisor,
             rviz_node,
         ]
     )
