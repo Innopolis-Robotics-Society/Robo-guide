@@ -33,6 +33,8 @@
   <xacro:property name="lidar_x_offset"   value="${g['lidar_x_offset']}"/>
   <xacro:property name="lidar_y_offset"   value="${g['lidar_y_offset']}"/>
   <xacro:property name="lidar_z"          value="${g['lidar_z']}"/>
+  <xacro:property name="body_x_offset"    value="${g['body_x_offset']}"/>
+  <xacro:property name="sonar_z"          value="${g['sonar_z']}"/>
   <xacro:property name="base_z"           value="${wheel_radius}"/>
   <xacro:property name="caster_radius"    value="${wheel_radius}"/>
 
@@ -51,14 +53,14 @@
 
   <link name="base_link">
     <visual>
-      <origin xyz="-0.12 0 ${body_z - base_z}" rpy="0 0 0"/>
+      <origin xyz="${body_x_offset} 0 ${body_z - base_z}" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="${body_radius}" length="${body_height}"/>
       </geometry>
       <material name="grey"/>
     </visual>
     <collision>
-      <origin xyz="-0.12 0 ${body_z - base_z}" rpy="0 0 0"/>
+      <origin xyz="${body_x_offset} 0 ${body_z - base_z}" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="${body_radius}" length="${body_height}"/>
       </geometry>
@@ -66,7 +68,7 @@
     <inertial>
       <!-- Mass and inertia are rough estimates, TO-DO -->
       <mass value="62.0"/>
-      <origin xyz="-0.12 0 0.3" rpy="0 0 0"/>
+      <origin xyz="${body_x_offset} 0 0.3" rpy="0 0 0"/>
       <inertia ixx="5.0" ixy="0.0" ixz="0.0" iyy="5.0" iyz="0.0" izz="2.0"/>
     </inertial>
   </link>
@@ -163,7 +165,7 @@
       <joint name="sonar_sensor_${id}_joint" type="fixed">
         <parent link="base_link"/>
         <child  link="sonar_sensor_${id}"/>
-        <origin xyz="${x} ${y} 0.2" rpy="0 0 ${radians(yaw)}"/>
+        <origin xyz="${x} ${y} ${sonar_z}" rpy="0 0 ${radians(yaw)}"/>
       </joint>
     </xacro:macro>
 
