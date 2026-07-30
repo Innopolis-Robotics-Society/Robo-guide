@@ -7,7 +7,7 @@ joint_state_publisher_gui (ползунки для колёс) и RViz.
 Используется для визуальной проверки геометрии и TF-дерева
 БЕЗ реального робота и без ros2_control.
 
-    ros2 launch guide_robot_description view_robot.launch.py
+    ros2 launch guide_robot_bringup view_robot.launch.py
 """
 
 import os
@@ -15,7 +15,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import Command
+from launch.conditions import IfCondition
+from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -49,10 +50,12 @@ def generate_launch_description():
         parameters=[robot_description],
     )
 
+    # Здесь единственный источник joint states — в hardware.launch.py его
+    # роль играет joint_state_broadcaster из ros2_control.
     joint_state_publisher_gui = Node(
         package="joint_state_publisher_gui",
         executable="joint_state_publisher_gui",
-        condition=None,  # всегда для просмотра; в bringup заменяется broadcaster'ом
+        condition=IfCondition(LaunchConfiguration("gui")),
     )
 
     rviz = Node(
