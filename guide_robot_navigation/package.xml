@@ -14,7 +14,6 @@
   <exec_depend>nav2_collision_monitor</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
-  <exec_depend>nav2_rotation_shim_controller</exec_depend>
   <depend>guide_robot_description</depend>
   <depend>ament_index_python</depend>
   <test_depend>ament_copyright</test_depend>
