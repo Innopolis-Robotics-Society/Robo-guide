@@ -8,10 +8,9 @@ from launch.substitutions import LaunchConfiguration
 
 
 def generate_launch_description():
+    """Launch SLAM Toolbox online async mapping plus the common Nav2 stack."""
     pkg = get_package_share_directory("guide_robot_navigation")
-    slam_launch_dir = os.path.join(
-        get_package_share_directory("slam_toolbox"), "launch"
-    )
+    slam_launch_dir = os.path.join(get_package_share_directory("slam_toolbox"), "launch")
 
     autostart_nav = LaunchConfiguration("autostart_nav")
     nav2_params = LaunchConfiguration("nav2_params_file")
@@ -20,18 +19,18 @@ def generate_launch_description():
     slam_params = LaunchConfiguration("slam_params_file")
 
     declare_use_sim_time = DeclareLaunchArgument(
-        "use_sim_time", default_value="false",
+        "use_sim_time",
+        default_value="false",
         description="Use simulation clock",
     )
     declare_slam_params = DeclareLaunchArgument(
         "slam_params_file",
-        default_value=os.path.join(
-            pkg, "config", "mapper_params_online_async.yaml"
-        ),
+        default_value=os.path.join(pkg, "config", "mapper_params_online_async.yaml"),
         description="slam_toolbox parameters file",
     )
     declare_autostart_nav = DeclareLaunchArgument(
-        "autostart_nav", default_value="false",
+        "autostart_nav",
+        default_value="false",
         description="Autostart lifecycle nodes",
     )
     declare_nav2_params = DeclareLaunchArgument(
@@ -41,9 +40,7 @@ def generate_launch_description():
     )
 
     slam = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(slam_launch_dir, "online_async_launch.py")
-        ),
+        PythonLaunchDescriptionSource(os.path.join(slam_launch_dir, "online_async_launch.py")),
         launch_arguments={
             "use_sim_time": use_sim_time,
             "slam_params_file": slam_params,
@@ -51,21 +48,21 @@ def generate_launch_description():
     )
 
     common = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg, "launch", "common.launch.py")
-        ),
+        PythonLaunchDescriptionSource(os.path.join(pkg, "launch", "common.launch.py")),
         launch_arguments={
             "use_sim_time": use_sim_time,
-            "autostart": autostart_nav,
+            "autostart_nav": autostart_nav,
             "nav2_params_file": nav2_params,
         }.items(),
     )
 
-    return LaunchDescription([
-        declare_use_sim_time,
-        declare_slam_params,
-        declare_autostart_nav,
-        declare_nav2_params,
-        slam,
-        common,
-    ])
+    return LaunchDescription(
+        [
+            declare_use_sim_time,
+            declare_slam_params,
+            declare_autostart_nav,
+            declare_nav2_params,
+            slam,
+            common,
+        ]
+    )

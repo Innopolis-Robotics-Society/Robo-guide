@@ -82,17 +82,17 @@ def generate_launch_description():
         default_value="true",
         description="Launch RViz (requires a display; keep off on the headless robot)",
     )
-    declare_autostart = DeclareLaunchArgument(
-        name="autostart",
+    declare_autostart_supervisor = DeclareLaunchArgument(
+        name="autostart_supervisor",
         default_value="false",
-        description="Autostart supervisor node",
+        description="Let the supervisor bring the lifecycle groups up on its own; "
+        "false keeps it idle in INIT until /supervisor/bringup is called",
     )
     declare_autostart_nav = DeclareLaunchArgument(
         name="autostart_nav",
         default_value="false",
         description="Autostart Nav2 lifecycle nodes",
     )
-
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_mock_hardware = LaunchConfiguration("use_mock_hardware")
@@ -106,7 +106,7 @@ def generate_launch_description():
     nav_params_file = LaunchConfiguration("nav_params_file")
     launch_rviz = LaunchConfiguration("launch_rviz")
     autostart_nav = LaunchConfiguration("autostart_nav")
-    autostart = LaunchConfiguration("autostart")
+    autostart_supervisor = LaunchConfiguration("autostart_supervisor")
 
     # ── Robot Description & Hardware ──────────────────────────────────────────
     urdf_path = PathJoinSubstitution(
@@ -126,13 +126,9 @@ def generate_launch_description():
         value_type=str,
     )
 
-    controllers_path = PathJoinSubstitution(
-        [pkg_description, "config", "controllers.yaml"]
-    )
+    controllers_path = PathJoinSubstitution([pkg_description, "config", "controllers.yaml"])
 
-    rviz_config = PathJoinSubstitution(
-        [pkg_bringup, "rviz", "view_robot.rviz"]
-    )
+    rviz_config = PathJoinSubstitution([pkg_bringup, "rviz", "view_robot.rviz"])
 
     robot_state_publisher_node = Node(
         package="robot_state_publisher",
@@ -217,7 +213,7 @@ def generate_launch_description():
                 condition=IfCondition(slam),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
-                    "autostart": autostart_nav,
+                    "autostart_nav": autostart_nav,
                     "slam_params_file": slam_params_file,
                     "nav2_params_file": nav_params_file,
                 }.items(),
@@ -230,7 +226,7 @@ def generate_launch_description():
                 condition=UnlessCondition(slam),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
-                    "autostart": autostart_nav,
+                    "autostart_nav": autostart_nav,
                     "map": map_yaml_file,
                     "nav2_params_file": nav_params_file,
                 }.items(),
@@ -261,6 +257,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             "use_sim_time": use_sim_time,
+            "autostart_supervisor": autostart_supervisor,
         }.items(),
     )
 
@@ -288,7 +285,7 @@ def generate_launch_description():
             declare_nav,
             declare_nav_params,
             declare_launch_rviz,
-            declare_autostart,
+            declare_autostart_supervisor,
             declare_autostart_nav,
             robot_state_publisher_node,
             controller_manager_node,
