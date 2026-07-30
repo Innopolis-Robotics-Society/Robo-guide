@@ -7,8 +7,12 @@ controller_manager:
 
     diff_drive_controller:
       type: diff_drive_controller/DiffDriveController
+    # TEMPORARY WORKAROUND / ВРЕМЕННОЕ РЕШЕНИЕ:
+    # Изначально компонент планировался в 'unconfigured', чтобы supervisor управлял
+    # активацией hardware. До завершения интеграции supervisor с ros2_control
+    # держим 'active', чтобы спавнеры и контроллеры поднимались автоматически.
     hardware_components_initial_state:
-      unconfigured:
+      active:
         - GuideRobotSystem
 
 joint_state_broadcaster:
