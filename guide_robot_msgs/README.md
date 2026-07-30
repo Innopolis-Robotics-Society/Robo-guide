@@ -49,9 +49,10 @@ id/индекс в самом `SonarRanges`.
 - **Публикуется** в `guide_robot_sonar/scripts/sonar_node.py` (устаревший
   «монолитный» узел, использующий C++-драйвер напрямую через
   `furo_sonars_cpp.SonarDriver`) на топик `sonar/ranges`. Этот узел
-  запускается **только** в `guide_robot_bringup/launch/test.launch.py`
-  (executable `sonar_node.py`). В «боевом» `hardware.launch.py` вместо
-  него используется другой executable, `sonar_node_mult.py`, который
+  не запускается ни из одного launch-файла в репозитории (единственное
+  место, `guide_robot_bringup/launch/test.launch.py`, удалено). В «боевом»
+  `hardware.launch.py` используется другой executable, `sonar_node_mult.py`,
+  который
   публикует по одному `sensor_msgs/Range` на топик `sonar/range/<frame_id>`
   и **не использует `SonarRanges` вообще**.
 - **Публикуется** в `guide_robot_simulation/guide_robot_simulation/sonar_merge.py`
