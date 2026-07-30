@@ -1,0 +1,13 @@
+# Goal
+string exhibit_id
+string mode              # short|full
+uint32 start_chunk
+string language
+---
+# Result
+bool completed
+NarrationToken token
+---
+# Feedback
+uint32 chunk_index
+uint32 total_chunks

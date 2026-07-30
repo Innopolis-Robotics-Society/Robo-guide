@@ -1,0 +1,6 @@
+string exhibit_id
+string mode
+string language
+---
+string[] chunks
+string version

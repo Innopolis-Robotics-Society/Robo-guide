@@ -1,0 +1,5 @@
+string zone
+string category
+bool near_only
+---
+Location[] locations

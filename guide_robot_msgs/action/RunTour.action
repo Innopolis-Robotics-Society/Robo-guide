@@ -1,0 +1,24 @@
+# Goal
+string tour_id
+string[] location_ids
+uint32 time_budget_min
+---
+# Result
+uint8 OUTCOME_COMPLETED = 0
+uint8 OUTCOME_ABORTED = 1
+uint8 OUTCOME_TIMEOUT = 2
+uint8 OUTCOME_CANCELLED = 3
+
+uint8 outcome
+uint32 stops_completed
+---
+# Feedback
+uint8 TOUR_STATE_NAVIGATING = 0
+uint8 TOUR_STATE_ARRIVED = 1
+uint8 TOUR_STATE_NARRATING = 2
+uint8 TOUR_STATE_AWAITING_USER = 3
+uint8 TOUR_STATE_SKIPPED = 4
+
+uint8 state
+uint32 stop_index
+string current_location

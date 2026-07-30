@@ -1,0 +1,9 @@
+# Goal
+string text
+uint8 priority
+string language
+---
+# Result
+bool completed
+---
+# Feedback

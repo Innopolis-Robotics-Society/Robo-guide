@@ -1,0 +1,11 @@
+# Goal
+string question
+string[] options
+float32 timeout_s
+string default_option
+---
+# Result
+string answer
+bool timed_out
+---
+# Feedback
