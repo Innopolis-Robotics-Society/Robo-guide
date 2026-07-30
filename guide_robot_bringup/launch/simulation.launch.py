@@ -161,12 +161,25 @@ def generate_launch_description():
         }.items(),
     )
 
-    supervisor = IncludeLaunchDescription(
+    supervisor_amcl = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_supervisor, "launch", "supervisor.launch.py")
         ),
+        condition=UnlessCondition(slam),
         launch_arguments={
             "use_sim_time": "true",
+            "config_file": os.path.join(pkg_supervisor, "config", "supervisor.yaml"),
+        }.items(),
+    )
+
+    supervisor_slam = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_supervisor, "launch", "supervisor.launch.py")
+        ),
+        condition=IfCondition(slam),
+        launch_arguments={
+            "use_sim_time": "true",
+            "config_file": os.path.join(pkg_supervisor, "config", "supervisor_slam.yaml"),
         }.items(),
     )
 
@@ -200,7 +213,8 @@ def generate_launch_description():
             # navigation
             nav2,
             # supervisor
-            supervisor,
+            supervisor_amcl,
+            supervisor_slam,
             # visualization
             rviz,
         ]
