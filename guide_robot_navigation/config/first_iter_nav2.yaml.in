@@ -430,7 +430,7 @@ global_costmap:
       # ВЫКЛЮЧЕНО 2026-07-27. Глобальный костмап — это вся лаборатория,
       # 560x482 клеток = 270 КБ на сообщение. При True это уходило целиком
       # каждую секунду каждому подписчику (RViz, Foxglove) вместо инкрементов
-      # в costmap_updates. Дисплеи в view_robot.rviz на update-топики подписаны.
+      # в costmap_updates. Дисплеи в hardware.rviz на update-топики подписаны.
       always_send_full_costmap: False
   global_costmap_client:
     ros__parameters:

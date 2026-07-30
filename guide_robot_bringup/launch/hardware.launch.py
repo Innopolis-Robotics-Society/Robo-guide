@@ -128,7 +128,7 @@ def generate_launch_description():
 
     controllers_path = PathJoinSubstitution([pkg_description, "config", "controllers.yaml"])
 
-    rviz_config = PathJoinSubstitution([pkg_bringup, "rviz", "view_robot.rviz"])
+    rviz_config = PathJoinSubstitution([pkg_bringup, "rviz", "hardware.rviz"])
 
     robot_state_publisher_node = Node(
         package="robot_state_publisher",
