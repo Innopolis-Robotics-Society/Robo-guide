@@ -90,7 +90,7 @@ def generate_launch_description():
     )
     declare_autostart_nav = DeclareLaunchArgument(
         name="autostart_nav",
-        default_value="false",
+        default_value="true",
         description="Autostart Nav2 lifecycle nodes",
     )
 
