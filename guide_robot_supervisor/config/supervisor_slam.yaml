@@ -1,0 +1,62 @@
+# config/supervisor_slam.yaml
+supervisor:
+  groups:
+    - name: safety
+      manager: /lifecycle_manager_safety
+      preconditions: [sonar_rate, scan_rate]
+      precondition_timeout: 60.0
+      startup_timeout: 30.0
+
+    - name: navigation
+      manager: /lifecycle_manager_navigation
+      requires: [safety]
+      preconditions: [slam_alive]
+      startup_timeout: 45.0
+
+  watchdogs:
+    - name: sonar_rate
+      class: guide_robot_supervisor.watchdogs.topic_rate.TopicRateWatchdog
+      params:
+        topics: [/sonar/range/sonar_sensor_1, /sonar/range/sonar_sensor_2,
+                 /sonar/range/sonar_sensor_4, /sonar/range/sonar_sensor_5,
+                 /sonar/range/sonar_sensor_6, /sonar/range/sonar_sensor_8,
+                 /sonar/range/sonar_sensor_9]
+        msg_type: sensor_msgs/msg/Range
+        qos: sensor
+        min_rate: 1.5
+        warn_rate: 3.0
+        grace: 20.0
+      policy: {on_error: pause, target: navigation, debounce: 3, period: 1.0}
+
+    - name: scan_rate
+      class: guide_robot_supervisor.watchdogs.topic_rate.TopicRateWatchdog
+      params:
+        topics: [/scan, /scan_left, /scan_right]
+        msg_type: sensor_msgs/msg/LaserScan
+        qos: sensor
+        min_rate: 5.0
+        warn_rate: 8.0
+        grace: 20.0
+      policy: {on_error: pause, target: navigation, debounce: 3, period: 1.0}
+
+    - name: slam_alive
+      class: guide_robot_supervisor.watchdogs.node_alive.NodeAliveWatchdog
+      params: {nodes: [/slam_toolbox], grace: 20.0}
+      policy: {on_error: pause, target: navigation, debounce: 3, period: 1.0}
+
+    - name: tf_map
+      class: guide_robot_supervisor.watchdogs.tf_available.TFWatchdog
+      params: {parent: map, child: odom, max_age: 5.0, grace: 30.0}
+      policy: {on_error: pause, target: navigation, debounce: 5, period: 1.0}
+
+    - name: control_stack
+      class: guide_robot_supervisor.watchdogs.node_alive.NodeAliveWatchdog
+      params:
+        nodes: [/controller_manager, /diff_drive_controller, /robot_state_publisher]
+        grace: 20.0
+      policy: {on_error: shutdown, debounce: 3, period: 1.0}
+
+    - name: safety_alive
+      class: guide_robot_supervisor.watchdogs.node_alive.LifecycleManagerActiveWatchdog
+      params: {manager: /lifecycle_manager_safety, timeout: 2.0}
+      policy: {on_error: pause, target: navigation, debounce: 2, period: 2.0}
