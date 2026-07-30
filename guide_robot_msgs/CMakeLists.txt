@@ -11,6 +11,7 @@ find_package(builtin_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(action_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/NarrationToken.msg"
@@ -26,7 +27,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/AskUser.action"
   "action/Say.action"
   "msg/SonarRanges.msg"
-  DEPENDENCIES builtin_interfaces std_msgs geometry_msgs action_msgs
+  DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs
 )
 
 ament_export_dependencies(rosidl_default_runtime)
