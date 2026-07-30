@@ -11,15 +11,14 @@ rviz-конфиги и две вспомогательные Python-ноды д�
 
 ## Обзор
 
-Слой запуска состоит из пяти launch-файлов и двух консольных нод:
+Слой запуска состоит из четырёх launch-файлов и двух консольных нод:
 
 - на реальном роботе точка входа — `hardware.launch.py`;
 - в симуляции (Gazebo) — `simulation.launch.py`;
 - `sensors.launch.py` и `view_robot.launch.py` — самостоятельные
   вспомогательные launch-файлы (первый переиспользуется из
   `hardware.launch.py`, второй — только для просмотра URDF в RViz без
-  `ros2_control`);
-- `test.launch.py` — ручной сценарий для тестирования на стенде.
+  `ros2_control`).
 
 Управление жизненным циклом Nav2-нод формально идёт через
 `nav2_lifecycle_manager` (внутри `guide_robot_navigation`) плюс
@@ -35,13 +34,20 @@ rviz-конфиги и две вспомогательные Python-ноды д�
 `robot_state_publisher` - `ros2_control_node` (`controller_manager`) -
 спаунеры `diff_drive_controller` и `joint_state_broadcaster` -
 опционально `sensors.launch.py`, сонар (`guide_robot_sonar`,
-`sonar_node_mult.py`), Foxglove Bridge - через 10 секунд (`TimerAction`)
-стек Nav2/SLAM (`guide_robot_navigation`) - опционально RViz2.
+`sonar_node_mult.py`), Foxglove Bridge - стек Nav2/SLAM
+(`guide_robot_navigation`) - супервизор (`guide_robot_supervisor`,
+безусловно) - опционально RViz2 с `rviz/hardware.rviz`.
 
 Аргументы: `use_sim_time` (false), `use_mock_hardware` (false),
 `launch_sensors` (true), `launch_sonar` (true), `launch_foxglove` (true),
 `slam` (false), `slam_params_file`, `map`, `nav` (true), `nav_params_file`,
-`launch_rviz` (true), `autostart` (false), `autostart_nav` (false).
+`launch_rviz` (true), `autostart_supervisor` (false), `autostart_nav` (false).
+
+`autostart_supervisor:=false` оставляет супервизор в `INIT` — стек
+поднимается только по вызову сервиса `/supervisor/bringup`; политики
+watchdog'ов до этого не действуют. `autostart_nav` уходит в
+`nav2_lifecycle_manager` и должен оставаться `false`, пока группами
+управляет супервизор (см. `guide_robot_supervisor/config/supervisor.yaml`).
 
 ### `launch/sensors.launch.py`
 
@@ -63,25 +69,19 @@ rviz-конфиги и две вспомогательные Python-ноды д�
 
 Точка входа для Gazebo-симуляции: `gazebo.launch.py` из
 `guide_robot_simulation`, `dual_laser_merger` (без калибровочных
-офсетов — предполагается, что TF в симуляции точная), через 10 с —
+офсетов — предполагается, что TF в симуляции точная),
 SLAM Toolbox или Nav2 (`guide_robot_navigation`), супервизор
 (`guide_robot_supervisor`, только при `slam:=false`), RViz с
 `rviz/sim.rviz`. Аргументы: `slam` (False), `map`, `rviz` (true),
 `nav_params`, `slam_params`.
 
-### `launch/test.launch.py`
-
-Комбинирует `hardware.launch.py` + `sensors.launch.py` + отдельная
-нода сонара (`sonar_node.py`) + отдельный `foxglove_bridge` — **см. п. 5
-в известных проблемах**: с параметрами по умолчанию это приводит к
-двойному запуску сенсоров/сонара/Foxglove.
-
 ### `launch/view_robot.launch.py`
 
 Только для визуальной проверки геометрии/TF URDF без реального робота
 и без `ros2_control`: `robot_state_publisher` + `joint_state_publisher_gui`
-(ползунки колёс) + RViz (`rviz/view_robot.rviz`). Аргумент: `gui` (true,
-не используется дальше в файле, см. «Известные проблемы»).
+(ползунки колёс) + RViz (`rviz/view_robot.rviz`, fixed frame
+`base_footprint`). Аргумент: `gui` (true) — выключает
+`joint_state_publisher_gui`.
 
 ### Консольные ноды (`guide_robot_bringup/*.py`)
 
@@ -95,15 +95,12 @@ SLAM Toolbox или Nav2 (`guide_robot_navigation`), супервизор
 
 ## Зависимости
 
-Из `package.xml` (`exec_depend`): `rclpy`, `sensor_msgs`, `topic_tools`,
+Из `package.xml` (`exec_depend`): `rclpy`, `sensor_msgs`,
 `robot_state_publisher`, `guide_robot_hardware`, `guide_robot_description`,
 `sllidar_ros2`, `dual_laser_merger`, `foxglove_bridge`, `guide_robot_sonar`,
-`slam_toolbox`, `guide_robot_navigation`. `test_depend`: `ament_copyright`,
-`python3-pytest`.
+`slam_toolbox`, `guide_robot_navigation`, `rviz2`, `controller_manager`,
+`joint_state_publisher_gui`, `guide_robot_supervisor`,
+`guide_robot_simulation`. `test_depend`: `ament_copyright`, `python3-pytest`.
 
 Из `setup.py`: `entry_points.console_scripts` = `laser_sector_blanker`,
-`laser_blind_sector_finder`; устанавливаются `launch/*.py`, `rviz/*.rviz`,
-`config/*.yaml` (каталога `config/` в дереве сейчас нет — см. п. 1).
-
-См. «Известные проблемы», п. 6 — список пакетов, фактически
-используемых в launch-файлах, но не объявленных в `package.xml`.
+`laser_blind_sector_finder`; устанавливаются `launch/*.py` и `rviz/*.rviz`.

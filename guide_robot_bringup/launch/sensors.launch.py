@@ -16,9 +16,9 @@ its own frame on every scan (self-hit, not a real obstacle). laser_sector_blanke
 blanks that bearing out of /scan_left and /scan_right before they reach the
 merger — dual_laser_merger's own angle_min/angle_max only clip the *merged*
 output's ends, they can't mask a wedge inside one lidar's field of view.
-left/right_blind_sectors_deg default to [] (no-op) until calibrated; find the
-real values with laser_blind_sector_finder (run it against /scan_left and
-/scan_right separately, see that node's docstring for usage).
+left/right_blind_sectors_deg are hardcoded below (not launch args) — a one-time
+per-robot fit found with laser_blind_sector_finder (run it against /scan_left
+and /scan_right separately, see that node's docstring for usage).
 
 Merger output:
   /scan      — merged LaserScan in base_footprint frame (fed to Nav2 / SLAM)
@@ -208,7 +208,7 @@ def generate_launch_description():
                 "inf_epsilon": 1.0,
                 # Confirmed on real hardware: with this False, /scan (and
                 # therefore /map) stayed empty even though the node and
-                # SLAM both started cleanly. Must be True?
+                # SLAM both started cleanly.
                 "enable_calibration": True,
                 # Both lidars sit on a metal bar guaranteed perpendicular to
                 # the robot's direction of travel, so x is trusted to be 0.
