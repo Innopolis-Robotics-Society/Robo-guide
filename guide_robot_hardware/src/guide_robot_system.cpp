@@ -1,12 +1,17 @@
 #include "guide_robot_hardware/guide_robot_system.hpp"
 
 #include <fcntl.h>
+#include <poll.h>
 #include <termios.h>
 #include <unistd.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
 
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -14,6 +19,88 @@
 namespace guide_robot_hardware {
 
 namespace {
+
+using HwParams = std::unordered_map<std::string, std::string>;
+
+/// Бюджет ожидания ответа энкодеров, мс. При 115200 бод запрос (8 байт) +
+/// ответ (19 байт) занимают на шине ~2.4 мс, остальное — запас на задержку
+/// драйвера. Реально poll() возвращается раньше, как только кадр пришёл.
+constexpr int ENC_RESPONSE_BUDGET_MS = 5;
+
+/// Длина ответа энкодеров.
+constexpr size_t ENC_FRAME_LEN = 19;
+
+std::string trim(const std::string & s)
+{
+  const size_t b = s.find_first_not_of(" \t\r\n");
+  if (b == std::string::npos) return {};
+  return s.substr(b, s.find_last_not_of(" \t\r\n") - b + 1);
+}
+
+/// Общая часть разбора: найти параметр и вернуть его очищенное значение.
+/// nullptr — параметра нет (для обязательного уже залогирован ERROR).
+const std::string * findParam(const HwParams & params, const char * name, bool required)
+{
+  const auto it = params.find(name);
+  if (it == params.end()) {
+    if (required) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("GuideRobotSystem"),
+        "Обязательный параметр '%s' не задан в <hardware> — проверь "
+        "guide_robot_description/urdf/guide_robot.ros2_control.xacro",
+        name);
+    }
+    return nullptr;
+  }
+  return &it->second;
+}
+
+/// Разбор числового параметра с указанием ВИНОВНИКА в сообщении: голое
+/// исключение из std::stod наружу не говорит, какой параметр сломан.
+/// false — только ошибка; отсутствие необязательного параметра out не трогает.
+bool paramDouble(const HwParams & params, const char * name, bool required, double & out)
+{
+  const std::string * raw = findParam(params, name, required);
+  if (raw == nullptr) return !required;
+  const std::string value = trim(*raw);
+  try {
+    size_t pos = 0;
+    const double parsed = std::stod(value, &pos);
+    if (pos != value.size()) {
+      throw std::invalid_argument("лишние символы после числа");
+    }
+    if (!std::isfinite(parsed)) {
+      throw std::invalid_argument("не конечное число");
+    }
+    out = parsed;
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("GuideRobotSystem"), "Параметр '%s' = '%s' не разбирается как число: %s",
+      name, value.c_str(), e.what());
+    return false;
+  }
+  return true;
+}
+
+bool paramInt(const HwParams & params, const char * name, bool required, int & out)
+{
+  double value = out;
+  if (!paramDouble(params, name, required, value)) return false;
+  out = static_cast<int>(value);
+  return true;
+}
+
+bool paramString(const HwParams & params, const char * name, bool required, std::string & out)
+{
+  const std::string * raw = findParam(params, name, required);
+  if (raw == nullptr) return !required;
+  out = trim(*raw);
+  if (out.empty()) {
+    RCLCPP_ERROR(rclcpp::get_logger("GuideRobotSystem"), "Параметр '%s' пуст", name);
+    return false;
+  }
+  return true;
+}
 
 /// Число из URDF → константа termios. 0 = скорость не поддерживается.
 speed_t toTermiosBaud(int baud)
@@ -76,35 +163,92 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_init(
     hardware_interface::CallbackReturn::SUCCESS) {
     return hardware_interface::CallbackReturn::ERROR;
   }
-  serial_port_ = info_.hardware_parameters.at("serial_port");
-  baud_rate_ = std::stoi(info_.hardware_parameters.at("baud_rate"));
-  left_wheel_id_ = std::stoi(info_.hardware_parameters.at("left_wheel_id"));
-  right_wheel_id_ = std::stoi(info_.hardware_parameters.at("right_wheel_id"));
-  if (info_.hardware_parameters.count("swap_drives") > 0) {
-    swap_drives_ = std::stoi(info_.hardware_parameters.at("swap_drives")) != 0;
+  if (!loadParameters()) {
+    return hardware_interface::CallbackReturn::ERROR;
   }
-  left_sign_ = std::stod(info_.hardware_parameters.at("left_sign"));
-  right_sign_ = std::stod(info_.hardware_parameters.at("right_sign"));
-  speed_coefficient_ = std::stod(info_.hardware_parameters.at("speed_coefficient"));
-  if (info_.hardware_parameters.count("wheel_radius") > 0) {
-    wheel_radius_ = std::stod(info_.hardware_parameters.at("wheel_radius"));
-  }
-  if (info_.hardware_parameters.count("ticks_per_rev") > 0) {
-    ticks_per_rev_ = std::stod(info_.hardware_parameters.at("ticks_per_rev"));
-  }
-  if (info_.hardware_parameters.count("cmd_timeout") > 0) {
-    cmd_timeout_ = std::stod(info_.hardware_parameters.at("cmd_timeout"));
-  }
-  RCLCPP_INFO(
-    rclcpp::get_logger("GuideRobotSystem"),
-    "Параметры: port=%s baud=%d L_id=%d R_id=%d coeff=%.4f r=%.3fm ticks_per_rev=%.1f "
-    "cmd_timeout=%.3fs",
-    serial_port_.c_str(), baud_rate_, left_wheel_id_, right_wheel_id_, speed_coefficient_,
-    wheel_radius_, ticks_per_rev_, cmd_timeout_);
 
   clock_ = std::make_shared<rclcpp::Clock>(RCL_STEADY_TIME);
 
   return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+bool GuideRobotSystem::loadParameters()
+{
+  const HwParams & p = info_.hardware_parameters;
+
+  // Обязательные: без любого из них компонент не имеет права крутить моторы.
+  // cmd_timeout и max_wheel_velocity — тоже обязательные, и это осознанно:
+  // это две единственные защиты уровня плагина, и «забыли передать» не должно
+  // молча означать «защиты нет».
+  bool ok = true;
+  ok &= paramString(p, "serial_port", true, serial_port_);
+  ok &= paramInt(p, "baud_rate", true, baud_rate_);
+  ok &= paramInt(p, "left_wheel_id", true, left_wheel_id_);
+  ok &= paramInt(p, "right_wheel_id", true, right_wheel_id_);
+  ok &= paramDouble(p, "left_sign", true, left_sign_);
+  ok &= paramDouble(p, "right_sign", true, right_sign_);
+  ok &= paramDouble(p, "speed_coefficient", true, speed_coefficient_);
+  ok &= paramDouble(p, "cmd_timeout", true, cmd_timeout_);
+  ok &= paramDouble(p, "max_wheel_velocity", true, max_wheel_velocity_);
+
+  // Необязательные: дефолты в hpp соответствуют текущему железу.
+  int swap = swap_drives_ ? 1 : 0;
+  ok &= paramInt(p, "swap_drives", false, swap);
+  swap_drives_ = (swap != 0);
+  ok &= paramDouble(p, "wheel_radius", false, wheel_radius_);
+  ok &= paramDouble(p, "ticks_per_rev", false, ticks_per_rev_);
+  ok &= paramDouble(p, "encoder_timeout", false, encoder_timeout_);
+
+  double accel = static_cast<double>(motor_accel_);
+  ok &= paramDouble(p, "motor_accel", false, accel);
+
+  if (!ok) {
+    return false;
+  }
+
+  // Диапазоны: 0 или отрицательное здесь — не «выключено», а опечатка,
+  // которая тихо испортит либо кинематику, либо защиту.
+  if (cmd_timeout_ <= 0.0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("GuideRobotSystem"),
+      "cmd_timeout=%.3f: сторожевой таймер обязателен, значение должно быть > 0", cmd_timeout_);
+    return false;
+  }
+  if (max_wheel_velocity_ <= 0.0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("GuideRobotSystem"), "max_wheel_velocity=%.3f: должно быть > 0 (рад/с)",
+      max_wheel_velocity_);
+    return false;
+  }
+  if (speed_coefficient_ <= 0.0 || wheel_radius_ <= 0.0 || ticks_per_rev_ <= 0.0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("GuideRobotSystem"),
+      "speed_coefficient=%.6f, wheel_radius=%.3f, ticks_per_rev=%.1f: все должны быть > 0",
+      speed_coefficient_, wheel_radius_, ticks_per_rev_);
+    return false;
+  }
+  if (accel < 0.0 || accel > 65535.0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("GuideRobotSystem"), "motor_accel=%.0f вне диапазона uint16", accel);
+    return false;
+  }
+  motor_accel_ = static_cast<uint16_t>(accel);
+
+  RCLCPP_INFO(
+    rclcpp::get_logger("GuideRobotSystem"),
+    "Параметры: port=%s baud=%d L_id=%d R_id=%d swap=%d coeff=%.6f r=%.3fm ticks_per_rev=%.1f "
+    "cmd_timeout=%.3fs max_wheel_vel=%.2f рад/с encoder_timeout=%.3fs accel=%u",
+    serial_port_.c_str(), baud_rate_, left_wheel_id_, right_wheel_id_, swap_drives_ ? 1 : 0,
+    speed_coefficient_, wheel_radius_, ticks_per_rev_, cmd_timeout_, max_wheel_velocity_,
+    encoder_timeout_, motor_accel_);
+
+  if (encoder_timeout_ <= 0.0) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("GuideRobotSystem"),
+      "encoder_timeout <= 0: отказ энкодеров НЕ будет обнаружен, одометрия замрёт молча");
+  }
+
+  return true;
 }
 
 hardware_interface::CallbackReturn GuideRobotSystem::on_configure(const rclcpp_lifecycle::State &)
@@ -132,7 +276,14 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_configure(const rclcpp_l
 
   struct termios tty;
   memset(&tty, 0, sizeof(tty));
-  tcgetattr(serial_fd_, &tty);
+  if (tcgetattr(serial_fd_, &tty) != 0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("GuideRobotSystem"), "tcgetattr(%s) не удался (errno=%d: %s)",
+      serial_port_.c_str(), errno, strerror(errno));
+    close(serial_fd_);
+    serial_fd_ = -1;
+    return hardware_interface::CallbackReturn::ERROR;
+  }
 
   cfsetospeed(&tty, termios_baud);
   cfsetispeed(&tty, termios_baud);
@@ -150,7 +301,14 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_configure(const rclcpp_l
   tty.c_cc[VMIN] = 0;
   tty.c_cc[VTIME] = 0;
 
-  tcsetattr(serial_fd_, TCSANOW, &tty);
+  if (tcsetattr(serial_fd_, TCSANOW, &tty) != 0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("GuideRobotSystem"), "tcsetattr(%s) не удался (errno=%d: %s)",
+      serial_port_.c_str(), errno, strerror(errno));
+    close(serial_fd_);
+    serial_fd_ = -1;
+    return hardware_interface::CallbackReturn::ERROR;
+  }
 
   RCLCPP_INFO(
     rclcpp::get_logger("GuideRobotSystem"), "Serial порт открыт (O_SYNC, VMIN=0, %d бод): %s",
@@ -169,11 +327,18 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_activate(const rclcpp_li
   rx_buffer_.clear();
   initialized_encoders_ = false;
   enc_elapsed_ = 0.0;
+  enc_silence_ = 0.0;
+  enc_fault_ = false;
   enc_request_counter_ = 0;
   left_vel_cmd_ = 0.0;
   right_vel_cmd_ = 0.0;
 
-  startWatchdog();
+  // Без сторожа активироваться нельзя: у драйвера FURO нет своего таймаута
+  // команд, и зависший управляющий цикл означает 62 кг, едущие с последней
+  // принятой скоростью до упора. Раньше здесь был WARN и SUCCESS.
+  if (!startWatchdog()) {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
 
   RCLCPP_INFO(
     rclcpp::get_logger("GuideRobotSystem"), "GuideRobotSystem активирован (моторы L=%d R=%d)",
@@ -251,7 +416,7 @@ std::vector<hardware_interface::CommandInterface> GuideRobotSystem::export_comma
 // Вспомогательные методы протокола энкодера
 // ---------------------------------------------------------------------------
 
-void GuideRobotSystem::sendEncoderRequest()
+void GuideRobotSystem::sendEncoderRequestLocked()
 {
   // Тело пакета (всё, кроме двух стартовых 0xFF и самой контрольной суммы).
   // ID берётся из параметра, поэтому и сумма обязана считаться, а не быть
@@ -261,7 +426,6 @@ void GuideRobotSystem::sendEncoderRequest()
   uint8_t req[8] = {0xFF,    0xFF,    body[0], body[1],
                     body[2], body[3], body[4], protocolChecksum(body, sizeof(body))};
 
-  std::lock_guard<std::mutex> lock(serial_mutex_);
   if (serial_fd_ < 0) {
     return;
   }
@@ -273,6 +437,65 @@ void GuideRobotSystem::sendEncoderRequest()
   }
 }
 
+void GuideRobotSystem::drainPortLocked(int budget_ms, size_t expect_bytes)
+{
+  if (serial_fd_ < 0) {
+    return;
+  }
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(budget_ms);
+  size_t got = 0;
+  uint8_t buf[256];
+
+  for (;;) {
+    // VMIN=0/VTIME=0 в termios: ::read возвращается немедленно с тем, что есть.
+    const ssize_t n = ::read(serial_fd_, buf, sizeof(buf));
+    if (n > 0) {
+      rx_buffer_.insert(rx_buffer_.end(), buf, buf + n);
+      got += static_cast<size_t>(n);
+    } else if (n < 0 && errno != EAGAIN && errno != EINTR) {
+      RCLCPP_WARN_THROTTLE(
+        rclcpp::get_logger("GuideRobotSystem"), *clock_, 1000,
+        "[read] Ошибка чтения из порта (errno=%d: %s)", errno, strerror(errno));
+      return;
+    }
+
+    // budget_ms == 0 — цикл без запроса: просто забрать накопившееся и уйти,
+    // ни миллисекунды RT-времени на ожидание.
+    if (budget_ms <= 0 || got >= expect_bytes) {
+      return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) {
+      return;
+    }
+    const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+    struct pollfd pfd;
+    pfd.fd = serial_fd_;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    const int rc = ::poll(&pfd, 1, static_cast<int>(left.count()) + 1);
+    if (rc < 0) {
+      if (errno == EINTR) continue;
+      RCLCPP_WARN_THROTTLE(
+        rclcpp::get_logger("GuideRobotSystem"), *clock_, 1000, "[read] poll() упал (errno=%d: %s)",
+        errno, strerror(errno));
+      return;
+    }
+    if (rc == 0) {
+      return;  // бюджет исчерпан, ответа нет — молча, разбирается детектором тишины
+    }
+    if ((pfd.revents & POLLIN) == 0) {
+      // POLLERR/POLLHUP/POLLNVAL без данных: крутиться до дедлайна бессмысленно.
+      RCLCPP_WARN_THROTTLE(
+        rclcpp::get_logger("GuideRobotSystem"), *clock_, 1000, "[read] poll() revents=0x%x",
+        pfd.revents);
+      return;
+    }
+  }
+}
+
 hardware_interface::return_type GuideRobotSystem::read(
   const rclcpp::Time &, const rclcpp::Duration & period)
 {
@@ -281,26 +504,26 @@ hardware_interface::return_type GuideRobotSystem::read(
   }
 
   enc_elapsed_ += period.seconds();
+  enc_silence_ += period.seconds();
 
-  // 1. Отправляем запрос только раз в 5 циклов (≈10 Hz при update_rate=50 Hz).
-  if (++enc_request_counter_ >= 5) {
-    enc_request_counter_ = 0;
-    sendEncoderRequest();
-    // Wait for response: at 115200 baud 8+19 bytes ~ 2.4ms, 5ms margin
-    usleep(5000);
-  }
-
-  // 2. Мгновенно выгребаем из порта все доступные байты (неблокирующее чтение, без usleep!)
-  uint8_t buf[256];
-  ssize_t n = ::read(serial_fd_, buf, sizeof(buf));
-  if (n > 0) {
-    for (ssize_t i = 0; i < n; ++i) {
-      rx_buffer_.push_back(buf[i]);
+  // 1. Обмен с шиной — под мьютексом целиком: RS-485 полудуплексный, и
+  //    стоп-пакет сторожа, ушедший поперёк окна приёма, испортил бы ответ.
+  //    Запрос уходит раз в 5 циклов (≈10 Hz при update_rate=50 Hz); ожидание —
+  //    через poll() с бюджетом, а не фиксированным usleep(5000), который
+  //    отъедал четверть цикла даже когда кадр уже лежал в буфере.
+  {
+    std::lock_guard<std::mutex> lock(serial_mutex_);
+    if (++enc_request_counter_ >= 5) {
+      enc_request_counter_ = 0;
+      sendEncoderRequestLocked();
+      drainPortLocked(ENC_RESPONSE_BUDGET_MS, ENC_FRAME_LEN);
+    } else {
+      drainPortLocked(0, 0);
     }
   }
 
-  // 3. Сканируем скопившиеся байты на валидные 19-байтные ответы
-  while (rx_buffer_.size() >= 19) {
+  // 2. Сканируем скопившиеся байты на валидные 19-байтные ответы
+  while (rx_buffer_.size() >= ENC_FRAME_LEN) {
     if (
       rx_buffer_[0] == 0xFF && rx_buffer_[1] == 0xFF &&
       rx_buffer_[2] == static_cast<uint8_t>(left_wheel_id_) && rx_buffer_[3] == 0x0F) {
@@ -338,6 +561,14 @@ hardware_interface::return_type GuideRobotSystem::read(
         if (dt <= 0.0) dt = 0.02;
         enc_elapsed_ = 0.0;
 
+        // Единственное место, где тишина энкодеров считается прерванной.
+        enc_silence_ = 0.0;
+        if (enc_fault_) {
+          enc_fault_ = false;
+          RCLCPP_INFO(
+            rclcpp::get_logger("GuideRobotSystem"), "[encoders] связь с энкодерами восстановлена");
+        }
+
         constexpr double TWO_PI = 2.0 * M_PI;
         double slot1_pos = (static_cast<double>(enc_slot1) / ticks_per_rev_) * TWO_PI * left_sign_;
         double slot2_pos = (static_cast<double>(enc_slot2) / ticks_per_rev_) * TWO_PI * right_sign_;
@@ -364,7 +595,7 @@ hardware_interface::return_type GuideRobotSystem::read(
           "vel=%.3f rad/s",
           enc_slot1, enc_slot2, left_position_, left_velocity_, right_position_, right_velocity_);
 
-        rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + 19);
+        rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + ENC_FRAME_LEN);
         continue;
       }
     }
@@ -377,11 +608,61 @@ hardware_interface::return_type GuideRobotSystem::read(
     rx_buffer_.clear();
   }
 
+  // 3. Детектор отказа энкодер-каскада.
+  //    write() не зависит от состояния энкодеров и продолжал бы гнать команды
+  //    открытым циклом, а /joint_states — стоять на месте. Для одометрии, EKF
+  //    и Nav2 это не «нет данных», а «робот стоит»: ошибка молча уезжает вверх
+  //    по стеку. Поэтому здесь ERROR, по которому controller_manager снимет
+  //    компонент с активации.
+  //
+  //    Стоп-пакет шлём САМИ и сразу: ERROR из read() ведёт компонент через
+  //    on_error, а не гарантированно через on_deactivate, поэтому штатный
+  //    останов оттуда может не случиться, а драйвер FURO держит последнюю
+  //    принятую скорость до следующего пакета.
+  if (encoder_timeout_ > 0.0 && enc_silence_ > encoder_timeout_) {
+    if (!enc_fault_) {
+      enc_fault_ = true;
+      RCLCPP_ERROR(
+        rclcpp::get_logger("GuideRobotSystem"),
+        "[encoders] нет валидных кадров %.3f с (> encoder_timeout=%.3f)%s — компонент в ошибку, "
+        "движение прекращается",
+        enc_silence_, encoder_timeout_,
+        initialized_encoders_ ? "" : " (ни одного кадра с момента активации)");
+    }
+    left_vel_cmd_ = 0.0;
+    right_vel_cmd_ = 0.0;
+    writeSpeedPacket(0.0, 0.0);
+    return hardware_interface::return_type::ERROR;
+  }
+
   return hardware_interface::return_type::OK;
 }
 
 int16_t GuideRobotSystem::toMotorUnits(double omega, double sign) const
 {
+  // NaN/inf в команде: static_cast такого в int16_t — UB, а на шине это
+  // означает произвольную скорость. Единственный безопасный ответ — стоп.
+  if (!std::isfinite(omega)) {
+    RCLCPP_ERROR_THROTTLE(
+      rclcpp::get_logger("GuideRobotSystem"), *clock_, 1000,
+      "[write] Не конечная команда скорости — отправляю 0");
+    return 0;
+  }
+
+  // Независимый рубеж защиты (defense-in-depth). Штатно команды уже
+  // отфильтрованы SpeedLimiter'ом diff_drive_controller, но клэмп по
+  // диапазону int16 ниже — это ~5.6 м/с на колесе, то есть не защита вовсе.
+  // Если к тем же command interface когда-нибудь подключится контроллер без
+  // лимитера (forward_command_controller для отладки), это единственное, что
+  // стоит между странной командой и полным ходом 62-килограммовой базы.
+  if (omega > max_wheel_velocity_ || omega < -max_wheel_velocity_) {
+    RCLCPP_WARN_THROTTLE(
+      rclcpp::get_logger("GuideRobotSystem"), *clock_, 1000,
+      "[write] Команда %.3f рад/с обрезана по max_wheel_velocity=%.3f рад/с", omega,
+      max_wheel_velocity_);
+    omega = omega > 0.0 ? max_wheel_velocity_ : -max_wheel_velocity_;
+  }
+
   // v (м/с) = omega (рад/с) * wheel_radius; units = v / speed_coefficient
   double v = omega * wheel_radius_;
   double units = sign * v / speed_coefficient_;
@@ -396,7 +677,7 @@ bool GuideRobotSystem::writeSpeedPacket(double slot1_cmd, double slot2_cmd)
   int16_t l_spd = toMotorUnits(slot1_cmd, left_sign_);
   int16_t r_spd = toMotorUnits(slot2_cmd, right_sign_);
 
-  constexpr uint16_t ACCEL = 1000;
+  const uint16_t accel = motor_accel_;
 
   // 2. Собираем пакет (body — от 0xFE до последнего байта данных)
   uint8_t body[15] = {
@@ -408,13 +689,13 @@ bool GuideRobotSystem::writeSpeedPacket(double slot1_cmd, double slot2_cmd)
     static_cast<uint8_t>(left_wheel_id_),
     static_cast<uint8_t>(l_spd & 0xFF),         // speed low byte
     static_cast<uint8_t>((l_spd >> 8) & 0xFF),  // speed high byte
-    static_cast<uint8_t>(ACCEL & 0xFF),
-    static_cast<uint8_t>((ACCEL >> 8) & 0xFF),
+    static_cast<uint8_t>(accel & 0xFF),
+    static_cast<uint8_t>((accel >> 8) & 0xFF),
     static_cast<uint8_t>(right_wheel_id_),
     static_cast<uint8_t>(r_spd & 0xFF),
     static_cast<uint8_t>((r_spd >> 8) & 0xFF),
-    static_cast<uint8_t>(ACCEL & 0xFF),
-    static_cast<uint8_t>((ACCEL >> 8) & 0xFF),
+    static_cast<uint8_t>(accel & 0xFF),
+    static_cast<uint8_t>((accel >> 8) & 0xFF),
   };
 
   // 3. Итоговый пакет: [0xFF, 0xFF] + body + [checksum]
@@ -472,14 +753,17 @@ hardware_interface::return_type GuideRobotSystem::write(
 // Сторожевой таймер
 // ---------------------------------------------------------------------------
 
-void GuideRobotSystem::startWatchdog()
+bool GuideRobotSystem::startWatchdog()
 {
+  // Дублирует проверку из loadParameters(): активация без сторожа недопустима
+  // независимо от того, каким путём сюда пришли.
   if (cmd_timeout_ <= 0.0) {
-    RCLCPP_WARN(
+    RCLCPP_ERROR(
       rclcpp::get_logger("GuideRobotSystem"),
-      "cmd_timeout не задан — сторожевой таймер выключен, при зависании управляющего "
-      "цикла моторы продолжат движение");
-    return;
+      "cmd_timeout=%.3f — сторожевой таймер не может быть запущен, активация отклонена: "
+      "при зависании управляющего цикла моторы держали бы последнюю скорость",
+      cmd_timeout_);
+    return false;
   }
   last_write_ns_.store(steadyNowNs());
   watchdog_running_.store(true);
@@ -487,6 +771,7 @@ void GuideRobotSystem::startWatchdog()
   RCLCPP_INFO(
     rclcpp::get_logger("GuideRobotSystem"), "Сторожевой таймер запущен (cmd_timeout=%.3f с)",
     cmd_timeout_);
+  return true;
 }
 
 void GuideRobotSystem::stopWatchdog()

@@ -25,10 +25,13 @@
        applied at once:
          v_wheel = v_max + w_max * wheel_separation / 2
          w_wheel = v_wheel / wheel_radius * wheel_limit_margin
-       With the current robot_params.yaml this evaluates to 8.38 rad/s.
-       This is an ENVELOPE, not a limit: actual clamping is done by
+       With the current robot_params.yaml this evaluates to 11.60 rad/s
+       (was 8.38 before max_linear_velocity went 0.6 -> 0.9 on 2026-07-30).
+       This is an ENVELOPE, not a limit: normal clamping is done by
        diff_drive_controller. Too narrow drops commands, too wide is harmless,
-       hence the margin. Recomputed automatically - do not hardcode. -->
+       hence the margin. Recomputed automatically - do not hardcode.
+       Also fed to the hardware plugin as max_wheel_velocity, where it IS
+       enforced as a last-resort clamp - see below. -->
   <xacro:property name="w_wheel_max"
     value="${((lim['max_linear_velocity'] + lim['max_angular_velocity']*wheel_separation/2)
               / wheel_radius * lim['wheel_limit_margin'])}"/>
@@ -74,6 +77,15 @@
           <param name="speed_coefficient">${drv['speed_coefficient']}</param>
           <param name="wheel_radius">${wheel_radius}</param>
           <param name="cmd_timeout">${drv['cmd_timeout']}</param>
+          <!-- Same envelope as the command_interface min/max above, but this
+               one is ENFORCED: the plugin clamps to it. Those min/max params
+               are metadata only - hardware_interface never applies them.
+               Deliberately the envelope and not max_linear_velocity: it must
+               not clip legitimate v+w commands, only catch a controller with
+               no limiter of its own. -->
+          <param name="max_wheel_velocity">${w_wheel_max}</param>
+          <param name="encoder_timeout">${drv['encoder_timeout']}</param>
+          <param name="motor_accel">${drv['motor_accel']}</param>
         </xacro:unless>
       </xacro:unless>
     </hardware>

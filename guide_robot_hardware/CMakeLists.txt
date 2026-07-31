@@ -8,32 +8,32 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 
-find_package(hardware_interface REQUIRED)  # ← добавь
-find_package(pluginlib REQUIRED)           # ← добавь
+find_package(hardware_interface REQUIRED)
+find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)    # guide_robot_system.hpp включает rclcpp_lifecycle/state.hpp
 find_package(Threads REQUIRED)             # сторожевой таймер живёт в отдельном std::thread
 
-add_library(${PROJECT_NAME} SHARED        # ← добавь
+add_library(${PROJECT_NAME} SHARED
   src/guide_robot_system.cpp
 )
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(${PROJECT_NAME}  # ← добавь
+ament_target_dependencies(${PROJECT_NAME}
   hardware_interface
   pluginlib
   rclcpp
   rclcpp_lifecycle
 )
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
-# 3. Зарегистрировать pluginlib плагин
-pluginlib_export_plugin_description_file(  # ← добавь
+
+pluginlib_export_plugin_description_file(
   hardware_interface guide_robot_hardware.xml
 )
-# 4. Установить
-install(TARGETS ${PROJECT_NAME}            # ← добавь
+
+install(TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
