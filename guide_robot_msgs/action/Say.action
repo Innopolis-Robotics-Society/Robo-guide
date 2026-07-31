@@ -1,9 +1,61 @@
-# Goal
+# Синтез и воспроизведение реплики.
+#
+# Отмена одной цели -- штатная, через стандартный CancelGoal.
+# Аварийная отмена всего -- через /speech/cancel_all с epoch-fencing.
+# Разделение намеренное: первая ждёт границы клаузы, вторая рвёт немедленно.
+
+uint8 SCOPE_ALL=0
+uint8 SCOPE_NARRATION=1
+uint8 SCOPE_DIALOG=2
+uint8 SCOPE_SAFETY=3
+
+# Ориентиры приоритетов. Значения свободные, 0..255.
+uint8 PRIORITY_BACKGROUND=10
+uint8 PRIORITY_NARRATION=50
+uint8 PRIORITY_DIALOG=100
+uint8 PRIORITY_SAFETY=200
+
 string text
+
+# Идентификатор голоса бэкенда. Пусто -- голос по умолчанию.
+string voice
+
 uint8 priority
-string language
+uint8 scope
+
+# false -- ни barge-in, ни цель с более высоким приоритетом не прервут.
+# Для фраз вида "отойдите, робот поворачивается".
+bool interruptible
+
+# Ограничение сверху на длительность. 0 -- без ограничения.
+# Защита от зацикленного LLM, сгенерировавшего абзац на пять минут.
+float32 max_duration
 ---
-# Result
-bool completed
+uint8 STATUS_COMPLETED=0
+uint8 STATUS_PREEMPTED=1
+uint8 STATUS_CANCELLED=2
+uint8 STATUS_REJECTED=3
+uint8 STATUS_FAILED=4
+
+uint8 status
+
+# Фактически прозвучавший префикс text, обрезанный по границе клаузы.
+# Ключевое поле: narration_server по нему возобновляет экскурсионный
+# монолог с места прерывания, а не с начала.
+string spoken_text
+
+# Смещение в символах исходного text, до которого дошло воспроизведение.
+uint32 spoken_chars
+
+float32 spoken_duration
+
+string message
 ---
-# Feedback
+# Индекс клаузы, которая сейчас синтезируется/играет.
+uint32 clause_index
+uint32 clause_count
+
+# Доля прозвучавшего текста по символам, [0..1].
+float32 progress
+
+string current_clause

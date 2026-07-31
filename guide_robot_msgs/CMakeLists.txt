@@ -27,6 +27,12 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/AskUser.action"
   "action/Say.action"
   "msg/SonarRanges.msg"
+  "msg/AudioChunk.msg"
+  "msg/CancelAll.msg"
+  "msg/Doa.msg"
+  "msg/SpeakingStatus.msg"
+  "msg/VoiceActivity.msg"
+  "msg/Wakeword.msg"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs
 )
 

@@ -1,0 +1,103 @@
+# Конфигурация для разработки на проводной USB-гарнитуре.
+#
+# Наушники физически разрывают тракт динамик -> микрофон. Это значит,
+# что AEC не "отложен на потом", его в этой конфигурации просто нет
+# как задачи. Всё остальное -- контракт, fencing, приоритеты, barge-in,
+# ASR, просодия чанкера -- проверяется полностью и по-настоящему.
+#
+# ГЛАВНАЯ ЛОВУШКА: device у tts_node обязан указывать на ту же гарнитуру.
+# Если оставить пустым, TTS уйдёт в динамики ноутбука, микрофон гарнитуры
+# его услышит, VAD сработает на собственный голос робота и barge-in уйдёт
+# в самоподдерживающийся цикл. Выглядит как баг в коде, является ошибкой
+# маршрутизации звука.
+#
+# Имя устройства смотреть так:
+#   python3 -c "import sounddevice; print(sounddevice.query_devices())"
+# Подставлять подстроку, однозначно выделяющую гарнитуру. resolve_device
+# намеренно падает при неоднозначности вместо молчаливого выбора default.
+
+/**/audio_frontend:
+  ros__parameters:
+    source: device
+    device: "hw:2,0"    # ЗАМЕНИТЬ на подстроку из query_devices()
+    sample_rate: 48000            # гарнитура нативно 48к, ресемплит PipeWire
+    channels: 1                   # у гарнитуры один микрофон, не L/R как у XVF3800
+    asr_channel: 0
+    monitor_channel: 0
+    block_ms: 20
+    frame_id: mic_array
+    # Пишем с первого дня: этот корпус станет тестовым набором для CI
+    # и "сухим" сигналом для синтетической свёртки с IR комнаты.
+    record_path: "/tmp/voice_dev/capture.wav"
+
+/**/vad_node:
+  ros__parameters:
+    window_samples: 512
+    # НЕ ТЮНИТЬ ПОД ГАРНИТУРУ. Близкий микрофон даёт SNR, которого
+    # на роботе не будет никогда. Пороги, подобранные здесь, на дистанции
+    # 2 м в зале с реверберацией не работают. Оставить как есть,
+    # настраивать после установки массива.
+    enter_threshold: 0.6
+    exit_threshold: 0.35
+    min_speech_ms: 120
+    min_silence_ms: 700
+    barge_in_enabled: true
+    barge_in_min_speech_ms: 200
+
+/**/wakeword_node:
+  ros__parameters:
+    # Штатные модели openWakeWord англоязычные. Для русского нужна своя,
+    # обучаемая на синтезированных сэмплах. На фазе гарнитуры проще
+    # отключить ноду целиком и проверять barge-in через VAD:
+    # метрика false-wake-under-TTS здесь всё равно выйдет нулевой,
+    # то есть бессмысленной -- эхо-тракта нет.
+    threshold: 0.6
+    threshold_under_tts: 0.8
+    refractory_ms: 1500
+    cancel_scope: 0
+
+/**/asr_node:
+  ros__parameters:
+    # Пусто -> партиалов не будет, финалы работают. Штатная деградация:
+    # можно начинать без sherpa-onnx и добавить потоковый уровень позже.
+    streaming_model_dir: ""
+    final_model: large-v3
+    final_device: cuda            # 8 ГБ VRAM хватает под large-v3 float16
+    final_compute_type: float16
+    language: ru
+    pre_roll_ms: 300
+    max_utterance_s: 30.0
+
+/**/turn_detector:
+  ros__parameters:
+    # А вот это тюнить здесь МОЖНО и нужно: пороги end-of-turn определяются
+    # тем, как люди строят фразы, а не акустикой. Настроенные на гарнитуре
+    # значения перенесутся на робота почти без правок.
+    base_timeout_ms: 700
+    continuation_timeout_ms: 1400
+    short_utterance_timeout_ms: 500
+    short_utterance_words: 4
+
+/**/tts_node:
+  ros__parameters:
+    backend: piper                # null -> тон вместо речи, режим измерений
+    # Абсолютный путь к .onnx. Рядом обязан лежать одноимённый .onnx.json.
+    # download_voices кладёт оба файла в ТЕКУЩИЙ каталог, не в /opt.
+    model_path: "/home/fabian/ros2_ws/ru_RU-irina-medium.onnx"
+    voice: ""
+    device: "hw:2,0"         # ЗАМЕНИТЬ. Пустое значение = цикл barge-in
+    channels: 2                   # WJK USB Audio: Playback 2ch 48000 only
+    block_ms: 20
+    device_rate: 48000
+    # ИЗМЕРИТЬ ЗДЕСЬ. Гарнитура -- полноценное дуплексное ALSA-устройство,
+    # поэтому t_stop меряется по-настоящему уже сейчас. Если измеренный
+    # t_stop сильно превышает buffer_ms, значит abort() не доходит до
+    # snd_pcm_drop и PipeWire держит собственный буфер -- это архитектурная
+    # находка, а не подстройка параметра.
+    buffer_ms: 80
+    max_queue_ms: 600
+    min_chars: 40
+    max_chars: 160
+    chars_per_second: 14.0
+    status_period: 0.2
+    max_pending_goals: 8
