@@ -1,5 +1,3 @@
-"""Сборка пакета guide_robot_voice."""
-
 from glob import glob
 
 from setuptools import find_packages, setup
@@ -24,13 +22,6 @@ setup(
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
-            f"audio_frontend = {PACKAGE_NAME}.nodes.audio_frontend:main",
-            f"vad_node = {PACKAGE_NAME}.nodes.vad_node:main",
-            f"wakeword_node = {PACKAGE_NAME}.nodes.wakeword_node:main",
-            f"asr_node = {PACKAGE_NAME}.nodes.asr_node:main",
-            f"turn_detector = {PACKAGE_NAME}.nodes.turn_detector:main",
-            f"tts_node = {PACKAGE_NAME}.nodes.tts_node:main",
-            f"measure_t_stop = {PACKAGE_NAME}.tools.measure_t_stop:main",
         ],
     },
 )
