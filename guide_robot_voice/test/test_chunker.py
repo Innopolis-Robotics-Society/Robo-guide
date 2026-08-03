@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from guide_robot_voice.tts.chunker import ChunkerConfig, TextChunker
+from guide_robot_voice.lib.chunker import ChunkerConfig, TextChunker
 
 
 @pytest.fixture

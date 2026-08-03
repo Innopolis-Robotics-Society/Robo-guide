@@ -8,7 +8,7 @@ import time
 import numpy as np
 import pytest
 
-from guide_robot_voice.audio.sink import EpochFencedSink, MemoryEmitter, SinkFailureError
+from guide_robot_voice.lib.sink import EpochFencedSink, MemoryEmitter, SinkFailureError
 
 SAMPLE_RATE = 16000
 BLOCK = 320
@@ -149,7 +149,8 @@ def test_underflow_is_counted() -> None:
 class BrokenEmitter(MemoryEmitter):
     """Эмиттер, у которого не открывается устройство."""
 
-    def open(self, pull) -> None:
+    def open(self, pull: object) -> None:
+        """Отказать сразу, как отказало бы реальное устройство."""
         raise ValueError("No output device matching 'USB Headset'")
 
 
@@ -169,7 +170,7 @@ def test_callback_failure_is_visible() -> None:
     """Отказ в колбэке виден через raise_if_failed()."""
 
     class FailingEmitter(MemoryEmitter):
-        def open(self, pull) -> None:
+        def open(self, pull: object) -> None:
             super().open(pull)
             self.failure = RuntimeError("устройство отвалилось")
 

@@ -1,0 +1,52 @@
+# Параметры голосового стека.
+#
+# Значения, помеченные ИЗМЕРИТЬ, нельзя оставлять как есть после приезда
+# железа: они подобраны из общих соображений и обязаны быть заменены
+# результатом измерения на роботе. См. voice_headset.yaml -- оверлей для
+# разработки на гарнитуре, где device обязан быть переопределён.
+
+/**/audio_frontend:
+  ros__parameters:
+    device: ""                    # пусто -> устройство по умолчанию
+    device_rate: 48000
+    out_rate: 16000
+    frame_ms: 16                   # фиксировано: 512=2 кадра Silero, 1280=5 кадров oWW
+    channels_in: 1
+    periods: 3                    # 48 мс буфера захвата
+    gain_db: 0.0
+    hpf_hz: 40.0
+    publish_raw: false            # диагностический дубль на device_rate
+    aec:
+      enabled: false               # Stage 2+
+      backend: "none"              # none | speexdsp | webrtc | hardware
+      filter_length_ms: 200.0
+
+/**/vad_node:
+  ros__parameters:
+    model_path: "$(find-pkg-share guide_robot_voice)/models/silero_vad.onnx"
+    enter_threshold: 0.65
+    exit_threshold: 0.35
+    enter_windows: 2               # 64 мс подтверждения
+    hangover_ms: 400.0
+    min_speech_ms: 120.0           # короче -> не высказывание, а хлопок
+    barge_in_enabled: true         # без действия до Step 6 design §6
+    barge_in_min_windows: 2
+    require_aec_for_barge_in: false   # -> true на Stage 3
+
+/**/tts_node:
+  ros__parameters:
+    backend: piper                # piper | null (null -> тон, режим измерений)
+    # Модель лежит в репозитории (models/, git-lfs) -- путь одинаков на любой
+    # машине, ничего не нужно скачивать отдельно.
+    model_path: "$(find-pkg-share guide_robot_voice)/models/ru_RU-irina-medium.onnx"
+    speaker_id: 0
+    length_scale: 1.0
+    device: ""                    # пусто -> устройство по умолчанию
+    device_rate: 48000
+    block_ms: 20                  # верхняя граница остатка при отмене
+    periods: 3                    # 60 мс буфера воспроизведения, ИЗМЕРИТЬ
+    max_clause_chars: 180
+    max_queue: 8
+    heartbeat_hz: 5.0
+    warmup_text: "Система готова"
+    default_priority: 50

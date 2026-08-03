@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from guide_robot_voice.audio.resample import Resampler, resample_int16
+from guide_robot_voice.lib.resampler import Resampler, resample_int16
 
 
 def tone(frames: int, rate: int, frequency: float = 440.0) -> np.ndarray:
@@ -62,3 +62,11 @@ def test_reset_clears_tail() -> None:
     first = resampler.process(tone(512, 22050))
     fresh = Resampler(22050, 48000).process(tone(512, 22050))
     assert first.shape[0] == fresh.shape[0]
+
+
+def test_downsample_48k_to_16k() -> None:
+    """Путь захвата: 48000 -> 16000, целочисленный делитель 3."""
+    source = tone(48000, 48000, frequency=440.0)
+    result = resample_int16(source, 48000, 16000)
+    assert abs(result.shape[0] - 16000) < 10
+    assert abs(dominant_frequency(result, 16000) - 440.0) < 5.0

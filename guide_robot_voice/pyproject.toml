@@ -17,11 +17,27 @@ convention = "pep257"
 
 [tool.ruff.lint.per-file-ignores]
 "test/*" = ["ANN", "D", "SLF", "PLR2004"]
-# PLC0415: импорты sounddevice/torch/piper отложены намеренно -- без них
-# модуль должен импортироваться в CI, где ни звуковой карты, ни моделей нет.
-# PLR0913/0917: конструкторы источников и стоков описывают конфигурацию
-# устройства; сворачивать её в объект-параметр только ради счётчика аргументов
-# смысла не имеет.
-"guide_robot_voice/audio/*" = ["PLC0415", "PLR0913", "PLR0917"]
-"guide_robot_voice/tts/backends.py" = ["PLC0415", "PLR0913", "PLR0917"]
-"guide_robot_voice/nodes/*" = ["PLC0415", "PLR0913", "PLR0917"]
+# PLC0415: импорт scipy отложен намеренно -- без него модуль должен
+# импортироваться в CI, где scipy может быть не установлен, с честным
+# откатом на линейную интерполяцию.
+"guide_robot_voice/lib/resampler.py" = ["PLC0415"]
+# PLC0415: piper-tts -- внешняя модель, модуль обязан импортироваться
+# в CI без неё (NullBackend не требует piper вообще).
+"guide_robot_voice/lib/backends.py" = ["PLC0415"]
+# PLC0415: sounddevice/PortAudio резолвится лениво -- см. rationale в
+# guide_robot_voice/lib/resampler.py выше, тот же принцип для звуковой карты.
+# PLR0913/0917: SoundDeviceEmitter описывает конфигурацию устройства вывода;
+# сворачивать её в объект-параметр только ради счётчика аргументов смысла нет.
+"guide_robot_voice/lib/sink.py" = ["PLC0415", "PLR0913", "PLR0917"]
+"guide_robot_voice/lib/audio_device.py" = ["PLC0415"]
+"guide_robot_voice/lib/dc_blocker.py" = ["PLC0415"]
+# PLC0415: sounddevice (звуковая карта) и builtin_interfaces (штамп времени)
+# резолвятся лениво по тому же принципу, что и в остальных модулях выше.
+"guide_robot_voice/audio_frontend.py" = ["PLC0415"]
+# PLC0415: onnxruntime -- внешняя модель, модуль обязан импортироваться
+# в CI без неё, тот же принцип, что и для PiperBackend.
+"guide_robot_voice/lib/vad_model.py" = ["PLC0415"]
+# PLR0913: параметры гистерезиса -- это конфигурация vad_node целиком
+# (design §3.2), сворачивать в объект-параметр ради счётчика смысла нет.
+"guide_robot_voice/lib/vad_hysteresis.py" = ["PLR0913"]
+"guide_robot_voice/vad_node.py" = ["PLC0415"]

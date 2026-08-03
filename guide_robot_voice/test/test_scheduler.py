@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from guide_robot_voice.tts.scheduler import Action, Scheduler, Scope, Utterance
+from guide_robot_voice.lib.scheduler import Action, Scheduler, Scope, Utterance
 
 
 def make(goal_id: str, priority: int, seq: int, **kwargs: object) -> Utterance:
@@ -101,3 +101,52 @@ def test_queue_full_rejects() -> None:
     scheduler.submit(make("b", 50, 1))
     scheduler.submit(make("c", 50, 2))
     assert scheduler.submit(make("d", 50, 3)).action is Action.REJECT
+
+
+def test_non_interruptible_survives_matching_scope_cancel() -> None:
+    """Non-interruptible активная цель переживает обычную отмену её scope.
+
+    Барьер interruptible защищает не только от вытеснения приоритетом,
+    но и от /speech/cancel_all -- за исключением e-stop, см. ниже.
+    """
+    scheduler = Scheduler()
+    scheduler.submit(make("safety", 200, 0, interruptible=False, scope=Scope.DIALOG))
+    dropped_active, _ = scheduler.cancel(Scope.DIALOG, reason="barge_in")
+    assert dropped_active is None
+    assert scheduler.active is not None and scheduler.active.goal_id == "safety"
+
+
+def test_estop_reason_cancels_non_interruptible_outside_safety_scope() -> None:
+    """reason=REASON_ESTOP гасит non-interruptible, даже если scope не SAFETY.
+
+    Design: "interruptible == false защищает ... но не от CancelAll
+    с reason=REASON_ESTOP или scope=SCOPE_SAFETY" -- это ИЛИ, не совпадение
+    с scope=SAFETY обязательно.
+    """
+    scheduler = Scheduler()
+    scheduler.submit(make("warning", 200, 0, interruptible=False, scope=Scope.DIALOG))
+    dropped_active, _ = scheduler.cancel(Scope.DIALOG, reason="estop")
+    assert dropped_active is not None
+    assert dropped_active.goal_id == "warning"
+
+
+def test_non_interruptible_in_queue_survives_soft_cancel() -> None:
+    """Барьер interruptible действует и на очередь, не только на активную цель."""
+    scheduler = Scheduler()
+    scheduler.submit(make("active", 200, 0, interruptible=False, scope=Scope.SAFETY))
+    scheduler.submit(make("queued", 150, 1, interruptible=False, scope=Scope.DIALOG))
+    _, dropped_queue = scheduler.cancel(Scope.DIALOG, reason="barge_in")
+    assert dropped_queue == []
+    assert [u.goal_id for u in scheduler.queued] == ["queued"]
+
+
+def test_estop_clears_queue_regardless_of_interruptible() -> None:
+    """e-stop -- единственный путь, который не должен оставлять хвостов."""
+    scheduler = Scheduler()
+    scheduler.submit(make("active", 200, 0, interruptible=False, scope=Scope.SAFETY))
+    scheduler.submit(make("queued", 150, 1, interruptible=False, scope=Scope.DIALOG))
+    dropped_active, dropped_queue = scheduler.cancel(Scope.ALL, reason="estop")
+    assert dropped_active is not None
+    assert [u.goal_id for u in dropped_queue] == ["queued"]
+    assert scheduler.active is None
+    assert scheduler.queued == ()
