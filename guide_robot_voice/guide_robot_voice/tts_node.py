@@ -24,7 +24,7 @@ import rclpy
 from builtin_interfaces.msg import Time as TimeMsg
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from guide_robot_msgs.action import Say
-from guide_robot_msgs.msg import CancelAll, SpeakingStatus
+from guide_robot_msgs.msg import CancelAll, SpeakingStatus, SystemEvent
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -32,7 +32,7 @@ from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_voice.lib.backends import TtsBackend, make_backend
 from guide_robot_voice.lib.chunker import ChunkerConfig, TextChunker
-from guide_robot_voice.lib.qos import QOS_CANCEL_ALL, QOS_VOICE_SPEAKING
+from guide_robot_voice.lib.qos import QOS_CANCEL_ALL, QOS_SYSTEM_EVENT, QOS_VOICE_SPEAKING
 from guide_robot_voice.lib.resampler import Resampler
 from guide_robot_voice.lib.scheduler import Action, Scheduler, Scope, Utterance
 from guide_robot_voice.lib.sink import EpochFencedSink, SoundDeviceEmitter
@@ -79,6 +79,8 @@ class TtsNode(LifecycleNode):
         self._speaking = False
         self._expected_end = 0.0
         self._stage = "инициализация"
+        self._pending_barge_in_latency_ms: float | None = None
+        """Выставляется в _on_cancel_all(), публикуется таймером -- не на критическом пути."""
 
         self._cb_cancel = MutuallyExclusiveCallbackGroup()
         self._cb_action = ReentrantCallbackGroup()
@@ -154,6 +156,9 @@ class TtsNode(LifecycleNode):
             SpeakingStatus, "/voice/speaking", QOS_VOICE_SPEAKING
         )
         self._diag_pub = self.create_lifecycle_publisher(DiagnosticArray, "/diagnostics", 10)
+        self._event_pub = self.create_lifecycle_publisher(
+            SystemEvent, "/system_event", QOS_SYSTEM_EVENT
+        )
         self._cancel_sub = self.create_subscription(
             CancelAll,
             "/speech/cancel_all",
@@ -249,6 +254,15 @@ class TtsNode(LifecycleNode):
                 self._preempted.add(utterance.goal_id)
 
         self._speaking = False
+
+        if msg.reason == CancelAll.REASON_BARGE_IN:
+            # Только арифметика -- публикация SystemEvent идёт с таймера
+            # _publish_status, не отсюда (design: "ни публикаций на
+            # критическом пути"). msg.stamp -- момент начала речи
+            # посетителя (design §4), не момент публикации CancelAll.
+            onset_ns = msg.stamp.sec * 1_000_000_000 + msg.stamp.nanosec
+            now_ns = self.get_clock().now().nanoseconds
+            self._pending_barge_in_latency_ms = (now_ns - onset_ns) / 1e6
 
     def _on_goal_cancel(self, goal_handle: object) -> CancelResponse:
         """Штатная отмена одной цели: ждёт границы клаузы."""
@@ -481,6 +495,18 @@ class TtsNode(LifecycleNode):
         )
         diag.status.append(entry)
         self._diag_pub.publish(diag)
+
+        if self._pending_barge_in_latency_ms is not None:
+            latency_ms = self._pending_barge_in_latency_ms
+            self._pending_barge_in_latency_ms = None
+            event = SystemEvent(
+                id="voice.barge_in_latency",
+                severity=SystemEvent.INFO,
+                detail=f"latency_ms={latency_ms:.1f}",
+            )
+            event.header.stamp = status.stamp
+            self._event_pub.publish(event)
+            self.get_logger().info(f"barge-in latency: {latency_ms:.1f} мс")
 
     def _to_time_msg(self, monotonic_deadline: float) -> TimeMsg:
         """Перевести monotonic-дедлайн в ROS-время."""

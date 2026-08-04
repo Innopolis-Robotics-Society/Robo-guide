@@ -82,3 +82,29 @@ def test_empty_push_is_noop() -> None:
     assert result is not None
     timestamp, _ = result
     assert timestamp == 0.0
+
+
+def test_snapshot_returns_none_when_empty() -> None:
+    """Пустой буфер -- snapshot() возвращает None, а не пустой массив."""
+    ring = RingBuffer(SAMPLE_RATE)
+    assert ring.snapshot() is None
+
+
+def test_snapshot_does_not_consume() -> None:
+    """snapshot() -- для pre-roll: читает, не извлекая, буфер продолжает копить."""
+    ring = RingBuffer(SAMPLE_RATE, max_samples=300)
+    ring.push(0.0, block(1, 100))
+    ring.push(100 / SAMPLE_RATE, block(2, 100))
+
+    result = ring.snapshot()
+    assert result is not None
+    timestamp, samples = result
+    assert timestamp == 0.0
+    assert samples.shape[0] == 200
+    assert np.all(samples[:100] == 1)
+    assert np.all(samples[100:] == 2)
+
+    # Буфер не пострадал -- следующий push() продолжает копить как ни в чём не бывало.
+    assert len(ring) == 200
+    ring.push(200 / SAMPLE_RATE, block(3, 50))
+    assert len(ring) == 250

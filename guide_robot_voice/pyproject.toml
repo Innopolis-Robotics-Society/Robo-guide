@@ -41,3 +41,6 @@ convention = "pep257"
 # (design §3.2), сворачивать в объект-параметр ради счётчика смысла нет.
 "guide_robot_voice/lib/vad_hysteresis.py" = ["PLR0913"]
 "guide_robot_voice/vad_node.py" = ["PLC0415"]
+# PLC0415: sherpa_onnx -- внешняя модель, тот же принцип, что и выше.
+"guide_robot_voice/lib/asr_model.py" = ["PLC0415"]
+"guide_robot_voice/asr_node.py" = ["PLC0415"]

@@ -29,9 +29,37 @@
     enter_windows: 2               # 64 мс подтверждения
     hangover_ms: 400.0
     min_speech_ms: 120.0           # короче -> не высказывание, а хлопок
-    barge_in_enabled: true         # без действия до Step 6 design §6
+    barge_in_enabled: true
     barge_in_min_windows: 2
     require_aec_for_barge_in: false   # -> true на Stage 3
+
+/**/asr_node:
+  ros__parameters:
+    # GigaAM v3 CTC INT8 в репозитории (models/, git-lfs). Онлайн-инференс
+    # (sherpa_onnx.OnlineRecognizer) недоступен -- экспорт для sherpa-onnx
+    # не несёт метаданных cache-aware streaming (см. lib/asr_model.py).
+    # Партиалы поэтому считаются на скользящем окне (partial_window_s),
+    # а не потоково -- это отклонение от design §3.4, не опечатка.
+    model_path: "$(find-pkg-share guide_robot_voice)/models/gigaam_v3_ctc_int8.onnx"
+    tokens_path: "$(find-pkg-share guide_robot_voice)/models/gigaam_v3_ctc_tokens.txt"
+    num_threads: 2
+    pre_roll_ms: 300.0              # без него срезается первый слог
+    partial_rate_hz: 6.0
+    partial_window_s: 5.0           # НЕ из design -- см. комментарий выше
+    base_silence_ms: 600.0
+    short_silence_ms: 350.0
+    max_utterance_s: 20.0           # страховка
+    min_final_chars: 2
+    gate_on_tts: false              # true -> не слушать во время речи робота
+
+/**/wakeword_node:
+  ros__parameters:
+    backend: "asr_kws"              # asr_kws (Stage 1) | oww (Stage 3, не реализован)
+    activation_phrases: ["робот", "слушай робот"]
+    stop_phrases: ["стоп", "стой", "хватит", "замолчи"]
+    fuzzy_max_distance: 1
+    min_confidence: 0.5
+    refractory_ms: 1500.0            # анти-дребезг, одно срабатывание на фразу
 
 /**/tts_node:
   ros__parameters:

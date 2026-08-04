@@ -17,9 +17,12 @@ callback'а -- иначе весь бюджет barge-in (design §4) счита
 Поэтому push() принимает временную метку куска, а pop_exact() возвращает
 корректно смещённую метку начала кадра, даже если кадр составной.
 
-max_samples -- верхняя граница ёмкости для будущего pre-roll в asr_node
-(Step 7 design-документа): старые сэмплы вытесняются, а не накапливаются
-безгранично. Для audio_frontend (Step 4) не используется (max_samples=None).
+max_samples -- верхняя граница ёмкости для pre-roll в asr_node: старые
+сэмплы вытесняются, а не накапливаются безгранично. Для audio_frontend
+и vad_node не используется (max_samples=None, чистый FIFO). Для pre-roll
+дополнительно нужен snapshot() -- неразрушающее чтение: буфер обязан
+продолжать копить последние pre_roll_ms и после срабатывания VAD, для
+следующего высказывания.
 """
 
 from __future__ import annotations
@@ -104,3 +107,16 @@ class RingBuffer:
                 )
         self._length -= n
         return start_timestamp, out
+
+    def snapshot(self) -> tuple[float, np.ndarray] | None:
+        """Отдать всё содержимое буфера БЕЗ извлечения -- для pre-roll.
+
+        В отличие от pop_exact(), не потребляет данные: pre-roll читается
+        в момент срабатывания VAD, а буфер обязан продолжать копить
+        последние pre_roll_ms и после этого момента, для следующего
+        высказывания. None, если буфер пуст.
+        """
+        if not self._segments:
+            return None
+        start_timestamp = self._segments[0].timestamp
+        return start_timestamp, np.concatenate([seg.samples for seg in self._segments])

@@ -6,12 +6,24 @@ ROS-обвязку -- накопление кадров /audio/mic (256 сэмп
 ровно по 512 сэмплов, которых требует модель (design §3.1: кадр захвата
 подобран так, чтобы 512 = 2 кадра), и публикацию VoiceActivity.
 
-Barge-in (публикация /speech/cancel_all при входе в речь во время TTS)
-в этой ноде ещё не реализован -- design §6 явно разносит по шагам:
-шаг 5 -- сам VAD без barge-in ("ложные срабатывания на тишине = 0 за
-5 минут"), шаг 6 -- barge-in поверх него, с отдельным критерием проверки.
-Параметры barge_in_* уже объявлены (совпадают с итоговым контрактом
-конфига), но логики на них пока нет -- ровно как aec.* в audio_frontend.
+Barge-in: при входе в речь, если TTS сейчас говорит (/voice/speaking,
+не протухший) и barge_in_enabled -- публикует CancelAll(scope=SCOPE_ALL,
+reason=REASON_BARGE_IN). Живёт здесь, а не в mission/LLM, сознательно:
+это L1-путь, обязан работать при мёртвом LLM. Задержка = один хоп DDS
+(design §3.2).
+
+barge_in_min_windows -- НЕЗАВИСИМОЕ от enter_windows подтверждение:
+считает подряд идущие окна с вероятностью выше enter_threshold сам по
+себе, не через гистерезис. Разделены сознательно: базовый /vad -- это
+телеметрия, а CancelAll -- широковещательная команда безопасности,
+и для неё оправдан отдельный (в общем случае более консервативный)
+порог подтверждения, не завязанный на то, каким публикуется /vad.
+
+require_aec_for_barge_in: AEC ещё не существует (Stage 2+, design §7),
+поэтому "AEC активен" здесь всегда False. Если параметр включён, barge-in
+выключен целиком -- это и есть защита от сценария "переехали на железо,
+забыли включить AEC, робот перебивает сам себя", реализованная максимально
+консервативно: нет источника подтверждения AEC -- нет и barge-in.
 
 Про xrun. audio_frontend уже сбрасывает свои фильтры при разрыве потока,
 но разрыв в first_sample -- это разрыв и для RNN-состояния Silero, и для
@@ -29,16 +41,23 @@ import threading
 import numpy as np
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from guide_robot_msgs.msg import AudioChunk, VoiceActivity
+from guide_robot_msgs.msg import AudioChunk, CancelAll, SpeakingStatus, VoiceActivity
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
-from guide_robot_voice.lib.qos import QOS_AUDIO_MIC, QOS_VAD
+from guide_robot_voice.lib.qos import (
+    QOS_AUDIO_MIC,
+    QOS_CANCEL_ALL,
+    QOS_VAD,
+    QOS_VOICE_SPEAKING,
+)
 from guide_robot_voice.lib.ring import RingBuffer
 from guide_robot_voice.lib.vad_hysteresis import VadHysteresis
 from guide_robot_voice.lib.vad_model import SileroVad
 
 _WINDOW_SAMPLES = 512
 _SILENCE_FLOOR_DBFS = -120.0
+_SPEAKING_STATUS_STALE_SEC = 0.4
+"""Два периода heartbeat (design §2): протухший статус считается speaking=false."""
 
 
 class VadNode(LifecycleNode):
@@ -55,8 +74,6 @@ class VadNode(LifecycleNode):
         self.declare_parameter("hangover_ms", 400.0)
         self.declare_parameter("min_speech_ms", 120.0)
         self.declare_parameter("frame_id", "mic_array")
-        # Barge-in -- design §6, шаг 6. Параметры объявлены заранее, чтобы
-        # итоговый config/voice.yaml не менялся между шагами; логики нет.
         self.declare_parameter("barge_in_enabled", True)
         self.declare_parameter("barge_in_min_windows", 2)
         self.declare_parameter("require_aec_for_barge_in", False)
@@ -73,6 +90,12 @@ class VadNode(LifecycleNode):
         self._last_probability = 0.0
         self._last_level_dbfs = _SILENCE_FLOOR_DBFS
         self._was_active = False
+
+        self._latest_speaking: SpeakingStatus | None = None
+        self._barge_in_streak = 0
+        self._barge_in_armed = True
+        """False сразу после срабатывания -- одно барж-ин на сегмент речи."""
+        self._barge_in_triggers_total = 0
 
     # -- lifecycle ------------------------------------------------------
 
@@ -109,8 +132,14 @@ class VadNode(LifecycleNode):
 
         self._vad_pub = self.create_lifecycle_publisher(VoiceActivity, "/vad", QOS_VAD)
         self._diag_pub = self.create_lifecycle_publisher(DiagnosticArray, "/diagnostics", 10)
+        self._cancel_pub = self.create_lifecycle_publisher(
+            CancelAll, "/speech/cancel_all", QOS_CANCEL_ALL
+        )
         self._mic_sub = self.create_subscription(
             AudioChunk, "/audio/mic", self._on_audio, QOS_AUDIO_MIC
+        )
+        self._speaking_sub = self.create_subscription(
+            SpeakingStatus, "/voice/speaking", self._on_speaking_status, QOS_VOICE_SPEAKING
         )
         self._diag_timer = self.create_timer(1.0, self._publish_diagnostics)
 
@@ -127,6 +156,8 @@ class VadNode(LifecycleNode):
         self._ring = RingBuffer(16000)
         self._expected_first_sample = None
         self._was_active = False
+        self._barge_in_streak = 0
+        self._barge_in_armed = True
         with self._lock:
             self._is_active = True
         return super().on_activate(state)
@@ -201,6 +232,12 @@ class VadNode(LifecycleNode):
         self._was_active = result.active
         if result.segment_ended_too_short:
             self._short_segments_total += 1
+        if not result.active:
+            # Сегмент речи закончился (или ещё не начинался) -- взвести
+            # барж-ин заново для следующего.
+            self._barge_in_armed = True
+
+        self._maybe_trigger_barge_in(timestamp, probability)
 
         msg = VoiceActivity()
         msg.header.stamp = self._seconds_to_time_msg(timestamp)
@@ -210,6 +247,59 @@ class VadNode(LifecycleNode):
         msg.state_duration = result.state_duration
         msg.level_dbfs = level_dbfs
         self._vad_pub.publish(msg)
+
+    def _on_speaking_status(self, msg: SpeakingStatus) -> None:
+        """Запомнить последний статус TTS. Критический путь -- держать коротким."""
+        self._latest_speaking = msg
+
+    def _is_tts_speaking(self) -> bool:
+        """TTS сейчас говорит, и статус не протух (design §2, 400 мс)."""
+        status = self._latest_speaking
+        if status is None or not status.speaking:
+            return False
+        stamp = status.stamp.sec + status.stamp.nanosec / 1e9
+        age = self.get_clock().now().nanoseconds / 1e9 - stamp
+        return age <= _SPEAKING_STATUS_STALE_SEC
+
+    def _maybe_trigger_barge_in(self, window_timestamp: float, probability: float) -> None:
+        """Независимое от гистерезиса подтверждение входа в речь для CancelAll."""
+        enter_threshold = float(self.get_parameter("enter_threshold").value)
+        if probability > enter_threshold:
+            self._barge_in_streak += 1
+        else:
+            self._barge_in_streak = 0
+
+        if not self._barge_in_armed:
+            return
+        if self._barge_in_streak < int(self.get_parameter("barge_in_min_windows").value):
+            return
+        if not bool(self.get_parameter("barge_in_enabled").value):
+            return
+        if bool(self.get_parameter("require_aec_for_barge_in").value):
+            # AEC не существует (Stage 2+) -- нет источника подтверждения,
+            # значит подтверждения нет, значит barge-in не срабатывает.
+            return
+        if not self._is_tts_speaking():
+            return
+
+        self._barge_in_armed = False
+        self._barge_in_triggers_total += 1
+        self._publish_cancel_all(window_timestamp)
+
+    def _publish_cancel_all(self, onset_timestamp: float) -> None:
+        """Опубликовать аварийную отмену.
+
+        onset_timestamp -- момент начала речи, не момент публикации: разница
+        между ними и есть часть бюджета barge-in (design §4), и её нужно
+        передать дальше для измерения latency в tts_node.
+        """
+        msg = CancelAll()
+        msg.stamp = self._seconds_to_time_msg(onset_timestamp)
+        msg.epoch = self.get_clock().now().nanoseconds
+        msg.scope = CancelAll.SCOPE_ALL
+        msg.reason = CancelAll.REASON_BARGE_IN
+        self._cancel_pub.publish(msg)
+        self.get_logger().info("barge-in: посетитель заговорил во время речи робота")
 
     def _level_dbfs(self, pcm: np.ndarray) -> float:
         if pcm.size == 0:
@@ -243,6 +333,7 @@ class VadNode(LifecycleNode):
                 KeyValue(key="level_dbfs", value=f"{self._last_level_dbfs:.1f}"),
                 KeyValue(key="activations_total", value=str(self._activations_total)),
                 KeyValue(key="short_segments_total", value=str(self._short_segments_total)),
+                KeyValue(key="barge_in_triggers_total", value=str(self._barge_in_triggers_total)),
             ],
         )
         diag.status.append(entry)
