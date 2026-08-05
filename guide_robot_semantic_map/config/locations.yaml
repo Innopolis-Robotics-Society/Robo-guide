@@ -1,7 +1,8 @@
-# ЗАГЛУШКА: graph_node и pose ниже -- приблизительные placeholder-значения,
-# согласованные с config/graph.geojson (тоже placeholder, см. metadata.placeholder
-# там). Настоящие координаты появятся после трассировки карты лаборатории
-# в slam_toolbox/RViz -- тогда оба файла обновляются вместе.
+# Координаты pose сняты по реальной карте лаборатории
+# (guide_robot_navigation/map/lab_105_full.pgm, origin [-5.58, -15.7],
+# resolution 0.05) -- согласованы с config/graph.geojson (полный mesh на
+# тех же точках). yaw пока не измерен и везде 0.0 -- заменить на реальную
+# ориентацию "лицом к экспонату" по месту.
 version: 1
 frame_id: map
 locations:

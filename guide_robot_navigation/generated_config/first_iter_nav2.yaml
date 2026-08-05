@@ -333,6 +333,7 @@ local_costmap:
       # Плюс publish_voxel_map: True постоянно публиковал воксельное облако,
       # которое никто не подписывал.
       plugins: ["obstacle_layer", "inflation_layer"]
+      #plugins: ["obstacle_layer", "sonar_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         # СВЕДЕНО 2026-07-27: было 1.0 здесь против 0.55 в global_costmap.
@@ -350,6 +351,15 @@ local_costmap:
         # разом, до 0.8, но не врозь.
         inflation_radius: 1.0
         cost_scaling_factor: 3.0
+      sonar_layer:
+        plugin: "nav2_costmap_2d::RangeSensorLayer"
+        topics: ["/sonar/range/sonar_sensor_1", "/sonar/range/sonar_sensor_9",
+                "/sonar/range/sonar_sensor_2", "/sonar/range/sonar_sensor_8"]
+        input_sensor_type: ALL
+        clear_on_max_reading: true
+        no_readings_timeout: 1.0
+        mark_threshold: 0.8
+        clear_threshold: 0.2
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True

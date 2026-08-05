@@ -6,7 +6,6 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
-        - /InteractiveMarkers1
       Splitter Ratio: 0.5
     Tree Height: 793
   - Class: rviz_common/Selection
@@ -459,7 +458,7 @@ Visualization Manager:
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        ValidTrajectories: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -471,8 +470,7 @@ Visualization Manager:
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        slam_toolbox: true
-        slam_toolbox_edges: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -639,6 +637,47 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /sonar_stop_polygon
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: MarkerArray
+      Namespaces:
+        route_graph: true
+        route_graph_ids: true
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /route_graph
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 0; 0; 127
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.029999999329447746
+      Name: Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /plan
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -685,25 +724,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 10.294290542602539
+      Distance: 25.576587677001953
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 4.240406513214111
-        Y: -0.06750057637691498
-        Z: 0.7928295731544495
+        X: 5.319786548614502
+        Y: 0.6224488615989685
+        Z: 1.8729130029678345
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8797969818115234
+      Pitch: 1.2297966480255127
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 2.2135419845581055
+      Yaw: 3.143557548522949
     Saved: ~
 Window Geometry:
   Displays:

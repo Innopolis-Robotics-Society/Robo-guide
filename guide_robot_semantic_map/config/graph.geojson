@@ -3,161 +3,824 @@
   "features": [
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [0.0, 0.0]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          5.5,
+          7.6
+        ]
+      },
       "properties": {
         "id": 1,
         "frame": "map",
-        "metadata": {"name": "entrance", "placeholder": true}
+        "metadata": {
+          "name": "entrance"
+        }
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [2.0, 0.0]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          5.7,
+          4.1
+        ]
+      },
       "properties": {
         "id": 2,
         "frame": "map",
-        "metadata": {"name": "robo_guide", "placeholder": true}
+        "metadata": {
+          "name": "robo_guide"
+        }
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [4.0, 0.0]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.7,
+          4.3
+        ]
+      },
       "properties": {
         "id": 3,
         "frame": "map",
-        "metadata": {"name": "promobot_m13_artist", "placeholder": true}
+        "metadata": {
+          "name": "promobot_m13_artist"
+        }
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [6.0, 0.0]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          7.6,
+          0.6
+        ]
+      },
       "properties": {
         "id": 4,
         "frame": "map",
-        "metadata": {"name": "sam3_autolabeling", "placeholder": true}
+        "metadata": {
+          "name": "sam3_autolabeling"
+        }
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [8.0, 0.0]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          15.2,
+          0.6
+        ]
+      },
       "properties": {
         "id": 5,
         "frame": "map",
-        "metadata": {"name": "nav2_course", "placeholder": true}
+        "metadata": {
+          "name": "nav2_course"
+        }
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [8.0, 2.0]},
-      "properties": {
-        "id": 6,
-        "frame": "map",
-        "metadata": {"name": "claude_code_ros2_kit", "placeholder": true}
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [10.0, 0.0]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.2,
+          -6.1
+        ]
+      },
       "properties": {
         "id": 7,
         "frame": "map",
-        "metadata": {"name": "livox_mid70", "placeholder": true}
+        "metadata": {
+          "name": "livox_mid70"
+        }
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[0.0, 0.0], [2.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.5,
+            7.6
+          ],
+          [
+            5.7,
+            4.1
+          ]
+        ]
+      },
       "properties": {
-        "id": 101, "startid": 1, "endid": 2, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 201,
+        "startid": 1,
+        "endid": 2,
+        "cost": 3.506,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[2.0, 0.0], [0.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.7,
+            4.1
+          ],
+          [
+            5.5,
+            7.6
+          ]
+        ]
+      },
       "properties": {
-        "id": 102, "startid": 2, "endid": 1, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 202,
+        "startid": 2,
+        "endid": 1,
+        "cost": 3.506,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[2.0, 0.0], [4.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.5,
+            7.6
+          ],
+          [
+            1.7,
+            4.3
+          ]
+        ]
+      },
       "properties": {
-        "id": 103, "startid": 2, "endid": 3, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 203,
+        "startid": 1,
+        "endid": 3,
+        "cost": 5.033,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[4.0, 0.0], [2.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.7,
+            4.3
+          ],
+          [
+            5.5,
+            7.6
+          ]
+        ]
+      },
       "properties": {
-        "id": 104, "startid": 3, "endid": 2, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 204,
+        "startid": 3,
+        "endid": 1,
+        "cost": 5.033,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[4.0, 0.0], [6.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.5,
+            7.6
+          ],
+          [
+            7.6,
+            0.6
+          ]
+        ]
+      },
       "properties": {
-        "id": 105, "startid": 3, "endid": 4, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 205,
+        "startid": 1,
+        "endid": 4,
+        "cost": 7.308,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[6.0, 0.0], [4.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            7.6,
+            0.6
+          ],
+          [
+            5.5,
+            7.6
+          ]
+        ]
+      },
       "properties": {
-        "id": 106, "startid": 4, "endid": 3, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 206,
+        "startid": 4,
+        "endid": 1,
+        "cost": 7.308,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[6.0, 0.0], [8.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.5,
+            7.6
+          ],
+          [
+            15.2,
+            0.6
+          ]
+        ]
+      },
       "properties": {
-        "id": 107, "startid": 4, "endid": 5, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 207,
+        "startid": 1,
+        "endid": 5,
+        "cost": 11.962,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[8.0, 0.0], [6.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.2,
+            0.6
+          ],
+          [
+            5.5,
+            7.6
+          ]
+        ]
+      },
       "properties": {
-        "id": 108, "startid": 5, "endid": 4, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 208,
+        "startid": 5,
+        "endid": 1,
+        "cost": 11.962,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[8.0, 0.0], [8.0, 2.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.5,
+            7.6
+          ],
+          [
+            1.2,
+            -6.1
+          ]
+        ]
+      },
       "properties": {
-        "id": 109, "startid": 5, "endid": 6, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 209,
+        "startid": 1,
+        "endid": 7,
+        "cost": 14.359,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[8.0, 2.0], [8.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.2,
+            -6.1
+          ],
+          [
+            5.5,
+            7.6
+          ]
+        ]
+      },
       "properties": {
-        "id": 110, "startid": 6, "endid": 5, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 210,
+        "startid": 7,
+        "endid": 1,
+        "cost": 14.359,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[8.0, 0.0], [10.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.7,
+            4.1
+          ],
+          [
+            1.7,
+            4.3
+          ]
+        ]
+      },
       "properties": {
-        "id": 111, "startid": 5, "endid": 7, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 211,
+        "startid": 2,
+        "endid": 3,
+        "cost": 4.005,
+        "overridable": true,
+        "metadata": {}
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "LineString", "coordinates": [[10.0, 0.0], [8.0, 0.0]]},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.7,
+            4.3
+          ],
+          [
+            5.7,
+            4.1
+          ]
+        ]
+      },
       "properties": {
-        "id": 112, "startid": 7, "endid": 5, "cost": 2.0, "overridable": true,
-        "metadata": {"placeholder": true}
+        "id": 212,
+        "startid": 3,
+        "endid": 2,
+        "cost": 4.005,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.7,
+            4.1
+          ],
+          [
+            7.6,
+            0.6
+          ]
+        ]
+      },
+      "properties": {
+        "id": 213,
+        "startid": 2,
+        "endid": 4,
+        "cost": 3.982,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            7.6,
+            0.6
+          ],
+          [
+            5.7,
+            4.1
+          ]
+        ]
+      },
+      "properties": {
+        "id": 214,
+        "startid": 4,
+        "endid": 2,
+        "cost": 3.982,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.7,
+            4.1
+          ],
+          [
+            15.2,
+            0.6
+          ]
+        ]
+      },
+      "properties": {
+        "id": 215,
+        "startid": 2,
+        "endid": 5,
+        "cost": 10.124,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.2,
+            0.6
+          ],
+          [
+            5.7,
+            4.1
+          ]
+        ]
+      },
+      "properties": {
+        "id": 216,
+        "startid": 5,
+        "endid": 2,
+        "cost": 10.124,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.7,
+            4.1
+          ],
+          [
+            1.2,
+            -6.1
+          ]
+        ]
+      },
+      "properties": {
+        "id": 217,
+        "startid": 2,
+        "endid": 7,
+        "cost": 11.149,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.2,
+            -6.1
+          ],
+          [
+            5.7,
+            4.1
+          ]
+        ]
+      },
+      "properties": {
+        "id": 218,
+        "startid": 7,
+        "endid": 2,
+        "cost": 11.149,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.7,
+            4.3
+          ],
+          [
+            7.6,
+            0.6
+          ]
+        ]
+      },
+      "properties": {
+        "id": 219,
+        "startid": 3,
+        "endid": 4,
+        "cost": 6.964,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            7.6,
+            0.6
+          ],
+          [
+            1.7,
+            4.3
+          ]
+        ]
+      },
+      "properties": {
+        "id": 220,
+        "startid": 4,
+        "endid": 3,
+        "cost": 6.964,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.7,
+            4.3
+          ],
+          [
+            15.2,
+            0.6
+          ]
+        ]
+      },
+      "properties": {
+        "id": 221,
+        "startid": 3,
+        "endid": 5,
+        "cost": 13.998,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.2,
+            0.6
+          ],
+          [
+            1.7,
+            4.3
+          ]
+        ]
+      },
+      "properties": {
+        "id": 222,
+        "startid": 5,
+        "endid": 3,
+        "cost": 13.998,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.7,
+            4.3
+          ],
+          [
+            1.2,
+            -6.1
+          ]
+        ]
+      },
+      "properties": {
+        "id": 223,
+        "startid": 3,
+        "endid": 7,
+        "cost": 10.412,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.2,
+            -6.1
+          ],
+          [
+            1.7,
+            4.3
+          ]
+        ]
+      },
+      "properties": {
+        "id": 224,
+        "startid": 7,
+        "endid": 3,
+        "cost": 10.412,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            7.6,
+            0.6
+          ],
+          [
+            15.2,
+            0.6
+          ]
+        ]
+      },
+      "properties": {
+        "id": 225,
+        "startid": 4,
+        "endid": 5,
+        "cost": 7.6,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.2,
+            0.6
+          ],
+          [
+            7.6,
+            0.6
+          ]
+        ]
+      },
+      "properties": {
+        "id": 226,
+        "startid": 5,
+        "endid": 4,
+        "cost": 7.6,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            7.6,
+            0.6
+          ],
+          [
+            1.2,
+            -6.1
+          ]
+        ]
+      },
+      "properties": {
+        "id": 227,
+        "startid": 4,
+        "endid": 7,
+        "cost": 9.266,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.2,
+            -6.1
+          ],
+          [
+            7.6,
+            0.6
+          ]
+        ]
+      },
+      "properties": {
+        "id": 228,
+        "startid": 7,
+        "endid": 4,
+        "cost": 9.266,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            15.2,
+            0.6
+          ],
+          [
+            1.2,
+            -6.1
+          ]
+        ]
+      },
+      "properties": {
+        "id": 229,
+        "startid": 5,
+        "endid": 7,
+        "cost": 15.521,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.2,
+            -6.1
+          ],
+          [
+            15.2,
+            0.6
+          ]
+        ]
+      },
+      "properties": {
+        "id": 230,
+        "startid": 7,
+        "endid": 5,
+        "cost": 15.521,
+        "overridable": true,
+        "metadata": {}
       }
     }
   ]

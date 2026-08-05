@@ -26,7 +26,7 @@ _CONTENT_DIR = _PACKAGE_ROOT / "content"
 
 def test_graph_geojson_is_valid() -> None:
     graph = load_graph(_CONFIG_DIR / "graph.geojson")
-    assert len(graph.nodes) == 7
+    assert len(graph.nodes) == 6
 
 
 def test_locations_yaml_is_valid_and_linked_to_graph() -> None:
