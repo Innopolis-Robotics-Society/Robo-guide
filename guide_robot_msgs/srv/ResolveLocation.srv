@@ -1,0 +1,7 @@
+string query
+string language          # ru|en, пусто = все
+uint8 max_results        # 0 = default (5)
+---
+Location[] candidates
+float32[] scores         # 0..1, убыванию
+bool confident           # scores[0] >= threshold и отрыв от scores[1] >= margin
