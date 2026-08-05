@@ -1,0 +1,72 @@
+# ЗАГЛУШКА: graph_node и pose ниже -- приблизительные placeholder-значения,
+# согласованные с config/graph.geojson (тоже placeholder, см. metadata.placeholder
+# там). Настоящие координаты появятся после трассировки карты лаборатории
+# в slam_toolbox/RViz -- тогда оба файла обновляются вместе.
+version: 1
+frame_id: map
+locations:
+  - id: entrance
+    graph_node: 1
+    pose: {x: 5.5, y: 7.6, yaw: 0.0}
+    zone: lab
+    category: waypoint
+    is_public: true
+    exhibit_id: null
+    aliases:
+      ru: ["вход", "главный вход"]
+      en: ["entrance", "main entrance"]
+
+  - id: robo_guide
+    graph_node: 2
+    pose: {x: 5.7, y: 4.1, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: robo_guide
+    aliases:
+      ru: ["робот-экскурсовод", "сам робот", "экскурсовод"]
+      en: ["guide robot", "the robot itself"]
+
+  - id: promobot_m13_artist
+    graph_node: 3
+    pose: {x: 1.7, y: 4.3, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: promobot_m13_artist
+    aliases:
+      ru: ["промобот", "промобот художник", "кобот"]
+      en: ["promobot", "drawing robot"]
+
+  - id: sam3_autolabeling
+    graph_node: 4
+    pose: {x: 7.6, y: 0.6, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: sam3_autolabeling
+    aliases:
+      ru: ["разметка данных", "sam3", "авторазметка"]
+      en: ["autolabeling", "sam3"]
+
+  - id: nav2_course
+    graph_node: 5
+    pose: {x: 15.2, y: 0.6, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: nav2_course
+    aliases:
+      ru: ["курс nav2", "тёртлботы", "turtlebot"]
+      en: ["nav2 course", "turtlebot"]
+
+  - id: livox_mid70
+    graph_node: 7
+    pose: {x: 1.2, y: -6.1, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: livox_mid70
+    aliases:
+      ru: ["лидар", "ливокс", "livox"]
+      en: ["lidar", "livox mid-70"]

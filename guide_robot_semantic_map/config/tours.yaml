@@ -1,0 +1,12 @@
+version: 1
+tours:
+  - id: lab_demo
+    name: {ru: "Тестовая экскурсия по лаборатории", en: "Lab demo tour"}
+    default: false
+    stops:
+      - {location_id: entrance,             exhibit_id: intro,                 dwell_s: 30,  mode: short}
+      - {location_id: robo_guide,           exhibit_id: robo_guide,            dwell_s: 60,  mode: full}
+      - {location_id: promobot_m13_artist,  exhibit_id: promobot_m13_artist,   dwell_s: 60,  mode: full}
+      - {location_id: sam3_autolabeling,    exhibit_id: sam3_autolabeling,     dwell_s: 60,  mode: full}
+      - {location_id: nav2_course,          exhibit_id: nav2_course,           dwell_s: 60,  mode: full}
+      - {location_id: livox_mid70,          exhibit_id: livox_mid70,           dwell_s: 60,  mode: full}
