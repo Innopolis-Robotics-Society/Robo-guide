@@ -65,6 +65,7 @@ def generate_launch_description():
     # --- Gazebo model search path (meshes) ---
     model_path = str(Path(pkg_description).parent.resolve())
     model_path += pathsep + os.path.join(pkg_description, "meshes")
+    model_path += pathsep + os.path.join(pkg_simulation, "worlds")
 
     gazebo_model_path = SetEnvironmentVariable("GAZEBO_MODEL_PATH", model_path)
 

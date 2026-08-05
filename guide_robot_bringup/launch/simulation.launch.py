@@ -39,8 +39,13 @@ def generate_launch_description():
     )
     declare_map = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg_navigation, "map", "simple.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "lab_105_full.yaml"),
         description="Map yaml, used only when slam:=false",
+    )
+    world_arg = DeclareLaunchArgument(
+        name="world",
+        default_value=os.path.join(pkg_simulation, "worlds", "iu_lab_simple.world"),
+        description="Path to the Gazebo world file",
     )
     declare_nav = DeclareLaunchArgument(
         "nav", default_value="true", description="Launch Nav2 stack"
@@ -59,6 +64,7 @@ def generate_launch_description():
 
     slam = LaunchConfiguration("slam")
     map_yaml = LaunchConfiguration("map")
+    world = LaunchConfiguration("world")
     nav = LaunchConfiguration("nav")
     nav_params = LaunchConfiguration("nav_params_file")
     slam_params = LaunchConfiguration("slam_params_file")
@@ -67,7 +73,9 @@ def generate_launch_description():
     # ── 1. Симуляция: Gazebo + робот ─────────────────────────────────────────
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_simulation, "launch", "gazebo.launch.py")),
-        launch_arguments={"use_sim_time": "true"}.items(),
+        launch_arguments={
+            "use_sim_time": "true",
+            "world": world}.items(),
     )
 
     # ── 2. Перцепция: лидары виртуальные, соноры из плагинов Gazebo ──────────
@@ -113,6 +121,7 @@ def generate_launch_description():
             declare_slam,
             declare_map,
             declare_nav,
+            world_arg,
             declare_nav_params,
             declare_slam_params,
             declare_rviz,
