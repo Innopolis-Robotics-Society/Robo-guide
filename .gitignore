@@ -14,7 +14,7 @@ __pycache__/
 .develop/
 dist/
 local/
-
+.ruff_cache
 
 .vscode/
 .idea/
