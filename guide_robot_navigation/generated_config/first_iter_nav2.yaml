@@ -575,7 +575,7 @@ collision_monitor:
     SonarStopFront:
       type: "polygon"
       action_type: "stop"
-      points: [0.35, 0.28, 0.35, -0.28, -0.05, -0.28, -0.05, 0.28]
+      points: [0.35, 0.35, 0.35, -0.35, -0.35, -0.35, -0.35, 0.35]
       max_points: 1
       visualize: True
       polygon_pub_topic: "sonar_stop_polygon"
@@ -585,7 +585,7 @@ collision_monitor:
       type: "polygon"
       action_type: "slowdown"
       slowdown_ratio: 0.4
-      points: [0.55, 0.34, 0.55, -0.34, -0.10, -0.34, -0.10, 0.34]
+      points: [0.55, 0.40, 0.55, -0.40, -0.55, -0.40, -0.55, 0.40]
       max_points: 1
       visualize: True
       polygon_pub_topic: "sonar_slow_polygon"
