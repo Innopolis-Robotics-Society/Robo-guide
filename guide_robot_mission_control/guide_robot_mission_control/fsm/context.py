@@ -47,6 +47,7 @@ class FsmContext:
         poll_period_s: float,
         hard_stop_result_timeout_s: float,
         on_state_changed: Callable[[str, object], None] | None = None,
+        log: Callable[[str], None] | None = None,
     ) -> None:
         """Собрать контекст одного `RunTour`-goal.
 
@@ -74,6 +75,7 @@ class FsmContext:
         self.poll_period_s = poll_period_s
         self.hard_stop_result_timeout_s = hard_stop_result_timeout_s
         self._on_state_changed = on_state_changed
+        self._log = log
 
         self.barge_in_event = threading.Event()
         self._answer_queue: queue.Queue[str] = queue.Queue()
@@ -145,3 +147,16 @@ class FsmContext:
         """Оповестить узел -- публикация /mission/state и feedback RunTour (design §2.4)."""
         if self._on_state_changed is not None:
             self._on_state_changed(name, blackboard)
+
+    def log(self, message: str) -> None:
+        """Записать ПРИЧИНУ неочевидного решения состояния, не сам факт перехода.
+
+        Факт перехода уже виден по `/mission/state` -- а вот ПОЧЕМУ (истёк
+        какой именно таймаут, что вернул Narrate/nav) без этого не виден
+        вообще. Без явного лога тут молчаливое решение (например,
+        `confirm_timeout_s` истёк -> NO) неотличимо в логе от реального
+        ответа посетителя -- ровно то, что запутало оператора вживую при
+        отладке шага 8.
+        """
+        if self._log is not None:
+            self._log(message)

@@ -34,8 +34,10 @@ class HeldState(InterruptibleState):
         """Вернуть CLEARED, если estop снят; HOLD_TIMEOUT, если простояли дольше held_max_s."""
         del blackboard
         if not self.ctx.safety_hold_event.is_set():
+            self.ctx.log("held: safety_hold снят -> резюме")
             return outcomes.CLEARED
         elapsed_s = (now_ns - self._start_ns) / 1e9
         if elapsed_s >= self.ctx.held_max_s:
+            self.ctx.log(f"held: held_max_s={self.ctx.held_max_s} истёк, снятия не было -> домой")
             return outcomes.HOLD_TIMEOUT
         return None

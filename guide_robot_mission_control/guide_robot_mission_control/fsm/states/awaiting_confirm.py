@@ -62,6 +62,7 @@ class AwaitingConfirmState(InterruptibleState):
 
         answer = self.ctx.take_confirm_answer()
         if answer is not None:
+            self.ctx.log(f"confirm: получен ответ -- {'да' if answer else 'нет'}")
             blackboard.stack.pop()
             return outcomes.YES if answer else outcomes.NO
 
@@ -69,18 +70,22 @@ class AwaitingConfirmState(InterruptibleState):
             blackboard.stack.on_barge_in(now=now_s)  # confirm -> answer, design правило 4
             self._repeat_count += 1
             if self._repeat_count > self.ctx.confirm_repeat_max:
-                return self._give_up(blackboard)
+                reason = f"barge-in превысил confirm_repeat_max={self.ctx.confirm_repeat_max}"
+                return self._give_up(blackboard, reason)
+            self.ctx.log(f"confirm: barge-in, переспрашиваю (попытка {self._repeat_count})")
             blackboard.stack.pop()
             self._ask(blackboard)
             return None
 
         frame = blackboard.stack.frame
         if frame is not None and frame.kind == "confirm" and now_s >= frame.deadline:
-            return self._give_up(blackboard)
+            reason = f"confirm_timeout_s={self.ctx.confirm_timeout_s} истёк"
+            return self._give_up(blackboard, reason)
 
         return None
 
-    def _give_up(self, blackboard: Blackboard) -> str:
+    def _give_up(self, blackboard: Blackboard, reason: str) -> str:
+        self.ctx.log(f"confirm: без ответа -> NO ({reason})")
         blackboard.stack.pop()
         return outcomes.NO
 

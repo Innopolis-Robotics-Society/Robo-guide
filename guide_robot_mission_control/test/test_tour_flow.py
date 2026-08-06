@@ -184,9 +184,62 @@ def test_narrate_rejected_skips_stop(harness: MissionTestHarness) -> None:
     assert result.stops_completed == 2
 
 
+def test_pause_during_narrating_resumes_and_completes_stop(harness: MissionTestHarness) -> None:
+    """PAUSED посреди NARRATING -> resume -> остановка ЗАВЕРШЕНА, не пропущена.
+
+    Раньше `NarratingState.poll()` отдавал PAUSED, не остановив активный
+    `Narrate` -- narration_server оставался занят брошенным goal-ом
+    (`self._active_execution`); после resume новый `Narrate` получал
+    OUTCOME_REJECTED("busy"), что через `_skip_stop` тихо пропускало
+    остановку и заканчивало тур раньше времени (воспроизведено вживую:
+    pause -> resume -> тур молча уехал домой). cancel_active_work() теперь
+    вызывается явно из poll() при PAUSED, как при CANCELED/HELD.
+    """
+    stop_ids = ["stop0", "stop1"]
+    for i, stop_id in enumerate(stop_ids):
+        harness.fixtures.add_exhibit(stop_id, [f"{stop_id} ч0.", f"{stop_id} ч1."], version="rev1")
+        harness.fixtures.add_location(stop_id, x=float(i), y=0.0)
+    harness.nav.duration_s = _NAV_DURATION_S
+    harness.say.chars_per_sec = 10.0  # медленно -- есть время поймать NARRATING до конца чанка
+    _client_node, run_tour_client, state, fsm_node = _base_stack(harness)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=stop_ids,
+            greet=False,
+            narrate=True,
+            confirm_between_stops=False,
+            return_home=False,
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    pump_clock(harness, state_is(state, MissionState.STATE_NARRATING), step=_NAV_DURATION_S + 0.02)
+    time.sleep(0.05)  # дать narration_server реально принять Narrate-goal
+
+    fsm_node.request_pause()
+    wait_until(state_is(state, MissionState.STATE_PAUSED), timeout_s=15.0)
+    assert state["latest"].resume_token != ""  # чанк 0 реально остановлен, не брошен
+
+    fsm_node.request_resume()
+    wait_until(state_is(state, MissionState.STATE_NARRATING), timeout_s=15.0)
+
+    harness.say.chars_per_sec = 50.0
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.1, max_iterations=200)
+    wait_for_future(result_future, timeout_s=15.0)
+    result: RunTour.Result = result_future.result().result
+
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    assert result.stops_skipped == 0
+    assert result.stops_completed == 2
+
+
 def test_narrate_false_skips_narration(harness: MissionTestHarness) -> None:
     stop_ids = _setup_three_stop_tour(harness)
-    client_node, run_tour_client, state, _fsm = _base_stack(harness)
+    client_node, run_tour_client, _state, _fsm = _base_stack(harness)
 
     goal_future = run_tour_client.send_goal_async(
         RunTour.Goal(
@@ -208,8 +261,13 @@ def test_narrate_false_skips_narration(harness: MissionTestHarness) -> None:
 
     assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
     assert result.stops_completed == 3
-    # narrate=False -- ни одного Say/Narrate-перехода в NARRATING быть не должно.
-    assert all(msg.state != MissionState.STATE_NARRATING for msg in state.get("history", []))
+    # narrate=False -- ни один Narrate/Say goal не должен был уйти наружу.
+    # /mission/state ВСЁ РАВНО проходит через узел "narrating" в графе SM
+    # (on_state_changed вызывается безусловно при входе в состояние,
+    # раньше проверки tour.narrate) -- утверждение "STATE_NARRATING никогда
+    # не публикуется" неверно по конструкции и держалось только на везении
+    # с гонкой QoS-коалессирования; заменено на прямую проверку мока.
+    assert harness.say.goals_received == 0
     del client_node
 
 

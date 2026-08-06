@@ -58,6 +58,13 @@ _FINAL_OUTCOME_TO_RESULT = {
     "shutdown": RunTour.Result.OUTCOME_CANCELED,
 }
 
+_RUN_TOUR_OUTCOME_NAMES = {
+    RunTour.Result.OUTCOME_COMPLETED: "COMPLETED",
+    RunTour.Result.OUTCOME_CANCELED: "CANCELED",
+    RunTour.Result.OUTCOME_ABORTED: "ABORTED",
+    RunTour.Result.OUTCOME_NO_VISITOR: "NO_VISITOR",
+}
+
 
 def _wait_future(future: Future, context: object, timeout_s: float) -> bool:
     """Дождаться future реальными миллисекундами. True -- успел, False -- таймаут/shutdown."""
@@ -282,10 +289,16 @@ class MissionFsmNode(LifecycleNode):
 
     def _recompute_safety_hold(self) -> None:
         held = self._estop or self._supervisor_state in ("FAULT", "SHUTDOWN")
+        was_held = self._safety_hold_event.is_set()
         if held:
             self._safety_hold_event.set()
         else:
             self._safety_hold_event.clear()
+        if held != was_held:
+            self.get_logger().info(
+                f"safety_hold {'взведён' if held else 'снят'} "
+                f"(estop={self._estop}, supervisor_state={self._supervisor_state!r})"
+            )
 
     def _on_cancel_all(self, msg: CancelAll) -> None:
         if not self._active:
@@ -295,18 +308,25 @@ class MissionFsmNode(LifecycleNode):
         with self._exec_lock:
             ctx = self._active_ctx
         if ctx is not None:
+            self.get_logger().info("barge-in получен (/speech/cancel_all)")
             ctx.barge_in_event.set()
 
     # -- RunTour ----------------------------------------------------------
 
     def _on_run_tour_goal(self, goal_request: RunTour.Goal) -> GoalResponse:
-        del goal_request
         if not self._active:
+            self.get_logger().warning("RunTour отклонён: mission_fsm не active")
             return GoalResponse.REJECT
         with self._exec_lock:
             busy = self._active_ctx is not None
         if busy:
+            self.get_logger().warning("RunTour отклонён: уже есть активный тур")
             return GoalResponse.REJECT
+        self.get_logger().info(
+            f"RunTour принят: tour_id={goal_request.tour_id!r} "
+            f"location_ids={list(goal_request.location_ids)} "
+            f"start_index={goal_request.start_index}"
+        )
         return GoalResponse.ACCEPT
 
     def _execute_run_tour(self, goal_handle: object) -> RunTour.Result:
@@ -314,12 +334,17 @@ class MissionFsmNode(LifecycleNode):
 
         resolved = self._resolve_tour(goal)
         if resolved is None:
+            self.get_logger().error(
+                f"тур не разрешён: tour_id={goal.tour_id!r} не найден в ListTours "
+                "либо location_ids пуст"
+            )
             return self._finish_run_tour(
                 goal_handle, RunTour.Result.OUTCOME_ABORTED, 0, 0, "tour_not_found"
             )
         stop_ids, exhibit_ids = resolved
         locations = self._fetch_locations()
         if locations is None:
+            self.get_logger().error("location_server недоступен -- тур не может начаться")
             return self._finish_run_tour(
                 goal_handle, RunTour.Result.OUTCOME_ABORTED, 0, 0, "location_service_unavailable"
             )
@@ -339,6 +364,11 @@ class MissionFsmNode(LifecycleNode):
             self._active_ctx = ctx
             self._active_goal_handle = goal_handle
 
+        self.get_logger().info(
+            f"тур запущен: {len(stop_ids)} остановок начиная с индекса {tour.index}, "
+            f"greet={tour.greet} narrate={tour.narrate} "
+            f"confirm_between_stops={tour.confirm_between_stops} return_home={tour.return_home}"
+        )
         try:
             outcome = RootStateMachine(ctx).run_tour(blackboard)
         finally:
@@ -387,6 +417,7 @@ class MissionFsmNode(LifecycleNode):
             poll_period_s=float(self._params["poll_period_s"]),
             hard_stop_result_timeout_s=float(self._params["hard_stop_result_timeout_s"]),
             on_state_changed=self._on_fsm_state_changed,
+            log=self.get_logger().info,
         )
 
     def _resolve_tour(self, goal: RunTour.Goal) -> tuple[list[str], list[str]] | None:
@@ -434,6 +465,13 @@ class MissionFsmNode(LifecycleNode):
             stops_skipped=stops_skipped,
             detail=detail,
         )
+        log = self.get_logger().info if outcome == RunTour.Result.OUTCOME_COMPLETED else (
+            self.get_logger().warning
+        )
+        log(
+            f"тур завершён: outcome={_RUN_TOUR_OUTCOME_NAMES.get(outcome, outcome)} "
+            f"completed={stops_completed} skipped={stops_skipped} detail={detail!r}"
+        )
         if outcome == RunTour.Result.OUTCOME_ABORTED:
             goal_handle.abort()  # type: ignore[attr-defined]
         elif goal_handle.is_cancel_requested:  # type: ignore[attr-defined]
@@ -446,31 +484,37 @@ class MissionFsmNode(LifecycleNode):
 
     def submit_answer(self, text: str) -> None:
         """Передать текст ответа посетителя активному туру, если он есть."""
-        with self._exec_lock:
-            ctx = self._active_ctx
+        ctx = self._log_hook_call("submit_answer", extra=repr(text))
         if ctx is not None:
             ctx.submit_answer(text)
 
     def submit_confirm(self, *, is_yes: bool) -> None:
         """Передать да/нет-ответ на «Идём дальше?» активному туру, если он есть."""
-        with self._exec_lock:
-            ctx = self._active_ctx
+        ctx = self._log_hook_call("submit_confirm", extra=f"is_yes={is_yes}")
         if ctx is not None:
             ctx.submit_confirm(is_yes=is_yes)
 
     def request_pause(self) -> None:
         """Запросить паузу тура (тестовый хук вместо /mission/presence, design §6)."""
-        with self._exec_lock:
-            ctx = self._active_ctx
+        ctx = self._log_hook_call("request_pause")
         if ctx is not None:
             ctx.request_pause()
 
     def request_resume(self) -> None:
         """Запросить возобновление тура из PAUSED (тестовый хук)."""
-        with self._exec_lock:
-            ctx = self._active_ctx
+        ctx = self._log_hook_call("request_resume")
         if ctx is not None:
             ctx.request_resume()
+
+    def _log_hook_call(self, name: str, *, extra: str = "") -> FsmContext | None:
+        with self._exec_lock:
+            ctx = self._active_ctx
+        suffix = f" ({extra})" if extra else ""
+        if ctx is None:
+            self.get_logger().warning(f"{name}{suffix}: нет активного тура, проигнорирован")
+        else:
+            self.get_logger().info(f"{name}{suffix}: доставлен активному туру")
+        return ctx
 
     # -- ROS-обёртки над хуками выше, для mission_cli (design §11) -----------
 
@@ -521,6 +565,11 @@ class MissionFsmNode(LifecycleNode):
         msg.exhibit_id = blackboard.tour.current_exhibit_id
         msg.resume_token = blackboard.resume_token
         msg.resume_available = bool(blackboard.resume_token)
+        self.get_logger().info(
+            f"-> {name.upper()} (остановка {msg.stop_index + 1}/{msg.stop_total}, "
+            f"stop_id={msg.stop_id or '-'}, exhibit_id={msg.exhibit_id or '-'}, "
+            f"resume={'да' if msg.resume_available else 'нет'})"
+        )
         with self._state_lock:
             self._last_state_msg = msg
         self._state_pub.publish(msg)

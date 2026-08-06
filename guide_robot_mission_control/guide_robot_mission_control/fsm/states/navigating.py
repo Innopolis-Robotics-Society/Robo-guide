@@ -46,7 +46,8 @@ class NavigatingState(InterruptibleState):
         elapsed_s = (now_ns - self._start_ns) / 1e9
         if elapsed_s >= self.ctx.nav_stop_timeout_s:
             self._goal_handle.cancel_goal_async()  # type: ignore[attr-defined]
-            return self._skip_stop(blackboard)
+            reason = f"nav_stop_timeout_s={self.ctx.nav_stop_timeout_s} истёк"
+            return self._skip_stop(blackboard, reason)
         return self._poll_result(blackboard)
 
     def _poll_send(self, blackboard: Blackboard) -> str | None:
@@ -54,7 +55,7 @@ class NavigatingState(InterruptibleState):
             return None
         self._goal_handle = self._send_future.result()  # type: ignore[attr-defined]
         if not self._goal_handle.accepted:  # type: ignore[attr-defined]
-            return self._skip_stop(blackboard)
+            return self._skip_stop(blackboard, "NavigateToPose goal не принят")
         self._result_future = self._goal_handle.get_result_async()  # type: ignore[attr-defined]
         return None
 
@@ -64,9 +65,12 @@ class NavigatingState(InterruptibleState):
         status = self._result_future.result().status  # type: ignore[attr-defined]
         if status == GoalStatus.STATUS_SUCCEEDED:
             return outcomes.ARRIVED
-        return self._skip_stop(blackboard)
+        return self._skip_stop(blackboard, f"NavigateToPose status={status}")
 
-    def _skip_stop(self, blackboard: Blackboard) -> str:
+    def _skip_stop(self, blackboard: Blackboard, reason: str) -> str:
+        self.ctx.log(
+            f"navigating: пропускаю остановку {blackboard.tour.current_stop_id!r} ({reason})"
+        )
         blackboard.stops_skipped += 1
         if not blackboard.tour.has_next_stop:
             return outcomes.TOUR_FINISHED

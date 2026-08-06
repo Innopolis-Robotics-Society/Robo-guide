@@ -33,8 +33,10 @@ class PausedState(InterruptibleState):
         """RESUMED по тестовому хуку; TIMEOUT_NO_VISITOR по истечении pause_timeout_s."""
         del blackboard
         if self.ctx.take_resume_request():
+            self.ctx.log("paused: resume получен -> продолжаем")
             return outcomes.RESUMED
         elapsed_s = (now_ns - self._start_ns) / 1e9
         if elapsed_s >= self.ctx.pause_timeout_s:
+            self.ctx.log(f"paused: pause_timeout_s={self.ctx.pause_timeout_s} истёк -> едем домой")
             return outcomes.TIMEOUT_NO_VISITOR
         return None

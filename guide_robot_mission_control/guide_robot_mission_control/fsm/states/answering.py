@@ -42,6 +42,7 @@ class AnsweringState(InterruptibleState):
 
         answer = self.ctx.take_answer()
         if answer is not None:
+            self.ctx.log(f"answering: получен ответ -- {answer!r}")
             blackboard.last_answer = answer
             blackboard.stack.pop()
             return outcomes.ANSWERED
@@ -51,6 +52,7 @@ class AnsweringState(InterruptibleState):
             return None
 
         if blackboard.stack.answer_timed_out(now=now_s, answer_max_s=self.ctx.answer_max_s):
+            self.ctx.log(f"answering: answer_max_s={self.ctx.answer_max_s} истёк, ответа не было")
             blackboard.stack.pop()
             return outcomes.TIMEOUT
 

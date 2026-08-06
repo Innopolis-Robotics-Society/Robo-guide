@@ -49,6 +49,14 @@ class NarratingState(InterruptibleState):
         if self._skip:
             return self._advance(blackboard)
         if self.ctx.take_pause_request():
+            # Как и при CANCELED/HELD -- активный Narrate обязан быть
+            # остановлен здесь, а не просто брошен. Иначе narration_server
+            # (self._active_execution) остаётся занят ЭТИМ goal-ом; после
+            # resume NarratingState.on_enter() шлёт НОВЫЙ Narrate -- и
+            # получает OUTCOME_REJECTED("busy") на пустом месте, что через
+            # _skip_stop пропускает остановку и завершает тур досрочно
+            # (воспроизведено вживую: pause -> resume -> тихо домой).
+            self.cancel_active_work(blackboard, outcomes.PAUSED)
             return outcomes.PAUSED
         if self._goal_handle is None:
             return self._poll_send(blackboard)
@@ -60,7 +68,7 @@ class NarratingState(InterruptibleState):
         self._goal_handle = self._send_future.result()  # type: ignore[attr-defined]
         blackboard.narrate_goal_handle = self._goal_handle
         if not self._goal_handle.accepted:  # type: ignore[attr-defined]
-            return self._skip_stop(blackboard)
+            return self._skip_stop(blackboard, "Narrate goal не принят")
         self._result_future = self._goal_handle.get_result_async()  # type: ignore[attr-defined]
         return None
 
@@ -80,7 +88,8 @@ class NarratingState(InterruptibleState):
         # весь RunTour необработанным исходом (было: `_TRANSITIONS`
         # не знал про ABORTED -> RuntimeError, воспроизведено вживую).
         # Пропускаем остановку тем же путём, что и NAV_FAILED.
-        return self._skip_stop(blackboard)
+        reason = f"Narrate outcome={result.outcome} detail={result.detail!r}"
+        return self._skip_stop(blackboard, reason)
 
     def _advance(self, blackboard: Blackboard) -> str:
         blackboard.stops_completed += 1
@@ -90,7 +99,10 @@ class NarratingState(InterruptibleState):
         blackboard.resume_token = ""
         return outcomes.SUCCEEDED
 
-    def _skip_stop(self, blackboard: Blackboard) -> str:
+    def _skip_stop(self, blackboard: Blackboard, reason: str) -> str:
+        self.ctx.log(
+            f"narrating: пропускаю остановку {blackboard.tour.current_stop_id!r} ({reason})"
+        )
         blackboard.stops_skipped += 1
         if not blackboard.tour.has_next_stop:
             return outcomes.TOUR_FINISHED
@@ -99,7 +111,16 @@ class NarratingState(InterruptibleState):
         return outcomes.NARRATE_FAILED
 
     def cancel_active_work(self, blackboard: Blackboard, outcome: str) -> None:
-        """CANCELED/HELD -- жёстко остановить активный Narrate (design §5.7: MODE_HARD).
+        """CANCELED/HELD/PAUSED -- жёстко остановить активный Narrate (design §5.7: MODE_HARD).
+
+        PAUSED вызывает это САМА (см. `poll()`) -- в отличие от CANCELED/HELD,
+        её не производит база (`fsm/base.py`), она приходит из собственного
+        `poll()` этого состояния, и без явного вызова здесь narration_server
+        остался бы занят брошенным goal-ом (design §5.7 упоминает только
+        MODE_SOFT для presence-паузы; полноценная интеграция с
+        `NarrationControl.srv` отложена вместе с `/mission/presence` -- см.
+        докстринг `fsm/states/paused.py`, здесь временно тот же MODE_HARD,
+        что и у CANCELED/HELD, лишь бы не терять активный goal).
 
         `cancel_goal_async()` только запускает отмену -- сам возврат
         HELD/CANCELED из `_poll_loop` синхронный и не ждёт её результата.
