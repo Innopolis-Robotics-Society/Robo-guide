@@ -1,0 +1,13 @@
+# Пауза активного Narrate goal с полезной нагрузкой в ответе -- через
+# cancel() её не передать (design.md §2.3).
+#
+# Голый cancel активного Narrate goal эквивалентен MODE_HARD.
+
+uint8 MODE_SOFT=0     # доиграть текущий чанк (и уже отправленный lookahead), дальше не слать
+uint8 MODE_HARD=1     # немедленно: CancelAll(scope=narration) + отмена активных Say
+uint8 mode
+string reason
+---
+bool   ok
+string resume_token
+uint16 chunks_spoken

@@ -14,7 +14,6 @@ find_package(action_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/NarrationToken.msg"
   "msg/MissionState.msg"
   "msg/SystemEvent.msg"
   "msg/Transcript.msg"
@@ -26,6 +25,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetExhibitContent.srv"
   "srv/ResolveLocation.srv"
   "srv/ListTours.srv"
+  "srv/NarrationControl.srv"
   "action/Narrate.action"
   "action/RunTour.action"
   "action/AskUser.action"
@@ -37,6 +37,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SpeakingStatus.msg"
   "msg/VoiceActivity.msg"
   "msg/Wakeword.msg"
+  "msg/Presence.msg"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs
 )
 

@@ -1,24 +1,35 @@
-# Goal
+# Владение роботом целиком на время экскурсии (guide_robot_mission_design.md §2.4).
+#
+# Один активный goal. Второй -- REJECT (не preempt: тур -- это владение
+# роботом целиком). tour_id разворачивается mission-ом в остановки через
+# guide_robot_semantic_map ListTours (Tour.stops), не через ListLocations --
+# у неё нет параметра tour_id (реконсиляция §0.5).
+
+# --- goal ---
 string tour_id
-string[] location_ids
-uint32 time_budget_min
+string[] location_ids      # override; пусто -> взять из ListTours(tour_id).stops
+uint16 start_index          # рестарт с середины
+uint32 time_budget_min      # 0 = без бюджета; обрезкой тура занимается mission
+                             # (guide_robot_semantic_map_design.md §0.7 -- EstimateRoute
+                             # такого поля не имеет)
+bool   greet                 # дефолт true
+bool   narrate                # false = только объезд, для проверки навигации
+bool   confirm_between_stops    # спрашивать "идём дальше?"
+bool   return_home
 ---
-# Result
-uint8 OUTCOME_COMPLETED = 0
-uint8 OUTCOME_ABORTED = 1
-uint8 OUTCOME_TIMEOUT = 2
-uint8 OUTCOME_CANCELLED = 3
-
-uint8 outcome
-uint32 stops_completed
+# --- result ---
+uint8 OUTCOME_COMPLETED=0
+uint8 OUTCOME_CANCELED=1
+uint8 OUTCOME_ABORTED=2
+uint8 OUTCOME_NO_VISITOR=3     # дисенгейджмент по presence
+uint8  outcome
+uint16 stops_completed
+uint16 stops_skipped
+string detail
 ---
-# Feedback
-uint8 TOUR_STATE_NAVIGATING = 0
-uint8 TOUR_STATE_ARRIVED = 1
-uint8 TOUR_STATE_NARRATING = 2
-uint8 TOUR_STATE_AWAITING_USER = 3
-uint8 TOUR_STATE_SKIPPED = 4
-
-uint8 state
-uint32 stop_index
-string current_location
+# --- feedback ---
+uint8  phase               # = MissionState.state
+uint16 stop_index
+uint16 stop_total
+string stop_id
+float32 eta_s              # из nav feedback либо EstimateRoute(ids=[stop_id])

@@ -1,13 +1,37 @@
-# Goal
-string exhibit_id
-string mode              # short|full
-uint32 start_chunk
-string language
+# Озвучка одного экспозиционного/транзитного текста narration_server-ом
+# (guide_robot_mission_design.md §2.2, реконсиляция §0.5).
+#
+# Один Say goal на один элемент GetExhibitContent.chunks -- narration_server
+# сам текст не режет, чанки уже готовы (guide_robot_semantic_map). scope/
+# priority используют те же числовые значения, что и Say.action
+# SCOPE_*/PRIORITY_* (guide_robot_msgs/action/Say.action); rosidl не даёт
+# делить константы между файлами, поэтому соответствие только по значению.
+
+# --- goal ---
+string exhibit_id           # обязателен; ключ для GetExhibitContent и валидации resume
+string text                 # если пусто -- narration_server сам дёрнет GetExhibitContent
+string resume_token         # "" = с начала
+uint8  priority              # значение как в Say.action PRIORITY_*
+uint8  scope                  # значение как в Say.action SCOPE_*
+uint8 CONTINUITY_CONTINUOUS=0   # связный текст: мягкая пауза сохраняет resume_token
+uint8 CONTINUITY_DROPPABLE=1    # набор независимых реплик: остаток выбрасывается, токен пустой
+uint8  continuity
 ---
-# Result
-bool completed
-NarrationToken token
+# --- result ---
+uint8 OUTCOME_COMPLETED=0
+uint8 OUTCOME_PAUSED=1        # мягкая пауза, есть resume_token
+uint8 OUTCOME_INTERRUPTED=2   # жёсткий обрыв (barge-in), есть resume_token
+uint8 OUTCOME_ABORTED=3
+uint8 OUTCOME_REJECTED=4      # занят другим goal / контент не найден
+uint8  outcome
+string resume_token
+uint16 chunks_spoken
+uint16 chunks_total
+string spoken_text            # реально произнесённый префикс -- источник правды для усечения контекста ЛЛМ
+string detail
 ---
-# Feedback
-uint32 chunk_index
-uint32 total_chunks
+# --- feedback ---
+uint16 chunk_index
+uint16 chunk_total
+string chunk_text
+float32 progress              # 0..1 по символам, не по чанкам
