@@ -21,6 +21,7 @@ __all__ = [
     "HELD",
     "HOLD_TIMEOUT",
     "INTERRUPTED",
+    "NARRATE_FAILED",
     "NAV_FAILED",
     "NO",
     "PAUSED",
@@ -42,6 +43,7 @@ SHUTDOWN = "shutdown"
 
 ARRIVED = "arrived"
 NAV_FAILED = "nav_failed"
+NARRATE_FAILED = "narrate_failed"
 TOUR_FINISHED = "tour_finished"
 YES = "yes"
 NO = "no"

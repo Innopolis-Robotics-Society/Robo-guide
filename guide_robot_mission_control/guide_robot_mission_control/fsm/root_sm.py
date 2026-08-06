@@ -69,10 +69,15 @@ _TRANSITIONS: dict[str, dict[str, str | None]] = {
     "narrating": {
         # NarratingState сам решает succeeded/tour_finished и продвигает
         # tour.index; SUCCEEDED дальше ветвится по confirm_between_stops.
+        # NARRATE_FAILED -- зеркало NAV_FAILED у NAVIGATING: контент не
+        # нашёлся/Narrate отклонён, остановка пропущена, tour.index уже
+        # продвинут самим NarratingState -- продолжаем с NAVIGATING на
+        # следующую остановку, а не рушим тур.
         outcomes.SUCCEEDED: CONFIRM_OR_CONTINUE,
         outcomes.TOUR_FINISHED: "returning",
         outcomes.INTERRUPTED: "answering",
         outcomes.PAUSED: "paused",
+        outcomes.NARRATE_FAILED: "navigating",
         outcomes.SHUTDOWN: None,
         **_UNIVERSAL,
     },

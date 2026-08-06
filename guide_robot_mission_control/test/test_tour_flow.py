@@ -143,6 +143,47 @@ def test_nav_failed_skips_stop(harness: MissionTestHarness) -> None:
     assert result.stops_completed == 2
 
 
+def test_narrate_rejected_skips_stop(harness: MissionTestHarness) -> None:
+    """Контент не найден (design: Narrate REJECTED) -- остановка пропущена, тур не падает.
+
+    Раньше `NARRATE_FAILED`/`ABORTED` не было в `_TRANSITIONS["narrating"]`
+    -- RootStateMachine.run_tour() ронял необработанный RuntimeError,
+    воспроизведено вживую (content_server не нашёл контент для реального
+    exhibit_id). Зеркалит test_nav_failed_skips_stop, только источник
+    сбоя -- отсутствующий контент, а не nav.mode_queue.
+    """
+    stop_ids = ["stop0", "stop1", "stop2"]
+    for i, stop_id in enumerate(stop_ids):
+        if stop_id != "stop1":  # у stop1 сознательно нет фикстуры контента
+            harness.fixtures.add_exhibit(stop_id, [f"{stop_id} чанк0."], version="rev1")
+        harness.fixtures.add_location(stop_id, x=float(i), y=0.0)
+    harness.nav.duration_s = _NAV_DURATION_S
+    harness.say.chars_per_sec = 50.0
+    _client_node, run_tour_client, _state, _fsm = _base_stack(harness)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=stop_ids,
+            greet=False,
+            narrate=True,
+            confirm_between_stops=False,
+            return_home=False,
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.1, max_iterations=200)
+    wait_for_future(result_future, timeout_s=15.0)
+    result: RunTour.Result = result_future.result().result
+
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    assert result.stops_skipped == 1
+    assert result.stops_completed == 2
+
+
 def test_narrate_false_skips_narration(harness: MissionTestHarness) -> None:
     stop_ids = _setup_three_stop_tour(harness)
     client_node, run_tour_client, state, _fsm = _base_stack(harness)

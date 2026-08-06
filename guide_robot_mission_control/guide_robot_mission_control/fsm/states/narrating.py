@@ -60,7 +60,7 @@ class NarratingState(InterruptibleState):
         self._goal_handle = self._send_future.result()  # type: ignore[attr-defined]
         blackboard.narrate_goal_handle = self._goal_handle
         if not self._goal_handle.accepted:  # type: ignore[attr-defined]
-            return outcomes.ABORTED
+            return self._skip_stop(blackboard)
         self._result_future = self._goal_handle.get_result_async()  # type: ignore[attr-defined]
         return None
 
@@ -74,7 +74,13 @@ class NarratingState(InterruptibleState):
         if result.outcome == Narrate.Result.OUTCOME_INTERRUPTED:
             self.ctx.consume_barge_in()
             return outcomes.INTERRUPTED
-        return outcomes.ABORTED
+        # OUTCOME_ABORTED/OUTCOME_REJECTED (design: "занят другим goal /
+        # контент не найден") -- контент для остановки может отсутствовать
+        # (плохие/неполные данные semantic_map), это не должно ронять
+        # весь RunTour необработанным исходом (было: `_TRANSITIONS`
+        # не знал про ABORTED -> RuntimeError, воспроизведено вживую).
+        # Пропускаем остановку тем же путём, что и NAV_FAILED.
+        return self._skip_stop(blackboard)
 
     def _advance(self, blackboard: Blackboard) -> str:
         blackboard.stops_completed += 1
@@ -83,6 +89,14 @@ class NarratingState(InterruptibleState):
         blackboard.tour.index += 1
         blackboard.resume_token = ""
         return outcomes.SUCCEEDED
+
+    def _skip_stop(self, blackboard: Blackboard) -> str:
+        blackboard.stops_skipped += 1
+        if not blackboard.tour.has_next_stop:
+            return outcomes.TOUR_FINISHED
+        blackboard.tour.index += 1
+        blackboard.resume_token = ""
+        return outcomes.NARRATE_FAILED
 
     def cancel_active_work(self, blackboard: Blackboard, outcome: str) -> None:
         """CANCELED/HELD -- жёстко остановить активный Narrate (design §5.7: MODE_HARD).
