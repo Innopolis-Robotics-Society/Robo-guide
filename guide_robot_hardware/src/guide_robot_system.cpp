@@ -5,6 +5,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -198,6 +199,8 @@ bool GuideRobotSystem::loadParameters()
   ok &= paramDouble(p, "wheel_radius", false, wheel_radius_);
   ok &= paramDouble(p, "ticks_per_rev", false, ticks_per_rev_);
   ok &= paramDouble(p, "encoder_timeout", false, encoder_timeout_);
+  ok &= paramDouble(p, "encoder_wrap_ticks", false, encoder_wrap_ticks_);
+  ok &= paramInt(p, "encoder_poll_divider", false, encoder_poll_divider_);
 
   double accel = static_cast<double>(motor_accel_);
   ok &= paramDouble(p, "motor_accel", false, accel);
@@ -234,18 +237,39 @@ bool GuideRobotSystem::loadParameters()
   }
   motor_accel_ = static_cast<uint16_t>(accel);
 
+  if (encoder_poll_divider_ < 1) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("GuideRobotSystem"),
+      "encoder_poll_divider=%d: должно быть >= 1 (1 — запрос каждый цикл)", encoder_poll_divider_);
+    return false;
+  }
+  if (encoder_wrap_ticks_ < 0.0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("GuideRobotSystem"),
+      "encoder_wrap_ticks=%.0f: должно быть >= 0 (0 выключает ремонт разрывов)",
+      encoder_wrap_ticks_);
+    return false;
+  }
+
   RCLCPP_INFO(
     rclcpp::get_logger("GuideRobotSystem"),
     "Параметры: port=%s baud=%d L_id=%d R_id=%d swap=%d coeff=%.6f r=%.3fm ticks_per_rev=%.1f "
-    "cmd_timeout=%.3fs max_wheel_vel=%.2f рад/с encoder_timeout=%.3fs accel=%u",
+    "cmd_timeout=%.3fs max_wheel_vel=%.2f рад/с encoder_timeout=%.3fs accel=%u "
+    "poll_divider=%d wrap_ticks=%.0f",
     serial_port_.c_str(), baud_rate_, left_wheel_id_, right_wheel_id_, swap_drives_ ? 1 : 0,
     speed_coefficient_, wheel_radius_, ticks_per_rev_, cmd_timeout_, max_wheel_velocity_,
-    encoder_timeout_, motor_accel_);
+    encoder_timeout_, motor_accel_, encoder_poll_divider_, encoder_wrap_ticks_);
 
   if (encoder_timeout_ <= 0.0) {
     RCLCPP_WARN(
       rclcpp::get_logger("GuideRobotSystem"),
       "encoder_timeout <= 0: отказ энкодеров НЕ будет обнаружен, одометрия замрёт молча");
+  }
+  if (encoder_wrap_ticks_ <= 0.0) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("GuideRobotSystem"),
+      "encoder_wrap_ticks = 0: разрывы счётчика драйвера НЕ чинятся. Наблюдавшийся "
+      "на роботе скачок на 2^16 тиков уедет в одометрию как настоящий поворот");
   }
 
   return true;
@@ -330,6 +354,14 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_activate(const rclcpp_li
   enc_silence_ = 0.0;
   enc_fault_ = false;
   enc_request_counter_ = 0;
+  prev_raw_slot1_ = 0;
+  prev_raw_slot2_ = 0;
+  unwrapped_slot1_ = 0;
+  unwrapped_slot2_ = 0;
+  prev_slot1_rate_ = 0.0;
+  prev_slot2_rate_ = 0.0;
+  enc_wrap_repairs_ = 0;
+  enc_frames_rejected_ = 0;
   left_vel_cmd_ = 0.0;
   right_vel_cmd_ = 0.0;
 
@@ -496,6 +528,101 @@ void GuideRobotSystem::drainPortLocked(int budget_ms, size_t expect_bytes)
   }
 }
 
+bool GuideRobotSystem::correctTickDelta(
+  int64_t raw_delta, double dt, double prev_rate, const char * slot_name, int64_t & out_delta)
+{
+  // Конверт правдоподобия: сколько тиков колесо физически способно набрать за
+  // dt. max_wheel_velocity_ — уже конверт худшего случая v+w с запасом 1.10
+  // (w_wheel_max в xacro), поэтому второго множителя здесь нет.
+  const double envelope = max_wheel_velocity_ * dt * ticks_per_rev_ / (2.0 * M_PI);
+
+  // Пока дельта меньше полупериода счётчика, разрыв и честный ход различимы по
+  // одному кадру. Дальше они дают одно и то же показание — информационный
+  // предел, а не выбор реализации.
+  double unambiguous = envelope;
+  if (encoder_wrap_ticks_ > 0.0) {
+    unambiguous = std::min(envelope, encoder_wrap_ticks_ * 0.5);
+  }
+
+  const double raw_abs = std::fabs(static_cast<double>(raw_delta));
+  if (raw_abs <= unambiguous) {
+    out_delta = raw_delta;  // штатный кадр — не трогаем
+    return true;
+  }
+
+  if (encoder_wrap_ticks_ <= 0.0) {
+    RCLCPP_ERROR_THROTTLE(
+      rclcpp::get_logger("GuideRobotSystem"), *clock_, 1000,
+      "[encoders] %s: дельта %+ld тиков за %.3f с невозможна (конверт %.0f), ремонт "
+      "разрывов выключен (encoder_wrap_ticks=0) — кадр отвергнут",
+      slot_name, static_cast<long>(raw_delta), dt, envelope);
+    return false;
+  }
+
+  // Кандидаты проверяются по физическому конверту, а НЕ по полупериоду: кадры
+  // приходят раз в ~215 мс, за это время колесо на 0.9 м/с набирает 39 300
+  // тиков — больше полупериода 32 768. Проверка по полупериоду отвергала бы
+  // каждый кадр прямой на полном ходу и валила бы энкодер-каскад в отказ.
+  const int64_t wrap = static_cast<int64_t>(encoder_wrap_ticks_);
+  const int64_t cand[3] = {raw_delta, raw_delta - wrap, raw_delta + wrap};
+  bool ok[3];
+  int n_ok = 0;
+  for (int i = 0; i < 3; ++i) {
+    ok[i] = std::fabs(static_cast<double>(cand[i])) <= envelope;
+    n_ok += ok[i] ? 1 : 0;
+  }
+
+  if (n_ok == 0) {
+    RCLCPP_ERROR_THROTTLE(
+      rclcpp::get_logger("GuideRobotSystem"), *clock_, 1000,
+      "[encoders] %s: дельта %+ld тиков за %.3f с невозможна (конверт %.0f) и не "
+      "объясняется разрывом на %ld — кадр отвергнут",
+      slot_name, static_cast<long>(raw_delta), dt, envelope, static_cast<long>(wrap));
+    return false;
+  }
+
+  // Несколько достижимых кандидатов по одному кадру не различить — разрешаем
+  // непрерывностью: разрыв означал бы скачок скорости колеса на ~15 рад/с,
+  // чего 62-килограммовая база не разгонит и не затормозит. При n_ok == 1
+  // цикл просто берёт единственного.
+  int best = -1;
+  double best_err = 0.0;
+  for (int i = 0; i < 3; ++i) {
+    if (!ok[i]) continue;
+    const double err = std::fabs(static_cast<double>(cand[i]) / dt - prev_rate);
+    if (best < 0 || err < best_err) {
+      best = i;
+      best_err = err;
+    }
+  }
+
+  out_delta = cand[best];
+
+  if (best == 0) {
+    // Дельта за полупериодом, но физически достижима и согласуется с прошлой
+    // скоростью: верить драйверу безопаснее, чем тормозить робота на ходу.
+    // Цена — разрыв, случившийся именно в этой полосе, будет пропущен.
+    RCLCPP_WARN_THROTTLE(
+      rclcpp::get_logger("GuideRobotSystem"), *clock_, 5000,
+      "[encoders] %s: дельта %+ld тиков за %.3f с больше полупериода счётчика (%.0f), но в "
+      "физическом конверте (%.0f) и согласуется с прошлой скоростью — принята как есть",
+      slot_name, static_cast<long>(raw_delta), dt, unambiguous, envelope);
+    return true;
+  }
+
+  // Сообщаем величину самого разрыва, а не поправки: знак у неё обратный.
+  const int64_t glitch = raw_delta - cand[best];
+  ++enc_wrap_repairs_;
+  RCLCPP_WARN(
+    rclcpp::get_logger("GuideRobotSystem"),
+    "[encoders] %s: разрыв счётчика драйвера на %+ld тиков (%+.3f рад на колесе) починен "
+    "разворачиванием; сырая дельта %+ld за %.3f с при конверте %.0f. Это дефект прошивки "
+    "FURO, не наш расчёт. Всего разрывов с активации: %lu",
+    slot_name, static_cast<long>(glitch), static_cast<double>(glitch) / ticks_per_rev_ * 2.0 * M_PI,
+    static_cast<long>(raw_delta), dt, envelope, static_cast<unsigned long>(enc_wrap_repairs_));
+  return true;
+}
+
 hardware_interface::return_type GuideRobotSystem::read(
   const rclcpp::Time &, const rclcpp::Duration & period)
 {
@@ -508,12 +635,12 @@ hardware_interface::return_type GuideRobotSystem::read(
 
   // 1. Обмен с шиной — под мьютексом целиком: RS-485 полудуплексный, и
   //    стоп-пакет сторожа, ушедший поперёк окна приёма, испортил бы ответ.
-  //    Запрос уходит раз в 5 циклов (≈10 Hz при update_rate=50 Hz); ожидание —
-  //    через poll() с бюджетом, а не фиксированным usleep(5000), который
-  //    отъедал четверть цикла даже когда кадр уже лежал в буфере.
+  //    Запрос уходит раз в encoder_poll_divider_ циклов; ожидание — через
+  //    poll() с бюджетом, а не фиксированным usleep(5000), который отъедал
+  //    четверть цикла даже когда кадр уже лежал в буфере.
   {
     std::lock_guard<std::mutex> lock(serial_mutex_);
-    if (++enc_request_counter_ >= 5) {
+    if (++enc_request_counter_ >= encoder_poll_divider_) {
       enc_request_counter_ = 0;
       sendEncoderRequestLocked();
       drainPortLocked(ENC_RESPONSE_BUDGET_MS, ENC_FRAME_LEN);
@@ -554,11 +681,53 @@ hardware_interface::return_type GuideRobotSystem::read(
         std::memcpy(&enc_aux, &rx_buffer_[14], 4);
 
         // dt — время с ПРОШЛОГО разобранного кадра, а не длительность цикла:
-        // запрос уходит раз в 5 циклов, поэтому дельта позиции набегает
-        // примерно за 5 * period. Деление на period завышало скорость впятеро.
+        // при encoder_poll_divider_ > 1 дельта позиции набегает за несколько
+        // периодов. Деление на period завышало скорость во столько же раз.
+        // НЕ обнуляем здесь: отвергнутый кадр не должен сбрасывать накопленное
+        // время, иначе следующий годный кадр поделит дельту на слишком малый dt.
         double dt = enc_elapsed_;
         if (dt < 1e-6) dt = period.seconds();  // два кадра в одном цикле
         if (dt <= 0.0) dt = 0.02;
+
+        if (!initialized_encoders_) {
+          // Первый кадр после активации задаёт начало отсчёта: сравнивать
+          // не с чем, ремонт разрывов неприменим.
+          prev_raw_slot1_ = enc_slot1;
+          prev_raw_slot2_ = enc_slot2;
+          unwrapped_slot1_ = enc_slot1;
+          unwrapped_slot2_ = enc_slot2;
+          prev_slot1_rate_ = 0.0;
+          prev_slot2_rate_ = 0.0;
+        } else {
+          // Дельта считается в int64: разность двух int32 переполняет int32.
+          const int64_t raw_d1 = static_cast<int64_t>(enc_slot1) - prev_raw_slot1_;
+          const int64_t raw_d2 = static_cast<int64_t>(enc_slot2) - prev_raw_slot2_;
+
+          int64_t d1 = 0;
+          int64_t d2 = 0;
+          // Оба слота считаем ДО применения: кадр принимается целиком или
+          // не принимается вовсе — полкадра в одометрии хуже, чем ничего.
+          if (
+            !correctTickDelta(raw_d1, dt, prev_slot1_rate_, "слот 1", d1) ||
+            !correctTickDelta(raw_d2, dt, prev_slot2_rate_, "слот 2", d2)) {
+            ++enc_frames_rejected_;
+            // Позиции, enc_elapsed_ и enc_silence_ не трогаем: для верхнего
+            // стека это «кадра не было». Подряд идущие отказы штатно доводят
+            // до детектора тишины, и это правильный исход.
+            rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + ENC_FRAME_LEN);
+            continue;
+          }
+
+          prev_raw_slot1_ = enc_slot1;
+          prev_raw_slot2_ = enc_slot2;
+          unwrapped_slot1_ += d1;
+          unwrapped_slot2_ += d2;
+          // Опора для следующего кадра — по ПРИНЯТОЙ дельте, а не по сырой:
+          // сырая после разрыва указывала бы на скорость, которой не было.
+          prev_slot1_rate_ = static_cast<double>(d1) / dt;
+          prev_slot2_rate_ = static_cast<double>(d2) / dt;
+        }
+
         enc_elapsed_ = 0.0;
 
         // Единственное место, где тишина энкодеров считается прерванной.
@@ -569,9 +738,13 @@ hardware_interface::return_type GuideRobotSystem::read(
             rclcpp::get_logger("GuideRobotSystem"), "[encoders] связь с энкодерами восстановлена");
         }
 
+        // Позиция — из развёрнутого счёта, а не из сырого: сырое после
+        // починенного разрыва остаётся смещённым на 2^16 навсегда.
         constexpr double TWO_PI = 2.0 * M_PI;
-        double slot1_pos = (static_cast<double>(enc_slot1) / ticks_per_rev_) * TWO_PI * left_sign_;
-        double slot2_pos = (static_cast<double>(enc_slot2) / ticks_per_rev_) * TWO_PI * right_sign_;
+        double slot1_pos =
+          (static_cast<double>(unwrapped_slot1_) / ticks_per_rev_) * TWO_PI * left_sign_;
+        double slot2_pos =
+          (static_cast<double>(unwrapped_slot2_) / ticks_per_rev_) * TWO_PI * right_sign_;
 
         double new_left_pos = swap_drives_ ? slot2_pos : slot1_pos;
         double new_right_pos = swap_drives_ ? slot1_pos : slot2_pos;
@@ -625,9 +798,11 @@ hardware_interface::return_type GuideRobotSystem::read(
       RCLCPP_ERROR(
         rclcpp::get_logger("GuideRobotSystem"),
         "[encoders] нет валидных кадров %.3f с (> encoder_timeout=%.3f)%s — компонент в ошибку, "
-        "движение прекращается",
+        "движение прекращается. Отвергнуто кадров с активации: %lu, починено разрывов: %lu",
         enc_silence_, encoder_timeout_,
-        initialized_encoders_ ? "" : " (ни одного кадра с момента активации)");
+        initialized_encoders_ ? "" : " (ни одного кадра с момента активации)",
+        static_cast<unsigned long>(enc_frames_rejected_),
+        static_cast<unsigned long>(enc_wrap_repairs_));
     }
     left_vel_cmd_ = 0.0;
     right_vel_cmd_ = 0.0;

@@ -85,6 +85,9 @@
                no limiter of its own. -->
           <param name="max_wheel_velocity">${w_wheel_max}</param>
           <param name="encoder_timeout">${drv['encoder_timeout']}</param>
+          <!-- Driver counter-glitch repair and encoder poll rate. -->
+          <param name="encoder_wrap_ticks">${drv['encoder_wrap_ticks']}</param>
+          <param name="encoder_poll_divider">${drv['encoder_poll_divider']}</param>
           <param name="motor_accel">${drv['motor_accel']}</param>
         </xacro:unless>
       </xacro:unless>
