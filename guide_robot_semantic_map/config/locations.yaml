@@ -30,7 +30,7 @@ locations:
 
   - id: promobot_m13_artist
     graph_node: 3
-    pose: {x: 1.7, y: 4.3, yaw: 0.0}
+    pose: {x: 1.8, y: 3.6, yaw: 0.0}
     zone: lab
     category: exhibit
     is_public: true
