@@ -23,7 +23,6 @@ public:
 
   ~GuideRobotSystem() override;
 
-  // Жизненный цикл
   hardware_interface::CallbackReturn on_init(
     const hardware_interface::HardwareInfo & info) override;
 
@@ -42,11 +41,15 @@ public:
   hardware_interface::CallbackReturn on_cleanup(
     const rclcpp_lifecycle::State & previous_state) override;
 
-  // Интерфейсы состояния и команд
+  // ERROR из read()/write() ведёт компонент в unconfigured МИНУЯ on_cleanup,
+  // поэтому освобождать порт приходится и здесь — иначе следующий on_configure
+  // откроет второй fd на тот же порт, а первый утечёт.
+  hardware_interface::CallbackReturn on_error(
+    const rclcpp_lifecycle::State & previous_state) override;
+
   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
   std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
 
-  // Основной цикл
   hardware_interface::return_type read(
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
@@ -54,17 +57,9 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
-  // -------------------------------------------------------
-  // Разбор параметров
-  // -------------------------------------------------------
-
   /// Прочитать hardware_parameters с внятной диагностикой на каждый параметр.
   /// Возвращает false, если обязательный параметр отсутствует или не парсится.
   bool loadParameters();
-
-  // -------------------------------------------------------
-  // Протокол
-  // -------------------------------------------------------
 
   /// Отправить запрос чтения регистра 0xa0 у мотора left_wheel_id_.
   /// Пакет: ff ff <id> 04 03 a0 05 <chk>, контрольная сумма считается по факту.
@@ -80,6 +75,28 @@ private:
   /// Собрать и отправить 18-байтный пакет скоростей (слоты адресуются по позиции).
   /// Сам берёт serial_mutex_. Возвращает false, если пакет ушёл не полностью.
   bool writeSpeedPacket(double slot1_cmd, double slot2_cmd);
+
+  /// Заголовок и контрольная сумма ENC_FRAME_LEN байт по адресу frame.
+  bool isEncoderFrame(const uint8_t * frame) const;
+
+  /// Обновить позиции и скорости колёс по проверенному кадру энкодеров.
+  /// Кадр, не прошедший correctTickDelta(), отбрасывается целиком: состояние
+  /// не меняется вообще, для верхнего стека это «кадра не было».
+  void applyEncoderFrame(const uint8_t * frame, double period_s);
+
+  /// Привести сырую дельту тиков к физически возможной: прошивка FURO иногда
+  /// теряет перенос счётчика позиции, и та уезжает ровно на 2^16 тиков навсегда
+  /// (контрольная сумма кадра при этом верна — врёт сам драйвер).
+  ///
+  /// Дельта в пределах полупериода счётчика принимается как есть. Вышедшая за
+  /// него сверяется с тремя кандидатами (сама дельта и она же +-wrap) по
+  /// конверту max_wheel_velocity_ * dt; ни одного правдоподобного — кадр
+  /// отвергается, несколько — берётся ближайший к prev_rate (тиков/с на прошлом
+  /// ПРИНЯТОМ кадре): разрыв означал бы скачок скорости, невозможный для базы.
+  ///
+  /// false — кадр непригоден, позиции трогать нельзя.
+  bool correctTickDelta(
+    int64_t raw_delta, double dt, double prev_rate, const char * slot_name, int64_t & out_delta);
 
   /// рад/с → motor units с учётом знака конкретного слота.
   /// Клампит по max_wheel_velocity_ — независимо от лимитера контроллера.
@@ -97,9 +114,6 @@ private:
   /// Остановить моторы и закрыть порт. Идемпотентно.
   void closePort();
 
-  // -------------------------------------------------------
-  // Serial
-  // -------------------------------------------------------
   int serial_fd_{-1};
   std::string serial_port_;
   int baud_rate_{115200};
@@ -134,8 +148,9 @@ private:
   // энкодеров, прежде чем компонент уйдёт в ошибку. 0 — проверка выключена.
   double encoder_timeout_{1.0};
 
-  // Clock для RCLCPP_INFO_THROTTLE (должен жить дольше вызова макроса)
-  rclcpp::Clock::SharedPtr clock_;
+  // Ход времени для RCLCPP_*_THROTTLE: монотонный, чтобы прыжок системных
+  // часов не заблокировал диагностику на произвольный срок.
+  rclcpp::Clock clock_{RCL_STEADY_TIME};
 
   // Команды (пишет controller_manager)
   double left_vel_cmd_{0.0};   // рад/с
@@ -149,14 +164,46 @@ private:
 
   double ticks_per_rev_{131072.0};
 
-  // Буфер для неблокирующего чтения ответа энкодеров
+  // Граница счётчика драйвера, на которой он теряет перенос/заём (см.
+  // correctTickDelta). 65536 = 16 бит; 0 выключает ремонт разрывов, и тогда
+  // разрыв уедет в одометрию как настоящее перемещение.
+  double encoder_wrap_ticks_{65536.0};
+
+  // Через сколько циклов управления уходит запрос энкодеров. Темп кадров им не
+  // управляется: прошивка отдаёт позицию раз в ~215 мс независимо от опроса.
+  int encoder_poll_divider_{5};
+
   std::vector<uint8_t> rx_buffer_;
   bool initialized_encoders_{false};
-  int enc_request_counter_{0};  // счётчик для отправки запросов с пониженной частотой
+  int enc_request_counter_{0};
+
+  // Подряд идущие неудачные записи в порт. Одиночная — это EAGAIN, а не потеря
+  // связи; серия означает, что команды до драйвера не доходят, а верхний стек
+  // об этом не знает (см. WRITE_FAILURE_LIMIT).
+  int write_failures_{0};
+
+  // Сырые тики прошлого кадра и развёрнутый (починенный) счёт по каждому слоту.
+  // Позиция считается из развёрнутого счёта, а не из сырого: после ремонта
+  // разрыва сырое значение драйвера остаётся смещённым навсегда.
+  int32_t prev_raw_slot1_{0};
+  int32_t prev_raw_slot2_{0};
+  int64_t unwrapped_slot1_{0};
+  int64_t unwrapped_slot2_{0};
+
+  // Скорость слота (тиков/с) на прошлом ПРИНЯТОМ кадре. Разрешает выбор между
+  // физически достижимыми кандидатами в correctTickDelta по непрерывности.
+  double prev_slot1_rate_{0.0};
+  double prev_slot2_rate_{0.0};
+
+  // Диагностика: сколько разрывов починено и сколько кадров отвергнуто.
+  // Растущий счётчик разрывов — это про деградацию железа/прошивки, а не про
+  // норму, поэтому он должен быть виден, а не молча компенсироваться.
+  uint64_t enc_wrap_repairs_{0};
+  uint64_t enc_frames_rejected_{0};
 
   // Время, накопленное с прошлого УСПЕШНО разобранного пакета энкодеров.
-  // Кадр приходит раз в 5 циклов, поэтому делить дельту позиции на период
-  // одного цикла нельзя — скорость завышалась впятеро.
+  // Кадр приходит раз в encoder_poll_divider_ циклов, поэтому делить дельту
+  // позиции на период одного цикла нельзя — скорость завысится во столько же раз.
   double enc_elapsed_{0.0};
 
   // То же время, но НЕ обнуляемое ничем, кроме валидного кадра: детектор
@@ -165,7 +212,6 @@ private:
   double enc_silence_{0.0};
   bool enc_fault_{false};
 
-  // Сторожевой таймер
   std::thread watchdog_thread_;
   std::atomic<bool> watchdog_running_{false};
   std::atomic<int64_t> last_write_ns_{0};  // steady_clock, момент последнего write()
