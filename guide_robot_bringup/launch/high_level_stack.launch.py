@@ -14,12 +14,14 @@
 #  Каждая из трёх groups в guide_robot_supervisor (voice/semantic_map/
 #  mission, requires: [navigation, voice, semantic_map] у mission) ждёт,
 #  что её lifecycle_manager уже существует как процесс -- этот launch-файл
-#  их поднимает с autostart:=false, bring-up делает супервизор (см.
-#  guide_robot_supervisor/config/supervisor.yaml).
+#  их поднимает с autostart:=false по умолчанию, bring-up делает супервизор
+#  (см. guide_robot_supervisor/config/supervisor.yaml).
 #
 #  Usage:
 #    ros2 launch guide_robot_bringup high_level_stack.launch.py
 #    ros2 launch guide_robot_bringup high_level_stack.launch.py launch_voice:=false
+#    # standalone-тест без супервизора (каждый пакет сам себя поднимает):
+#    ros2 launch guide_robot_bringup high_level_stack.launch.py autostart:=true
 #
 #  ГРАБЛЯ (воспроизведено вживую через simulation.launch.py): voice/
 #  semantic_map/mission каждый сам объявляет `params_file` со своим
@@ -69,14 +71,23 @@ def generate_launch_description():
     declare_launch_mission = DeclareLaunchArgument(
         "launch_mission", default_value="true", description="Launch guide_robot_mission_control"
     )
+    declare_autostart = DeclareLaunchArgument(
+        "autostart",
+        default_value="false",
+        description="Autostart all three lifecycle_manager_* (bypasses guide_robot_supervisor "
+        "-- for standalone testing only, the supervisor normally owns bring-up)",
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     launch_voice = LaunchConfiguration("launch_voice")
     launch_semantic_map = LaunchConfiguration("launch_semantic_map")
     launch_mission = LaunchConfiguration("launch_mission")
+    autostart = LaunchConfiguration("autostart")
 
     # ── Голос ─────────────────────────────────────────────────────────────────
-    # autostart:=false -- супервизор (группа "voice") владеет bring-up-ом.
+    # autostart -- пробрасывается (default "false"): супервизор (группа
+    # "voice") обычно владеет bring-up-ом; autostart:=true самоподнимает
+    # без него, для standalone-тестирования.
     # params_file передан явно -- см. «ГРАБЛЯ» в шапке файла.
     voice = GroupAction(
         actions=[
@@ -87,14 +98,14 @@ def generate_launch_description():
                 condition=IfCondition(launch_voice),
                 launch_arguments={
                     "params_file": os.path.join(pkg_voice, "config", "voice.yaml"),
-                    "autostart": "false",
+                    "autostart": autostart,
                 }.items(),
             ),
         ],
     )
 
     # ── Семантическая карта ──────────────────────────────────────────────────
-    # autostart:=false -- супервизор (группа "semantic_map") владеет bring-up-ом.
+    # autostart -- пробрасывается (default "false"), см. блок voice выше.
     # params_file передан явно -- см. «ГРАБЛЯ» в шапке файла.
     semantic_map = GroupAction(
         actions=[
@@ -108,14 +119,14 @@ def generate_launch_description():
                     "params_file": os.path.join(
                         pkg_semantic_map, "config", "semantic_map.yaml"
                     ),
-                    "autostart": "false",
+                    "autostart": autostart,
                 }.items(),
             ),
         ],
     )
 
     # ── mission_control ──────────────────────────────────────────────────────
-    # autostart:=false -- супервизор (группа "mission") владеет bring-up-ом.
+    # autostart -- пробрасывается (default "false"), см. блок voice выше.
     # params_file передан явно -- см. «ГРАБЛЯ» в шапке файла.
     mission = GroupAction(
         actions=[
@@ -129,7 +140,7 @@ def generate_launch_description():
                     "params_file": os.path.join(
                         pkg_mission_control, "config", "mission.yaml"
                     ),
-                    "autostart": "false",
+                    "autostart": autostart,
                 }.items(),
             ),
         ],
@@ -141,6 +152,7 @@ def generate_launch_description():
             declare_launch_voice,
             declare_launch_semantic_map,
             declare_launch_mission,
+            declare_autostart,
             voice,
             semantic_map,
             mission,

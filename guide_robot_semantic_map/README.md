@@ -262,13 +262,18 @@ ros2 service call /route_planner/estimate_route \
   в `semantic_map.launch.py` выключает проверку для группы целиком —
   смешанный состав иначе не поднять одним `node_names` (тот же приём в
   `guide_robot_voice`/`guide_robot_llm`).
-- **Пакет не зарегистрирован в `guide_robot_supervisor`.** design.md
-  требовал регистрации в `supervisor.yaml`; `guide_robot_voice` и
-  `guide_robot_llm` — ближайшие прецеденты lifecycle-пакетов —
-  сознательно этого не делают (`supervisor.yaml` жёстко про
-  safety-critical нав-стек, bring-up сервисного слоя — дело
-  ещё не реализованного mission-оркестратора). Решено следовать
-  прецеденту, не тексту design.md — см. «Отличия от design» ниже.
+- **Пакет зарегистрирован в `guide_robot_supervisor`** — группа
+  `semantic_map` в `config/supervisor.yaml`/`config/supervisor_slam.yaml`
+  (`optional: true`). `guide_robot_llm` остаётся вне `supervisor.yaml`
+  (там ещё не реализованный mission-оркестратор был единственным
+  прецедентом на момент написания design §4 п.6), но с появлением
+  `guide_robot_mission_control` регистрация service-слоя (`voice`/
+  `semantic_map`/`mission`, mission требует navigation+voice+semantic_map)
+  реализована буквально по design — см. «Отличия от design» ниже и
+  `guide_robot_mission_control/README.md`. `lifecycle_manager_semantic_map`
+  запускается безусловно (не под `IfCondition(autostart)`) в
+  `semantic_map.launch.py` — сервис `~/manage_nodes` обязан существовать
+  для супервизора вне зависимости от того, кто инициирует `STARTUP`.
 - **`route_server` больше нигде в репозитории не запускается.**
   `semantic_map.launch.py` поднимает его сам (данные — `graph.geojson`
   — живут в этом пакете), а не `guide_robot_navigation`, где обычно
@@ -303,10 +308,10 @@ call` вручную (см. `guide_robot_semantic_map_design.md` §5);
    на `on_activate` (см. `route_planner`), диска не касается.
 2. **`ComputeRoute.use_poses` гейтит `start` и `goal` вместе**, не
    только `start` — см. «Известные грабли».
-3. **Не зарегистрирован в `guide_robot_supervisor`** — см. «Известные
-   грабли». Design §4 п.6 буквально требовал регистрации; решение
-   принято по образцу `guide_robot_voice`/`guide_robot_llm`, а не по
-   тексту design.
+3. **Зарегистрирован в `guide_robot_supervisor`** (группа `semantic_map`,
+   `optional: true`) — design §4 п.6 требовал этого буквально; реализовано
+   позже, вместе с регистрацией `guide_robot_mission_control` — см.
+   «Известные грабли».
 4. **Placeholder-координаты лаборатории приняты сознательно**, не
    оставлены `null`: design §0.5 требует отказа активации на битую
    ссылку `graph_node`, а исходные черновики (`locations_lab_demo.yaml`)

@@ -6,7 +6,7 @@ Built and maintained by the **Innopolis Robotics Society** team.
 
 ## Overview
 
-The original robot ships with `dynrobot` / FUROWEAR (OPRoS middleware, Windows) — not ROS-based. This repo replaces that with a ROS 2 stack targeting **Nav2 + SLAM Toolbox** for mapping and autonomous navigation.
+The original robot ships with `dynrobot` / FUROWEAR (OPRoS middleware, Windows) — not ROS-based. This repo replaces that with a ROS 2 stack targeting **Nav2 + SLAM Toolbox** for mapping and autonomous navigation, plus a voice-guided tour layer (audio I/O, semantic map of exhibits, and a mission FSM that orchestrates `NavigateToPose` + narration + presence-aware pause/resume).
 
 Target stack: ROS 2 Humble · Nav2 · SLAM Toolbox · `ros2_control` + `diff_drive_controller` · `robot_localization` (EKF).
 
@@ -21,7 +21,11 @@ Target stack: ROS 2 Humble · Nav2 · SLAM Toolbox · `ros2_control` + `diff_dri
 | [`guide_robot_navigation`](guide_robot_navigation/README.md) | Python (ament) | Nav2 + SLAM Toolbox configuration, maps, launch files, collision monitor |
 | [`guide_robot_simulation`](guide_robot_simulation/README.md) | Python (ament) | Gazebo Classic simulation launch, worlds, sonar/sensor plugins |
 | [`guide_robot_supervisor`](guide_robot_supervisor/README.md) | Python (ament) | Lifecycle-node supervisor and watchdogs for coordinated bring-up |
-| [`guide_robot_bringup`](guide_robot_bringup/README.md) | Python (ament) | Top-level launch orchestration (real hardware, simulation, RViz) tying all packages together |
+| [`guide_robot_voice`](guide_robot_voice/README.md) | Python (ament) | Audio stack: `audio_frontend`, VAD, wakeword, ASR, TTS (`tts_node` exposes the `Say` action) |
+| [`guide_robot_semantic_map`](guide_robot_semantic_map/README.md) | Python (ament) | `nav2_route`-backed graph of locations/exhibits/tours, content and routing services |
+| [`guide_robot_mission_control`](guide_robot_mission_control/README.md) | Python (ament) | Tour orchestration FSM (`mission_fsm`), narration/barge-in (`narration_server`), presence tracking (`presence_monitor`), `mission_cli` |
+| [`guide_robot_llm`](guide_robot_llm/) | Python (ament) | `chat_node` — LLM-backed conversational loop (`/asr/transcript` → LLM → `Say`); not yet wired into the supervisor or the tour FSM |
+| [`guide_robot_bringup`](guide_robot_bringup/README.md) | Python (ament) | Top-level launch orchestration (real hardware, simulation, RViz, tour stack) tying all packages together |
 
 Each package now has its own `README.md` with a detailed technical breakdown and a "Известные проблемы" (known issues) section — see the links above for specifics. Note: `.gitignore` excludes `*.md` repo-wide, so these files need `git add -f` to be committed.
 
@@ -62,6 +66,20 @@ Bring up the hardware interface:
 ros2 launch guide_robot_bringup hardware.launch.py
 ```
 
+Run the same stack in Gazebo and try a full guided tour — the supervisor
+autonomously brings up nav + voice + semantic_map + mission_control, then
+`mission_cli` drives a real tour with narration and navigation between
+exhibits:
+
+```bash
+ros2 launch guide_robot_bringup simulation.launch.py
+# wait for `ros2 topic echo /supervisor/state` to report ACTIVE, then:
+ros2 run guide_robot_mission_control mission_cli tour --tour lab_demo --no-confirm
+```
+
+See [`guide_robot_bringup/README.md`](guide_robot_bringup/README.md#тестовый-сценарий-экскурсии-симуляция)
+for the full walkthrough and troubleshooting.
+
 ## Docker
 
 ```bash
@@ -82,7 +100,10 @@ See [`.docker/README.md`](.docker/README.md) for Jetson builds, bake targets, an
 - [ ] `robot_localization` EKF (encoders/IMU or `rf2o` fallback)
 - [x] Nav2 + SLAM Toolbox mapping & navigation
 - [x] Tour-guide deployment tuning (glass walls, featureless halls, crowds, docking/charging)
-- [ ] LLM integration
+- [x] Voice stack (VAD/wakeword/ASR/TTS) + semantic map of exhibits/tours
+- [x] Mission FSM: full tour orchestration (navigate → narrate → confirm), barge-in, pause/resume, safety-hold
+- [x] `guide_robot_supervisor` bring-up for the tour layer (voice/semantic_map/mission groups)
+- [ ] LLM integration (`guide_robot_llm` exists standalone — not yet wired into the mission FSM or supervisor)
 
 ## License
 

@@ -248,6 +248,17 @@ ros2 lifecycle set /asr_node configure
 ros2 lifecycle set /asr_node activate
 ```
 
+Через супервизор (`guide_robot_supervisor`, группа `voice`,
+`config/supervisor.yaml`/`config/supervisor_slam.yaml`, `optional: true`):
+`lifecycle_manager_voice` в `voice.launch.py` теперь запускается
+безусловно (не под `IfCondition(autostart)`), `autostart` пробрасывается
+в него как обычный параметр (default `false`) — сервис `~/manage_nodes`
+обязан существовать для супервизора вне зависимости от того, кто
+инициирует `STARTUP`. На практике весь стек (voice + semantic_map +
+mission_control) поднимается сразу через
+`guide_robot_bringup/launch/high_level_stack.launch.py` — см.
+`guide_robot_mission_control/README.md`.
+
 ## Известные грабли
 
 - **`device: ""` на двух нодах разом = общий ALSA `default`.** Базовый
