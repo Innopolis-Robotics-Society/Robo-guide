@@ -38,6 +38,7 @@ setup(
     version="0.0.1",
     packages=find_packages(exclude=["test"]),
     data_files=[
+        (f"share/{package_name}/config", glob("config/*.lua")),
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
         (f"share/{package_name}/config", glob(f"{GEN_DIR}/*.yaml")),
@@ -49,5 +50,11 @@ setup(
     zip_safe=True,
     maintainer="mook",
     license="Apache-2.0",
-    entry_points={"console_scripts": []},
+    entry_points={
+        "console_scripts": [
+            "scan_qos_relay = guide_robot_navigation.scan_qos_relay:main",
+            "submap_boundary_visualizer = "
+            "guide_robot_navigation.submap_boundary_visualizer:main",
+        ]
+    },
 )

@@ -21,6 +21,7 @@
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>guide_robot_navigation</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>cartographer_rviz</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>joint_state_publisher_gui</exec_depend>
   <exec_depend>guide_robot_supervisor</exec_depend>

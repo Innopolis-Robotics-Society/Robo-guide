@@ -1,4 +1,4 @@
-# config/supervisor_slam.yaml
+# Supervisor policy for Cartographer mapping + Nav2.
 supervisor:
   groups:
     - name: safety
@@ -10,7 +10,8 @@ supervisor:
     - name: navigation
       manager: /lifecycle_manager_navigation
       requires: [safety]
-      # Do not activate Nav2 until SLAM Toolbox has produced map -> odom.
+      # Node presence alone is insufficient: Cartographer publishes map->odom
+      # only after it has received compatible /scan and /odom data.
       preconditions: [slam_alive, tf_map]
       startup_timeout: 45.0
 
@@ -42,7 +43,9 @@ supervisor:
 
     - name: slam_alive
       class: guide_robot_supervisor.watchdogs.node_alive.NodeAliveWatchdog
-      params: {nodes: [/slam_toolbox], grace: 20.0}
+      params:
+        nodes: [/cartographer_node]
+        grace: 20.0
       policy: {on_error: pause, target: navigation, debounce: 3, period: 1.0}
 
     - name: tf_map

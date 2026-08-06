@@ -23,6 +23,13 @@
   <gazebo>
     <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
       <parameters>$(arg controllers_file)</parameters>
+      <!-- diff_drive_controller publishes to its private ~/odom topic. Keep
+           /odom as the canonical project-wide topic, matching hardware.launch
+           and the Nav2/Cartographer configurations. gazebo_ros2_control
+           forwards these remaps to the controller manager and controllers. -->
+      <ros>
+        <remapping>/diff_drive_controller/odom:=/odom</remapping>
+      </ros>
     </plugin>
   </gazebo>
 

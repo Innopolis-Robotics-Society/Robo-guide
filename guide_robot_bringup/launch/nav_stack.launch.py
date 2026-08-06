@@ -2,15 +2,17 @@
 #  nav_stack.launch.py — единая точка входа для навигации.
 #  Идентичен для симуляции и железа, различие только в аргументах.
 #
-#  nav:=true,  slam:=true   -> slam_navigation.launch.py
-#                              (SLAM Toolbox + Nav2 + collision_monitor)
+#  nav:=true,  slam:=true, slam_backend:=slam_toolbox
+#                            -> SLAM Toolbox + Nav2 + collision_monitor
+#  nav:=true,  slam:=true, slam_backend:=cartographer
+#                            -> Cartographer + Nav2 + collision_monitor
 #  nav:=true,  slam:=false  -> navigation.launch.py
 #                              (map_server + AMCL + Nav2 + collision_monitor)
-#  nav:=false, slam:=true   -> голый slam_toolbox online_async (только карта)
+#  nav:=false, slam:=true   -> только выбранный SLAM backend
 #  nav:=false, slam:=false  -> ничего не поднимается
 #
 #  Супервизор поднимается отдельно (launch_supervisor:=true) и берёт
-#  supervisor_slam.yaml или supervisor.yaml в зависимости от slam.
+#  backend-specific SLAM config или supervisor.yaml для AMCL.
 #
 #  Имя файла — nav_stack, а не navigation, чтобы не путать с
 #  guide_robot_navigation/launch/navigation.launch.py.
@@ -27,7 +29,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 
 
 def generate_launch_description():
@@ -48,7 +50,13 @@ def generate_launch_description():
     declare_slam = DeclareLaunchArgument(
         "slam",
         default_value="false",
-        description="true — строить карту SLAM Toolbox; false — AMCL по готовой карте из map",
+        description="true — строить карту; false — AMCL по готовой карте из map",
+    )
+    declare_slam_backend = DeclareLaunchArgument(
+        "slam_backend",
+        default_value="slam_toolbox",
+        choices=["slam_toolbox", "cartographer"],
+        description="SLAM backend: slam_toolbox or cartographer",
     )
     declare_map = DeclareLaunchArgument(
         "map",
@@ -66,14 +74,16 @@ def generate_launch_description():
         description="Full path to SLAM Toolbox parameters file",
     )
     declare_autostart_nav = DeclareLaunchArgument(
-        "autostart_nav", default_value="true", description="Autostart Nav2 lifecycle nodes"
+        "autostart_nav",
+        default_value="false",
+        description="Autostart Nav2 lifecycle nodes without supervisor orchestration",
     )
     declare_launch_supervisor = DeclareLaunchArgument(
         "launch_supervisor", default_value="true", description="Launch guide_robot_supervisor"
     )
     declare_autostart_supervisor = DeclareLaunchArgument(
         "autostart_supervisor",
-        default_value="false",
+        default_value="true",
         description="Let the supervisor bring the lifecycle groups up on its own; "
         "false keeps it idle in INIT until /supervisor/bringup is called",
     )
@@ -81,12 +91,43 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
     nav = LaunchConfiguration("nav")
     slam = LaunchConfiguration("slam")
+    slam_backend = LaunchConfiguration("slam_backend")
     map_yaml_file = LaunchConfiguration("map")
     nav_params_file = LaunchConfiguration("nav_params_file")
     slam_params_file = LaunchConfiguration("slam_params_file")
     autostart_nav = LaunchConfiguration("autostart_nav")
     launch_supervisor = LaunchConfiguration("launch_supervisor")
     autostart_supervisor = LaunchConfiguration("autostart_supervisor")
+
+    # Backend conditions also include slam:=true.  If slam:=false, backend is
+    # deliberately ignored and the AMCL branch below is selected.
+    is_slam_toolbox = PythonExpression(
+        [
+            "'",
+            slam,
+            "'.lower() == 'true' and '",
+            slam_backend,
+            "' == 'slam_toolbox'",
+        ]
+    )
+    is_cartographer = PythonExpression(
+        [
+            "'",
+            slam,
+            "'.lower() == 'true' and '",
+            slam_backend,
+            "' == 'cartographer'",
+        ]
+    )
+    should_launch_supervisor = PythonExpression(
+        [
+            "'",
+            launch_supervisor,
+            "'.lower() == 'true' and '",
+            nav,
+            "'.lower() == 'true'",
+        ]
+    )
 
     # ── Nav2 (+ локализация) ──────────────────────────────────────────────────
     nav_group = GroupAction(
@@ -96,11 +137,25 @@ def generate_launch_description():
                 PythonLaunchDescriptionSource(
                     os.path.join(pkg_navigation, "launch", "slam_navigation.launch.py")
                 ),
-                condition=IfCondition(slam),
+                condition=IfCondition(is_slam_toolbox),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
                     "autostart_nav": autostart_nav,
                     "slam_params_file": slam_params_file,
+                    "nav2_params_file": nav_params_file,
+                }.items(),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(
+                        pkg_navigation, "launch", "cartographer_navigation.launch.py"
+                    )
+                ),
+                condition=IfCondition(is_cartographer),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "nav": "true",
+                    "autostart_nav": autostart_nav,
                     "nav2_params_file": nav_params_file,
                 }.items(),
             ),
@@ -127,10 +182,24 @@ def generate_launch_description():
                 PythonLaunchDescriptionSource(
                     os.path.join(pkg_slam_toolbox, "launch", "online_async_launch.py")
                 ),
-                condition=IfCondition(slam),
+                condition=IfCondition(is_slam_toolbox),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
                     "slam_params_file": slam_params_file,
+                }.items(),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(
+                        pkg_navigation, "launch", "cartographer_navigation.launch.py"
+                    )
+                ),
+                condition=IfCondition(is_cartographer),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "nav": "false",
+                    "autostart_nav": "false",
+                    "nav2_params_file": nav_params_file,
                 }.items(),
             ),
         ],
@@ -138,18 +207,34 @@ def generate_launch_description():
 
     # ── Супервизор ────────────────────────────────────────────────────────────
     supervisor_group = GroupAction(
-        condition=IfCondition(launch_supervisor),
+        # A supervisor only manages Nav2 lifecycle groups.  Mapping-only mode
+        # intentionally has neither those managers nor a supervisor waiting
+        # for them.
+        condition=IfCondition(should_launch_supervisor),
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     os.path.join(pkg_supervisor, "launch", "supervisor.launch.py")
                 ),
-                condition=IfCondition(slam),
+                condition=IfCondition(is_slam_toolbox),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
                     "autostart_supervisor": autostart_supervisor,
                     "config_file": os.path.join(
                         pkg_supervisor, "config", "supervisor_slam.yaml"
+                    ),
+                }.items(),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg_supervisor, "launch", "supervisor.launch.py")
+                ),
+                condition=IfCondition(is_cartographer),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "autostart_supervisor": autostart_supervisor,
+                    "config_file": os.path.join(
+                        pkg_supervisor, "config", "supervisor_cartographer.yaml"
                     ),
                 }.items(),
             ),
@@ -172,6 +257,7 @@ def generate_launch_description():
             declare_use_sim_time,
             declare_nav,
             declare_slam,
+            declare_slam_backend,
             declare_map,
             declare_nav_params,
             declare_slam_params,

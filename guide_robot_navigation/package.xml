@@ -14,10 +14,16 @@
   <exec_depend>nav2_collision_monitor</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
   <depend>guide_robot_description</depend>
   <depend>ament_index_python</depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <exec_depend>cartographer_ros</exec_depend>
+  <exec_depend>cartographer_ros_msgs</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

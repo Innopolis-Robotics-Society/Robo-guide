@@ -55,7 +55,13 @@ def generate_launch_description():
     declare_slam = DeclareLaunchArgument(
         "slam",
         default_value="false",
-        description="true — строить карту SLAM Toolbox; false — AMCL по готовой карте из map",
+        description="true — строить карту выбранным SLAM backend; false — AMCL",
+    )
+    declare_slam_backend = DeclareLaunchArgument(
+        "slam_backend",
+        default_value="slam_toolbox",
+        choices=["slam_toolbox", "cartographer"],
+        description="SLAM backend: slam_toolbox or cartographer",
     )
     declare_map = DeclareLaunchArgument(
         "map",
@@ -97,6 +103,7 @@ def generate_launch_description():
     launch_sonar = LaunchConfiguration("launch_sonar")
     nav = LaunchConfiguration("nav")
     slam = LaunchConfiguration("slam")
+    slam_backend = LaunchConfiguration("slam_backend")
     map_yaml_file = LaunchConfiguration("map")
     nav_params_file = LaunchConfiguration("nav_params_file")
     slam_params_file = LaunchConfiguration("slam_params_file")
@@ -173,11 +180,12 @@ def generate_launch_description():
             "use_sim_time": use_sim_time,
             "nav": nav,
             "slam": slam,
+            "slam_backend": slam_backend,
             "map": map_yaml_file,
             "nav_params_file": nav_params_file,
             "slam_params_file": slam_params_file,
             "autostart_nav": autostart_nav,
-            "launch_supervisor": "true",
+            "launch_supervisor": nav,
             "autostart_supervisor": autostart_supervisor,
         }.items(),
     )
@@ -217,6 +225,7 @@ def generate_launch_description():
             declare_launch_sonar,
             declare_nav,
             declare_slam,
+            declare_slam_backend,
             declare_map,
             declare_nav_params,
             declare_slam_params,

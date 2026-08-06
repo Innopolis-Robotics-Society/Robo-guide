@@ -5,7 +5,7 @@ supervisor:
   groups:
     - name: safety
       manager: /lifecycle_manager_safety
-      preconditions: [sonar_rate, scan_rate]
+      preconditions: [control_stack, sonar_rate, scan_rate]
       precondition_timeout: 60.0
       startup_timeout: 30.0
 

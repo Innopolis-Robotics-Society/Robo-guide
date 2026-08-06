@@ -8,7 +8,8 @@
 #    4. RViz
 #
 #  Usage:
-#    ros2 launch guide_robot_bringup simulation.launch.py slam:=true
+#    ros2 launch guide_robot_bringup simulation.launch.py \
+#        slam:=true slam_backend:=cartographer
 #    ros2 launch guide_robot_bringup simulation.launch.py \
 #        slam:=false map:=/abs/path/to/my_map.yaml
 #    ros2 launch guide_robot_bringup simulation.launch.py nav:=false
@@ -35,7 +36,13 @@ def generate_launch_description():
     declare_slam = DeclareLaunchArgument(
         "slam",
         default_value="false",
-        description="true — SLAM Toolbox строит карту онлайн; false — AMCL по карте из map",
+        description="true — выбранный SLAM backend строит карту; false — AMCL",
+    )
+    declare_slam_backend = DeclareLaunchArgument(
+        "slam_backend",
+        default_value="slam_toolbox",
+        choices=["slam_toolbox", "cartographer"],
+        description="SLAM backend: slam_toolbox or cartographer",
     )
     declare_map = DeclareLaunchArgument(
         "map",
@@ -58,6 +65,7 @@ def generate_launch_description():
     declare_rviz = DeclareLaunchArgument("rviz", default_value="true", description="Start RViz")
 
     slam = LaunchConfiguration("slam")
+    slam_backend = LaunchConfiguration("slam_backend")
     map_yaml = LaunchConfiguration("map")
     nav = LaunchConfiguration("nav")
     nav_params = LaunchConfiguration("nav_params_file")
@@ -88,11 +96,14 @@ def generate_launch_description():
             "use_sim_time": "true",
             "nav": nav,
             "slam": slam,
+            "slam_backend": slam_backend,
             "map": map_yaml,
             "nav_params_file": nav_params,
             "slam_params_file": slam_params,
             "autostart_nav": "false",
-            "launch_supervisor": "true",
+            # Supervisor manages Nav2 lifecycle groups, so it is unnecessary
+            # (and would wait for absent managers) in mapping-only mode.
+            "launch_supervisor": nav,
             "autostart_supervisor": "true",
         }.items(),
     )
@@ -111,6 +122,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             declare_slam,
+            declare_slam_backend,
             declare_map,
             declare_nav,
             declare_nav_params,
