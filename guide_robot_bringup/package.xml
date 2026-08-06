@@ -25,6 +25,9 @@
   <exec_depend>joint_state_publisher_gui</exec_depend>
   <exec_depend>guide_robot_supervisor</exec_depend>
   <exec_depend>guide_robot_simulation</exec_depend>
+  <exec_depend>guide_robot_mission_control</exec_depend>
+  <exec_depend>guide_robot_voice</exec_depend>
+  <exec_depend>guide_robot_semantic_map</exec_depend>
 
 
   <export>

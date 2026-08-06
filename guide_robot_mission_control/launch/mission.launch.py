@@ -1,19 +1,34 @@
 """Запуск стека mission_control: presence_monitor + narration_server + mission_fsm.
 
-Ноды lifecycle и НЕ поднимаются автоматически по умолчанию -- та же причина,
-что и в guide_robot_voice/guide_robot_llm/guide_robot_semantic_map: порядок
+Ноды lifecycle и НЕ поднимаются автоматически по умолчанию -- порядок
 переходов должен быть управляемым извне (супервизором или вручную через
-`ros2 lifecycle set`), а не зашитым в launch. guide_robot_mission_control,
-как и voice/llm/semantic_map, НЕ зарегистрирован в guide_robot_supervisor/
-config/supervisor.yaml -- тот файл жёстко про safety-critical нав-стек
-(safety/localization/navigation), а голосовой/mission/llm-слой поверх него --
-служебный слой, которым supervisor сознательно не владеет (design §10 говорит
-"регистрация в супервизоре", но реальная конвенция репозитория для этого
-слоя -- собственный lifecycle_manager в своём launch-файле, не запись в
-центральный supervisor.yaml; см. те же докстринги в voice/llm/semantic_map).
+`ros2 lifecycle set`), а не зашитым в launch.
 
-autostart:=true поднимает всё сразу через lifecycle_manager -- удобно для
-разработки, не рабочий режим на роботе.
+В отличие от исходного решения этого файла, этот стек ЗАРЕГИСТРИРОВАН в
+guide_robot_supervisor как группа `mission` (config/supervisor.yaml,
+config/supervisor_slam.yaml, requires: [navigation, voice, semantic_map],
+optional: true) -- по прямому запросу, design §10 ("регистрация в
+супервизоре") реализован буквально. `voice`/`semantic_map` зарегистрированы
+там же тем же способом (см. их launch-файлы) -- narration_server
+(mission_container) зовёт Say (voice) и ~/get_exhibit_content (semantic_map),
+должны быть подняты раньше mission. `optional: true` на все три, чтобы
+отказ любой из групп не переводил ВЕСЬ supervisor в FAULT и не блокировал
+уже поднятый safety/localization/navigation.
+
+Сам процесс этого пакета поднимается ОТДЕЛЬНЫМ launch-файлом
+guide_robot_bringup/launch/high_level_stack.launch.py (вместе с voice и
+semantic_map) -- не через nav_stack.launch.py (там только safety/
+localization/navigation/супервизор).
+
+Как и `guide_robot_navigation/launch/common.launch.py` (`lifecycle_manager_safety`),
+`lifecycle_manager_mission` запускается ВСЕГДА (не под условием) -- супервизор
+дёргает его `~/manage_nodes` сервис напрямую, и сервис должен существовать
+независимо от того, кто (supervisor или разработчик руками) решит вызвать
+STARTUP. Параметр `autostart` пробрасывается в сам lifecycle_manager как есть
+(default "false" -- контракт супервизора: "Every lifecycle_manager referenced
+here MUST have autostart: false", guide_robot_supervisor/config/supervisor.yaml:4);
+autostart:=true остаётся для разработки без супервизора -- поднимает всё сразу
+самостоятельно.
 
 use_container:=true (дефолт, design §1) -- mission_fsm и narration_server
 поднимаются ОДНИМ процессом (`mission_container`) на общем
@@ -118,11 +133,22 @@ def generate_launch_description() -> LaunchDescription:
         executable="lifecycle_manager",
         name="lifecycle_manager_mission",
         output="screen",
-        condition=IfCondition(autostart),
+        # БЕЗ condition=IfCondition(autostart): супервизор дёргает
+        # ~/manage_nodes этого менеджера напрямую (guide_robot_supervisor/
+        # config/supervisor.yaml, группа "mission"), сервис обязан
+        # существовать вне зависимости от того, кто инициирует STARTUP --
+        # см. lifecycle_manager_safety в
+        # guide_robot_navigation/launch/common.launch.py, тот же паттерн.
         parameters=[
             {
                 "use_sim_time": use_sim_time,
-                "autostart": True,
+                # Пробрасываем launch-arg как есть (default "false") --
+                # контракт супервизора: "Every lifecycle_manager referenced
+                # here MUST have autostart: false"
+                # (guide_robot_supervisor/config/supervisor.yaml:4).
+                # autostart:=true -- самостоятельный подъём для разработки
+                # без супервизора.
+                "autostart": autostart,
                 "node_names": BRINGUP_ORDER,
                 # 0.0 -- см. guide_robot_voice/launch/voice.launch.py: наши
                 # ноды -- обычные rclpy.lifecycle.LifecycleNode, bond не

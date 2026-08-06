@@ -2,11 +2,20 @@
 
 Ноды lifecycle и НЕ поднимаются автоматически по умолчанию. Причина та
 же, что и в safety-слое: микрофон и динамик гасятся на зарядке, и порядок
-переходов должен быть управляемым извне, а не зашитым в launch. Подъём --
-дело оркестратора тура (mission) либо ручных `ros2 lifecycle set`.
+переходов должен быть управляемым извне, а не зашитым в launch.
 
-autostart:=true поднимает всё сразу через lifecycle_manager -- удобно для
-разработки и для tts_only.launch.py, но не рабочий режим на роботе.
+Зарегистрирован в guide_robot_supervisor как группа `voice`
+(config/supervisor.yaml, config/supervisor_slam.yaml, optional: true) --
+тем же способом, что и `mission` (см. guide_robot_mission_control/launch/
+mission.launch.py). `lifecycle_manager_voice` запускается ВСЕГДА (не под
+условием) -- супервизор дёргает его `~/manage_nodes` напрямую, сервис
+обязан существовать независимо от того, кто инициирует STARTUP; см.
+`lifecycle_manager_safety` в guide_robot_navigation/launch/common.launch.py,
+тот же паттерн. Параметр `autostart` пробрасывается в сам lifecycle_manager
+как есть (default "false" -- контракт супервизора: "Every lifecycle_manager
+referenced here MUST have autostart: false"); autostart:=true остаётся для
+разработки и для tts_only.launch.py -- самостоятельный подъём без
+супервизора.
 
 Порядок bring-up (design §3, критичен при autostart:=true):
   tts_node -> audio_frontend -> vad_node -> wakeword_node -> asr_node
@@ -16,7 +25,6 @@ TTS должен уметь сказать "инициализация" до т�
 """
 
 from launch.actions import DeclareLaunchArgument, GroupAction
-from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterFile
@@ -70,10 +78,16 @@ def generate_launch_description() -> LaunchDescription:
         executable="lifecycle_manager",
         name="lifecycle_manager_voice",
         output="screen",
-        condition=IfCondition(autostart),
+        # БЕЗ condition=IfCondition(autostart): супервизор дёргает
+        # ~/manage_nodes этого менеджера напрямую (guide_robot_supervisor/
+        # config/supervisor.yaml, группа "voice"), сервис обязан
+        # существовать вне зависимости от того, кто инициирует STARTUP.
         parameters=[
             {
-                "autostart": True,
+                # Пробрасываем launch-arg как есть (default "false") --
+                # контракт супервизора: "Every lifecycle_manager referenced
+                # here MUST have autostart: false".
+                "autostart": autostart,
                 "node_names": BRINGUP_ORDER,
                 # 0.0 -- явно выключить bond. lifecycle_manager по умолчанию
                 # ждёт heartbeat через bond от управляемой ноды (так делают

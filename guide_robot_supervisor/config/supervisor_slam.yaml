@@ -13,6 +13,22 @@ supervisor:
       preconditions: [slam_alive]
       startup_timeout: 45.0
 
+    - name: voice
+      manager: /lifecycle_manager_voice
+      startup_timeout: 30.0
+      optional: true
+
+    - name: semantic_map
+      manager: /lifecycle_manager_semantic_map
+      startup_timeout: 30.0
+      optional: true
+
+    - name: mission
+      manager: /lifecycle_manager_mission
+      requires: [navigation, voice, semantic_map]
+      startup_timeout: 30.0
+      optional: true
+
   watchdogs:
     - name: sonar_rate
       class: guide_robot_supervisor.watchdogs.topic_rate.TopicRateWatchdog

@@ -21,6 +21,28 @@ supervisor:
       preconditions: [tf_map]
       startup_timeout: 45.0
 
+    # Аудио и высокоуровневый служебный слой поверх нав-стека (voice/
+    # semantic_map/mission). Все три -- optional: true, отказ любой из них
+    # не должен переводить весь supervisor в FAULT и блокировать уже
+    # поднятый safety/localization/navigation.
+    - name: voice
+      manager: /lifecycle_manager_voice
+      startup_timeout: 30.0
+      optional: true
+
+    - name: semantic_map
+      manager: /lifecycle_manager_semantic_map
+      startup_timeout: 30.0
+      optional: true
+
+    - name: mission
+      manager: /lifecycle_manager_mission
+      # narration_server (mission_container) зовёт Say (voice) и
+      # ~/get_exhibit_content (semantic_map) -- должны быть подняты раньше.
+      requires: [navigation, voice, semantic_map]
+      startup_timeout: 30.0
+      optional: true
+
   # ------------------------------------------------------------- watchdogs --
   # Referenced from `preconditions` above (gate bring-up) and evaluated
   # continuously afterwards according to `policy`.

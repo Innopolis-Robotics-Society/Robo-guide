@@ -2,10 +2,11 @@
 #  simulation.launch.py — top-level simulation entry point.
 #
 #  Только склейка:
-#    1. gazebo.launch.py     — Gazebo + робот + контроллеры
-#    2. perception.launch.py — мерджер /scan_left + /scan_right -> /scan
-#    3. nav_stack.launch.py  — SLAM или AMCL + Nav2 + супервизор
-#    4. RViz
+#    1. gazebo.launch.py            — Gazebo + робот + контроллеры
+#    2. perception.launch.py        — мерджер /scan_left + /scan_right -> /scan
+#    3. nav_stack.launch.py         — SLAM или AMCL + Nav2 + супервизор
+#    4. high_level_stack.launch.py  — стек экскурсий: voice + semantic_map + mission_control
+#    5. RViz
 #
 #  Usage:
 #    ros2 launch guide_robot_bringup simulation.launch.py slam:=true
@@ -61,6 +62,11 @@ def generate_launch_description():
         description="SLAM Toolbox parameter file",
     )
     declare_rviz = DeclareLaunchArgument("rviz", default_value="true", description="Start RViz")
+    declare_launch_high_level = DeclareLaunchArgument(
+        "launch_high_level",
+        default_value="true",
+        description="Launch the tour stack (voice + semantic_map + mission_control)",
+    )
 
     slam = LaunchConfiguration("slam")
     map_yaml = LaunchConfiguration("map")
@@ -69,6 +75,7 @@ def generate_launch_description():
     nav_params = LaunchConfiguration("nav_params_file")
     slam_params = LaunchConfiguration("slam_params_file")
     use_rviz = LaunchConfiguration("rviz")
+    launch_high_level = LaunchConfiguration("launch_high_level")
 
     # ── 1. Симуляция: Gazebo + робот ─────────────────────────────────────────
     gazebo = IncludeLaunchDescription(
@@ -105,7 +112,16 @@ def generate_launch_description():
         }.items(),
     )
 
-    # ── 4. RViz ──────────────────────────────────────────────────────────────
+    # ── 4. Стек экскурсий ────────────────────────────────────────────────────
+    high_level_stack = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_bringup, "launch", "high_level_stack.launch.py")
+        ),
+        condition=IfCondition(launch_high_level),
+        launch_arguments={"use_sim_time": "true"}.items(),
+    )
+
+    # ── 5. RViz ──────────────────────────────────────────────────────────────
     rviz = Node(
         package="rviz2",
         executable="rviz2",
@@ -125,9 +141,11 @@ def generate_launch_description():
             declare_nav_params,
             declare_slam_params,
             declare_rviz,
+            declare_launch_high_level,
             gazebo,
             perception,
             nav_stack,
+            high_level_stack,
             rviz,
         ]
     )

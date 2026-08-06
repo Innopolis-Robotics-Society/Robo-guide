@@ -6,8 +6,9 @@
 #    Foxglove Bridge, RViz.
 #
 #  Всё остальное вынесено:
-#    perception.launch.py — лидары, бланкеры, мерджер, соноры
-#    nav_stack.launch.py  — SLAM/AMCL + Nav2 + collision_monitor + супервизор
+#    perception.launch.py       — лидары, бланкеры, мерджер, соноры
+#    nav_stack.launch.py        — SLAM/AMCL + Nav2 + collision_monitor + супервизор
+#    high_level_stack.launch.py — стек экскурсий: voice + semantic_map + mission_control
 # =========================================================================
 
 import os
@@ -81,6 +82,12 @@ def generate_launch_description():
         description="Let the supervisor bring the lifecycle groups up on its own; "
         "false keeps it idle in INIT until /supervisor/bringup is called",
     )
+    # high-level stack (tours)
+    declare_launch_high_level = DeclareLaunchArgument(
+        "launch_high_level",
+        default_value="true",
+        description="Launch the tour stack (voice + semantic_map + mission_control)",
+    )
     # tooling
     declare_launch_foxglove = DeclareLaunchArgument(
         "launch_foxglove", default_value="true", description="Launch Foxglove Bridge"
@@ -102,6 +109,7 @@ def generate_launch_description():
     slam_params_file = LaunchConfiguration("slam_params_file")
     autostart_nav = LaunchConfiguration("autostart_nav")
     autostart_supervisor = LaunchConfiguration("autostart_supervisor")
+    launch_high_level = LaunchConfiguration("launch_high_level")
     launch_foxglove = LaunchConfiguration("launch_foxglove")
     launch_rviz = LaunchConfiguration("launch_rviz")
 
@@ -182,6 +190,15 @@ def generate_launch_description():
         }.items(),
     )
 
+    # ── Стек экскурсий ───────────────────────────────────────────────────────
+    high_level_stack = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_bringup, "launch", "high_level_stack.launch.py")
+        ),
+        condition=IfCondition(launch_high_level),
+        launch_arguments={"use_sim_time": use_sim_time}.items(),
+    )
+
     # ── Tooling ──────────────────────────────────────────────────────────────
     foxglove_bridge_node = Node(
         package="foxglove_bridge",
@@ -222,6 +239,7 @@ def generate_launch_description():
             declare_slam_params,
             declare_autostart_nav,
             declare_autostart_supervisor,
+            declare_launch_high_level,
             declare_launch_foxglove,
             declare_launch_rviz,
             robot_state_publisher_node,
@@ -230,6 +248,7 @@ def generate_launch_description():
             joint_state_broadcaster,
             perception,
             nav_stack,
+            high_level_stack,
             foxglove_bridge_node,
             rviz_node,
         ]

@@ -1,16 +1,21 @@
 """Запуск семантической карты: route_server (nav2_route) + три наши ноды.
 
-Ноды lifecycle и НЕ поднимаются автоматически по умолчанию -- та же
-причина, что и в guide_robot_voice/guide_robot_llm: порядок переходов
-должен быть управляемым извне (mission-оркестратором тура или вручную
-через `ros2 lifecycle set`), а не зашитым в launch. guide_robot_semantic_map,
-как и voice/llm, НЕ зарегистрирован в guide_robot_supervisor/config/
-supervisor.yaml -- тот файл жёстко про safety-critical нав-стек
-(safety/localization/navigation), а voice/llm/semantic_map -- служебный
-слой поверх него, которым supervisor сознательно не владеет.
+Ноды lifecycle и НЕ поднимаются автоматически по умолчанию -- порядок
+переходов должен быть управляемым извне (mission-оркестратором тура или
+вручную через `ros2 lifecycle set`), а не зашитым в launch.
 
-autostart:=true поднимает всё сразу через lifecycle_manager -- удобно
-для разработки и ручной проверки, не рабочий режим на роботе.
+Зарегистрирован в guide_robot_supervisor как группа `semantic_map`
+(config/supervisor.yaml, config/supervisor_slam.yaml, optional: true) --
+тем же способом, что и `mission`/`voice` (см. guide_robot_mission_control/
+launch/mission.launch.py). `lifecycle_manager_semantic_map` запускается
+ВСЕГДА (не под условием) -- супервизор дёргает его `~/manage_nodes`
+напрямую, сервис обязан существовать независимо от того, кто инициирует
+STARTUP; см. `lifecycle_manager_safety` в
+guide_robot_navigation/launch/common.launch.py, тот же паттерн. Параметр
+`autostart` пробрасывается в сам lifecycle_manager как есть (default
+"false" -- контракт супервизора: "Every lifecycle_manager referenced here
+MUST have autostart: false"); autostart:=true остаётся для разработки и
+ручной проверки без супервизора.
 
 Порядок bring-up (критичен при autostart:=true, подтверждено в фазах 4-5):
   route_server -> content_server -> location_server -> route_planner
@@ -27,7 +32,6 @@ route_planner -- единственный потребитель. Поднима
 
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import DeclareLaunchArgument, GroupAction
-from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterFile
@@ -108,11 +112,17 @@ def generate_launch_description() -> LaunchDescription:
         executable="lifecycle_manager",
         name="lifecycle_manager_semantic_map",
         output="screen",
-        condition=IfCondition(autostart),
+        # БЕЗ condition=IfCondition(autostart): супервизор дёргает
+        # ~/manage_nodes этого менеджера напрямую (guide_robot_supervisor/
+        # config/supervisor.yaml, группа "semantic_map"), сервис обязан
+        # существовать вне зависимости от того, кто инициирует STARTUP.
         parameters=[
             {
                 "use_sim_time": use_sim_time,
-                "autostart": True,
+                # Пробрасываем launch-arg как есть (default "false") --
+                # контракт супервизора: "Every lifecycle_manager referenced
+                # here MUST have autostart: false".
+                "autostart": autostart,
                 "node_names": BRINGUP_ORDER,
                 # route_server -- C++ nav2_util::LifecycleNode, создаёт bond;
                 # content_server/location_server/route_planner -- обычные
