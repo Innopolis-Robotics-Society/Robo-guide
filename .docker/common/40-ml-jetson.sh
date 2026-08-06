@@ -21,4 +21,10 @@ python3 -m pip install --no-cache-dir \
 # ultralytics/smp from pypi (pure-python-ish, fine on arm64)
 python3 -m pip install --no-cache-dir \
     ultralytics \
-    segmentation-models-pytorch
+    segmentation-models-pytorch \
+    sherpa-onnx \
+    sounddevice \
+    scipy \
+    numpy \
+    requests \
+    piper-tts

@@ -10,4 +10,10 @@ python3 -m pip install --no-cache-dir \
 python3 -m pip install --no-cache-dir \
     onnxruntime-gpu==1.18.1 \
     ultralytics \
-    segmentation-models-pytorch
+    segmentation-models-pytorch \
+    sherpa-onnx \
+    sounddevice \
+    scipy \
+    numpy \
+    requests \
+    piper-tts
