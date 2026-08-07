@@ -82,6 +82,59 @@ def test_read_only_tool_is_not_terminal_and_continues() -> None:
     assert len(result.calls) == 2
 
 
+def test_failed_terminal_tool_does_not_stop_turn_gives_retry_chance() -> None:
+    """Регрессия: провалившийся start_tour(tour_id=1 int) не должен молча
+    заканчивать ход -- модель обязана увидеть ошибку и получить шанс
+    исправиться (воспроизведено вживую: маленькая модель прислала tour_id
+    числом, GBNF типы не проверяет, а старая логика останавливала ход на
+    первой же неудаче терминального инструмента)."""
+    complete = _scripted_complete(
+        json.dumps({"tool": "start_tour", "args": {"tour_id": 1}}),
+        json.dumps({"tool": "start_tour", "args": {"tour_id": "lab_demo"}}),
+    )
+    executed: list[dict] = []
+
+    def execute_tool(name: str, args: dict) -> _FakeResult:
+        executed.append(args)
+        if args.get("tour_id") == 1:
+            return _FakeResult(ok=False, message="тур: не задан(а)")
+        return _FakeResult(ok=True, message="тур начат")
+
+    result = run_react_turn(
+        system_prompt="sys",
+        user_content="user",
+        complete=complete,
+        execute_tool=execute_tool,
+        tool_names=["start_tour"],
+        max_tool_calls=2,
+    )
+
+    assert len(executed) == 2
+    assert result.stopped_reason == "terminal_tool"
+    assert result.calls[0].result_ok is False
+    assert result.calls[1].result_ok is True
+
+
+def test_repeatedly_failing_terminal_tool_stops_at_max_calls_not_terminal() -> None:
+    complete = _scripted_complete(
+        json.dumps({"tool": "start_tour", "args": {"tour_id": 1}}),
+        json.dumps({"tool": "start_tour", "args": {"tour_id": 2}}),
+    )
+
+    result = run_react_turn(
+        system_prompt="sys",
+        user_content="user",
+        complete=complete,
+        execute_tool=lambda name, args: _FakeResult(ok=False, message="плохо"),
+        tool_names=["start_tour"],
+        max_tool_calls=2,
+    )
+
+    assert result.stopped_reason == "max_calls"
+    assert len(result.calls) == 2
+    assert all(not c.result_ok for c in result.calls)
+
+
 def test_max_tool_calls_stops_even_when_not_terminal() -> None:
     complete = _scripted_complete(
         json.dumps({"tool": "list_locations", "args": {}}),

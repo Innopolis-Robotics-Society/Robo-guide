@@ -93,6 +93,15 @@ def run_react_turn(
     `json.loads` всё равно падает или форма не та (`tool`/`args` не то, что
     ожидалось), это баг сервера/грамматики, перехватывается как
     `parse_error`, не поднимается дальше.
+
+    Терминальный инструмент останавливает ход, только если `result.ok`
+    (реально сработал) -- ПРОВАЛИВШИЙСЯ терминальный вызов (типичный случай:
+    маленькая модель прислала `tour_id` числом, не строкой -- GBNF типы не
+    проверяет, только форму, `tools/validate.py` отбивает это уже в
+    `tool_broker`) не должен молча заканчивать ход: результат с текстом
+    ошибки уходит обратно в `messages`, и у модели остаётся шанс
+    исправиться в пределах `max_tool_calls` (замечено вживую -- без этого
+    одна опечатка модели требовала от посетителя повторить реплику целиком).
     """
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
@@ -136,7 +145,7 @@ def run_react_turn(
         )
         messages.append({"role": "user", "content": result_payload})
 
-        if name in _TERMINAL_TOOLS:
+        if result.ok and name in _TERMINAL_TOOLS:
             return ReactTurnResult(messages=messages, calls=calls, stopped_reason="terminal_tool")
 
     return ReactTurnResult(messages=messages, calls=calls, stopped_reason="max_calls")

@@ -88,9 +88,13 @@ ReAct-цикл: транскрипт → снимок состояния → `co
 грамматикой (только форма `{"tool":..,"args":{...}}`, не типизация
 per-tool — семантику по-прежнему проверяет `tool_broker`) → распарсенный
 tool-call → `~/call_tool` → результат обратно в диалог → повтор, до
-`max_tool_calls_per_turn`(2) или до терминального инструмента (`say`/
-`confirm`/`stop_tour`/... — список в `dialog/loop.py`; read-only
-справочники терминальными не считаются).
+`max_tool_calls_per_turn`(2) или до УСПЕШНОГО терминального инструмента
+(`say`/`confirm`/`stop_tour`/... — список в `dialog/loop.py`; read-only
+справочники терминальными не считаются). Провалившийся терминальный вызов
+(`ok:false` — типично: маленькая модель прислала `tour_id` числом, не
+строкой, GBNF типы не проверяет, только форму) ход НЕ заканчивает —
+ошибка уходит обратно в диалог, модель может исправиться в пределах
+оставшихся вызовов (замечено вживую).
 
 Кэш `/mission/state`/`/mission/presence` — свой, не `tool_broker`-овский
 (разные процессы). На каждый финальный транскрипт сначала прогоняется
@@ -273,7 +277,7 @@ python3 -m pytest test -q -p no:anyio
 ruff check .
 ```
 
-96 тестов (95 проходят + 1 skip), без ROS-железа — rclpy + моки
+99 тестов (98 проходят + 1 skip), без ROS-железа — rclpy + моки
 (`test/mocks/`: `mock_llm_server.py` — голый `http.server`, chunked SSE;
 `mock_nav_server.py`/`mock_say_server.py`/`mock_semantic_map.py`/
 `sim_clock.py` — переиспользованы из `guide_robot_mission_control` тем
