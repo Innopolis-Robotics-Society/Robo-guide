@@ -1,0 +1,34 @@
+# Вопрос посетителю поверх текущего состояния тура (guide_robot_mission_design.md §2.5).
+#
+# Неблокирующий по смыслу FSM: goal живёт долго, но FSM не ждёт его
+# в execute() -- состояние + таймер.
+
+# --- goal ---
+string question
+string[] option_ids        # пусто = свободный ответ
+string[] option_phrases    # синонимы через '|' для матчинга: "да|давай|поехали"
+float32 timeout_s          # 0 -> из конфига (confirm_timeout_s)
+bool   speak_question        # дефолт true
+uint8  ON_TIMEOUT_DEFAULT=0
+uint8  ON_TIMEOUT_ABORT=1
+uint8  ON_TIMEOUT_REPEAT_ONCE=2
+uint8  on_timeout
+string default_answer
+---
+# --- result ---
+uint8 OUTCOME_ANSWERED=0
+uint8 OUTCOME_TIMEOUT=1
+uint8 OUTCOME_CANCELED=2
+uint8 OUTCOME_PREEMPTED=3     # вытеснено safety hold
+uint8 OUTCOME_REJECTED=4      # стек занят -> "давайте по одному"
+uint8  outcome
+string answer                  # option_id либо сырой текст при свободном ответе
+string raw_text
+float32 confidence
+---
+# --- feedback ---
+uint8 STAGE_ASKING=0
+uint8 STAGE_LISTENING=1
+uint8 STAGE_REPEATING=2
+uint8 stage
+float32 remaining_s

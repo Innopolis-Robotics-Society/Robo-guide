@@ -1,0 +1,52 @@
+# Параметры трёх узлов mission_control (design §8, адаптировано под
+# реальные имена параметров -- см. реконсиляцию §0.5 и докстринги
+# fsm/context.py / narration_server_node.py / presence_monitor_node.py.
+# Черновик design §8 описывал вложенные группы (tour:/timeouts:/interrupts:),
+# но реализация объявляет параметры плоско (rclpy.declare_parameter на
+# верхнем уровне каждого узла) -- секции ниже следуют коду, не черновику.
+
+/**:
+  ros__parameters:
+    use_sim_time: false
+
+/**/mission_fsm:
+  ros__parameters:
+    answer_max_s: 45.0
+    confirm_timeout_s: 20.0
+    confirm_repeat_max: 1
+    nav_stop_timeout_s: 180.0
+    pause_timeout_s: 120.0
+    held_max_s: 300.0
+    poll_period_s: 0.02
+    hard_stop_result_timeout_s: 1.0
+    heartbeat_s: 1.0
+    service_call_timeout_s: 2.0
+    language: "ru"
+    greeting_text: "Здравствуйте! Я проведу для вас экскурсию."
+    confirm_question_text: "Идём дальше?"
+    home_frame: "map"
+    home_pose: [0.0, 0.0, 0.0]        # x, y, yaw (yaw пока не используется)
+
+/**/narration_server:
+  ros__parameters:
+    lookahead: 1
+    resume_policy: "repeat_chunk"       # repeat_chunk | continue_next | overlap_1
+    resume_bridge_enabled: true
+    resume_bridge_text: "Продолжаю."
+    soft_pause_max_s: 8.0
+    hard_stop_result_timeout_s: 0.3
+    say_priority: 50                    # Say.Goal.PRIORITY_NARRATION
+    say_scope: 1                        # Say.Goal.SCOPE_NARRATION
+    content_language: "ru"
+    content_mode: "full"
+    service_call_timeout_s: 2.0
+
+/**/presence_monitor:
+  ros__parameters:
+    disengage_timeout_s: 120.0
+    wakeword_min_confidence: 0.6
+    ignore_vad_while_speaking: true
+    tts_tail_ms: 300.0
+    sources: ["wakeword", "asr_final", "vad"]
+    publish_rate_hz: 1.0
+    mission_state_weak_evidence: false

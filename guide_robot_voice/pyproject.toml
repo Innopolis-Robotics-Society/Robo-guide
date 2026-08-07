@@ -1,0 +1,46 @@
+[tool.ruff]
+line-length = 99
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "D", "UP", "B", "SIM", "ANN", "RUF", "PL", "SLF"]
+# RUF001/002/003 -- "неоднозначные" кириллические символы. Для кодовой базы
+# с русскими комментариями это сплошной шум: правило рассчитано на латиницу
+# с вкраплениями гомоглифов, а не на текст целиком на кириллице.
+# SIM905 разворачивает "слово слово".split() в список литералов. Для словарей
+# сокращений на 60 элементов это делает диф нечитаемым, а строку -- на 400
+# символов. Держим split().
+ignore = ["D203", "D213", "ANN401", "RUF001", "RUF002", "RUF003", "SIM905"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.per-file-ignores]
+"test/*" = ["ANN", "D", "SLF", "PLR2004"]
+# PLC0415: импорт scipy отложен намеренно -- без него модуль должен
+# импортироваться в CI, где scipy может быть не установлен, с честным
+# откатом на линейную интерполяцию.
+"guide_robot_voice/lib/resampler.py" = ["PLC0415"]
+# PLC0415: piper-tts -- внешняя модель, модуль обязан импортироваться
+# в CI без неё (NullBackend не требует piper вообще).
+"guide_robot_voice/lib/backends.py" = ["PLC0415"]
+# PLC0415: sounddevice/PortAudio резолвится лениво -- см. rationale в
+# guide_robot_voice/lib/resampler.py выше, тот же принцип для звуковой карты.
+# PLR0913/0917: SoundDeviceEmitter описывает конфигурацию устройства вывода;
+# сворачивать её в объект-параметр только ради счётчика аргументов смысла нет.
+"guide_robot_voice/lib/sink.py" = ["PLC0415", "PLR0913", "PLR0917"]
+"guide_robot_voice/lib/audio_device.py" = ["PLC0415"]
+"guide_robot_voice/lib/dc_blocker.py" = ["PLC0415"]
+# PLC0415: sounddevice (звуковая карта) и builtin_interfaces (штамп времени)
+# резолвятся лениво по тому же принципу, что и в остальных модулях выше.
+"guide_robot_voice/audio_frontend.py" = ["PLC0415"]
+# PLC0415: onnxruntime -- внешняя модель, модуль обязан импортироваться
+# в CI без неё, тот же принцип, что и для PiperBackend.
+"guide_robot_voice/lib/vad_model.py" = ["PLC0415"]
+# PLR0913: параметры гистерезиса -- это конфигурация vad_node целиком
+# (design §3.2), сворачивать в объект-параметр ради счётчика смысла нет.
+"guide_robot_voice/lib/vad_hysteresis.py" = ["PLR0913"]
+"guide_robot_voice/vad_node.py" = ["PLC0415"]
+# PLC0415: sherpa_onnx -- внешняя модель, тот же принцип, что и выше.
+"guide_robot_voice/lib/asr_model.py" = ["PLC0415"]
+"guide_robot_voice/asr_node.py" = ["PLC0415"]

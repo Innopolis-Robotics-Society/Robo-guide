@@ -30,7 +30,7 @@ group "all" {
 target "_common" {
   context    = "."
   args = {
-    USERNAME = "${USERNAME}"
+    USERNAME = "fabian"
   }
 }
 

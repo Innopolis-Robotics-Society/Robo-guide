@@ -24,7 +24,6 @@ ENV USERNAME=${USERNAME} USER_UID=${USER_UID} USER_GID=${USER_GID}
 
 # Headless by default — no Gazebo on the lightweight arm image.
 ARG WITH_GAZEBO=0
-ENV WITH_GAZEBO=${WITH_GAZEBO}
 
 COPY .docker/common/ /tmp/common/
 RUN bash /tmp/common/00-tools.sh

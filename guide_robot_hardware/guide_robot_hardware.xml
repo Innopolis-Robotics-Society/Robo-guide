@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<library path="guide_robot_hardware">
+  <class
+    name="guide_robot_hardware/GuideRobotSystem"
+    type="guide_robot_hardware::GuideRobotSystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Guide Robot hardware interface.
+      Dynamixel 1.0 Sync Write over UART (/dev/ttyUSB0).
+    </description>
+  </class>
+</library>

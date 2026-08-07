@@ -1,56 +1,100 @@
 <?xml version="1.0"?>
 <!-- =========================================================================
-     ros2_control интерфейс для Guide robot.
+     ros2_control interface for Guide robot.
 
-     Аргумент use_sim переключает на mock-железо для проверки без робота.
+     Three hardware backends, priority top to bottom:
+       use_sim=true           -> Gazebo Classic (gazebo_ros2_control)
+       use_mock_hardware=true -> mock_components stub for stack testing
+       otherwise              -> real Dynamixel base driver (FURO)
+
+     NOT standalone-processable: relies on properties declared by
+     guide_robot.urdf.xacro before the include point - p, wheel_separation,
+     wheel_radius. Process the main xacro, not this file.
+
+     IMPORTANT: comments MUST stay ASCII-only (see note in guide_robot.urdf.xacro).
      ========================================================================= -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <xacro:arg name="use_sim"           default="false"/>
   <xacro:arg name="use_mock_hardware" default="false"/>
+
+  <xacro:property name="lim" value="${p['limits']}"/>
+  <xacro:property name="drv" value="${p['drive']}"/>
+
+  <!-- Per-wheel command envelope. Worst case is full linear PLUS full angular
+       applied at once:
+         v_wheel = v_max + w_max * wheel_separation / 2
+         w_wheel = v_wheel / wheel_radius * wheel_limit_margin
+       With the current robot_params.yaml this evaluates to 11.60 rad/s
+       (was 8.38 before max_linear_velocity went 0.6 -> 0.9 on 2026-07-30).
+       This is an ENVELOPE, not a limit: normal clamping is done by
+       diff_drive_controller. Too narrow drops commands, too wide is harmless,
+       hence the margin. Recomputed automatically - do not hardcode.
+       Also fed to the hardware plugin as max_wheel_velocity, where it IS
+       enforced as a last-resort clamp - see below. -->
+  <xacro:property name="w_wheel_max"
+    value="${((lim['max_linear_velocity'] + lim['max_angular_velocity']*wheel_separation/2)
+              / wheel_radius * lim['wheel_limit_margin'])}"/>
+
+  <xacro:macro name="wheel_iface" params="name">
+    <joint name="${name}">
+      <command_interface name="velocity">
+        <param name="min">${-w_wheel_max}</param>   <!-- rad/s -->
+        <param name="max">${w_wheel_max}</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
 
   <ros2_control name="GuideRobotSystem" type="system">
 
     <hardware>
-      <xacro:if value="$(arg use_mock_hardware)">
-        <!-- Заглушка для запуска стека без реального робота -->
-        <plugin>mock_components/GenericSystem</plugin>
-        <param name="calculate_dynamics">true</param>
+      <xacro:if value="$(arg use_sim)">
+        <!-- Gazebo Classic: simulated hardware via gazebo_ros2_control.
+             Drives the same velocity interfaces as the real base. -->
+        <plugin>gazebo_ros2_control/GazeboSystem</plugin>
       </xacro:if>
-      <xacro:unless value="$(arg use_mock_hardware)">
-        <!-- Реальный драйвер Dynamixel-базы Guide Robot -->
-        <plugin>guide_robot_hardware/GuideRobotSystem</plugin>
-        <param name="serial_port">COM7</param>  <!-- TO-DO -->
-        <param name="baud_rate">115200</param>
-        <param name="left_wheel_id">46</param>           <!-- 0x2E -->
-        <param name="right_wheel_id">47</param>          <!-- 0x2F -->
-        <param name="ticks_per_rev">262144</param>       <!-- 512*8*64 -->
-        <param name="left_sign">-1</param>               <!-- LeftReverse -->
-        <param name="right_sign">1</param>               <!-- RightReverse -->
-        <param name="swap_drives">1</param>              <!-- FURO_SWAP_DRIVES -->
-        <param name="speed_coefficient">0.014</param>    <!-- м/с -->
-        <param name="cmd_timeout">0.3</param>            <!-- watchdog, сек -->
+      <xacro:unless value="$(arg use_sim)">
+        <xacro:if value="$(arg use_mock_hardware)">
+          <!-- Stub for running the full stack without real hardware. -->
+          <plugin>mock_components/GenericSystem</plugin>
+          <param name="calculate_dynamics">true</param>
+        </xacro:if>
+        <xacro:unless value="$(arg use_mock_hardware)">
+          <!-- Real FURO Dynamixel base driver. All values come from
+               config/robot_params.yaml, section 'drive' - see that file for
+               measurement provenance. -->
+          <plugin>guide_robot_hardware/GuideRobotSystem</plugin>
+          <param name="serial_port">${drv['serial_port']}</param>
+          <param name="baud_rate">${drv['baud_rate']}</param>
+          <param name="left_wheel_id">${drv['left_wheel_id']}</param>
+          <param name="right_wheel_id">${drv['right_wheel_id']}</param>
+          <param name="ticks_per_rev">${drv['ticks_per_rev']}</param>
+          <param name="left_sign">${drv['left_sign']}</param>
+          <param name="right_sign">${drv['right_sign']}</param>
+          <param name="swap_drives">${drv['swap_drives']}</param>
+          <param name="speed_coefficient">${drv['speed_coefficient']}</param>
+          <param name="wheel_radius">${wheel_radius}</param>
+          <param name="cmd_timeout">${drv['cmd_timeout']}</param>
+          <!-- Same envelope as the command_interface min/max above, but this
+               one is ENFORCED: the plugin clamps to it. Those min/max params
+               are metadata only - hardware_interface never applies them.
+               Deliberately the envelope and not max_linear_velocity: it must
+               not clip legitimate v+w commands, only catch a controller with
+               no limiter of its own. -->
+          <param name="max_wheel_velocity">${w_wheel_max}</param>
+          <param name="encoder_timeout">${drv['encoder_timeout']}</param>
+          <!-- Driver counter-glitch repair and encoder poll rate. -->
+          <param name="encoder_wrap_ticks">${drv['encoder_wrap_ticks']}</param>
+          <param name="encoder_poll_divider">${drv['encoder_poll_divider']}</param>
+          <param name="motor_accel">${drv['motor_accel']}</param>
+        </xacro:unless>
       </xacro:unless>
     </hardware>
 
-    <!-- Левое колесо -->
-    <joint name="left_wheel_joint">
-      <command_interface name="velocity">
-        <param name="min">-6.98</param>   <!-- рад/с, ~= 0.3 м/с / 0.075 * запас -->
-        <param name="max">6.98</param>
-      </command_interface>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-    </joint>
-
-    <!-- Правое колесо -->
-    <joint name="right_wheel_joint">
-      <command_interface name="velocity">
-        <param name="min">-6.98</param>
-        <param name="max">6.98</param>
-      </command_interface>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-    </joint>
+    <xacro:wheel_iface name="left_wheel_joint"/>
+    <xacro:wheel_iface name="right_wheel_joint"/>
 
   </ros2_control>
 

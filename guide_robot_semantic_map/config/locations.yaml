@@ -1,0 +1,73 @@
+# Координаты pose сняты по реальной карте лаборатории
+# (guide_robot_navigation/map/lab_105_full.pgm, origin [-5.58, -15.7],
+# resolution 0.05) -- согласованы с config/graph.geojson (полный mesh на
+# тех же точках). yaw пока не измерен и везде 0.0 -- заменить на реальную
+# ориентацию "лицом к экспонату" по месту.
+version: 1
+frame_id: map
+locations:
+  - id: entrance
+    graph_node: 1
+    pose: {x: 5.5, y: 7.6, yaw: 0.0}
+    zone: lab
+    category: waypoint
+    is_public: true
+    exhibit_id: null
+    aliases:
+      ru: ["вход", "главный вход"]
+      en: ["entrance", "main entrance"]
+
+  - id: robo_guide
+    graph_node: 2
+    pose: {x: 5.7, y: 4.1, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: robo_guide
+    aliases:
+      ru: ["робот-экскурсовод", "сам робот", "экскурсовод"]
+      en: ["guide robot", "the robot itself"]
+
+  - id: promobot_m13_artist
+    graph_node: 3
+    pose: {x: 1.8, y: 3.6, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: promobot_m13_artist
+    aliases:
+      ru: ["промобот", "промобот художник", "кобот"]
+      en: ["promobot", "drawing robot"]
+
+  - id: sam3_autolabeling
+    graph_node: 4
+    pose: {x: 7.6, y: 0.6, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: sam3_autolabeling
+    aliases:
+      ru: ["разметка данных", "sam3", "авторазметка"]
+      en: ["autolabeling", "sam3"]
+
+  - id: nav2_course
+    graph_node: 5
+    pose: {x: 15.2, y: 0.6, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: nav2_course
+    aliases:
+      ru: ["курс nav2", "тёртлботы", "turtlebot"]
+      en: ["nav2 course", "turtlebot"]
+
+  - id: livox_mid70
+    graph_node: 7
+    pose: {x: 1.2, y: -6.1, yaw: 0.0}
+    zone: lab
+    category: exhibit
+    is_public: true
+    exhibit_id: livox_mid70
+    aliases:
+      ru: ["лидар", "ливокс", "livox"]
+      en: ["lidar", "livox mid-70"]

@@ -1,3 +1,4 @@
+
 # ROS 2 build directories
 build/
 install/
@@ -13,14 +14,14 @@ __pycache__/
 .develop/
 dist/
 local/
-
+.ruff_cache
 
 .vscode/
 .idea/
 .clion.source.dir/
 *.user
-.md
 .claude
+guide_robot_navigation/generated_config/
 
 # System files
 .DS_Store

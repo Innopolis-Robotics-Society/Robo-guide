@@ -20,13 +20,16 @@ setup(
     maintainer="sokovikov",
     maintainer_email="a.sokovikov@innopolis.university",
     description="TODO: Package description",
-    license="TODO: License declaration",
+    license="Apache License, Version 2.0",
     extras_require={
         "test": [
             "pytest",
         ],
     },
     entry_points={
-        "console_scripts": [],
+        "console_scripts": [
+            "laser_sector_blanker = guide_robot_bringup.laser_sector_blanker:main",
+            "laser_blind_sector_finder = guide_robot_bringup.laser_blind_sector_finder:main",
+        ],
     },
 )

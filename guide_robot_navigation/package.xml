@@ -2,11 +2,20 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>guide_robot_navigation</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <version>0.0.1</version>
+  <description>
+    ROS 2 launch scripts for navigation2
+  </description>
   <maintainer email="fabian@todo.todo">fabian</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache 2.0</license>
 
+
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <depend>guide_robot_description</depend>
+  <depend>ament_index_python</depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>python3-pytest</test_depend>
 

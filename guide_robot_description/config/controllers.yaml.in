@@ -1,0 +1,57 @@
+controller_manager:
+  ros__parameters:
+    update_rate: ${controller_manager.update_rate}
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+    # TEMPORARY WORKAROUND / ВРЕМЕННОЕ РЕШЕНИЕ:
+    # Изначально компонент планировался в 'unconfigured', чтобы supervisor управлял
+    # активацией hardware. До завершения интеграции supervisor с ros2_control
+    # держим 'active', чтобы спавнеры и контроллеры поднимались автоматически.
+    hardware_components_initial_state:
+      active:
+        - GuideRobotSystem
+
+joint_state_broadcaster:
+  ros__parameters:
+    joints: [left_wheel_joint, right_wheel_joint]
+
+diff_drive_controller:
+  ros__parameters:
+    left_wheel_names:  [left_wheel_joint]
+    right_wheel_names: [right_wheel_joint]
+
+    # Геометрическая колея - та же, что в URDF, по построению.
+    # Калибровка одометрии сидит в множителе ниже, см. секцию odometry
+    # в robot_params.yaml. Линейный масштаб задаётся ТОЛЬКО парой
+    # wheel_radius/ticks_per_rev, причём зависит лишь от их ОТНОШЕНИЯ.
+    wheel_separation: ${geometry.wheel_separation}
+    wheel_radius: ${geometry.wheel_radius}
+
+    # Множители тюнятся в рантайме через ros2 param set без пересборки;
+    # подобранное значение переносить в robot_params.yaml.
+    wheel_separation_multiplier: ${odometry.wheel_separation_multiplier}
+    left_wheel_radius_multiplier: ${odometry.left_wheel_radius_multiplier}
+    right_wheel_radius_multiplier: ${odometry.right_wheel_radius_multiplier}
+
+    publish_rate: ${controller_manager.publish_rate}
+    odom_frame_id: odom
+    base_frame_id: base_footprint
+    cmd_vel_timeout: 0.5
+    use_stamped_vel: false
+
+    # has_velocity_limits/has_acceleration_limits deprecated в этой версии
+    # контроллера (NaN = лимит выключен), поэтому не выставлены.
+    # Эти же числа читают velocity_smoother и DWB - через тот же шаблонизатор.
+    linear.x.max_velocity: ${limits.max_linear_velocity}
+    linear.x.min_velocity: -${limits.max_linear_velocity}
+    linear.x.max_acceleration: ${limits.max_linear_accel}
+    linear.x.max_deceleration: ${limits.max_linear_decel}
+
+    angular.z.max_velocity: ${limits.max_angular_velocity}
+    angular.z.min_velocity: -${limits.max_angular_velocity}
+    angular.z.max_acceleration: ${limits.max_angular_accel}
+    angular.z.max_deceleration: ${limits.max_angular_decel}

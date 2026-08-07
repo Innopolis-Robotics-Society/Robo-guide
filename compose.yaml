@@ -6,19 +6,27 @@ x-common: &common-setup
     - .:/home/fabian/ros2_ws/src:rw
     - /tmp/.X11-unix:/tmp/.X11-unix:rw
     - /dev/dri:/dev/dri:rw
+    - /dev:/dev:rw
+    # PulseAudio
+    - /run/user/1000/pulse:/run/user/1000/pulse
+    - ${HOME}/.config/pulse/cookie:/home/fabian/.config/pulse/cookie:ro
   environment:
     - NVIDIA_VISIBLE_DEVICES=all
     - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display
     - DISPLAY
     - QT_X11_NO_MITSHM=1
+    - PULSE_SERVER=unix:/run/user/1000/pulse/native
+    - XDG_RUNTIME_DIR=/run/user/1000
   working_dir: /home/fabian/ros2_ws
   group_add:
     - "video"
     - "44"
-    - "dialout"
+    - "${DIALOUT_GID:-20}"
     - "tty"
+    - "audio"
   command: [
     "/bin/bash","-lc","
+    sudo chown -R $(whoami):$(whoami) /home/fabian/ros2_ws 2>/dev/null || true &&
     exec bash"
     ]
 
@@ -48,5 +56,3 @@ services:
     image: fabook/iros:v0.0.1
     stdin_open: true
     tty: true
-    devices:
-      - "/dev/ttyACM0:/dev/ttyACM0"

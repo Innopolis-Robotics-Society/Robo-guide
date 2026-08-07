@@ -3,17 +3,27 @@
 <package format="3">
   <name>guide_robot_hardware</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>
+    Плагин hardware_interface::SystemInterface для ros2_control: связывает
+    ведущую базу Guide-Robot (драйверы FURO, протокол-клон Dynamixel 1.0 по
+    RS-485) с diff_drive_controller. Отдаёт position/velocity двух колёсных
+    суставов, принимает velocity, содержит сторожевой таймер команд и клэмп
+    скорости уровня железа.
+  </description>
   <maintainer email="a.sokovikov@innopolis.university">sokovikov</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache 2.0</license>
 
-  <depend>rclpy</depend>
-  <depend>geometry_msgs</depend>
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>python3-pytest</test_depend>
-  <depend>nav_msgs</depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

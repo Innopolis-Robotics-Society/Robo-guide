@@ -1,0 +1,30 @@
+# Параметры трёх нод guide_robot_semantic_map.
+#
+# Пути к данным (*_file/*_dir) оставлены пустыми: пустая строка -- сигнал
+# нодам самим найти файл в share/guide_robot_semantic_map/{config,content}
+# через ament_index (см. _configure() в каждой ноде). Задавать их здесь
+# явно нужно только при развёртывании с данными вне пакета (design.md §2:
+# "Реальные музейные тексты в кодовый репозиторий не кладём").
+
+/**/content_server:
+  ros__parameters:
+    content_dir: ""
+    default_language: "ru"
+
+/**/location_server:
+  ros__parameters:
+    locations_file: ""
+    tours_file: ""
+    graph_file: ""              # только для валидации graph_node, топологию не использует
+    default_language: "ru"
+    near_radius_m: 5.0          # отсечка near_only=true, метры
+
+/**/route_planner:
+  ros__parameters:
+    locations_file: ""
+    nominal_speed_mps: 0.35     # ИЗМЕРИТЬ на роботе -- паспортная скорость, не эффективная
+    crowd_factor: 0.7           # design.md §1.2: оценка должна быть пессимистичной
+    turn_penalty_s: 3.0
+    tsp_time_budget_ms: 200.0   # бюджет эвристики для N > 12 локаций (design.md §1.2)
+    compute_route_call_timeout_s: 2.0
+    route_server_wait_timeout_s: 10.0
