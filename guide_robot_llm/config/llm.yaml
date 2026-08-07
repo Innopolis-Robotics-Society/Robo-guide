@@ -1,40 +1,36 @@
-# Параметры голосового чата с LLM.
-#
-# say_scope: 2 -- CancelAll.SCOPE_DIALOG / Say.SCOPE_DIALOG (guide_robot_msgs).
-# Черновик design-документа оставлял здесь 0 с пометкой "свериться с
-# константами SCOPE_*" -- по факту SCOPE_ALL=0, SCOPE_DIALOG=2, и диалоговым
-# репликам нужен именно DIALOG: SCOPE_ALL заставил бы любую отмену с любым
-# scope гасить и текущий ход чата, а не только адресованные ему.
+# Параметры tool_broker (llm_plam.md §3). Плоско на верхнем уровне узла --
+# по тому же соглашению, что guide_robot_mission_control/config/mission.yaml
+# (rclpy.declare_parameter, не вложенные группы).
 
-/**/chat_node:
+/**:
   ros__parameters:
-    backend: "llama_cpp"          # llama_cpp | openai | echo
-    base_url: "http://127.0.0.1:8000"
-    model: ""
-    api_key_env: "LLM_API_KEY"
-    system_prompt_file: ""        # пусто -> config/system_prompt.txt
-    max_history_turns: 6
-    max_tokens: 256
-    temperature: 0.7
-    stream: true
-    first_token_timeout_s: 3.0
-    request_timeout_s: 20.0
+    use_sim_time: false
 
-    require_wakeword: true
-    activation_phrases: ["робот", "слушай робот"]
-    strip_activation_phrase: true
-    engagement_timeout_s: 120.0   # музейный робот Alter-Ego -- не менять без причины
-    min_chars: 2
-    echo_guard_ms: 0.0            # >0 только когда появятся колонки без AEC
+/**/tool_broker:
+  ros__parameters:
+    service_call_timeout_s: 2.0
+    mission_fsm_ns: "/mission_fsm"
+    location_server_ns: "/location_server"
+    route_planner_ns: "/route_planner"
 
-    say_priority: 40
-    say_scope: 2                  # SCOPE_DIALOG, см. комментарий вверху файла
-    say_max_duration_s: 30.0
-    goal_retry_limit: 3
-    max_clause_chars: 180
-    first_clause_min_chars: 24
+# dialog_agent (llm_plam.md §5): ReAct-цикл поверх llm_client + tool_broker.
+# llm.base_urls -- реальный адрес llm_server/ (см. llm_server/.env: LLM_PORT=18080).
+/**/dialog_agent:
+  ros__parameters:
+    llm.base_urls: ["http://127.0.0.1:18080/v1"]
+    llm.connect_timeout_s: 2.0
+    llm.read_timeout_s: 30.0
+    llm.max_tokens: 512
+    llm.temperature: 0.2
+    llm.max_attempts_per_backend: 2
+    llm.backoff_s: 0.5
+    llm.api_key: ""
+    system_prompt_path: "$(find-pkg-share guide_robot_llm)/config/system_prompt.txt"
+    tool_broker_ns: "/tool_broker"
+    service_call_timeout_s: 2.0
+    max_tool_calls_per_turn: 2
 
-    fallback_phrases: ["Извините, сейчас не могу ответить."]
-    interrupted_marker: " [прервано]"
-    log_dir: "~/.ros/llm_turns"
-    diagnostics_hz: 1.0
+# interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
+/**/interaction_log:
+  ros__parameters:
+    log_dir: "~/.guide_robot/llm_turns"
