@@ -1,0 +1,53 @@
+services:
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_TAG:?set LLAMA_TAG in .env (server-cuda for GPU, server for CPU smoke-test)}
+    restart: unless-stopped
+    ports:
+      - "${LLM_BIND:-127.0.0.1}:${LLM_PORT:-8080}:8080"
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    environment:
+      LLAMA_ARG_MODEL: /models/${MODEL_FILE:?set MODEL_FILE in .env}
+      LLAMA_ARG_ALIAS: ${MODEL_ALIAS:?set MODEL_ALIAS in .env}
+      LLAMA_ARG_HOST: 0.0.0.0
+      LLAMA_ARG_PORT: 8080
+      LLAMA_ARG_CTX_SIZE: ${CTX_SIZE:-16384}
+      LLAMA_ARG_N_GPU_LAYERS: ${N_GPU_LAYERS:-999}
+      LLAMA_ARG_N_PARALLEL: ${N_PARALLEL:-1}
+      LLAMA_ARG_BATCH: ${BATCH:-2048}
+      LLAMA_ARG_UBATCH: ${UBATCH:-512}
+      LLAMA_ARG_FLASH_ATTN: ${FLASH_ATTN:-on}
+      LLAMA_ARG_CACHE_REUSE: ${CACHE_REUSE:-256}
+      # SPEC называет эту переменную LLAMA_ARG_NO_CONTEXT_SHIFT. Проверено на
+      # ghcr.io/ggml-org/llama.cpp:server (`llama-server --help`) — такого имени нет,
+      # актуальное — LLAMA_ARG_CONTEXT_SHIFT (булево, 0 = запрет сдвига контекста,
+      # т.е. переполнение = явная ошибка, а не молчаливый сдвиг окна). См. README.
+      LLAMA_ARG_CONTEXT_SHIFT: 0
+      LLAMA_ARG_ENDPOINT_METRICS: 1
+      LLAMA_API_KEY: ${LLM_API_KEY:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  llm-warmup:
+    image: curlimages/curl:${CURL_TAG:-8.11.1}
+    entrypoint: ["/bin/sh", "/warmup.sh"]
+    depends_on:
+      - llm
+    restart: "no"
+    environment:
+      LLM_URL: http://llm:8080
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      WARMUP_TIMEOUT_S: ${WARMUP_TIMEOUT_S:-600}
+    volumes:
+      - ./scripts/warmup.sh:/warmup.sh:ro
+      - ./config/system_prompt.txt:/system_prompt.txt:ro
