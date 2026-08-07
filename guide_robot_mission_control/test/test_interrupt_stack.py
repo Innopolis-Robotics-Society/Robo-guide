@@ -19,6 +19,7 @@ import time
 import pytest
 from guide_robot_msgs.action import RunTour
 from guide_robot_msgs.msg import CancelAll, MissionState
+from guide_robot_msgs.srv import SubmitAnswer
 
 from guide_robot_mission_control.interrupt_stack import Frame, InterruptStack, StackBusyError
 from test.mission_fsm_test_helpers import (
@@ -296,3 +297,94 @@ def test_submit_answer_during_answering_resumes_promptly(harness: MissionTestHar
         state_is(state, MissionState.STATE_NARRATING),
         timeout_s=5.0,
     )
+
+
+def _start_two_stop_tour_to_narrating(
+    harness: MissionTestHarness, *, answer_max_s: float = 100.0
+):
+    """Как `_start_tour_to_narrating`, но два stop-а -- нужно для SKIP_STOP (llm_plam.md §1.1)."""
+    stop_ids = ["lab105a", "lab105b"]
+    for i, stop_id in enumerate(stop_ids):
+        chunks = [f"{stop_id} чанк0.", f"{stop_id} чанк1."]
+        harness.fixtures.add_exhibit(stop_id, chunks, version="rev1")
+        harness.fixtures.add_location(stop_id, x=float(i), y=0.0)
+    harness.nav.duration_s = 0.05
+    harness.nav.distance_m = 1.0
+    make_narration_node(harness, lookahead=0)
+    fsm_node = make_fsm_node(harness, answer_max_s=answer_max_s, nav_stop_timeout_s=5.0)
+    harness.say.chars_per_sec = 10.0
+
+    client_node, run_tour_client = make_run_tour_client(harness)
+    state = state_listener(client_node)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=stop_ids,
+            greet=False,
+            narrate=True,
+            confirm_between_stops=False,
+            return_home=False,
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    pump_clock(
+        harness,
+        state_is(state, MissionState.STATE_NARRATING),
+        step=harness.nav.duration_s + 0.05,
+    )
+    time.sleep(0.05)  # дать narration_server реально отправить Say для чанка 0
+    return client_node, state, goal_handle, fsm_node
+
+
+def test_submit_answer_skip_stop_advances_to_next_stop(harness: MissionTestHarness) -> None:
+    """OUTCOME_SKIP_STOP (llm_plam.md §1.1): барже-ин на stop0 -> хватит -> едем на stop1."""
+    client_node, state, goal_handle, fsm = _start_two_stop_tour_to_narrating(harness)
+    cancel_all_pub = client_node.create_publisher(CancelAll, "/speech/cancel_all", 1)
+
+    cancel_all_pub.publish(
+        CancelAll(scope=CancelAll.SCOPE_NARRATION, reason=CancelAll.REASON_BARGE_IN)
+    )
+    wait_until(state_is(state, MissionState.STATE_ANSWERING), timeout_s=15.0)
+
+    fsm.submit_answer("хватит, дальше", outcome=SubmitAnswer.Request.OUTCOME_SKIP_STOP)
+
+    # SKIP_STOP -> navigating (не resume в narrating на том же stop0).
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=5.0)
+    harness.say.chars_per_sec = 50.0
+
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.5)
+    wait_for_future(result_future, timeout_s=15.0)
+    result: RunTour.Result = result_future.result().result
+
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    assert result.stops_completed == 1  # только stop1 -- stop0 пропущен
+    assert result.stops_skipped == 1
+
+
+def test_submit_answer_end_tour_goes_straight_to_returning(harness: MissionTestHarness) -> None:
+    """OUTCOME_END_TOUR: барже-ин -> «хватит совсем» -> тур заканчивается, не резюмируя."""
+    client_node, state, goal_handle, fsm = _start_two_stop_tour_to_narrating(harness)
+    cancel_all_pub = client_node.create_publisher(CancelAll, "/speech/cancel_all", 1)
+
+    cancel_all_pub.publish(
+        CancelAll(scope=CancelAll.SCOPE_NARRATION, reason=CancelAll.REASON_BARGE_IN)
+    )
+    wait_until(state_is(state, MissionState.STATE_ANSWERING), timeout_s=15.0)
+
+    fsm.submit_answer("всё, спасибо, хватит", outcome=SubmitAnswer.Request.OUTCOME_END_TOUR)
+
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.5)
+    wait_for_future(result_future, timeout_s=15.0)
+    result: RunTour.Result = result_future.result().result
+
+    # return_home=False в фикстуре -> RETURNING сразу SUCCEEDED, тур
+    # завершается COMPLETED, но ни одна остановка не была ни рассказана,
+    # ни пропущена -- отличает END_TOUR от SKIP_STOP на последней остановке.
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    assert result.stops_completed == 0
+    assert result.stops_skipped == 0

@@ -358,7 +358,7 @@ class NarrationServerNode(LifecycleNode):
         ctx.finished_event.set()
         return result
 
-    def _finish_narrate(  # noqa: PLR0913, PLR0917 -- поля одного Result, не команда с побочными эффектами
+    def _finish_narrate(  # noqa: PLR0913 -- поля одного Result, не команда с побочными эффектами
         self,
         goal_handle: object,
         outcome: int,

@@ -234,17 +234,23 @@ class TtsNode(LifecycleNode):
     def _on_cancel_all(self, msg: CancelAll) -> None:
         """Аварийная отмена. Критический путь -- держать коротким.
 
-        Реагирует на КАЖДОЕ сообщение безусловно, не сверяясь с msg.epoch:
-        bump() идемпотентен на пустом стоке, поэтому сравнивать "свежее
-        или нет" незачем -- это же исключает дефект, описанный в design §0.1
-        (гонка нескольких издателей CancelAll с независимыми счётчиками).
+        scheduler.cancel() -- ПЕРВЫМ, под локом: только он знает, задевает
+        ли scope этой отмены то, что сейчас реально играет на устройстве.
+        sink.bump() рвёт физический вывод безусловно и без него звонить
+        нельзя -- если активная реплика пережила scope-фильтр (например,
+        SCOPE_DIALOG-ответ ЛЛМ при CancelAll(scope=narration)) или защищена
+        interruptible=False, звук трогать нельзя, иначе отмена одного scope
+        глушит чужой звук, которого формально не касалась (был баг: ответ
+        ЛЛМ обрывался собственным эхом barge-in -- нарратив гасил barge-in'ом
+        весь вывод целиком, а не только свой scope).
+
+        Не сверяется с msg.epoch: bump() идемпотентен на пустом стоке,
+        поэтому сравнивать "свежее или нет" незачем -- это же исключает
+        дефект, описанный в design §0.1 (гонка нескольких издателей
+        CancelAll с независимыми счётчиками).
         """
         if self._sink is None:
             return
-
-        self._sink.bump(msg.reason)
-        if self._resampler is not None:
-            self._resampler.reset()
 
         with self._scheduler_lock:
             dropped_active, dropped_queue = self._scheduler.cancel(Scope(msg.scope), msg.reason)
@@ -252,6 +258,15 @@ class TtsNode(LifecycleNode):
                 self._preempted.add(dropped_active.goal_id)
             for utterance in dropped_queue:
                 self._preempted.add(utterance.goal_id)
+
+        if dropped_active is None:
+            # Активная реплика (другого scope либо interruptible=False)
+            # пережила отмену -- физический вывод не трогаем.
+            return
+
+        self._sink.bump(msg.reason)
+        if self._resampler is not None:
+            self._resampler.reset()
 
         self._speaking = False
 

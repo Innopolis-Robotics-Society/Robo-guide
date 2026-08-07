@@ -18,6 +18,8 @@ import queue
 import threading
 from collections.abc import Callable
 
+from guide_robot_msgs.srv import SubmitAnswer
+
 __all__ = ["FsmContext"]
 
 
@@ -78,7 +80,7 @@ class FsmContext:
         self._log = log
 
         self.barge_in_event = threading.Event()
-        self._answer_queue: queue.Queue[str] = queue.Queue()
+        self._answer_queue: queue.Queue[tuple[str, int]] = queue.Queue()
         self._confirm_queue: queue.Queue[bool] = queue.Queue()
         self._pause_queue: queue.Queue[bool] = queue.Queue()
         self._resume_queue: queue.Queue[bool] = queue.Queue()
@@ -90,12 +92,19 @@ class FsmContext:
     # -- тестовые/CLI хуки (design §5.4 п.6, §5.2 ANSWERED/YES/NO/RESUMED --
     #    без реального ASR/LLM-сигнала в v1, см. докстринги состояний) -----
 
-    def submit_answer(self, text: str) -> None:
-        """Положить текст ответа посетителя -- заберёт `AnsweringState.poll()`."""
-        self._answer_queue.put(text)
+    def submit_answer(
+        self, text: str, *, outcome: int = SubmitAnswer.Request.OUTCOME_RESUME_BASE
+    ) -> None:
+        """Положить ответ посетителя -- заберёт `AnsweringState.poll()`.
 
-    def take_answer(self) -> str | None:
-        """Забрать текст ответа, если он уже был положен, иначе None."""
+        `outcome` -- одно из `SubmitAnswer.Request.OUTCOME_*` (guide_robot_llm/
+        llm_plam.md §1.1): resume/skip_stop/end_tour. Дефолт совпадает с
+        поведением до появления ЛЛМ (единственный исход был "вернуться").
+        """
+        self._answer_queue.put((text, outcome))
+
+    def take_answer(self) -> tuple[str, int] | None:
+        """Забрать (текст, outcome), если уже положены, иначе None."""
         try:
             return self._answer_queue.get_nowait()
         except queue.Empty:
