@@ -26,6 +26,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ResolveLocation.srv"
   "srv/ListTours.srv"
   "srv/NarrationControl.srv"
+  "srv/SubmitAnswer.srv"
+  "srv/CallTool.srv"
   "action/Narrate.action"
   "action/RunTour.action"
   "action/AskUser.action"
@@ -38,6 +40,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/VoiceActivity.msg"
   "msg/Wakeword.msg"
   "msg/Presence.msg"
+  "msg/InteractionEvent.msg"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs
 )
 
