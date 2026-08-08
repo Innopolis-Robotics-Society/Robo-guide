@@ -32,7 +32,11 @@ curl -s localhost:8080/health   # {"status":"ok"}
 | Профиль | Модель | Когда | Файл |
 |---|---|---|---|
 | `qwen7b-q4` (дефолт) | Qwen2.5-7B-Instruct Q4_K_M | ноут, дискретная GPU ≥8GB VRAM | `config/models/qwen7b-q4.env` |
+| `llama3.1-8b-q5` | Meta-Llama-3.1-8B-Instruct Q5_K_M | альтернатива qwen7b-q4, ноут, дискретная GPU ≥8GB VRAM | `config/models/llama3.1-8b-q5.env` |
 | `cpu-fallback` | Qwen2.5-3B-Instruct Q4_K_M | CPU-смоук, слабое железо, `LLAMA_TAG=server` | `config/models/cpu-fallback.env` |
+
+Официального `Llama-3.3-8B` от Meta не существует — Llama 3.3 выпущена только в 70B,
+8B есть в линейке 3.1. Профиль выше — `Llama-3.1-8B-Instruct`.
 
 Применить профиль: скопировать нужные строки из `config/models/<profile>.env` поверх
 одноимённых в `.env`.
