@@ -8,7 +8,7 @@ frame_id: map
 locations:
   - id: entrance
     graph_node: 1
-    pose: {x: 5.5, y: 7.6, yaw: 0.0}
+    pose: {x: 4.5, y: 7.6, yaw: 0.0}
     zone: lab
     category: waypoint
     is_public: true
@@ -19,7 +19,7 @@ locations:
 
   - id: robo_guide
     graph_node: 2
-    pose: {x: 5.7, y: 4.1, yaw: 0.0}
+    pose: {x: 4.6, y: 4.1, yaw: 0.0}
     zone: lab
     category: exhibit
     is_public: true
@@ -30,7 +30,7 @@ locations:
 
   - id: promobot_m13_artist
     graph_node: 3
-    pose: {x: 1.8, y: 3.6, yaw: 0.0}
+    pose: {x: 0.7, y: 3.6, yaw: 0.0}
     zone: lab
     category: exhibit
     is_public: true
@@ -41,7 +41,7 @@ locations:
 
   - id: sam3_autolabeling
     graph_node: 4
-    pose: {x: 7.6, y: 0.6, yaw: 0.0}
+    pose: {x: 7.8, y: 1.8, yaw: 0.0}
     zone: lab
     category: exhibit
     is_public: true
@@ -63,7 +63,7 @@ locations:
 
   - id: livox_mid70
     graph_node: 7
-    pose: {x: 1.2, y: -6.1, yaw: 0.0}
+    pose: {x: 0.5, y: -6.4, yaw: 0.0}
     zone: lab
     category: exhibit
     is_public: true
