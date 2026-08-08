@@ -12,13 +12,7 @@
 # image and must NOT be reinstalled here.
 set -euxo pipefail
 
-JETSON_PIP_INDEX="${JETSON_PIP_INDEX:-https://pypi.jetson-ai-lab.dev/jp6/cu126}"
-
-python3 -m pip install --no-cache-dir \
-    --index-url "${JETSON_PIP_INDEX}" \
-    torch torchvision onnxruntime-gpu
-
-# ultralytics/smp from pypi (pure-python-ish, fine on arm64)
+# 1. Standard PyPI packages (pure-python & CPU inference libs like piper-tts)
 python3 -m pip install --no-cache-dir \
     ultralytics \
     segmentation-models-pytorch \
@@ -28,3 +22,12 @@ python3 -m pip install --no-cache-dir \
     numpy \
     requests \
     piper-tts
+
+# 2. NVIDIA L4T GPU wheels (torch, torchvision, onnxruntime-gpu) from Jetson index
+JETSON_PIP_INDEX="${JETSON_PIP_INDEX:-https://pypi.jetson-ai-lab.dev/jp6/cu126}"
+
+python3 -m pip install --no-cache-dir \
+    --index-url "${JETSON_PIP_INDEX}" \
+    --extra-index-url https://pypi.org/simple \
+    torch torchvision onnxruntime-gpu || \
+    echo "WARNING: Could not reach JETSON_PIP_INDEX (${JETSON_PIP_INDEX}). Skipping PyTorch GPU wheels."
