@@ -60,7 +60,7 @@ def generate_launch_description():
     )
     declare_map = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg_navigation, "map", "lab_map.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "lab_105_full.yaml"),
         description="Готовая карта для режима slam:=false (map_server + AMCL)",
     )
     declare_nav_params = DeclareLaunchArgument(
