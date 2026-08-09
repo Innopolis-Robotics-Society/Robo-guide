@@ -12,7 +12,20 @@
 # image and must NOT be reinstalled here.
 set -euxo pipefail
 
-# 1. Standard PyPI packages (pure-python & CPU inference libs like piper-tts)
+# 1. NVIDIA L4T GPU wheels (torch, torchvision, onnxruntime-gpu) from Jetson index
+JETSON_PIP_INDEX="${JETSON_PIP_INDEX:-https://pypi.jetson-ai-lab.io/jp6/cu126}"
+
+python3 -m pip install --no-cache-dir \
+    --extra-index-url "${JETSON_PIP_INDEX}" \
+    torch torchvision onnxruntime-gpu || true
+
+# 2. If GPU onnxruntime-gpu was not installed, fall back to CPU onnxruntime
+if ! python3 -c "import onnxruntime" 2>/dev/null; then
+    echo "WARNING: GPU onnxruntime-gpu not found. Installing CPU onnxruntime as fallback..."
+    python3 -m pip install --no-cache-dir onnxruntime
+fi
+
+# 3. Standard PyPI packages (pure-python & audio/ML support libs)
 python3 -m pip install --no-cache-dir \
     ultralytics \
     segmentation-models-pytorch \
@@ -20,14 +33,10 @@ python3 -m pip install --no-cache-dir \
     sounddevice \
     scipy \
     numpy \
-    requests \
-    piper-tts
+    requests
 
-# 2. NVIDIA L4T GPU wheels (torch, torchvision, onnxruntime-gpu) from Jetson index
-JETSON_PIP_INDEX="${JETSON_PIP_INDEX:-https://pypi.jetson-ai-lab.dev/jp6/cu126}"
+# 4. Install piper-tts without forcing CPU onnxruntime dependency
+python3 -m pip install --no-cache-dir --no-deps piper-tts
 
-python3 -m pip install --no-cache-dir \
-    --index-url "${JETSON_PIP_INDEX}" \
-    --extra-index-url https://pypi.org/simple \
-    torch torchvision onnxruntime-gpu || \
-    echo "WARNING: Could not reach JETSON_PIP_INDEX (${JETSON_PIP_INDEX}). Skipping PyTorch GPU wheels."
+
+
