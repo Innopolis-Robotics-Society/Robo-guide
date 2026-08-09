@@ -18,6 +18,8 @@
   <depend>ament_index_python</depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <exec_depend>twist_mux</exec_depend>
+
 
   <export>
     <build_type>ament_python</build_type>

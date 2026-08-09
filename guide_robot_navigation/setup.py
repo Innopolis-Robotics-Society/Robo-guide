@@ -1,6 +1,7 @@
 import os
 from glob import glob
 from importlib.util import module_from_spec, spec_from_file_location
+
 from setuptools import find_packages, setup
 
 package_name = "guide_robot_navigation"
@@ -29,7 +30,8 @@ _spec.loader.exec_module(_render_params)
 GEN_DIR = "generated_config"
 for _template in glob("config/*.in"):
     _render_params.render(
-        ROBOT_PARAMS, _template,
+        ROBOT_PARAMS,
+        _template,
         os.path.join(GEN_DIR, os.path.basename(_template)[:-3]),
     )
 
@@ -44,6 +46,7 @@ setup(
         (f"share/{package_name}/launch", glob("launch/*.launch.py")),
         (f"share/{package_name}/map", glob("map/*")),
         (f"share/{package_name}/config", glob("config/*.yaml")),
+        (f"share/{package_name}/behavior_trees", glob("behavior_trees/*.xml")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
