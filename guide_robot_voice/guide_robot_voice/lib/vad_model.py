@@ -52,7 +52,7 @@ class SileroVad:
         """Загрузить ONNX-граф. Может быть медленным, звать в on_configure."""
         import onnxruntime as ort
 
-        self._session = ort.InferenceSession(self._model_path, providers=["CPUExecutionProvider"])
+        self._session = ort.InferenceSession(self._model_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
         self.reset()
 
     def reset(self) -> None:

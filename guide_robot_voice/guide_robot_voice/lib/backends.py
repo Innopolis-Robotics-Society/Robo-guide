@@ -161,13 +161,22 @@ class PiperBackend:
         except Exception as error:
             _logger.warning(
                 "не удалось собрать сессию onnxruntime с безопасными опциями "
-                "(%s), откатываюсь на PiperVoice.load() по умолчанию",
+                "(%s), откатываюсь на PiperVoice.load(use_cuda=True)",
                 error,
             )
-            if self._config_path:
-                self._voice = PiperVoice.load(self._model_path, config_path=self._config_path)
-            else:
-                self._voice = PiperVoice.load(self._model_path)
+            try:
+                if self._config_path:
+                    self._voice = PiperVoice.load(
+                        self._model_path, config_path=self._config_path, use_cuda=True
+                    )
+                else:
+                    self._voice = PiperVoice.load(self._model_path, use_cuda=True)
+            except Exception as cuda_error:
+                _logger.warning("не удалось запустить PiperVoice с use_cuda=True (%s), использую CPU", cuda_error)
+                if self._config_path:
+                    self._voice = PiperVoice.load(self._model_path, config_path=self._config_path)
+                else:
+                    self._voice = PiperVoice.load(self._model_path)
 
         config = getattr(self._voice, "config", None)
         rate = getattr(config, "sample_rate", None)
@@ -208,9 +217,12 @@ class PiperBackend:
         session = onnxruntime.InferenceSession(
             self._model_path,
             sess_options=sess_options,
-            providers=["CPUExecutionProvider"],
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
         )
-        return PiperVoice(session=session, config=PiperConfig.from_dict(config_dict))
+        try:
+            return PiperVoice(session=session, config=PiperConfig.from_dict(config_dict))
+        except TypeError:
+            return PiperVoice.load(self._model_path, config_path=config_path, use_cuda=True)
 
     def _check_files(self) -> None:
         """Проверить наличие обоих файлов голоса до попытки загрузки.
