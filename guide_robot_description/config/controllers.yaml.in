@@ -43,15 +43,37 @@ diff_drive_controller:
     cmd_vel_timeout: 0.5
     use_stamped_vel: false
 
-    # has_velocity_limits/has_acceleration_limits deprecated в этой версии
-    # контроллера (NaN = лимит выключен), поэтому не выставлены.
-    # Эти же числа читают velocity_smoother и DWB - через тот же шаблонизатор.
+    # has_velocity_limits/has_acceleration_limits ОБЯЗАТЕЛЬНЫ. Здесь стояло, что
+    # они deprecated и "NaN = лимит выключен" -- для установленной сборки это
+    # неверно: speed_limiter.hpp объявляет SpeedLimiter(bool has_velocity_limits
+    # = false, bool has_acceleration_limits = false, ...), и на живом роботе оба
+    # параметра читались как False. То есть все числа ниже были мёртвыми, а
+    # ступенька от collision_monitor уходила на мотор как есть (-15.5 м/с^2 за
+    # кадр по бэгу 2026-08-10). Это единственная ступень, способная сгладить
+    # срез монитора: velocity_smoother стоит ДО него.
+    #
+    # ЗАМЕДЛЕНИЕ ЗАДАЁТСЯ ЧЕРЕЗ min_acceleration, НЕ max_deceleration. В
+    # /opt/ros/humble (Humble-ветка diff_drive_controller) параметра
+    # *_deceleration нет вообще: в diff_drive_controller_parameters.hpp и в
+    # strings libdiff_drive_controller.so есть только min_acceleration /
+    # max_acceleration. max_deceleration тихо проглатывается как неизвестный
+    # override, а min_acceleration остаётся NaN -- конструктор SpeedLimiter в
+    # этом случае подставляет -max_acceleration. По бэгу fp_FINAL так и вышло:
+    # лимитер заработал (p95 |a| 6.8 -> 1.0 м/с^2), но тормоз был 0.6, а не 1.5,
+    # и остановка растянулась на ~1.4 с.
+    #
+    # Эти же числа читают velocity_smoother и DWB - через тот же шаблонизатор,
+    # кроме min_acceleration: там намеренно жёсткий предел (см. robot_params).
+    linear.x.has_velocity_limits: true
+    linear.x.has_acceleration_limits: true
     linear.x.max_velocity: ${limits.max_linear_velocity}
     linear.x.min_velocity: -${limits.max_linear_velocity}
     linear.x.max_acceleration: ${limits.max_linear_accel}
-    linear.x.max_deceleration: ${limits.max_linear_decel}
+    linear.x.min_acceleration: -${limits.max_linear_decel_hard}
 
+    angular.z.has_velocity_limits: true
+    angular.z.has_acceleration_limits: true
     angular.z.max_velocity: ${limits.max_angular_velocity}
     angular.z.min_velocity: -${limits.max_angular_velocity}
     angular.z.max_acceleration: ${limits.max_angular_accel}
-    angular.z.max_deceleration: ${limits.max_angular_decel}
+    angular.z.min_acceleration: -${limits.max_angular_decel}
