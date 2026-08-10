@@ -712,10 +712,21 @@ void GuideRobotSystem::applyEncoderFrame(const uint8_t * frame, double period_s)
   if (!initialized_encoders_) {
     // Первый кадр после активации задаёт начало отсчёта: сравнивать не с чем,
     // ремонт разрывов неприменим.
+    //
+    // Развёрнутый счёт обнуляется, а НЕ принимает сырое значение: контроллер
+    // FURO считает тики от подачи питания и переживает перезапуск лаунча, а
+    // Odometry в diff_drive_controller стартует с left/right_wheel_old_pos_ = 0
+    // и на первом же update() принимает всю накопленную позицию за дельту.
+    // Со счётом прошлой сессии (замерено: 1381 и 1442 рад) это давало один шаг
+    // одометрии на 144.8 м и 17.5 рад — /odom вставал в (-8.010, 6.235, -1.323)
+    // вместо нуля, а odom -> base_footprint телепортировался на 10 м. Первый
+    // запуск после включения питания выглядел исправным только потому, что там
+    // счётчики и так в нуле. Сырое значение остаётся в prev_raw_*, дельты и
+    // unwrap от этого не зависят.
     prev_raw_slot1_ = slot1_ticks;
     prev_raw_slot2_ = slot2_ticks;
-    unwrapped_slot1_ = slot1_ticks;
-    unwrapped_slot2_ = slot2_ticks;
+    unwrapped_slot1_ = 0;
+    unwrapped_slot2_ = 0;
     prev_slot1_rate_ = 0.0;
     prev_slot2_rate_ = 0.0;
   } else {
