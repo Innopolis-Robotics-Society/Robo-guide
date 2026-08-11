@@ -58,7 +58,9 @@ def make_speed_profile(
 
 
 SPEED_PROFILE = make_speed_profile((0.10, 0.20, 0.35, 0.50, 0.60), 3.0, 2.0, 3.0)
-LONG_SPEED_PROFILE = make_speed_profile((0.35, 0.50, 0.60, 0.70, 0.75), 8.0, 4.0, 5.0)
+# Выше 0.50 привод уходит в насыщение (~0.53 м/с физически, бэг
+# 20260811T121706Z), поэтому длинный профиль проверяет весь ЧЕСТНЫЙ диапазон.
+LONG_SPEED_PROFILE = make_speed_profile((0.35, 0.45, 0.50), 8.0, 4.0, 5.0)
 
 
 @dataclass
@@ -891,7 +893,7 @@ def parser() -> argparse.ArgumentParser:
     speed.add_argument(
         "--long",
         action="store_true",
-        help="8-секундные ступени 0.35–0.75 м/с; нужна прямая не короче 7.5 м",
+        help="8-секундные ступени 0.35–0.50 м/с; нужна прямая не короче 5.5 м",
     )
     speed.set_defaults(func=speed_test)
 

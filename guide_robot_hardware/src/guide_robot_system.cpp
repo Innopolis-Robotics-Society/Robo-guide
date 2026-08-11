@@ -236,6 +236,7 @@ bool GuideRobotSystem::loadParameters()
   ok &= paramDouble(p, "right_sign", true, right_sign_);
   ok &= paramDouble(p, "speed_coefficient", true, speed_coefficient_);
   ok &= paramDouble(p, "speed_offset", true, speed_offset_);
+  ok &= paramDouble(p, "left_speed_trim", true, left_speed_trim_);
   ok &= paramDouble(p, "cmd_timeout", true, cmd_timeout_);
   ok &= paramDouble(p, "max_wheel_velocity", true, max_wheel_velocity_);
 
@@ -277,6 +278,12 @@ bool GuideRobotSystem::loadParameters()
       speed_coefficient_, speed_offset_, wheel_radius_, ticks_per_rev_);
     return false;
   }
+  if (!std::isfinite(left_speed_trim_) || left_speed_trim_ <= 0.0 || left_speed_trim_ > 1.2) {
+    RCLCPP_ERROR(
+      logger(), "left_speed_trim=%.3f: трим команды левого борта должен быть в (0, 1.2]",
+      left_speed_trim_);
+    return false;
+  }
   if (accel < 0.0 || accel > 65535.0) {
     RCLCPP_ERROR(logger(), "motor_accel=%.0f вне диапазона uint16", accel);
     return false;
@@ -299,11 +306,11 @@ bool GuideRobotSystem::loadParameters()
   RCLCPP_INFO(
     logger(),
     "Параметры: port=%s baud=%d L_id=%d R_id=%d swap=%d coeff=%.8f offset=%.4fm/s "
-    "r=%.3fm ticks_per_rev=%.1f cmd_timeout=%.3fs max_wheel_vel=%.2f рад/с "
+    "trim_L=%.3f r=%.3fm ticks_per_rev=%.1f cmd_timeout=%.3fs max_wheel_vel=%.2f рад/с "
     "encoder_timeout=%.3fs accel=%u poll_divider=%d wrap_ticks=%.0f",
     serial_port_.c_str(), baud_rate_, left_wheel_id_, right_wheel_id_, swap_drives_ ? 1 : 0,
-    speed_coefficient_, speed_offset_, wheel_radius_, ticks_per_rev_, cmd_timeout_,
-    max_wheel_velocity_, encoder_timeout_, motor_accel_, encoder_poll_divider_,
+    speed_coefficient_, speed_offset_, left_speed_trim_, wheel_radius_, ticks_per_rev_,
+    cmd_timeout_, max_wheel_velocity_, encoder_timeout_, motor_accel_, encoder_poll_divider_,
     encoder_wrap_ticks_);
 
   if (encoder_timeout_ <= 0.0) {
@@ -971,13 +978,18 @@ hardware_interface::return_type GuideRobotSystem::write(
     return hardware_interface::return_type::ERROR;
   }
 
+  // Трим до swap: left_vel_cmd_ и левый сустав связаны независимо от перестановки
+  // слотов (обратная связь зеркалит write), поэтому масштабирование левой команды
+  // попадает ровно на то колесо, которое энкодеры называют левым.
+  const double left_cmd = left_vel_cmd_ * left_speed_trim_;
+
   // Слоты пакета адресуются по ПОЗИЦИИ (проверено на железе: смена ID байта
   // в слоте эффекта не даёт). left_sign_/right_sign_ компенсируют зеркальную
   // установку мотора В КОНКРЕТНОМ слоте (см. работающую езду прямо), поэтому
   // при swap_drives меняем местами именно ИСТОЧНИК команды, а не готовые
   // знаковые значения — иначе компенсация знака съезжает не на тот мотор.
-  const double slot1_cmd = swap_drives_ ? right_vel_cmd_ : left_vel_cmd_;
-  const double slot2_cmd = swap_drives_ ? left_vel_cmd_ : right_vel_cmd_;
+  const double slot1_cmd = swap_drives_ ? right_vel_cmd_ : left_cmd;
+  const double slot2_cmd = swap_drives_ ? left_cmd : right_vel_cmd_;
 
   const bool sent = writeSpeedPacket(slot1_cmd, slot2_cmd);
 

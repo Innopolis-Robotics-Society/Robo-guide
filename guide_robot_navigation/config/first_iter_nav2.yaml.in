@@ -252,13 +252,16 @@ controller_server:
       # (0.6 -> 0.9). Держим ту же пропорцию 0.833 -> 0.75. ЭТО и есть ручка
       # реальной скорости движения: лимитер базы только режет сверху, а ездит
       # робот на том, что насэмплирует DWB. Угловой потолок НЕ тронут.
+      # 2026-08-11: привязано к limits.max_linear_velocity (0.5): замером
+      # (бэг 20260811T121706Z) привод насыщается на ~0.53 м/с, команды выше
+      # физически недостижимы и планировать их бессмысленно.
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.75
+      max_vel_x: ${limits.max_linear_velocity}
       max_vel_y: 0.0
       max_vel_theta: 1.0
       min_speed_xy: 0.0
-      max_speed_xy: 0.75
+      max_speed_xy: ${limits.max_linear_velocity}
       min_speed_theta: 0.0
       acc_lim_x: ${limits.max_linear_accel}
       acc_lim_theta: ${limits.max_angular_accel}

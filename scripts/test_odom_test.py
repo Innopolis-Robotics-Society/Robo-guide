@@ -28,13 +28,14 @@ class OdomMathTest(unittest.TestCase):
         self.assertAlmostEqual(peak, 1.80)
         self.assertAlmostEqual(finish, 0.0)
 
-    def test_long_speed_profile_stays_within_six_meters(self):
-        """Длинный профиль ограничен 6 м, чтобы робота не уводило с прямой."""
+    def test_long_speed_profile_stays_within_four_meters(self):
+        """Длинный профиль ограничен честным потолком привода 0.50 м/с."""
         peak, finish = ODOM_TEST.profile_peak_displacement(ODOM_TEST.LONG_SPEED_PROFILE)
         moving_steps = [step for step in ODOM_TEST.LONG_SPEED_PROFILE if step[1]]
-        self.assertAlmostEqual(peak, 6.0)
+        self.assertAlmostEqual(peak, 4.0)
         self.assertAlmostEqual(finish, 0.0)
         self.assertTrue(all(step[2] == 8.0 for step in moving_steps))
+        self.assertTrue(all(abs(step[1]) <= 0.50 for step in moving_steps))
 
     def test_angle_delta_unwraps_both_directions(self):
         """Yaw должен разворачиваться через границу ±pi в обе стороны."""

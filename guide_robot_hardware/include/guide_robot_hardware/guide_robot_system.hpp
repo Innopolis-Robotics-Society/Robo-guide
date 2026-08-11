@@ -135,6 +135,9 @@ private:
   // |v_actual| = speed_offset_ + speed_coefficient_ * |motor_units|.
   double speed_coefficient_{0.0000880243};
   double speed_offset_{0.0436513};
+  // Левый борт отзывчивее правого при равных units: трим только КОМАНДЫ,
+  // одометрия с энкодеров не масштабируется.
+  double left_speed_trim_{0.982};
   double wheel_radius_{0.1026};
 
   // Обязательные параметры без безопасного дефолта: отсутствие любого из них —
