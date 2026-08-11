@@ -22,6 +22,12 @@ SPEC.loader.exec_module(ODOM_TEST)
 class OdomMathTest(unittest.TestCase):
     """Проверки граничной математики без ROS."""
 
+    def test_speed_profile_returns_to_start_with_bounded_excursion(self):
+        """Автопрофиль должен вернуться и не выйти за двухметровый участок."""
+        peak, finish = ODOM_TEST.profile_peak_displacement(ODOM_TEST.SPEED_PROFILE)
+        self.assertAlmostEqual(peak, 1.95)
+        self.assertAlmostEqual(finish, 0.0)
+
     def test_angle_delta_unwraps_both_directions(self):
         """Yaw должен разворачиваться через границу ±pi в обе стороны."""
         self.assertAlmostEqual(

@@ -316,23 +316,41 @@ ros2 launch guide_robot_bringup hardware.launch.py \
 ros2 lifecycle get /collision_monitor  # обязательно: active
 ```
 
-Команду публиковать только в `/cmd_vel`, то есть **до** `collision_monitor`.
+Команду публиковать в `/cmd_vel_nav`: дальше она проходит через
+`velocity_smoother → /cmd_vel → collision_monitor`.
 `/diff_drive_controller/cmd_vel_unstamped` пишется в bag для наблюдения, но
-посылка teleop прямо туда обходит защиту и для этих тестов запрещена.
+посылка teleop прямо туда обходит обе защиты и для этих тестов запрещена.
 
 Пример команды 0.20 м/с в течение 10 секунд (200 сообщений по 20 Гц):
 
 ```bash
-ros2 topic pub -r 20 -t 200 /cmd_vel geometry_msgs/msg/Twist \
+ros2 topic pub -r 20 -t 200 /cmd_vel_nav geometry_msgs/msg/Twist \
   '{linear: {x: 0.20}, angular: {z: 0.0}}'
 
 # Явный стоп после любого прерванного прогона:
-ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \
+ros2 topic pub --once /cmd_vel_nav geometry_msgs/msg/Twist \
   '{linear: {x: 0.0}, angular: {z: 0.0}}'
 ```
 
 Таймауты контроллера и hardware остановят базу при исчезновении publisher, но
 это запасной рубеж, а не штатный способ остановки.
+
+### Один автоматический тест speed coefficient
+
+После того как напольные прогоны подтвердили масштаб одометрии, повторять
+матрицу с рулеткой не нужно. Один локальный тест на Jetson пишет bag и проходит
+ступени `0.10 → 0.20 → 0.35 м/с` вперёд, затем возвращается теми же ступенями:
+
+```bash
+python3 scripts/odom_test.py speed-test
+```
+
+Скрипт сначала проверяет, что `collision_monitor` в состоянии `active`, затем
+показывает максимальное командное удаление 1.95 м и ждёт точного подтверждения
+`ЕДЕМ`. Нужны 2.5 м свободного пола и оператор у физического аварийного стопа.
+Профиль длится около 35 секунд; teleop, рулетка и отдельный `ros2 bag record`
+не нужны. При `Ctrl-C` или ошибке скрипт в течение секунды публикует нулевую
+команду и корректно закрывает bag.
 
 ### Подготовка измерения
 

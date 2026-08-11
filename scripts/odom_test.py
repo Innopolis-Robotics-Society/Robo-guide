@@ -13,6 +13,7 @@ import signal
 import statistics
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ ROBOT_PARAMS = ROOT / "guide_robot_description/config/robot_params.yaml"
 TOPICS = [
     "/joint_states",
     "/odom",
+    "/cmd_vel_nav",
     "/cmd_vel",
     "/diff_drive_controller/cmd_vel_unstamped",
     "/tf",
@@ -32,6 +34,20 @@ TOPICS = [
     "/rosout",
     "/parameter_events",
 ]
+SPEED_PROFILE = (
+    ("разгон вперед 0.10 м/с", 0.10, 3.0),
+    ("стоп", 0.0, 2.0),
+    ("разгон вперед 0.20 м/с", 0.20, 3.0),
+    ("стоп", 0.0, 2.0),
+    ("разгон вперед 0.35 м/с", 0.35, 3.0),
+    ("стоп перед возвратом", 0.0, 3.0),
+    ("возврат назад 0.35 м/с", -0.35, 3.0),
+    ("стоп", 0.0, 2.0),
+    ("возврат назад 0.20 м/с", -0.20, 3.0),
+    ("стоп", 0.0, 2.0),
+    ("возврат назад 0.10 м/с", -0.10, 3.0),
+    ("финальный стоп", 0.0, 3.0),
+)
 
 
 @dataclass
@@ -97,21 +113,37 @@ def command_output(command: list[str]) -> str:
         return f"ERROR: {exc}\n"
 
 
-def record(args: argparse.Namespace) -> int:
-    """Сохранить bag и provenance, не посылая роботу команд движения."""
+def profile_peak_displacement(profile: Sequence[tuple[str, float, float]]) -> tuple[float, float]:
+    """Вернуть максимальное удаление и итоговую командную координату."""
+    position = 0.0
+    peak = 0.0
+    for _, speed, duration in profile:
+        position += speed * duration
+        peak = max(peak, abs(position))
+    return peak, position
+
+
+def prepare_run(
+    name: str,
+    kind: str,
+    output_dir: Path,
+    extra_metadata: dict[str, Any] | None = None,
+) -> tuple[Path, Path]:
+    """Создать каталог прогона и сохранить provenance."""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = args.output_dir.resolve() / f"{stamp}_{args.name}"
+    run_dir = output_dir.resolve() / f"{stamp}_{name}"
     bag_dir = run_dir / "bag"
     run_dir.mkdir(parents=True)
 
     metadata = {
         "schema": 1,
-        "name": args.name,
-        "kind": args.kind,
+        "name": name,
+        "kind": kind,
         "created_utc": stamp,
         "git_commit": command_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).strip(),
         "topics": TOPICS,
     }
+    metadata.update(extra_metadata or {})
     (run_dir / "run.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -129,6 +161,24 @@ def record(args: argparse.Namespace) -> int:
         command_output(["ros2", "topic", "list", "-t"]),
         encoding="utf-8",
     )
+    return run_dir, bag_dir
+
+
+def stop_bag(process: subprocess.Popen[Any]) -> int:
+    """Корректно завершить rosbag, чтобы metadata.yaml успел записаться."""
+    if process.poll() is not None:
+        return process.returncode
+    process.send_signal(signal.SIGINT)
+    try:
+        return process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        return process.wait()
+
+
+def record(args: argparse.Namespace) -> int:
+    """Сохранить bag и provenance, не посылая роботу команд движения."""
+    run_dir, bag_dir = prepare_run(args.name, args.kind, args.output_dir)
 
     command = ["ros2", "bag", "record", "-o", str(bag_dir), *TOPICS]
     print(f"Каталог прогона: {run_dir}")
@@ -137,12 +187,94 @@ def record(args: argparse.Namespace) -> int:
     try:
         return process.wait()
     except KeyboardInterrupt:
-        process.send_signal(signal.SIGINT)
-        try:
-            return process.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            process.terminate()
-            return process.wait()
+        return stop_bag(process)
+
+
+def require_active_collision_monitor() -> None:
+    """Не разрешать автоматическое движение без последнего safety-слоя."""
+    result = subprocess.run(
+        ["ros2", "lifecycle", "get", "/collision_monitor"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=10,
+    )
+    if result.returncode != 0 or not result.stdout.strip().lower().startswith("active"):
+        state = result.stdout.strip() or f"exit code {result.returncode}"
+        raise RuntimeError(f"collision_monitor не active: {state}")
+
+
+def publish_twist(publisher: Any, node: Any, speed: float, duration: float) -> None:
+    """Публиковать одну ступень профиля с частотой 20 Гц."""
+    import rclpy
+    from geometry_msgs.msg import Twist
+
+    message = Twist()
+    message.linear.x = speed
+    deadline = time.monotonic() + duration
+    next_tick = time.monotonic()
+    while time.monotonic() < deadline:
+        publisher.publish(message)
+        rclpy.spin_once(node, timeout_sec=0.0)
+        next_tick += 0.05
+        time.sleep(max(0.0, next_tick - time.monotonic()))
+
+
+def speed_test(args: argparse.Namespace) -> int:
+    """Записать один автоматический out-and-back профиль скорости."""
+    try:
+        import rclpy
+        from geometry_msgs.msg import Twist
+    except ImportError as exc:
+        raise RuntimeError("Нужно окружение ROS 2 Humble с rclpy") from exc
+
+    require_active_collision_monitor()
+    peak, finish = profile_peak_displacement(SPEED_PROFILE)
+    print(
+        f"Робот проедет до {peak:.2f} м вперед и автоматически вернется "
+        f"(командный остаток {finish:.3f} м)."
+    )
+    print("Нужно 2.5 м свободного пола, оператор у физического аварийного стопа.")
+    if input("Для старта напечатайте ЕДЕМ: ").strip() != "ЕДЕМ":
+        print("Отменено, робот не двигался.")
+        return 1
+
+    run_dir, bag_dir = prepare_run(
+        args.name,
+        "speed",
+        args.output_dir,
+        {"speed_profile": SPEED_PROFILE},
+    )
+    bag = subprocess.Popen(["ros2", "bag", "record", "-o", str(bag_dir), *TOPICS])
+    time.sleep(2.0)
+    if bag.poll() is not None:
+        raise RuntimeError(f"ros2 bag record завершился с кодом {bag.returncode}")
+
+    rclpy.init()
+    node = rclpy.create_node("guide_robot_odom_speed_test")
+    publisher = node.create_publisher(Twist, "/cmd_vel_nav", 10)
+    try:
+        deadline = time.monotonic() + 5.0
+        while publisher.get_subscription_count() == 0 and time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+        if publisher.get_subscription_count() == 0:
+            raise RuntimeError("у /cmd_vel_nav нет подписчиков; движение не начато")
+
+        publish_twist(publisher, node, 0.0, 2.0)
+        for label, speed, duration in SPEED_PROFILE:
+            print(f"{label}: {duration:.0f} с")
+            publish_twist(publisher, node, speed, duration)
+        print("Профиль завершен, робот остановлен.")
+        return 0
+    finally:
+        # Даже при Ctrl-C/исключении активно отправляем ноль дольше одного
+        # периода cmd_vel_timeout; watchdog hardware остается вторым рубежом.
+        publish_twist(publisher, node, 0.0, 1.0)
+        node.destroy_node()
+        rclpy.shutdown()
+        stop_bag(bag)
+        print(f"Bag: {run_dir}")
 
 
 def resolve_bag(path: Path) -> tuple[Path, Path]:
@@ -189,7 +321,11 @@ def read_bag(path: Path) -> dict[str, Any]:
     }
     joints: list[Sample] = []
     odom: list[Sample] = []
-    commands: dict[str, list[Sample]] = {"/cmd_vel": [], "controller": []}
+    commands: dict[str, list[Sample]] = {
+        "/cmd_vel_nav": [],
+        "/cmd_vel": [],
+        "controller": [],
+    }
     logs: list[str] = []
 
     while reader.has_next():
@@ -684,6 +820,14 @@ def parser() -> argparse.ArgumentParser:
         description="Запись и анализ напольных тестов колесной одометрии Guide-Robot."
     )
     commands = main.add_subparsers(dest="command", required=True)
+
+    speed = commands.add_parser(
+        "speed-test",
+        help="одним запуском записать автоматический профиль вперед-назад",
+    )
+    speed.add_argument("--name", default="speed_auto", help="имя каталога прогона")
+    speed.add_argument("--output-dir", type=Path, default=DEFAULT_RUNS)
+    speed.set_defaults(func=speed_test)
 
     record_parser = commands.add_parser("record", help="записать один прогон")
     record_parser.add_argument("name", help="короткое имя прогона")
