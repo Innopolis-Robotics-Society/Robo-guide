@@ -2,12 +2,12 @@
 
 Пакет верхнеуровневой оркестрации запуска робота Guide-Robot (Guide Robot):
 собирает воедино `ros2_control` (диффдрайв), два лидара RPLIDAR C1 со
-слиянием сканов, сонары, Foxglove Bridge, стек Nav2 (AMCL или SLAM
-Toolbox), слой экскурсий (`guide_robot_voice` + `guide_robot_semantic_map`
-+ `guide_robot_mission_control`), супервизор lifecycle-нод
-(`guide_robot_supervisor`) и RViz. Сам пакет не содержит "бизнес-логики"
-робота — только launch-файлы, rviz-конфиги и две вспомогательные
-Python-ноды для калибровки лидаров.
+слиянием сканов (`scan_merger` с deskew'ом), сонары, Foxglove Bridge,
+стек Nav2 (AMCL или SLAM Toolbox), слой экскурсий (`guide_robot_voice` +
+`guide_robot_semantic_map` + `guide_robot_mission_control`), супервизор
+lifecycle-нод (`guide_robot_supervisor`) и RViz. Сам пакет не содержит
+"бизнес-логики" робота — только launch-файлы, rviz-конфиги и три
+вспомогательные Python-ноды для лидаров.
 
 Тип сборки — `ament_python`.
 
@@ -23,9 +23,9 @@ Python-ноды для калибровки лидаров.
   mission_control), общий для железа и симуляции, подключается ОТДЕЛЬНО
   от `nav_stack.launch.py` (nav-стек обязан подниматься и без него,
   например для чистого картирования);
-- `sensors.launch.py` и `view_robot.launch.py` — самостоятельные
-  вспомогательные launch-файлы (первый переиспользуется из
-  `hardware.launch.py`, второй — только для просмотра URDF в RViz без
+- `perception.launch.py` / `lidars.launch.py` и `view_robot.launch.py` —
+  самостоятельные вспомогательные launch-файлы (первый переиспользуется
+  из `hardware.launch.py`, второй — только для просмотра URDF в RViz без
   `ros2_control`).
 
 Управление жизненным циклом Nav2-нод и сервисного слоя (voice/
@@ -49,7 +49,7 @@ precondition'ам (TF, частота скана/сонаров и т.д.) и з
 Основной launch для реального робота. Поднимает:
 `robot_state_publisher` - `ros2_control_node` (`controller_manager`) -
 спаунеры `diff_drive_controller` и `joint_state_broadcaster` -
-опционально `sensors.launch.py`, сонар (`guide_robot_sonar`,
+опционально `perception.launch.py`, сонар (`guide_robot_sonar`,
 `sonar_node_mult.py`), Foxglove Bridge - `nav_stack.launch.py`
 (safety/localization/navigation + супервизор) - `high_level_stack.launch.py`
 (voice + semantic_map + mission_control) - опционально RViz2 с
@@ -69,7 +69,7 @@ watchdog'ов до этого не действуют. `autostart_nav` уход�
 `launch_high_level:=false` поднимает только nav-стек, без слоя экскурсий
 (например, для чистого картирования/локализации).
 
-### `launch/sensors.launch.py`
+### `launch/lidars.launch.py`
 
 Два `sllidar_ros2` (`sllidar_left`/`sllidar_right`, RPLIDAR C1,
 460800 бод), с правым лидаром, задержанным на 5 с (`lidar_start_delay`)
@@ -78,18 +78,29 @@ watchdog'ов до этого не действуют. `autostart_nav` уход�
 угловой сектор, где лидар видит собственное крепление / крепление
 второго лидара (жёстко заданные `left/right_blind_sectors_deg`,
 откалиброванные вручную через `laser_blind_sector_finder`), затем
-`dual_laser_merger` сливает `/scan_left_filtered` + `/scan_right_filtered`
-в единый `/scan` в кадре `base_footprint`.
+свой `scan_merger` сливает `/scan_left_filtered` + `/scan_right_filtered`
+в единый `/scan` в кадре `base_footprint` с компенсацией движения
+через TF `odom` (deskew). Калибровочные `laser_2_*_offset` — те же
+числа, что раньше жили в `dual_laser_merger` (ICP против общей стены).
 
 Аргументы: `left_port` (`/dev/tty_lidar_left`), `right_port`
 (`/dev/tty_lidar_right`), `baudrate`, `use_sim_time`, `merge_frame`,
 `lidar_start_delay`.
 
+### `launch/perception.launch.py`
+
+Единая точка входа для сенсорики. `real_lidars:=true` (железо) —
+`lidars.launch.py` целиком; `real_lidars:=false` (Gazebo) — только
+`dual_laser_merger` поверх уже правильных `/scan_left`/`/scan_right`
+без калибровки и без deskew'а (сканы в симуляции мгновенные).
+`launch_sonar:=true` поднимает `sonar_node_mult.py`.
+
 ### `launch/simulation.launch.py`
 
 Точка входа для Gazebo-симуляции: `gazebo.launch.py` из
-`guide_robot_simulation`, `dual_laser_merger` (без калибровочных
-офсетов — предполагается, что TF в симуляции точная),
+`guide_robot_simulation`, `dual_laser_merger` через `perception.launch.py`
+с `real_lidars:=false` (без калибровочных офсетов — предполагается, что
+TF в симуляции точная; deskew там не нужен),
 `nav_stack.launch.py` (SLAM Toolbox или AMCL+Nav2 + супервизор,
 `autostart_supervisor:=true` — стек сразу сам поднимает ВСЕ группы,
 включая `mission`, без ручного `/supervisor/bringup`),
@@ -150,13 +161,21 @@ include завёрнут в свой `GroupAction` (scoped) — см. комме
 - `laser_blind_sector_finder` — офлайн-утилита калибровки: слушает
   топик скана заданное время, ищет угловые бины со стабильно близкой
   дальностью (кандидаты в «слепые» секторы крепления), печатает готовую
-  строку `blind_sectors_deg` для вставки в `sensors.launch.py`.
+  строку `blind_sectors_deg` для вставки в `lidars.launch.py`.
+- `scan_merger` — сливает два `LaserScan` в один `/scan` с компенсацией
+  движения. Каждая развёртка переносится в `base_footprint` через
+  статический TF + кали-калибровку, затем deskew'ится к общему моменту
+  через `odom` TF (середина между центрами развёрток). Пара берётся
+  nearest-neighbour по приходу — ожидания партнёра, как у
+  `ApproximateTime`, нет. Чистая математика в `scan_merge_math.py`
+  (без rclpy), unit-тестируется отдельно.
 
 ## Зависимости
 
-Из `package.xml` (`exec_depend`): `rclpy`, `sensor_msgs`,
-`robot_state_publisher`, `guide_robot_hardware`, `guide_robot_description`,
-`sllidar_ros2`, `dual_laser_merger`, `foxglove_bridge`, `guide_robot_sonar`,
+Из `package.xml` (`exec_depend`): `rclpy`, `sensor_msgs`, `tf2_ros`,
+`python3-numpy`, `robot_state_publisher`, `guide_robot_hardware`,
+`guide_robot_description`, `sllidar_ros2`, `dual_laser_merger`
+(только симуляция), `foxglove_bridge`, `guide_robot_sonar`,
 `slam_toolbox`, `guide_robot_navigation`, `rviz2`, `controller_manager`,
 `joint_state_publisher_gui`, `guide_robot_supervisor`,
 `guide_robot_simulation`, `guide_robot_mission_control`,
@@ -164,17 +183,20 @@ include завёрнут в свой `GroupAction` (scoped) — см. комме
 `ament_copyright`, `python3-pytest`.
 
 Из `setup.py`: `entry_points.console_scripts` = `laser_sector_blanker`,
-`laser_blind_sector_finder`; устанавливаются `launch/*.py` и `rviz/*.rviz`.
+`laser_blind_sector_finder`, `scan_merger`; устанавливаются `launch/*.py`
+и `rviz/*.rviz`.
 
 ## Диагностика задержки лидаров
 
 Разбирает, из чего складывается запаздывание `/scan` и сколько градусов
 оно стоит на развороте. Анализатор — `scripts/lidar_lag.py`.
 
-Работает на том, что штамп сохраняется по всей цепочке: `laser_sector_blanker`
-переиздаёт то же сообщение, `dual_laser_merger` наследует `header.stamp`
-первого лидара (`dual_laser_merger.cpp:241`). Поэтому стадии джойнятся по
-`header.stamp` и цена каждой видна отдельно, а не только суммарная.
+Бланкер штамп сохраняет (переиздаёт то же сообщение). Штамп `/scan`
+зависит от мерджера: старый `dual_laser_merger` наследовал
+`header.stamp` первого лидара, свой `scan_merger` ставит общее время
+deskew'а (середина между центрами развёрток). Анализатор умеет оба —
+для новых бэгов стадия `filtered -> /scan` джойнится восстановлением
+пары, для старых — точным совпадением штампа.
 
 Поднимать стек **без Foxglove**: один лишний RELIABLE-читатель заметно
 поднимает CPU всех C++ нод, а мост стоит ~1.36 ядра — с ним бэг измерит не
@@ -188,9 +210,6 @@ ros2 bag record -o lidar_lag_$(date -u +%Y%m%dT%H%M%SZ) \
   /scan_left /scan_right /scan_left_filtered /scan_right_filtered /scan \
   /tf /tf_static /odom /joint_states /diff_drive_controller/cmd_vel_unstamped
 ```
-
-`/scan_merged_cloud` не писать: `PointCloud2` на каждый скан, для таймингов
-бесполезен.
 
 Профиль движения (рука на стопе, разгоны и повороты — телепом либо
 `odom_test.py spin`):
@@ -216,14 +235,13 @@ python3 scripts/lidar_lag.py --self-check   # проверить разбор CD
 - переход `/scan_left -> /scan_left_filtered` — цена питоновского бланкера.
   Замер его логики на x86 дал 0.28 мс медиану, так что здесь ожидаются
   единицы мс; если видно десятки — на Орине голодает исполнитель.
-- переход `/scan_left_filtered -> /scan` — ожидание парного скана второго
-  лидара в `ApproximateTime` плюс round-trip своего же `_calibrated` TF
-  через `/tf` (`dual_laser_merger.cpp:172` бродкастит и сразу же на
-  строке 176 читает).
-- `|stamp_L - stamp_R|` — рассинхрон развёрток внутри одного `/scan`.
-  Мерджер кладёт оба облака в `base_footprint` через **статический** TF,
-  компенсации движения между ними нет, поэтому эта разница уезжает в скан
-  как поворот одной его половины относительно другой.
+- переход `filtered(L,R) -> /scan` — чистая цена deskew'а + биннинга
+  (ожидания партнёра, как у ApproximateTime, больше нет). Ожидаются
+  единицы мс; если видно десятки — голодает Python на Орине.
+- `|stamp_L - stamp_R|` — рассинхрон развёрток в паре. Без компенсации
+  это был бы поворот одной половины `/scan` относительно другой; с
+  deskew'ом уезжает только как нагрузка на TF-интерполяцию. В отчёте
+  печатается, сколько градусов это СТОИЛО БЫ без компенсации.
 
 Сам рекордер добавляет ~0.8 мс медианы (замерено по `/odom` и
 `/joint_states` в бэге `20260811T121706Z`), но одиночные выбросы доходят до

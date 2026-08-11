@@ -2,12 +2,14 @@
 """Разложить задержку /scan по стадиям конвейера лидаров.
 
 Считает по бэгу, записанному командой из guide_robot_bringup/README.md
-(раздел «Диагностика задержки лидаров»). Работает на том, что штамп
-сохраняется по всей цепочке: laser_sector_blanker переиздаёт то же
-сообщение, а dual_laser_merger наследует header.stamp первого лидара
-(dual_laser_merger.cpp:241). Поэтому сообщения разных стадий можно
-джойнить по header.stamp и получить цену каждой стадии, а не только
-суммарную задержку.
+(раздел «Диагностика задержки лидаров»). Работает на том, что бланкер
+штамп сохраняет (laser_sector_blanker переиздаёт то же сообщение), а вот
+штамп /scan зависит от мерджера. До 2026-08-11 стоял dual_laser_merger —
+он наследовал header.stamp первого лидара (dual_laser_merger.cpp:241), и
+стадии джойнились по точному штампу. Теперь стоит свой scan_merger с
+deskew'ом: штамп /scan это середина между центрами развёрток пары, поэтому
+стадия "filtered -> /scan" джойнится восстановлением пары по ближайшим
+штампам L/R (старый точный джойн для старых бэгов сохранён).
 
 Читает штампы прямо из CDR: 4 байта инкапсуляции, затем int32 sec и
 uint32 nanosec — начало любого сообщения со std_msgs/Header. Ни
@@ -105,6 +107,16 @@ def stats(values: list[float]) -> str:
     return f"{st.median(ordered) * 1e3:7.1f} {p95 * 1e3:7.1f} {ordered[-1] * 1e3:7.1f}"
 
 
+def nearest(sorted_keys: list[int], target: int, max_dist: int) -> int | None:
+    """Ближайший к target ключ из отсортированного списка, если не дальше max_dist."""
+    i = bisect.bisect_left(sorted_keys, target)
+    near = [sorted_keys[j] for j in (i - 1, i) if 0 <= j < len(sorted_keys)]
+    if not near:
+        return None
+    best = min(near, key=lambda s: abs(s - target))
+    return best if abs(best - target) <= max_dist else None
+
+
 def angular_speeds(msgs: list[tuple[int, int, bytes]]) -> list[tuple[int, float]]:
     """[(recv_ns, |omega|)] из /odom; пустой список, если ROS недоступен."""
     try:
@@ -139,32 +151,64 @@ def report(bag: dict[str, list[tuple[int, int, bytes]]]) -> None:
     for src, dst in (
         ("/scan_left", "/scan_left_filtered"),
         ("/scan_right", "/scan_right_filtered"),
-        ("/scan_left_filtered", "/scan"),
     ):
         shared = recv_by_stamp[src].keys() & recv_by_stamp[dst].keys()
         deltas = [(recv_by_stamp[dst][s] - recv_by_stamp[src][s]) * 1e-9 for s in shared]
         print(f"{src + ' -> ' + dst:40} {len(deltas):6d} {stats(deltas)}")
 
-    # Чей штамп несёт /scan. Мерджер наследует laser_1, но проверить стоит:
-    # если совпадений с левым нет, значит laser_1_topic не /scan_left_filtered.
-    scan_stamps = set(recv_by_stamp["/scan"])
-    if scan_stamps:
-        for side in ("left", "right"):
-            hits = len(scan_stamps & recv_by_stamp[f"/scan_{side}_filtered"].keys())
-            print(f"штамп /scan совпал с /scan_{side}_filtered: {hits}/{len(scan_stamps)}")
+    # Стадия мерджера. Старый dual_laser_merger наследовал штамп левого
+    # лидара — точный джойн. Свой scan_merger (2026-08-11) ставит штампу
+    # /scan общее время deskew'а: t_c = (sL + sR)/2 + 50 мс (полуразвёртка)
+    # — пара восстанавливается по ближайшим штампам, а ценой стадии считается
+    # recv(/scan) - recv(ПОЗДНЕГО из пары): publish-on-arrival, ожидания
+    # партнёра, как у ApproximateTime, больше нет.
+    left_keys = sorted(recv_by_stamp["/scan_left_filtered"])
+    right_keys = sorted(recv_by_stamp["/scan_right_filtered"])
+    scan_stamps = sorted(recv_by_stamp["/scan"])
+    exact = recv_by_stamp["/scan_left_filtered"].keys() & recv_by_stamp["/scan"].keys()
+    if len(exact) >= 5:
+        deltas = [
+            (recv_by_stamp["/scan"][s] - recv_by_stamp["/scan_left_filtered"][s]) * 1e-9
+            for s in exact
+        ]
+        print(f"{'/scan_left_filtered -> /scan':40} {len(deltas):6d} {stats(deltas)}")
+    elif scan_stamps and left_keys and right_keys:
+        deltas = []
+        for t_c in scan_stamps:
+            s_l = nearest(left_keys, t_c - 50_000, 110_000)
+            s_r = nearest(right_keys, t_c - 50_000, 110_000)
+            if s_l is None or s_r is None:
+                continue
+            if abs(t_c - ((s_l + s_r) // 2 + 50_000)) > 3_000:
+                continue  # не та пара — дырка в записи одного из топиков
+            later_recv = max(
+                recv_by_stamp["/scan_left_filtered"][s_l],
+                recv_by_stamp["/scan_right_filtered"][s_r],
+            )
+            deltas.append((recv_by_stamp["/scan"][t_c] - later_recv) * 1e-9)
+        print(f"{'filtered(L,R) -> /scan [t_common]':40} {len(deltas):6d} {stats(deltas)}")
 
-    # Рассинхрон лидаров: сколько времени между развёртками, попавшими в один
-    # /scan. Мерджер кладёт оба облака в base_footprint через статический TF,
-    # то есть эта разница уезжает в скан как поворот одной половины.
-    right = sorted(recv_by_stamp["/scan_right_filtered"])
-    if scan_stamps and right:
+    # Чей штамп несёт /scan. 0/0 у новых бэгов — норма: scan_merger штампует
+    # общим временем deskew'а. Совпадение с левым = старый dual_laser_merger.
+    scan_stamp_set = set(recv_by_stamp["/scan"])
+    old_merger = False
+    if scan_stamp_set:
+        for side in ("left", "right"):
+            hits = len(scan_stamp_set & recv_by_stamp[f"/scan_{side}_filtered"].keys())
+            print(f"штамп /scan совпал с /scan_{side}_filtered: {hits}/{len(scan_stamp_set)}")
+            old_merger |= side == "left" and hits > 0
+
+    # Рассинхрон лидаров: разница штампов спаренных развёрток. Спаривание —
+    # ближайшие по времени (так же делает и scan_merger). Без deskew'а эта
+    # разница уезжала в /scan как поворот одной половины относительно другой;
+    # теперь это контроль того, что мерджеру приходится компенсировать.
+    if left_keys and right_keys:
         offsets = []
-        for stamp in sorted(scan_stamps):
-            i = bisect.bisect_left(right, stamp)
-            near = [right[j] for j in (i - 1, i) if 0 <= j < len(right)]
-            if near:
-                offsets.append(min(abs(stamp - r) for r in near) * 1e-6)  # мкс -> с
-        print("\n=== Рассинхрон левого и правого лидара внутри одного /scan ===")
+        for s in left_keys:
+            r = nearest(right_keys, s, 60_000)
+            if r is not None:
+                offsets.append(abs(s - r) * 1e-6)  # мкс -> с
+        print("\n=== Рассинхрон левого и правого лидара в паре ===")
         print(f"{'|stamp_L - stamp_R|':40} {len(offsets):6d} {stats(offsets)}")
 
         omegas = angular_speeds(bag.get("/odom", []))
@@ -173,12 +217,21 @@ def report(bag: dict[str, list[tuple[int, int, bytes]]]) -> None:
             if moving:
                 w95 = sorted(moving)[int(0.95 * (len(moving) - 1))]
                 phase = st.median(offsets)
-                print(
-                    f"\nпри omega p95 = {w95:.2f} рад/с это "
-                    f"{w95 * phase * 57.2958:.2f} град между половинами /scan,\n"
-                    f"плюс {w95 * 0.05 * 57.2958:.2f} град от того, что штамп стоит на "
-                    f"НАЧАЛО развёртки (полразвёртки = 50 мс)"
-                )
+                if old_merger:
+                    print(
+                        f"\nпри omega p95 = {w95:.2f} рад/с это "
+                        f"{w95 * phase * 57.2958:.2f} град между половинами /scan,\n"
+                        f"плюс {w95 * 0.05 * 57.2958:.2f} град от того, что штамп стоит на "
+                        f"НАЧАЛО развёртки (полразвёртки = 50 мс)"
+                    )
+                else:
+                    print(
+                        f"\nпри omega p95 = {w95:.2f} рад/с рассинхрон {phase * 1e3:.1f} мс "
+                        f"дал бы {w95 * phase * 57.2958:.2f} град между половинами без "
+                        f"компенсации; deskew убирает её, в /scan остаётся только размытие\n"
+                        f"внутри развёртки ~±{w95 * 0.05 * 57.2958:.2f} град "
+                        f"(штамп = общее время пары)"
+                    )
             else:
                 print(
                     "\n/odom есть, но вращения выше 0.15 рад/с в бэге нет — "
@@ -196,6 +249,10 @@ def self_check() -> None:
     assert header_stamp(struct.pack("<4siI", b"\x00\x01\x00\x00", -2, 500000000)) == -1_500_000_000
     assert stats([]) == "нет данных"
     assert stats([0.001, 0.002, 0.003]).split()[0] == "2.0"
+    assert nearest([100, 200, 300], 230, 50) == 200
+    assert nearest([100, 200, 300], 260, 50) == 300
+    assert nearest([100, 200, 300], 260, 30) is None
+    assert nearest([], 100, 10) is None
     # Штампы, различающиеся только наносекундами, обязаны склеиться: PCL режет
     # штамп /scan до микросекунд, иначе стадии не сойдутся ни разу. Именно из-за
     # этого штампы нельзя держать во float секундах — при epoch ~1.79e9
