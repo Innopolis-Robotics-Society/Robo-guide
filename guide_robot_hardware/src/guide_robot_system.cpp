@@ -236,6 +236,7 @@ bool GuideRobotSystem::loadParameters()
   ok &= paramDouble(p, "right_sign", true, right_sign_);
   ok &= paramDouble(p, "speed_coefficient", true, speed_coefficient_);
   ok &= paramDouble(p, "speed_offset", true, speed_offset_);
+  ok &= paramDouble(p, "low_speed_coefficient", true, low_speed_coefficient_);
   ok &= paramDouble(p, "left_speed_trim", true, left_speed_trim_);
   ok &= paramDouble(p, "cmd_timeout", true, cmd_timeout_);
   ok &= paramDouble(p, "max_wheel_velocity", true, max_wheel_velocity_);
@@ -282,6 +283,16 @@ bool GuideRobotSystem::loadParameters()
     RCLCPP_ERROR(
       logger(), "left_speed_trim=%.3f: трим команды левого борта должен быть в (0, 1.2]",
       left_speed_trim_);
+    return false;
+  }
+  // Иначе точка сшивки offset * k_low / (k_low - k) не существует или
+  // отрицательна — кусочная конверсия разваливается.
+  if (!std::isfinite(low_speed_coefficient_) || low_speed_coefficient_ <= speed_coefficient_) {
+    RCLCPP_ERROR(
+      logger(),
+      "low_speed_coefficient=%.8f: должен быть > speed_coefficient=%.8f "
+      "(иначе сшивка кусочной конверсии не существует)",
+      low_speed_coefficient_, speed_coefficient_);
     return false;
   }
   if (accel < 0.0 || accel > 65535.0) {
@@ -908,13 +919,12 @@ int16_t GuideRobotSystem::toMotorUnits(double omega, double sign) const
     omega = omega > 0.0 ? max_wheel_velocity_ : -max_wheel_velocity_;
   }
 
-  // Два автоматических прогона на полу показали не масштаб через ноль, а
-  // аффинную характеристику:
-  //   |v_actual| = speed_offset + speed_coefficient * |motor_units|.
-  // Инвертируем её; команды ниже физического offset честно дают стоп.
+  // Кусочная инверсия характеристики: выше ~0.09 м/с аффинная (калибрована
+  // автопрогонами), ниже — старая пропорциональная, чтобы довороты у цели и
+  // медленные подкаты не попадали в мёртвую зону offset (см. speed_conversion.hpp).
   const double linear_speed = std::fabs(omega) * wheel_radius_;
-  const double units_magnitude =
-    linearSpeedToMotorUnits(linear_speed, speed_coefficient_, speed_offset_);
+  const double units_magnitude = linearSpeedToMotorUnits(
+    linear_speed, speed_coefficient_, speed_offset_, low_speed_coefficient_);
   const double units = sign * std::copysign(units_magnitude, omega);
   return static_cast<int16_t>(std::clamp(units, MOTOR_UNITS_MIN, MOTOR_UNITS_MAX));
 }
