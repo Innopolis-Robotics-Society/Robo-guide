@@ -15,18 +15,26 @@ A scan is represented by its sweep-center instant (stamp + scan_time/2,
 matching how sllidar timestamps the sweep start); the common instant is the
 midpoint of the two centers. Because desync is compensated rather than
 avoided, pairing is nearest-neighbour on arrival — no waiting for the
-partner, so the merger no longer adds a scan period of latency. Output rate
-is up to 2x the per-lidar rate (one merged scan per incoming scan).
+partner, so the merger no longer adds a scan period of latency.
 
-Failure semantics match the old merger: if one lidar dies, the surviving
-stream stops pairing once its latest partner is older than pair_tolerance
-and /scan goes silent, which downstream timeouts already handle.
+Pairing uses WALL-CLOCK age of the partner, not |stamp_L - stamp_R|: two
+free-running 10 Hz C1s routinely sit 50-140 ms apart in stamp (half a period
+plus jitter), and that gap is exactly what deskew removes. A stamp-diff
+threshold of 0.1 s false-alarmed "lidar may be down" on a healthy pair.
+Output is one merge per unique pair (triggered by the later of the two
+stamps), ~10 Hz, not 20.
+
+Failure semantics: if one lidar dies, its partner's wall-clock age exceeds
+pair_tolerance and /scan goes silent, which downstream timeouts already
+handle. The intentional 5 s right-lidar start delay is silent (no partner
+yet), not a WARN.
 
 All math lives in scan_merge_math (ROS-free, unit-tested); this file is the
 rclpy/tf2 plumbing only.
 """
 
 import math
+import time
 
 import numpy as np
 import rclpy
@@ -64,10 +72,10 @@ class ScanMerger(Node):
         self.declare_parameter("output_topic", "/scan")
         self.declare_parameter("target_frame", "base_footprint")
         self.declare_parameter("fixed_frame", "odom")
-        # Max |stamp_L - stamp_R| for pairing. Generous on purpose: deskew
-        # makes the desync harmless; the bound exists only so a dead lidar
-        # stops the output within ~one scan period.
-        self.declare_parameter("pair_tolerance", 0.1)
+        # Max WALL-CLOCK age of the partner. Deskew absorbs stamp-phase
+        # (routinely 50-140 ms on free-running C1s); this bound only trips
+        # when one lidar actually stops delivering.
+        self.declare_parameter("pair_tolerance", 0.25)
         self.declare_parameter("scan_time", 0.1)
         self.declare_parameter("tf_timeout", 0.05)
         self.declare_parameter("angle_min", -math.pi)
@@ -89,7 +97,7 @@ class ScanMerger(Node):
         gp = self.get_parameter
         self._target_frame = gp("target_frame").value
         self._fixed_frame = gp("fixed_frame").value
-        self._pair_tolerance_ns = int(gp("pair_tolerance").value * 1e9)
+        self._pair_tolerance = float(gp("pair_tolerance").value)
         self._scan_time = gp("scan_time").value
         self._tf_timeout = Duration(seconds=gp("tf_timeout").value)
         self._angle_min = gp("angle_min").value
@@ -109,27 +117,36 @@ class ScanMerger(Node):
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
+        # Each slot: (msg, recv_monotonic) or None.
         self._latest = [None, None]
+        self._last_published_pair = None
         self._static_cache = {}
 
-        # SensorDataQoS matches what the old merger published and what Nav2
-        # scan consumers (costmaps, AMCL, collision_monitor) subscribe with.
-        sensor_qos = QoSProfile(
+        # Pub: SensorDataQoS (BEST_EFFORT) — what Nav2 costmaps / AMCL /
+        # collision_monitor subscribe with. Sub: RELIABLE — blankers publish
+        # the rclpy default (RELIABLE); BEST_EFFORT sub would silently get
+        # nothing from them.
+        pub_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=10,
+            depth=5,
         )
-        self._pub = self.create_publisher(LaserScan, gp("output_topic").value, sensor_qos)
+        sub_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5,
+        )
+        self._pub = self.create_publisher(LaserScan, gp("output_topic").value, pub_qos)
         topics = [gp("laser_1_topic").value, gp("laser_2_topic").value]
         for idx, topic in enumerate(topics):
             self.create_subscription(
-                LaserScan, topic, lambda msg, i=idx: self._on_scan(i, msg), 10
+                LaserScan, topic, lambda msg, i=idx: self._on_scan(i, msg), sub_qos
             )
 
         self.get_logger().info(
             f"merging {topics[0]} + {topics[1]} -> {gp('output_topic').value} "
             f"[{self._target_frame}], deskew via {self._fixed_frame} TF, "
-            f"pair_tolerance={self._pair_tolerance_ns / 1e9:.3f} s"
+            f"pair_tolerance={self._pair_tolerance:.3f} s (wall-clock)"
         )
 
     def _static_matrix(self, frame_id, calibration):
@@ -158,21 +175,36 @@ class ScanMerger(Node):
         return _stamp_ns(msg.header.stamp) + int(scan_time * 1e9 / 2)
 
     def _on_scan(self, idx, msg):
-        """Merge the incoming scan with the latest partner and publish /scan."""
-        self._latest[idx] = msg
-        other = self._latest[1 - idx]
-        if other is None:
-            return
-        if abs(_stamp_ns(msg.header.stamp) - _stamp_ns(other.header.stamp)) > (
-            self._pair_tolerance_ns
-        ):
+        """Merge when the partner is fresh by wall-clock; publish once per pair."""
+        now = time.monotonic()
+        self._latest[idx] = (msg, now)
+        other_slot = self._latest[1 - idx]
+        if other_slot is None:
+            return  # other lidar not up yet (e.g. intentional 5 s right delay)
+        other, other_recv = other_slot
+        age = now - other_recv
+        if age > self._pair_tolerance:
             self.get_logger().warn(
-                f"partner scan stale (> {self._pair_tolerance_ns / 1e9:.3f} s), "
-                "not publishing — a lidar may be down",
+                f"partner scan not received for {age:.2f} s "
+                f"(>{self._pair_tolerance:.2f} s) — a lidar may be down",
                 throttle_duration_sec=5.0,
             )
             return
 
+        # Emit once per unique pair, on the later stamp — halves CPU vs merging
+        # on every arrival from both sides (~20 Hz → ~10 Hz).
+        my_stamp = _stamp_ns(msg.header.stamp)
+        other_stamp = _stamp_ns(other.header.stamp)
+        if my_stamp < other_stamp:
+            return
+        pair_key = (
+            _stamp_ns(self._latest[0][0].header.stamp),
+            _stamp_ns(self._latest[1][0].header.stamp),
+        )
+        if pair_key == self._last_published_pair:
+            return
+
+        scans = (self._latest[0][0], self._latest[1][0])
         try:
             latest_tf = self._tf_buffer.lookup_transform(
                 self._fixed_frame, self._target_frame, Time(), timeout=self._tf_timeout
@@ -182,10 +214,7 @@ class ScanMerger(Node):
             t_odom_base = []
             points = []
             centers = []
-            for scan, calib in (
-                (msg, self._calibration[idx]),
-                (other, self._calibration[1 - idx]),
-            ):
+            for scan, calib in zip(scans, self._calibration, strict=True):
                 center = self._sweep_center_ns(scan)
                 centers.append(center)
                 t_odom_base.append(self._odom_to_base(center, latest_ns))
@@ -234,6 +263,7 @@ class ScanMerger(Node):
             self._fill,
         ).tolist()
         self._pub.publish(out)
+        self._last_published_pair = pair_key
 
 
 def main(args=None):
