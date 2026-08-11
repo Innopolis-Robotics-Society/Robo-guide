@@ -35,17 +35,25 @@ TOPICS = [
     "/parameter_events",
 ]
 SPEED_PROFILE = (
-    ("разгон вперед 0.10 м/с", 0.10, 3.0),
+    ("вперед 0.10 м/с", 0.10, 3.0),
     ("стоп", 0.0, 2.0),
-    ("разгон вперед 0.20 м/с", 0.20, 3.0),
+    ("назад 0.10 м/с", -0.10, 3.0),
     ("стоп", 0.0, 2.0),
-    ("разгон вперед 0.35 м/с", 0.35, 3.0),
-    ("стоп перед возвратом", 0.0, 3.0),
-    ("возврат назад 0.35 м/с", -0.35, 3.0),
+    ("вперед 0.20 м/с", 0.20, 3.0),
     ("стоп", 0.0, 2.0),
-    ("возврат назад 0.20 м/с", -0.20, 3.0),
+    ("назад 0.20 м/с", -0.20, 3.0),
     ("стоп", 0.0, 2.0),
-    ("возврат назад 0.10 м/с", -0.10, 3.0),
+    ("вперед 0.35 м/с", 0.35, 3.0),
+    ("стоп", 0.0, 2.0),
+    ("назад 0.35 м/с", -0.35, 3.0),
+    ("стоп", 0.0, 2.0),
+    ("вперед 0.50 м/с", 0.50, 3.0),
+    ("стоп", 0.0, 2.0),
+    ("назад 0.50 м/с", -0.50, 3.0),
+    ("стоп", 0.0, 2.0),
+    ("вперед 0.60 м/с", 0.60, 3.0),
+    ("стоп", 0.0, 2.0),
+    ("назад 0.60 м/с", -0.60, 3.0),
     ("финальный стоп", 0.0, 3.0),
 )
 
@@ -525,7 +533,12 @@ def analyze_straight(args: argparse.Namespace) -> int:
         scale_factor,
     )
     speed_ratio = abs(speed / command) if speed is not None and command else None
-    coefficient = drive["speed_coefficient"] * speed_ratio if speed_ratio is not None else None
+    speed_offset = drive.get("speed_offset", 0.0)
+    coefficient = None
+    if speed is not None and command and abs(speed) > speed_offset and abs(command) > speed_offset:
+        coefficient = drive["speed_coefficient"] * (
+            (abs(speed) - speed_offset) / (abs(command) - speed_offset)
+        )
     expected_joint_sign = (
         delta["left_joint_rad"] * sign > 0.0 and delta["right_joint_rad"] * sign > 0.0
     )
@@ -554,6 +567,7 @@ def analyze_straight(args: argparse.Namespace) -> int:
         "steady_controller_command_m_s": command,
         "speed_tracking_ratio": speed_ratio,
         "configured_speed_coefficient": drive["speed_coefficient"],
+        "configured_speed_offset": speed_offset,
         "estimated_speed_coefficient": coefficient,
         "signs_pass": expected_joint_sign and odom_sign,
         "integrity": integrity,

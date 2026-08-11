@@ -131,7 +131,10 @@ private:
   bool swap_drives_{false};
   double left_sign_{1.0};
   double right_sign_{-1.0};
-  double speed_coefficient_{0.0001706};
+  // Измеренная под нагрузкой характеристика:
+  // |v_actual| = speed_offset_ + speed_coefficient_ * |motor_units|.
+  double speed_coefficient_{0.0000880243};
+  double speed_offset_{0.0436513};
   double wheel_radius_{0.1026};
 
   // Обязательные параметры без безопасного дефолта: отсутствие любого из них —

@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "guide_robot_hardware/speed_conversion.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 
@@ -234,6 +235,7 @@ bool GuideRobotSystem::loadParameters()
   ok &= paramDouble(p, "left_sign", true, left_sign_);
   ok &= paramDouble(p, "right_sign", true, right_sign_);
   ok &= paramDouble(p, "speed_coefficient", true, speed_coefficient_);
+  ok &= paramDouble(p, "speed_offset", true, speed_offset_);
   ok &= paramDouble(p, "cmd_timeout", true, cmd_timeout_);
   ok &= paramDouble(p, "max_wheel_velocity", true, max_wheel_velocity_);
 
@@ -264,11 +266,15 @@ bool GuideRobotSystem::loadParameters()
     RCLCPP_ERROR(logger(), "max_wheel_velocity=%.3f: должно быть > 0 (рад/с)", max_wheel_velocity_);
     return false;
   }
-  if (speed_coefficient_ <= 0.0 || wheel_radius_ <= 0.0 || ticks_per_rev_ <= 0.0) {
+  if (
+    !std::isfinite(speed_coefficient_) || !std::isfinite(speed_offset_) ||
+    !std::isfinite(wheel_radius_) || !std::isfinite(ticks_per_rev_) || speed_coefficient_ <= 0.0 ||
+    speed_offset_ < 0.0 || wheel_radius_ <= 0.0 || ticks_per_rev_ <= 0.0) {
     RCLCPP_ERROR(
       logger(),
-      "speed_coefficient=%.6f, wheel_radius=%.3f, ticks_per_rev=%.1f: все должны быть > 0",
-      speed_coefficient_, wheel_radius_, ticks_per_rev_);
+      "speed_coefficient=%.8f (>0), speed_offset=%.4f (>=0), wheel_radius=%.3f (>0), "
+      "ticks_per_rev=%.1f (>0): неверная калибровка",
+      speed_coefficient_, speed_offset_, wheel_radius_, ticks_per_rev_);
     return false;
   }
   if (accel < 0.0 || accel > 65535.0) {
@@ -292,12 +298,13 @@ bool GuideRobotSystem::loadParameters()
 
   RCLCPP_INFO(
     logger(),
-    "Параметры: port=%s baud=%d L_id=%d R_id=%d swap=%d coeff=%.6f r=%.3fm ticks_per_rev=%.1f "
-    "cmd_timeout=%.3fs max_wheel_vel=%.2f рад/с encoder_timeout=%.3fs accel=%u "
-    "poll_divider=%d wrap_ticks=%.0f",
+    "Параметры: port=%s baud=%d L_id=%d R_id=%d swap=%d coeff=%.8f offset=%.4fm/s "
+    "r=%.3fm ticks_per_rev=%.1f cmd_timeout=%.3fs max_wheel_vel=%.2f рад/с "
+    "encoder_timeout=%.3fs accel=%u poll_divider=%d wrap_ticks=%.0f",
     serial_port_.c_str(), baud_rate_, left_wheel_id_, right_wheel_id_, swap_drives_ ? 1 : 0,
-    speed_coefficient_, wheel_radius_, ticks_per_rev_, cmd_timeout_, max_wheel_velocity_,
-    encoder_timeout_, motor_accel_, encoder_poll_divider_, encoder_wrap_ticks_);
+    speed_coefficient_, speed_offset_, wheel_radius_, ticks_per_rev_, cmd_timeout_,
+    max_wheel_velocity_, encoder_timeout_, motor_accel_, encoder_poll_divider_,
+    encoder_wrap_ticks_);
 
   if (encoder_timeout_ <= 0.0) {
     RCLCPP_WARN(
@@ -894,8 +901,14 @@ int16_t GuideRobotSystem::toMotorUnits(double omega, double sign) const
     omega = omega > 0.0 ? max_wheel_velocity_ : -max_wheel_velocity_;
   }
 
-  // v (м/с) = omega (рад/с) * wheel_radius; units = v / speed_coefficient
-  const double units = sign * omega * wheel_radius_ / speed_coefficient_;
+  // Два автоматических прогона на полу показали не масштаб через ноль, а
+  // аффинную характеристику:
+  //   |v_actual| = speed_offset + speed_coefficient * |motor_units|.
+  // Инвертируем её; команды ниже физического offset честно дают стоп.
+  const double linear_speed = std::fabs(omega) * wheel_radius_;
+  const double units_magnitude =
+    linearSpeedToMotorUnits(linear_speed, speed_coefficient_, speed_offset_);
+  const double units = sign * std::copysign(units_magnitude, omega);
   return static_cast<int16_t>(std::clamp(units, MOTOR_UNITS_MIN, MOTOR_UNITS_MAX));
 }
 

@@ -75,6 +75,7 @@
           <param name="right_sign">${drv['right_sign']}</param>
           <param name="swap_drives">${drv['swap_drives']}</param>
           <param name="speed_coefficient">${drv['speed_coefficient']}</param>
+          <param name="speed_offset">${drv['speed_offset']}</param>
           <param name="wheel_radius">${wheel_radius}</param>
           <param name="cmd_timeout">${drv['cmd_timeout']}</param>
           <!-- Same envelope as the command_interface min/max above, but this
