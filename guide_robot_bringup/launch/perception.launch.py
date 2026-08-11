@@ -2,11 +2,10 @@
 #  perception.launch.py — единая точка входа для сенсорики.
 #
 #  real_lidars:=true   реальное железо: lidars.launch.py
-#                      (2x sllidar C1 -> laser_sector_blanker -> scan_merger
-#                       с калибровкой laser_2_* offsets и deskew по odom TF)
+#                      (2x sllidar C1 -> laser_sector_blanker -> dual_laser_merger
+#                       с калибровкой laser_2_* offsets)
 #  real_lidars:=false  Gazebo сам публикует /scan_left и /scan_right,
-#                      поднимается только dual_laser_merger (без калибровки;
-#                      в симуляции deskew не нужен — Gazebo-сканы мгновенные)
+#                      поднимается только dual_laser_merger (без калибровки)
 #
 #  В обоих случаях на выходе: /scan (LaserScan в merge_frame).
 #  Соноры (sensor_msgs/Range на sonar/range/<frame_id>) — launch_sonar:=true,

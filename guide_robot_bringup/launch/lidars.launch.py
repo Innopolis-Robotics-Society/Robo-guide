@@ -2,7 +2,7 @@
 
 Topology:
   /scan_left   -> laser_sector_blanker -> /scan_left_filtered  --┐
-                                                                 ├-> scan_merger -> /scan
+                                                                  ├-> dual_laser_merger -> /scan
   /scan_right  -> laser_sector_blanker -> /scan_right_filtered --┘
 
 RPLIDAR C1 specs:
@@ -14,14 +14,19 @@ RPLIDAR C1 specs:
 Each lidar sees its own mount / the other lidar's mount at a fixed bearing in
 its own frame on every scan (self-hit, not a real obstacle). laser_sector_blanker
 blanks that bearing out of /scan_left and /scan_right before they reach the
-merger — the merger's output binning only clips the *merged* output's ends,
-it can't mask a wedge inside one lidar's field of view.
+merger — dual_laser_merger's own angle_min/angle_max only clip the *merged*
+output's ends, they can't mask a wedge inside one lidar's field of view.
 left/right_blind_sectors_deg are hardcoded below (not launch args) — a one-time
 per-robot fit found with laser_blind_sector_finder (run it against /scan_left
 and /scan_right separately, see that node's docstring for usage).
 
 Merger output:
   /scan      — merged LaserScan in base_footprint frame (fed to Nav2 / SLAM)
+
+Note: a local Python scan_merger with TF deskew exists (scan_merger.py) but is
+NOT launched here — on the Orin under the full stack it ate ~1.4 cores and
+published BEST_EFFORT /scan that RELIABLE tools (echo/Foxglove) showed empty.
+Deskew needs a C++ port before it comes back on hardware.
 """
 
 from launch import LaunchDescription
@@ -178,33 +183,54 @@ def generate_launch_description():
         ],
     )
 
-    # Merges /scan_left_filtered + /scan_right_filtered into /scan with motion
-    # compensation: each scan is deskewed to a common instant (midpoint of the
-    # two sweep centers) through the odom->base_footprint TF before binning.
-    # This replaced dual_laser_merger (2026-08-11): ApproximateTime pairing
-    # there left up to ~50 ms of inter-scan desync (a visible rotation between
-    # the two halves of /scan on turns) and added ~100 ms of partner-wait
-    # latency. Calibration offsets are the same numbers the old merger got
-    # via laser_*_offset (ICP fit against a shared wall).
+    # Merges /scan_left and /scan_right using TF into a single LaserScan on /scan.
+    # Python scan_merger (deskew) rolled back 2026-08-11: ~1.4 cores on Orin
+    # under the full stack, and BEST_EFFORT /scan looked empty in RELIABLE
+    # tools. dual_laser_merger stays until deskew is C++.
     merger_node = Node(
-        package="guide_robot_bringup",
-        executable="scan_merger",
-        name="scan_merger",
+        package="dual_laser_merger",
+        executable="dual_laser_merger_node",
+        name="dual_laser_merger",
         output="screen",
+        remappings=[
+            ("merged", "/scan"),
+            ("merged_cloud", "/scan_merged_cloud"),
+        ],
         parameters=[
+            {"use_sim_time": use_sim_time},
             {
-                "use_sim_time": use_sim_time,
                 "laser_1_topic": "/scan_left_filtered",
                 "laser_2_topic": "/scan_right_filtered",
-                "output_topic": "/scan",
                 "target_frame": merge_frame,
+                "tolerance": 0.05,
+                "queue_size": 10,
+                "angle_increment": 0.005,
+                "scan_time": 0.1,
+                "range_min": 0.1,
+                "range_max": 12.0,
+                "min_height": -0.5,
+                "max_height": 1.5,
+                "angle_min": -3.141592654,
+                "angle_max": 3.141592654,
+                "use_inf": True,
+                "inf_epsilon": 1.0,
+                # Confirmed on real hardware: with this False, /scan (and
+                # therefore /map) stayed empty even though the node and
+                # SLAM both started cleanly.
+                "enable_calibration": True,
+                # Both lidars sit on a metal bar guaranteed perpendicular to
+                # the robot's direction of travel, so x is trusted to be 0.
+                # y/yaw fitted from test/dual_lidar_raw_check2_0.db3 (ICP
+                # against the shared wall, seen by both lidars).
                 "laser_1_x_offset": 0.0,
                 "laser_1_y_offset": 0.0,
                 "laser_1_yaw_offset": 0.0,
                 "laser_2_x_offset": 0.0,
                 "laser_2_y_offset": -0.016,
                 "laser_2_yaw_offset": 0.028,
-            }
+                "enable_average_filter": False,
+                "enable_shadow_filter": False,
+            },
         ],
     )
 

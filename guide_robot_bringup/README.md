@@ -87,6 +87,12 @@ watchdog'ов до этого не действуют. `autostart_nav` уход�
 (`/dev/tty_lidar_right`), `baudrate`, `use_sim_time`, `merge_frame`,
 `lidar_start_delay`.
 
+**Откат deskew 2026-08-11:** на железе снова `dual_laser_merger`.
+Питонский `scan_merger` с TF-deskew на Orin под полным стеком ел
+~1.4 ядра, а BEST_EFFORT `/scan` в Foxglove/`ros2 topic echo` выглядел
+пустым (они по умолчанию RELIABLE). Код ноды оставлен в пакете; на
+launch вернётся после порта в C++.
+
 ### `launch/perception.launch.py`
 
 Единая точка входа для сенсорики. `real_lidars:=true` (железо) —
@@ -162,13 +168,9 @@ include завёрнут в свой `GroupAction` (scoped) — см. комме
   топик скана заданное время, ищет угловые бины со стабильно близкой
   дальностью (кандидаты в «слепые» секторы крепления), печатает готовую
   строку `blind_sectors_deg` для вставки в `lidars.launch.py`.
-- `scan_merger` — сливает два `LaserScan` в один `/scan` с компенсацией
-  движения. Каждая развёртка переносится в `base_footprint` через
-  статический TF + кали-калибровку, затем deskew'ится к общему моменту
-  через `odom` TF (середина между центрами развёрток). Пара берётся
-  nearest-neighbour по приходу — ожидания партнёра, как у
-  `ApproximateTime`, нет. Чистая математика в `scan_merge_math.py`
-  (без rclpy), unit-тестируется отдельно.
+- `scan_merger` — экспериментальный merge+deskew (Python). На железе
+  **не запускается** (см. откат в `lidars.launch.py`): на Orin ~1.4 ядра.
+  Unit-тесты математики — `test/test_scan_merge_math.py`.
 
 ## Зависимости
 
