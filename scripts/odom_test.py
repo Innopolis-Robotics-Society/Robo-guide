@@ -354,7 +354,11 @@ def read_bag(path: Path) -> dict[str, Any]:
                     ),
                 )
             )
-        elif topic in ("/cmd_vel", "/diff_drive_controller/cmd_vel_unstamped"):
+        elif topic in (
+            "/cmd_vel_nav",
+            "/cmd_vel",
+            "/diff_drive_controller/cmd_vel_unstamped",
+        ):
             twist = msg.twist if hasattr(msg, "twist") else msg
             key = "controller" if topic.endswith("cmd_vel_unstamped") else topic
             commands[key].append(Sample(time_s, (twist.linear.x, twist.angular.z)))
