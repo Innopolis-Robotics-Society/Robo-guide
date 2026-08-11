@@ -58,7 +58,7 @@ def make_speed_profile(
 
 
 SPEED_PROFILE = make_speed_profile((0.10, 0.20, 0.35, 0.50, 0.60), 3.0, 2.0, 3.0)
-LONG_SPEED_PROFILE = make_speed_profile((0.35, 0.50, 0.60, 0.70, 0.75), 10.0, 4.0, 5.0)
+LONG_SPEED_PROFILE = make_speed_profile((0.35, 0.50, 0.60, 0.70, 0.75), 8.0, 4.0, 5.0)
 
 
 @dataclass
@@ -216,8 +216,20 @@ def require_active_collision_monitor() -> None:
         raise RuntimeError(f"collision_monitor не active: {state}")
 
 
-def publish_twist(publisher: Any, node: Any, speed: float, duration: float) -> None:
-    """Публиковать одну ступень профиля с частотой 20 Гц."""
+def publish_twist(
+    publisher: Any,
+    node: Any,
+    speed: float,
+    duration: float,
+    controller_output: dict[str, float | None] | None = None,
+) -> None:
+    """Публиковать одну ступень профиля с частотой 20 Гц.
+
+    Если передан controller_output (последнее сообщение на выходе
+    collision_monitor), то после 2 с разгона ступени любое его изменение
+    команды прерывает прогон: срезанная сонаром скорость делает bag
+    непригодным для калибровки, и это нельзя проглатывать молча.
+    """
     import rclpy
     from geometry_msgs.msg import Twist
 
@@ -225,9 +237,22 @@ def publish_twist(publisher: Any, node: Any, speed: float, duration: float) -> N
     message.linear.x = speed
     deadline = time.monotonic() + duration
     next_tick = time.monotonic()
+    grace_until = time.monotonic() + 2.0
+    tolerance = max(0.03, 0.15 * abs(speed))
     while time.monotonic() < deadline:
         publisher.publish(message)
         rclpy.spin_once(node, timeout_sec=0.0)
+        actual = controller_output.get("speed") if controller_output is not None else None
+        if (
+            actual is not None
+            and abs(speed) > 0.0
+            and time.monotonic() > grace_until
+            and abs(actual - speed) > tolerance
+        ):
+            raise RuntimeError(
+                f"collision_monitor изменил команду {speed:.2f} -> {actual:.2f} м/с; "
+                "прогон остановлен, bag в калибровку не идёт"
+            )
         next_tick += 0.05
         time.sleep(max(0.0, next_tick - time.monotonic()))
 
@@ -271,6 +296,15 @@ def speed_test(args: argparse.Namespace) -> int:
     rclpy.init()
     node = rclpy.create_node("guide_robot_odom_speed_test")
     publisher = node.create_publisher(Twist, "/cmd_vel_nav", 10)
+    # Выход collision_monitor = вход контроллера. Расхождение с профилем
+    # означает, что safety-слой вмешался и ступень надо браковать.
+    controller_output: dict[str, float | None] = {"speed": None}
+    node.create_subscription(
+        Twist,
+        "/diff_drive_controller/cmd_vel_unstamped",
+        lambda message: controller_output.update(speed=message.linear.x),
+        10,
+    )
     try:
         deadline = time.monotonic() + 5.0
         while publisher.get_subscription_count() == 0 and time.monotonic() < deadline:
@@ -281,7 +315,7 @@ def speed_test(args: argparse.Namespace) -> int:
         publish_twist(publisher, node, 0.0, 2.0)
         for label, speed, step_duration in profile:
             print(f"{label}: {step_duration:.0f} с")
-            publish_twist(publisher, node, speed, step_duration)
+            publish_twist(publisher, node, speed, step_duration, controller_output)
         print("Профиль завершен, робот остановлен.")
         return 0
     finally:
@@ -857,7 +891,7 @@ def parser() -> argparse.ArgumentParser:
     speed.add_argument(
         "--long",
         action="store_true",
-        help="10-секундные ступени 0.35–0.75 м/с; нужна прямая не короче 9 м",
+        help="8-секундные ступени 0.35–0.75 м/с; нужна прямая не короче 7.5 м",
     )
     speed.set_defaults(func=speed_test)
 
