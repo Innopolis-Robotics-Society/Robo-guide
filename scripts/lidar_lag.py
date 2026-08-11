@@ -24,6 +24,7 @@ rosbag2_py, ни типов сообщений для этого не нужно
 from __future__ import annotations
 
 import argparse
+import bisect
 import sqlite3
 import statistics as st
 import struct
@@ -40,10 +41,15 @@ CHAIN = [
 ]
 
 
-def header_stamp(data: bytes) -> float:
-    """Достать header.stamp из CDR-полезной нагрузки сообщения со Header."""
+def header_stamp(data: bytes) -> int:
+    """Достать header.stamp из CDR-полезной нагрузки сообщения со Header.
+
+    Возвращает ЦЕЛЫЕ наносекунды. Во float секунды переводить нельзя: при
+    epoch ~1.79e9 разрешение float64 около 0.5 мкс, то есть наносекундная
+    часть штампа теряется ещё до всякой арифметики.
+    """
     sec, nanosec = struct.unpack_from("<iI", data, 4)
-    return sec + nanosec * 1e-9
+    return sec * 1_000_000_000 + nanosec
 
 
 def find_db(path: Path) -> Path:
@@ -57,11 +63,15 @@ def find_db(path: Path) -> Path:
     raise FileNotFoundError(f"Не нашёл *.db3 в {path}")
 
 
-def load(db: Path) -> dict[str, list[tuple[float, float, bytes]]]:
-    """Вернуть {топик: [(recv, stamp, raw), ...]} для всех записанных топиков."""
+def load(db: Path) -> dict[str, list[tuple[int, int, bytes]]]:
+    """Вернуть {топик: [(recv_ns, stamp_ns, raw), ...]} для всех записанных топиков.
+
+    Оба времени — целые наносекунды: recv_ns это колонка timestamp rosbag2
+    (время приёма рекордером), stamp_ns — header.stamp самого сообщения.
+    """
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     ids = {name: tid for name, tid in conn.execute("select name,id from topics")}
-    out: dict[str, list[tuple[float, float, bytes]]] = {}
+    out: dict[str, list[tuple[int, int, bytes]]] = {}
     for topic, tid in ids.items():
         rows = conn.execute(
             "select timestamp,data from messages where topic_id=? order by timestamp", (tid,)
@@ -71,9 +81,19 @@ def load(db: Path) -> dict[str, list[tuple[float, float, bytes]]]:
             data = bytes(blob)
             if len(data) < 12:
                 continue
-            msgs.append((recv_ns / 1e9, header_stamp(data), data))
+            msgs.append((recv_ns, header_stamp(data), data))
         out[topic] = msgs
     return out
+
+
+def key(stamp_ns: int) -> int:
+    """Штамп в целых микросекундах — в этой сетке стадии и сравниваются.
+
+    По наносекундам джойнить нельзя: мерджер гоняет облако через PCL, а
+    pcl::PCLHeader.stamp измеряется в МИКРОсекундах, так что round-trip
+    fromROSMsg/toROSMsg режет штамп /scan до микросекундной сетки.
+    """
+    return stamp_ns // 1000
 
 
 def stats(values: list[float]) -> str:
@@ -85,8 +105,8 @@ def stats(values: list[float]) -> str:
     return f"{st.median(ordered) * 1e3:7.1f} {p95 * 1e3:7.1f} {ordered[-1] * 1e3:7.1f}"
 
 
-def angular_speeds(msgs: list[tuple[float, float, bytes]]) -> list[tuple[float, float]]:
-    """[(recv, |omega|)] из /odom; пустой список, если ROS недоступен."""
+def angular_speeds(msgs: list[tuple[int, int, bytes]]) -> list[tuple[int, float]]:
+    """[(recv_ns, |omega|)] из /odom; пустой список, если ROS недоступен."""
     try:
         from nav_msgs.msg import Odometry
         from rclpy.serialization import deserialize_message
@@ -98,7 +118,7 @@ def angular_speeds(msgs: list[tuple[float, float, bytes]]) -> list[tuple[float, 
     ]
 
 
-def report(bag: dict[str, list[tuple[float, float, bytes]]]) -> None:
+def report(bag: dict[str, list[tuple[int, int, bytes]]]) -> None:
     """Напечатать разложение задержки по стадиям."""
     present = [t for t in CHAIN if bag.get(t)]
     if not present:
@@ -108,21 +128,21 @@ def report(bag: dict[str, list[tuple[float, float, bytes]]]) -> None:
     print(f"{'топик':26} {'N':>6} {'Гц':>5} {'медиана':>7} {'p95':>7} {'макс':>7}")
     for topic in present:
         msgs = bag[topic]
-        span = msgs[-1][0] - msgs[0][0]
+        span = (msgs[-1][0] - msgs[0][0]) * 1e-9
         rate = (len(msgs) - 1) / span if span > 0 else 0.0
-        lat = [recv - stamp for recv, stamp, _ in msgs]
+        lat = [(recv - stamp) * 1e-9 for recv, stamp, _ in msgs]
         print(f"{topic:26} {len(msgs):6d} {rate:5.1f} {stats(lat)}")
 
     print("\n=== Цена отдельной стадии (джойн по header.stamp), мс ===")
     print(f"{'переход':40} {'N':>6} {'медиана':>7} {'p95':>7} {'макс':>7}")
-    recv_by_stamp = {t: {stamp: recv for recv, stamp, _ in bag.get(t, [])} for t in CHAIN}
+    recv_by_stamp = {t: {key(stamp): recv for recv, stamp, _ in bag.get(t, [])} for t in CHAIN}
     for src, dst in (
         ("/scan_left", "/scan_left_filtered"),
         ("/scan_right", "/scan_right_filtered"),
         ("/scan_left_filtered", "/scan"),
     ):
         shared = recv_by_stamp[src].keys() & recv_by_stamp[dst].keys()
-        deltas = [recv_by_stamp[dst][s] - recv_by_stamp[src][s] for s in shared]
+        deltas = [(recv_by_stamp[dst][s] - recv_by_stamp[src][s]) * 1e-9 for s in shared]
         print(f"{src + ' -> ' + dst:40} {len(deltas):6d} {stats(deltas)}")
 
     # Чей штамп несёт /scan. Мерджер наследует laser_1, но проверить стоит:
@@ -138,14 +158,12 @@ def report(bag: dict[str, list[tuple[float, float, bytes]]]) -> None:
     # то есть эта разница уезжает в скан как поворот одной половины.
     right = sorted(recv_by_stamp["/scan_right_filtered"])
     if scan_stamps and right:
-        import bisect
-
         offsets = []
         for stamp in sorted(scan_stamps):
             i = bisect.bisect_left(right, stamp)
             near = [right[j] for j in (i - 1, i) if 0 <= j < len(right)]
             if near:
-                offsets.append(min(abs(stamp - r) for r in near))
+                offsets.append(min(abs(stamp - r) for r in near) * 1e-6)  # мкс -> с
         print("\n=== Рассинхрон левого и правого лидара внутри одного /scan ===")
         print(f"{'|stamp_L - stamp_R|':40} {len(offsets):6d} {stats(offsets)}")
 
@@ -173,11 +191,18 @@ def report(bag: dict[str, list[tuple[float, float, bytes]]]) -> None:
 def self_check() -> None:
     """Проверить разбор штампа на синтетическом CDR."""
     payload = struct.pack("<4siI", b"\x00\x01\x00\x00", 1786447006, 411363911)
-    assert abs(header_stamp(payload) - 1786447006.411363911) < 1e-6, header_stamp(payload)
+    assert header_stamp(payload) == 1786447006_411363911, header_stamp(payload)
     # Отрицательный sec не встречается в бэгах, но int32 обязан читаться со знаком.
-    assert header_stamp(struct.pack("<4siI", b"\x00\x01\x00\x00", -2, 500000000)) == -1.5
+    assert header_stamp(struct.pack("<4siI", b"\x00\x01\x00\x00", -2, 500000000)) == -1_500_000_000
     assert stats([]) == "нет данных"
     assert stats([0.001, 0.002, 0.003]).split()[0] == "2.0"
+    # Штампы, различающиеся только наносекундами, обязаны склеиться: PCL режет
+    # штамп /scan до микросекунд, иначе стадии не сойдутся ни разу. Именно из-за
+    # этого штампы нельзя держать во float секундах — при epoch ~1.79e9
+    # наносекундная разница ниже разрешения float64 и склейка становится
+    # случайной.
+    assert key(1786455540_411363911) == key(1786455540_411363111)
+    assert key(1786455540_411363911) != key(1786455540_411364911)
     print("self-check ок")
 
 
