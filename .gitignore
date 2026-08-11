@@ -22,6 +22,7 @@ local/
 *.user
 .claude
 guide_robot_navigation/generated_config/
+odom_test_runs/
 
 # System files
 .DS_Store

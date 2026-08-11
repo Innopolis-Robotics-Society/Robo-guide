@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "guide_robot_hardware/speed_conversion.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 
@@ -234,6 +235,9 @@ bool GuideRobotSystem::loadParameters()
   ok &= paramDouble(p, "left_sign", true, left_sign_);
   ok &= paramDouble(p, "right_sign", true, right_sign_);
   ok &= paramDouble(p, "speed_coefficient", true, speed_coefficient_);
+  ok &= paramDouble(p, "speed_offset", true, speed_offset_);
+  ok &= paramDouble(p, "low_speed_coefficient", true, low_speed_coefficient_);
+  ok &= paramDouble(p, "left_speed_trim", true, left_speed_trim_);
   ok &= paramDouble(p, "cmd_timeout", true, cmd_timeout_);
   ok &= paramDouble(p, "max_wheel_velocity", true, max_wheel_velocity_);
 
@@ -264,11 +268,31 @@ bool GuideRobotSystem::loadParameters()
     RCLCPP_ERROR(logger(), "max_wheel_velocity=%.3f: должно быть > 0 (рад/с)", max_wheel_velocity_);
     return false;
   }
-  if (speed_coefficient_ <= 0.0 || wheel_radius_ <= 0.0 || ticks_per_rev_ <= 0.0) {
+  if (
+    !std::isfinite(speed_coefficient_) || !std::isfinite(speed_offset_) ||
+    !std::isfinite(wheel_radius_) || !std::isfinite(ticks_per_rev_) || speed_coefficient_ <= 0.0 ||
+    speed_offset_ < 0.0 || wheel_radius_ <= 0.0 || ticks_per_rev_ <= 0.0) {
     RCLCPP_ERROR(
       logger(),
-      "speed_coefficient=%.6f, wheel_radius=%.3f, ticks_per_rev=%.1f: все должны быть > 0",
-      speed_coefficient_, wheel_radius_, ticks_per_rev_);
+      "speed_coefficient=%.8f (>0), speed_offset=%.4f (>=0), wheel_radius=%.3f (>0), "
+      "ticks_per_rev=%.1f (>0): неверная калибровка",
+      speed_coefficient_, speed_offset_, wheel_radius_, ticks_per_rev_);
+    return false;
+  }
+  if (!std::isfinite(left_speed_trim_) || left_speed_trim_ <= 0.0 || left_speed_trim_ > 1.2) {
+    RCLCPP_ERROR(
+      logger(), "left_speed_trim=%.3f: трим команды левого борта должен быть в (0, 1.2]",
+      left_speed_trim_);
+    return false;
+  }
+  // Иначе точка сшивки offset * k_low / (k_low - k) не существует или
+  // отрицательна — кусочная конверсия разваливается.
+  if (!std::isfinite(low_speed_coefficient_) || low_speed_coefficient_ <= speed_coefficient_) {
+    RCLCPP_ERROR(
+      logger(),
+      "low_speed_coefficient=%.8f: должен быть > speed_coefficient=%.8f "
+      "(иначе сшивка кусочной конверсии не существует)",
+      low_speed_coefficient_, speed_coefficient_);
     return false;
   }
   if (accel < 0.0 || accel > 65535.0) {
@@ -292,12 +316,13 @@ bool GuideRobotSystem::loadParameters()
 
   RCLCPP_INFO(
     logger(),
-    "Параметры: port=%s baud=%d L_id=%d R_id=%d swap=%d coeff=%.6f r=%.3fm ticks_per_rev=%.1f "
-    "cmd_timeout=%.3fs max_wheel_vel=%.2f рад/с encoder_timeout=%.3fs accel=%u "
-    "poll_divider=%d wrap_ticks=%.0f",
+    "Параметры: port=%s baud=%d L_id=%d R_id=%d swap=%d coeff=%.8f offset=%.4fm/s "
+    "trim_L=%.3f r=%.3fm ticks_per_rev=%.1f cmd_timeout=%.3fs max_wheel_vel=%.2f рад/с "
+    "encoder_timeout=%.3fs accel=%u poll_divider=%d wrap_ticks=%.0f",
     serial_port_.c_str(), baud_rate_, left_wheel_id_, right_wheel_id_, swap_drives_ ? 1 : 0,
-    speed_coefficient_, wheel_radius_, ticks_per_rev_, cmd_timeout_, max_wheel_velocity_,
-    encoder_timeout_, motor_accel_, encoder_poll_divider_, encoder_wrap_ticks_);
+    speed_coefficient_, speed_offset_, left_speed_trim_, wheel_radius_, ticks_per_rev_,
+    cmd_timeout_, max_wheel_velocity_, encoder_timeout_, motor_accel_, encoder_poll_divider_,
+    encoder_wrap_ticks_);
 
   if (encoder_timeout_ <= 0.0) {
     RCLCPP_WARN(
@@ -894,8 +919,13 @@ int16_t GuideRobotSystem::toMotorUnits(double omega, double sign) const
     omega = omega > 0.0 ? max_wheel_velocity_ : -max_wheel_velocity_;
   }
 
-  // v (м/с) = omega (рад/с) * wheel_radius; units = v / speed_coefficient
-  const double units = sign * omega * wheel_radius_ / speed_coefficient_;
+  // Кусочная инверсия характеристики: выше ~0.09 м/с аффинная (калибрована
+  // автопрогонами), ниже — старая пропорциональная, чтобы довороты у цели и
+  // медленные подкаты не попадали в мёртвую зону offset (см. speed_conversion.hpp).
+  const double linear_speed = std::fabs(omega) * wheel_radius_;
+  const double units_magnitude = linearSpeedToMotorUnits(
+    linear_speed, speed_coefficient_, speed_offset_, low_speed_coefficient_);
+  const double units = sign * std::copysign(units_magnitude, omega);
   return static_cast<int16_t>(std::clamp(units, MOTOR_UNITS_MIN, MOTOR_UNITS_MAX));
 }
 
@@ -958,13 +988,18 @@ hardware_interface::return_type GuideRobotSystem::write(
     return hardware_interface::return_type::ERROR;
   }
 
+  // Трим до swap: left_vel_cmd_ и левый сустав связаны независимо от перестановки
+  // слотов (обратная связь зеркалит write), поэтому масштабирование левой команды
+  // попадает ровно на то колесо, которое энкодеры называют левым.
+  const double left_cmd = left_vel_cmd_ * left_speed_trim_;
+
   // Слоты пакета адресуются по ПОЗИЦИИ (проверено на железе: смена ID байта
   // в слоте эффекта не даёт). left_sign_/right_sign_ компенсируют зеркальную
   // установку мотора В КОНКРЕТНОМ слоте (см. работающую езду прямо), поэтому
   // при swap_drives меняем местами именно ИСТОЧНИК команды, а не готовые
   // знаковые значения — иначе компенсация знака съезжает не на тот мотор.
-  const double slot1_cmd = swap_drives_ ? right_vel_cmd_ : left_vel_cmd_;
-  const double slot2_cmd = swap_drives_ ? left_vel_cmd_ : right_vel_cmd_;
+  const double slot1_cmd = swap_drives_ ? right_vel_cmd_ : left_cmd;
+  const double slot2_cmd = swap_drives_ ? left_cmd : right_vel_cmd_;
 
   const bool sent = writeSpeedPacket(slot1_cmd, slot2_cmd);
 

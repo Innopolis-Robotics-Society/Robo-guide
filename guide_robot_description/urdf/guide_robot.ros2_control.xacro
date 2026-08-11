@@ -25,8 +25,8 @@
        applied at once:
          v_wheel = v_max + w_max * wheel_separation / 2
          w_wheel = v_wheel / wheel_radius * wheel_limit_margin
-       With the current robot_params.yaml this evaluates to 11.60 rad/s
-       (was 8.38 before max_linear_velocity went 0.6 -> 0.9 on 2026-07-30).
+       With the current robot_params.yaml this evaluates to 7.31 rad/s
+       (was 11.60 before max_linear_velocity went 0.9 -> 0.5 on 2026-08-11).
        This is an ENVELOPE, not a limit: normal clamping is done by
        diff_drive_controller. Too narrow drops commands, too wide is harmless,
        hence the margin. Recomputed automatically - do not hardcode.
@@ -75,6 +75,9 @@
           <param name="right_sign">${drv['right_sign']}</param>
           <param name="swap_drives">${drv['swap_drives']}</param>
           <param name="speed_coefficient">${drv['speed_coefficient']}</param>
+          <param name="speed_offset">${drv['speed_offset']}</param>
+          <param name="low_speed_coefficient">${drv['low_speed_coefficient']}</param>
+          <param name="left_speed_trim">${drv['left_speed_trim']}</param>
           <param name="wheel_radius">${wheel_radius}</param>
           <param name="cmd_timeout">${drv['cmd_timeout']}</param>
           <!-- Same envelope as the command_interface min/max above, but this

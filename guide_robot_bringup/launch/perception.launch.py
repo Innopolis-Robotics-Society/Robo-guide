@@ -1,7 +1,7 @@
 # =========================================================================
 #  perception.launch.py — единая точка входа для сенсорики.
 #
-#  real_lidars:=true   реальное железо: sensors.launch.py
+#  real_lidars:=true   реальное железо: lidars.launch.py
 #                      (2x sllidar C1 -> laser_sector_blanker -> dual_laser_merger
 #                       с калибровкой laser_2_* offsets)
 #  real_lidars:=false  Gazebo сам публикует /scan_left и /scan_right,
