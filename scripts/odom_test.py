@@ -34,28 +34,31 @@ TOPICS = [
     "/rosout",
     "/parameter_events",
 ]
-SPEED_PROFILE = (
-    ("вперед 0.10 м/с", 0.10, 3.0),
-    ("стоп", 0.0, 2.0),
-    ("назад 0.10 м/с", -0.10, 3.0),
-    ("стоп", 0.0, 2.0),
-    ("вперед 0.20 м/с", 0.20, 3.0),
-    ("стоп", 0.0, 2.0),
-    ("назад 0.20 м/с", -0.20, 3.0),
-    ("стоп", 0.0, 2.0),
-    ("вперед 0.35 м/с", 0.35, 3.0),
-    ("стоп", 0.0, 2.0),
-    ("назад 0.35 м/с", -0.35, 3.0),
-    ("стоп", 0.0, 2.0),
-    ("вперед 0.50 м/с", 0.50, 3.0),
-    ("стоп", 0.0, 2.0),
-    ("назад 0.50 м/с", -0.50, 3.0),
-    ("стоп", 0.0, 2.0),
-    ("вперед 0.60 м/с", 0.60, 3.0),
-    ("стоп", 0.0, 2.0),
-    ("назад 0.60 м/с", -0.60, 3.0),
-    ("финальный стоп", 0.0, 3.0),
-)
+
+
+def make_speed_profile(
+    speeds: Sequence[float],
+    hold_seconds: float,
+    stop_seconds: float,
+    final_stop_seconds: float,
+) -> tuple[tuple[str, float, float], ...]:
+    """Построить одинаковые отдельные прогоны вперед-назад."""
+    profile: list[tuple[str, float, float]] = []
+    for speed in speeds:
+        profile.extend(
+            (
+                (f"вперед {speed:.2f} м/с", speed, hold_seconds),
+                ("стоп", 0.0, stop_seconds),
+                (f"назад {speed:.2f} м/с", -speed, hold_seconds),
+                ("стоп", 0.0, stop_seconds),
+            )
+        )
+    profile[-1] = ("финальный стоп", 0.0, final_stop_seconds)
+    return tuple(profile)
+
+
+SPEED_PROFILE = make_speed_profile((0.10, 0.20, 0.35, 0.50, 0.60), 3.0, 2.0, 3.0)
+LONG_SPEED_PROFILE = make_speed_profile((0.35, 0.50, 0.60, 0.70, 0.75), 10.0, 4.0, 5.0)
 
 
 @dataclass
@@ -238,12 +241,18 @@ def speed_test(args: argparse.Namespace) -> int:
         raise RuntimeError("Нужно окружение ROS 2 Humble с rclpy") from exc
 
     require_active_collision_monitor()
-    peak, finish = profile_peak_displacement(SPEED_PROFILE)
+    profile = LONG_SPEED_PROFILE if args.long else SPEED_PROFILE
+    peak, finish = profile_peak_displacement(profile)
+    duration = 4.0 + sum(step[2] for step in profile)
     print(
         f"Робот проедет до {peak:.2f} м вперед и автоматически вернется "
         f"(командный остаток {finish:.3f} м)."
     )
-    print("Нужно 2.5 м свободного пола, оператор у физического аварийного стопа.")
+    print(
+        f"Нужно не менее {peak + 1.5:.1f} м свободной прямой; "
+        f"профиль займет около {duration / 60.0:.1f} мин."
+    )
+    print("Оператор должен оставаться у физического аварийного стопа.")
     if input("Для старта напечатайте ЕДЕМ: ").strip() != "ЕДЕМ":
         print("Отменено, робот не двигался.")
         return 1
@@ -252,7 +261,7 @@ def speed_test(args: argparse.Namespace) -> int:
         args.name,
         "speed",
         args.output_dir,
-        {"speed_profile": SPEED_PROFILE},
+        {"speed_profile": profile, "long_profile": args.long},
     )
     bag = subprocess.Popen(["ros2", "bag", "record", "-o", str(bag_dir), *TOPICS])
     time.sleep(2.0)
@@ -270,9 +279,9 @@ def speed_test(args: argparse.Namespace) -> int:
             raise RuntimeError("у /cmd_vel_nav нет подписчиков; движение не начато")
 
         publish_twist(publisher, node, 0.0, 2.0)
-        for label, speed, duration in SPEED_PROFILE:
-            print(f"{label}: {duration:.0f} с")
-            publish_twist(publisher, node, speed, duration)
+        for label, speed, step_duration in profile:
+            print(f"{label}: {step_duration:.0f} с")
+            publish_twist(publisher, node, speed, step_duration)
         print("Профиль завершен, робот остановлен.")
         return 0
     finally:
@@ -845,6 +854,11 @@ def parser() -> argparse.ArgumentParser:
     )
     speed.add_argument("--name", default="speed_auto", help="имя каталога прогона")
     speed.add_argument("--output-dir", type=Path, default=DEFAULT_RUNS)
+    speed.add_argument(
+        "--long",
+        action="store_true",
+        help="10-секундные ступени 0.35–0.75 м/с; нужна прямая не короче 9 м",
+    )
     speed.set_defaults(func=speed_test)
 
     record_parser = commands.add_parser("record", help="записать один прогон")

@@ -28,6 +28,14 @@ class OdomMathTest(unittest.TestCase):
         self.assertAlmostEqual(peak, 1.80)
         self.assertAlmostEqual(finish, 0.0)
 
+    def test_long_speed_profile_uses_ten_second_plateaus(self):
+        """Длинный профиль должен использовать выбранную десятиметровую прямую."""
+        peak, finish = ODOM_TEST.profile_peak_displacement(ODOM_TEST.LONG_SPEED_PROFILE)
+        moving_steps = [step for step in ODOM_TEST.LONG_SPEED_PROFILE if step[1]]
+        self.assertAlmostEqual(peak, 7.50)
+        self.assertAlmostEqual(finish, 0.0)
+        self.assertTrue(all(step[2] == 10.0 for step in moving_steps))
+
     def test_angle_delta_unwraps_both_directions(self):
         """Yaw должен разворачиваться через границу ±pi в обе стороны."""
         self.assertAlmostEqual(
