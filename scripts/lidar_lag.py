@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Разложить задержку /scan по стадиям конвейера лидаров.
+r"""Разложить задержку /scan по стадиям конвейера лидаров.
 
-Считает по бэгу, записанному командой из guide_robot_bringup/README.md
-(раздел «Диагностика задержки лидаров»). Работает на том, что бланкер
+Нужен бэг со всеми стадиями конвейера:
+
+    ros2 launch guide_robot_bringup hardware.launch.py
+    # в другом терминале, ~5 минут -> ~90 МБ
+    ros2 bag record -o lidar_lag_$(date -u +%Y%m%dT%H%M%SZ) \
+      /scan_left /scan_right /scan_left_filtered /scan_right_filtered /scan \
+      /tf /tf_static /odom /joint_states /diff_drive_controller/cmd_vel_unstamped
+
+Работает на том, что бланкер
 штамп сохраняет (laser_sector_blanker переиздаёт то же сообщение), а вот
 штамп /scan зависит от мерджера. На железе стоит dual_laser_merger — он
 наследует header.stamp первого лидара (dual_laser_merger.cpp:241), поэтому
