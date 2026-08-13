@@ -29,6 +29,7 @@ class TourPlan:
 
     stop_ids: list[str]
     exhibit_ids: list[str]
+    tour_id: str = ""
     index: int = 0
     greet: bool = True
     narrate: bool = True

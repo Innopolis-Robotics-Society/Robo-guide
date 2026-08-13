@@ -12,7 +12,7 @@ locations:
     zone: lab
     category: waypoint
     is_public: true
-    exhibit_id: null
+    exhibit_id: entrance
     aliases:
       ru: ["вход", "главный вход"]
       en: ["entrance", "main entrance"]

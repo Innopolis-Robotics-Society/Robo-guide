@@ -381,6 +381,7 @@ class MissionFsmNode(LifecycleNode):
         tour = TourPlan(
             stop_ids=stop_ids,
             exhibit_ids=exhibit_ids,
+            tour_id=str(goal.tour_id),
             index=int(goal.start_index),
             greet=bool(goal.greet),
             narrate=bool(goal.narrate),
@@ -504,13 +505,19 @@ class MissionFsmNode(LifecycleNode):
             stops_skipped=stops_skipped,
             detail=detail,
         )
-        log = self.get_logger().info if outcome == RunTour.Result.OUTCOME_COMPLETED else (
-            self.get_logger().warning
-        )
-        log(
+        message = (
             f"тур завершён: outcome={_RUN_TOUR_OUTCOME_NAMES.get(outcome, outcome)} "
             f"completed={stops_completed} skipped={stops_skipped} detail={detail!r}"
         )
+        # rclpy запрещает менять уровень одного и того же логгера между
+        # вызовами (`ValueError: Logger severity cannot be changed between
+        # calls`) -- раньше он менялся через переменную с методом
+        # (`log = ...info if ... else ...warning`), что и роняло
+        # `_execute_run_tour` без результата на goal (CLAUDE_CODE_TASK.md п.6).
+        if outcome == RunTour.Result.OUTCOME_COMPLETED:
+            self.get_logger().info(message)
+        else:
+            self.get_logger().warning(message)
         if outcome == RunTour.Result.OUTCOME_ABORTED:
             goal_handle.abort()  # type: ignore[attr-defined]
         elif goal_handle.is_cancel_requested:  # type: ignore[attr-defined]
@@ -615,6 +622,17 @@ class MissionFsmNode(LifecycleNode):
         msg.interrupt = (
             MissionState.IRQ_ANSWERING if name == "answering" else MissionState.IRQ_NONE
         )
+        # base_state -- "состояние под прерыванием (== state, если IRQ_NONE)"
+        # (MissionState.msg): ANSWERING -- единственный интеррапт, который
+        # сейчас различается от своего base (blackboard.interrupted_from,
+        # см. root_sm.py); AWAITING_CONFIRM резюмируется в себя же
+        # (fsm/states/awaiting_confirm.py) и потому не интеррапт с чужим base.
+        msg.base_state = (
+            _STATE_ENUM.get(blackboard.interrupted_from, msg.state)
+            if msg.interrupt != MissionState.IRQ_NONE
+            else msg.state
+        )
+        msg.tour_id = blackboard.tour.tour_id
         msg.stop_index = blackboard.tour.index
         msg.stop_total = len(blackboard.tour.stop_ids)
         msg.stop_id = blackboard.tour.current_stop_id
@@ -650,6 +668,8 @@ class MissionFsmNode(LifecycleNode):
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.state = last.state
             msg.interrupt = last.interrupt
+            msg.base_state = last.base_state
+            msg.tour_id = last.tour_id
             msg.stop_index = last.stop_index
             msg.stop_total = last.stop_total
             msg.stop_id = last.stop_id
