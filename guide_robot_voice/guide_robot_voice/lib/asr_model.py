@@ -74,7 +74,7 @@ class GigaAmCtc:
             sample_rate=self._sample_rate,
             feature_dim=self._feature_dim,
             decoding_method="greedy_search",
-            provider="cpu",
+            provider="cuda",
         )
 
     def decode(self, pcm: np.ndarray) -> AsrResult:

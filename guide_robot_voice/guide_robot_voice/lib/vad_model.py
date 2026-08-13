@@ -52,7 +52,23 @@ class SileroVad:
         """Загрузить ONNX-граф. Может быть медленным, звать в on_configure."""
         import onnxruntime as ort
 
-        self._session = ort.InferenceSession(self._model_path, providers=["CPUExecutionProvider"])
+        # SessionOptions здесь обязательны, как и для Piper в lib/backends.py.
+        # По умолчанию onnxruntime поднимает intra-op тред-пул на все ядра, и
+        # между вызовами тот СПИНИТ, а не спит. При нашей загрузке (окно 512
+        # сэмплов раз в 32 мс) полезной работы 1.2 мс из 32 -- 3.7% ядра; замер
+        # на Orin Nano 2026-08-10: с опциями по умолчанию процесс ел 64.1% ядра,
+        # с одним потоком -- 3.7% при той же латентности инференса (1.17 -> 1.29
+        # мс). Разница целиком уходила в спин, а не в распознавание.
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 1
+        options.inter_op_num_threads = 1
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+
+        self._session = ort.InferenceSession(
+            self._model_path,
+            sess_options=options,
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        )
         self.reset()
 
     def reset(self) -> None:

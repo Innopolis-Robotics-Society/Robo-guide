@@ -131,7 +131,17 @@ private:
   bool swap_drives_{false};
   double left_sign_{1.0};
   double right_sign_{-1.0};
-  double speed_coefficient_{0.0001706};
+  // Измеренная под нагрузкой характеристика:
+  // |v_actual| = speed_offset_ + speed_coefficient_ * |motor_units|.
+  double speed_coefficient_{0.0000880243};
+  double speed_offset_{0.0436513};
+  // Ниже сшивки ~0.09 м/с — старая пропорциональная конверсия (см.
+  // speed_conversion.hpp): иначе довороты у цели лежат в мёртвой зоне offset.
+  double low_speed_coefficient_{0.0001706};
+  // Левый борт отзывчивее правого при равных units: трим только КОМАНДЫ,
+  // одометрия с энкодеров не масштабируется. Компромисс двух прогонов
+  // (0.982/1.000): остаток на уровне шума пола, дальше не подкручивать.
+  double left_speed_trim_{0.990};
   double wheel_radius_{0.1026};
 
   // Обязательные параметры без безопасного дефолта: отсутствие любого из них —
