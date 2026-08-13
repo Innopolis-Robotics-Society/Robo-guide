@@ -1,4 +1,4 @@
-"""Таблица гейтов tools/schema.py (llm_plam.md §4) -- каждый инструмент x состояние."""
+"""Таблица гейтов tools/schema.py (DIALOG_REWORK_PLAN.md §4.3) -- каждый инструмент x состояние."""
 
 from __future__ import annotations
 
@@ -78,7 +78,31 @@ def test_allowed_tools_idle_matches_expected_set() -> None:
         "tour_by_points",
         "tell_about",
         "say",
+        "noop",
         "list_locations",
         "list_tours",
         "estimate_route",
     }
+
+
+def test_noop_allowed_in_every_state() -> None:
+    for state in range(9):
+        assert is_tool_allowed("noop", state)
+
+
+def test_llm_only_hides_say_and_read_only_catalog_tools() -> None:
+    visible = set(allowed_tools(_S.STATE_IDLE, llm_only=True))
+    assert "say" not in visible
+    assert "list_locations" not in visible
+    assert "list_tours" not in visible
+    assert "estimate_route" not in visible
+    assert "noop" in visible
+    assert "start_tour" in visible
+
+
+def test_llm_only_false_by_default_keeps_say() -> None:
+    assert "say" in allowed_tools(_S.STATE_IDLE)
+
+
+def test_llm_only_still_gates_by_state() -> None:
+    assert allowed_tools(_S.STATE_NARRATING, llm_only=True) == ["stop_tour", "pause", "noop"]

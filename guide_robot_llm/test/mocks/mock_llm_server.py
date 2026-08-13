@@ -30,6 +30,14 @@ class MockLlmServer:
         """Поднять сервер на свободном порту; поток не стартует -- см. `start()`."""
         self.mode = self.MODE_OK
         self.chunks: list[str] = ["Привет", ", ", "мир", "."]
+        # DIALOG_REWORK_PLAN.md: фаза 1 (без grammar в теле запроса) и фаза 2
+        # (с grammar) -- один и тот же мок-сервер должен уметь отвечать
+        # по-разному на каждую, иначе e2e-тест dialog_agent не может
+        # заскриптовать реалистичный ход (текст ответа отдельно от tool-call
+        # JSON). `None` -- используется `self.chunks` для обеих фаз (старое
+        # поведение, тесты llm_client/backend.py его не трогают).
+        self.chunks_no_grammar: list[str] | None = None
+        self.chunks_with_grammar: list[str] | None = None
         self.chunk_delay_s = 0.05
         self.hang_s = 10.0
         self.http_status = 500
@@ -108,8 +116,16 @@ class MockLlmServer:
             handler.wfile.write(b"\r\n")
             handler.wfile.flush()
 
+        has_grammar = bool(self.last_request_body and self.last_request_body.get("grammar"))
+        if has_grammar and self.chunks_with_grammar is not None:
+            chunks = self.chunks_with_grammar
+        elif not has_grammar and self.chunks_no_grammar is not None:
+            chunks = self.chunks_no_grammar
+        else:
+            chunks = self.chunks
+
         delay = self.chunk_delay_s if self.mode == self.MODE_SLOW else 0.0
-        for piece in self.chunks:
+        for piece in chunks:
             event = {"choices": [{"delta": {"content": piece}, "finish_reason": None}]}
             _write_chunk(f"data: {json.dumps(event)}\n\n".encode())
             if delay:

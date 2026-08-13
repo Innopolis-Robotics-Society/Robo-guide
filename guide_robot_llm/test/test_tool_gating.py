@@ -153,6 +153,31 @@ def test_list_locations_hides_non_public_via_broker() -> None:
         harness.shutdown()
 
 
+def test_noop_always_succeeds_via_call_tool() -> None:
+    harness = ToolBrokerTestHarness()
+    try:
+        result = harness.broker.call_tool("noop", {})
+        assert result.ok
+    finally:
+        harness.shutdown()
+
+
+def test_location_whitelist_cache_not_refreshed_after_activation() -> None:
+    """DIALOG_REWORK_PLAN.md §7.2: whitelist локаций грузится один раз на on_activate,
+    не на каждый call_tool() -- локация, добавленная ПОСЛЕ активации, не появляется
+    в закэшированном whitelist, хотя location_server (опрошенный напрямую) её уже знает."""
+    harness = ToolBrokerTestHarness()
+    try:
+        assert harness.broker._known_location_ids_cache == frozenset()  # noqa: SLF001
+
+        harness.fixtures.add_location("lab105a", x=1.0, y=2.0)
+
+        assert harness.broker._known_location_ids_cache == frozenset()  # noqa: SLF001
+        assert "lab105a" in harness.broker._known_location_ids()  # noqa: SLF001 -- прямой опрос
+    finally:
+        harness.shutdown()
+
+
 def test_tell_about_gated_outside_tour_only() -> None:
     """tell_about разрешён только в STATE_IDLE -- вне тура narration_server свободен."""
     harness = ToolBrokerTestHarness()

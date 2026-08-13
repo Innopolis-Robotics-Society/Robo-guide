@@ -1,29 +1,27 @@
-"""Компактный снимок mission/presence для промпта ЛЛМ (llm_plam.md §5).
+"""Компактный снимок mission/presence для промпта ЛЛМ (DIALOG_REWORK_PLAN.md §3.4).
 
-Чистая логика без rclpy -- `tool_broker_node.py` раскладывает ROS-msg
+Чистая логика без rclpy -- `dialog_agent_node.py` раскладывает ROS-msg
 (`MissionState`/`Presence`) по полям Protocol ниже, сама сборка dict-а
 тестируется на голых dataclass-моках без ROS (design-конвенция пакета,
 как `guide_robot_mission_control/presence.py`).
 
-Полный снимок из §5 плана несёт ещё `safety`/`nearby` -- этот шаг их не
-собирает: `estop`/`supervisor_state` сейчас читает только сам
-`mission_fsm` (не публикует наружу), а `nearby` требует пересечения
-`stop_id` с координатами локаций (`~/list_locations`), которое появится
-вместе с `tool_broker`'ом в шаге 2. `location_zone` -- единственное
-обогащение снаружи, которое уже можно подать (вызывающий код сам решает,
-откуда его взять).
+`safety`/`supervisor_state` по-прежнему не собираются: `estop` сейчас
+читает только сам `mission_fsm` (не публикует наружу) -- вне рамок этого
+шага. `told_ids`/`location_name`/`nearby` считает вызывающий код
+(`dialog_agent_node.py`) -- этот модуль только раскладывает уже готовые
+значения по ключам снимка, не решает, что в них должно быть.
 
-Отдельно: `MissionState.tour_id`/`base_state` сейчас не заполняются
-`mission_fsm_node._on_fsm_state_changed` (см. код -- присваивает не все
-поля сообщения), это существующий пробел выше по стеку, не этого модуля;
-здесь они просто читаются как есть.
+`MissionState.tour_id`/`base_state` теперь заполняются
+`mission_fsm_node._on_fsm_state_changed` (DIALOG_REWORK_PLAN.md §2.1) --
+здесь они по-прежнему просто читаются как есть.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
-__all__ = ["MissionStateLike", "PresenceLike", "build_snapshot"]
+__all__ = ["MissionStateLike", "PresenceLike", "build_snapshot", "render_status_line"]
 
 _STATE_NAMES = {
     0: "IDLE",
@@ -66,13 +64,17 @@ def build_snapshot(
     *,
     tools_allowed: list[str],
     location_zone: str = "",
+    location_name: str = "",
+    told_ids: Sequence[str] = (),
+    nearby: Sequence[str] = (),
 ) -> dict:
-    """Собрать компактный dict для промпта -- форма как в llm_plam.md §5.
+    """Собрать компактный dict для промпта -- форма как в DIALOG_REWORK_PLAN.md §3.4.
 
-    `tools_allowed` считает вызывающий код (`tools/schema.py` в шаге 2) по
-    той же таблице гейтов, которой `tool_broker` пользуется для реального
-    dispatch -- снимок только отражает уже принятое решение, не принимает
-    его сам.
+    `tools_allowed` считает вызывающий код (`tools/schema.py`) по той же
+    таблице гейтов, которой `tool_broker` пользуется для реального dispatch --
+    снимок только отражает уже принятое решение, не принимает его сам.
+    Из снимка ничего не убрано против предыдущей формы -- все новые ключи
+    опциональны и появляются только когда вызывающий код их передал.
     """
     mission_section: dict[str, object] = {"state": _STATE_NAMES.get(mission.state, "UNKNOWN")}
     if mission.tour_id:
@@ -82,6 +84,8 @@ def build_snapshot(
         mission_section["of"] = mission.stop_total
     if mission.stop_id:
         mission_section["location"] = mission.stop_id
+    if location_name:
+        mission_section["location_name"] = location_name
     if location_zone:
         mission_section["zone"] = location_zone
     if mission.interrupt != _IRQ_NONE:
@@ -90,7 +94,7 @@ def build_snapshot(
             "base": _STATE_NAMES.get(mission.base_state, "IDLE"),
         }
 
-    return {
+    snap: dict[str, object] = {
         "mission": mission_section,
         "presence": {
             "present": bool(presence.present),
@@ -98,3 +102,45 @@ def build_snapshot(
         },
         "tools_allowed": list(tools_allowed),
     }
+    if told_ids:
+        snap["already_told"] = list(told_ids)
+    if nearby:
+        snap["nearby"] = list(nearby)
+    return snap
+
+
+def render_status_line(snap: dict) -> str:
+    """Однострочный статус `[состояние: ...]` для последнего user-сообщения хода.
+
+    Формат согласован с преамбулой системного промпта («Строка в квадратных
+    скобках вида [состояние: ...] — служебное описание...») -- менять его
+    можно только вместе с `config/system_prompt.txt`. В строку НАМЕРЕННО не
+    идут `tools_allowed` (гейт уже зашит в GBNF-грамматику фазы действия) и
+    `already_told` (шум для 8B-модели) -- в снимке-словаре для
+    `interaction_log` они остаются.
+    """
+    mission = snap.get("mission", {})
+    parts: list[str] = [f"состояние: {mission.get('state', 'UNKNOWN')}"]
+
+    if mission.get("tour"):
+        parts.append(f"тур \"{mission['tour']}\"")
+    location = str(mission.get("location_name") or mission.get("location") or "")
+    if mission.get("stop") and mission.get("of"):
+        stop_part = f"остановка {mission['stop']} из {mission['of']}"
+        if location:
+            stop_part += f" — {location}"
+        parts.append(stop_part)
+    elif location:
+        parts.append(f"у локации {location}")
+
+    interrupt = mission.get("interrupt")
+    if isinstance(interrupt, dict):
+        parts.append(f"рассказ прерван ({interrupt.get('kind', 'unknown')})")
+
+    presence = snap.get("presence", {})
+    if presence.get("present"):
+        parts.append("посетитель рядом")
+    else:
+        parts.append(f"посетителя не видно {presence.get('last_evidence_s', 0)} с")
+
+    return "[" + ", ".join(parts) + "]"

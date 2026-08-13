@@ -13,22 +13,41 @@
     location_server_ns: "/location_server"
     route_planner_ns: "/route_planner"
 
-# dialog_agent (llm_plam.md §5): ReAct-цикл поверх llm_client + tool_broker.
+# dialog_agent (DIALOG_REWORK_PLAN.md): двухфазный ход поверх llm_client + tool_broker.
 # llm.base_urls -- реальный адрес llm_server/ (см. llm_server/.env: LLM_PORT=18080).
 /**/dialog_agent:
   ros__parameters:
     llm.base_urls: ["http://127.0.0.1:18080/v1"]
     llm.connect_timeout_s: 2.0
     llm.read_timeout_s: 30.0
-    llm.max_tokens: 512
-    llm.temperature: 0.2
+    llm.api_key: ""
     llm.max_attempts_per_backend: 2
     llm.backoff_s: 0.5
-    llm.api_key: ""
+    # Фаза 1 -- живая речь, без грамматики. Фаза 2 -- детерминированный
+    # выбор действия, GBNF.
+    llm.max_tokens_answer: 100
+    # 192, не 128: в JSON действия добавилось поле "think" (1-2 предложения
+    # рассуждения до выбора инструмента) -- ему нужен свой запас токенов.
+    llm.max_tokens_action: 192
+    llm.temperature_answer: 0.6
+    llm.temperature_action: 0.0
+    llm.action_repair_attempts: 1
+
     system_prompt_path: "$(find-pkg-share guide_robot_llm)/config/system_prompt.txt"
     tool_broker_ns: "/tool_broker"
     service_call_timeout_s: 2.0
-    max_tool_calls_per_turn: 2
+    catalog_ns_timeout_s: 5.0
+
+    history.max_entries: 16
+    history.trim_to: 8
+    history.cap_visitor_chars: 200
+    history.cap_robot_chars: 300
+    history.cap_event_chars: 120
+    history.clear_after_absent_s: 90.0
+
+    kb.corpus_path: "$(find-pkg-share guide_robot_llm)/config/kb.jsonl"
+
+    answer.max_chars: 250
 
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
 /**/interaction_log:

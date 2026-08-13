@@ -85,6 +85,17 @@ class ToolBrokerNode(LifecycleNode):
         self._run_tour_lock = threading.Lock()
         self._run_tour_goal_handle: object | None = None
 
+        # Кэш whitelist локаций/туров -- загружается один раз на on_activate
+        # (DIALOG_REWORK_PLAN.md §7.2), не на каждый call_tool(): синхронный
+        # сервисный вызов внутри каждого вызова инструмента -- лишние
+        # миллисекунды на пути, который и так упирается в ЛЛМ. Пустой кэш
+        # (location_server не успел подняться к моменту активации) --
+        # штатная деградация: `validate._require_known` пропускает строгую
+        # проверку, когда whitelist пуст, то же поведение, что раньше было
+        # при недоступном сервисе на разовом вызове.
+        self._known_location_ids_cache: frozenset[str] = frozenset()
+        self._known_tour_ids_cache: frozenset[str] = frozenset()
+
         self._cb_reentrant = ReentrantCallbackGroup()
 
     # -- lifecycle ------------------------------------------------------
@@ -176,13 +187,17 @@ class ToolBrokerNode(LifecycleNode):
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
-        """Разрешить обработку вызовов инструментов."""
+        """Разрешить обработку вызовов инструментов; загрузить кэш whitelist локаций/туров."""
+        self._known_location_ids_cache = self._known_location_ids()
+        self._known_tour_ids_cache = self._known_tour_ids()
         self._active = True
         return super().on_activate(state)
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
-        """Запретить новые вызовы инструментов."""
+        """Запретить новые вызовы инструментов; сбросить кэш whitelist."""
         self._active = False
+        self._known_location_ids_cache = frozenset()
+        self._known_tour_ids_cache = frozenset()
         return super().on_deactivate(state)
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
@@ -268,9 +283,9 @@ class ToolBrokerNode(LifecycleNode):
         tools_allowed = schema.allowed_tools(mission_state)
 
         known_locations = (
-            self._known_location_ids() if _needs_location_whitelist(name) else frozenset()
+            self._known_location_ids_cache if _needs_location_whitelist(name) else frozenset()
         )
-        known_tours = self._known_tour_ids() if name == "start_tour" else frozenset()
+        known_tours = self._known_tour_ids_cache if name == "start_tour" else frozenset()
         try:
             validate.validate_call(
                 name,
@@ -443,6 +458,12 @@ class ToolBrokerNode(LifecycleNode):
             return ToolResult(ok=False, message="narrate отклонён (занят/экспонат не найден)")
         return ToolResult(ok=True, message="рассказ начат")
 
+    # -- noop: полноправное "ничего не делать" (DIALOG_REWORK_PLAN.md §7.1) --
+
+    def _tool_noop(self, args: dict) -> ToolResult:
+        del args
+        return ToolResult(ok=True, message="")
+
     # -- read-only справочники ------------------------------------------------
 
     def _tool_list_locations(self, args: dict) -> ToolResult:
@@ -504,6 +525,7 @@ class ToolBrokerNode(LifecycleNode):
         "finish_answer": _tool_finish_answer,
         "say": _tool_say,
         "tell_about": _tool_tell_about,
+        "noop": _tool_noop,
         "list_locations": _tool_list_locations,
         "list_tours": _tool_list_tours,
         "estimate_route": _tool_estimate_route,

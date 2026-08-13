@@ -1,33 +1,193 @@
-"""`dialog.prompt.build_system_prompt()`: преамбул + каталог (llm_plam.md §5)."""
+"""`dialog.prompt`: системный промпт + инструкции фаз «действие -> реплика»."""
 
 from __future__ import annotations
 
-from guide_robot_llm.dialog.prompt import build_system_prompt
+from guide_robot_llm.dialog.prompt import (
+    build_action_instruction,
+    build_answer_instruction,
+    build_system_prompt,
+)
 from guide_robot_llm.tools.schema import ToolSpec
 
 _SAY = ToolSpec("say", "Сказать реплику посетителю.", frozenset({0}))
 _STOP = ToolSpec("stop_tour", "Прервать текущий тур совсем.", frozenset({1}))
+_HIDDEN = ToolSpec(
+    "list_locations", "Список локаций.", frozenset({0}), llm_visible=False
+)
+
+
+# -- build_system_prompt: только преамбул + каталог локаций/туров + справочник --
 
 
 def test_prompt_starts_with_preamble_verbatim() -> None:
-    prompt = build_system_prompt("ПРЕАМБУЛА ТЕКСТ", [_SAY])
+    prompt = build_system_prompt("ПРЕАМБУЛА ТЕКСТ")
     assert prompt.startswith("ПРЕАМБУЛА ТЕКСТ")
 
 
-def test_prompt_lists_exactly_given_tools_with_descriptions() -> None:
-    prompt = build_system_prompt("x", [_SAY, _STOP])
+def test_prompt_does_not_render_tool_catalog() -> None:
+    """CLAUDE_CODE_TASK.md п.2: фаза 1 больше не видит каталог инструментов."""
+    prompt = build_system_prompt("x", locations=[], tours=[])
 
-    assert "- say: Сказать реплику посетителю." in prompt
-    assert "- stop_tour: Прервать текущий тур совсем." in prompt
-
-
-def test_prompt_omits_tools_not_passed() -> None:
-    prompt = build_system_prompt("x", [_SAY])
-
+    assert "Доступные инструменты" not in prompt
     assert "stop_tour" not in prompt
 
 
-def test_empty_tool_list_still_produces_valid_prompt() -> None:
-    prompt = build_system_prompt("преамбула", [])
+def test_locations_catalog_renders_alias_zone_and_category() -> None:
+    prompt = build_system_prompt(
+        "x",
+        locations=[
+            {
+                "id": "lab_demo",
+                "aliases": ["демонстрационная лаборатория"],
+                "zone": "hall_1",
+                "category": "макеты, роботы",
+            },
+            {"id": "cafe", "aliases": ["кафе"], "zone": "hall_2", "category": ""},
+        ],
+    )
 
-    assert prompt.startswith("преамбула")
+    assert "Локации:" in prompt
+    assert "- lab_demo (демонстрационная лаборатория; зона hall_1) — макеты, роботы" in prompt
+    assert "- cafe (кафе; зона hall_2)" in prompt
+
+
+def test_locations_catalog_omits_coordinates() -> None:
+    prompt = build_system_prompt(
+        "x",
+        locations=[
+            {"id": "lab_demo", "aliases": [], "zone": "", "category": "", "x": 1.0, "y": 2.0}
+        ],
+    )
+
+    assert "1.0" not in prompt
+    assert "2.0" not in prompt
+
+
+def test_no_locations_omits_locations_section() -> None:
+    prompt = build_system_prompt("x")
+
+    assert "Локации:" not in prompt
+
+
+def test_tours_catalog_renders_id_name_and_stops() -> None:
+    prompt = build_system_prompt(
+        "x",
+        tours=[{"id": "full_tour", "name": "Полная экскурсия", "stops": ["lab_demo", "cafe"]}],
+    )
+
+    assert "Туры:" in prompt
+    assert "- full_tour «Полная экскурсия»: lab_demo, cafe" in prompt
+
+
+def test_no_tours_omits_tours_section() -> None:
+    prompt = build_system_prompt("x")
+
+    assert "Туры:" not in prompt
+
+
+def test_non_public_locations_not_passed_do_not_appear() -> None:
+    """Фильтр по is_public -- дело вызывающего (`tool_broker`); модуль просто рендерит,
+    что дали -- скрытая локация, отсутствующая во входном списке, не появляется."""
+    prompt = build_system_prompt(
+        "x", locations=[{"id": "lobby", "aliases": [], "zone": "", "category": ""}]
+    )
+
+    assert "server_room" not in prompt
+
+
+def test_knowledge_section_renders_full_corpus_text() -> None:
+    """CLAUDE_CODE_TASK.md п.5: корпус целиком в промпт, секция «Справочник»."""
+    prompt = build_system_prompt("x", knowledge="Иннополис -- город недалеко от Казани.")
+
+    assert "Справочник:" in prompt
+    assert "Иннополис -- город недалеко от Казани." in prompt
+
+
+def test_no_knowledge_omits_knowledge_section() -> None:
+    prompt = build_system_prompt("x")
+
+    assert "Справочник:" not in prompt
+
+
+def test_prompt_is_deterministic_for_same_arguments() -> None:
+    kwargs = {
+        "preamble": "x",
+        "locations": [{"id": "lab_demo", "aliases": [], "zone": "hall_1", "category": ""}],
+        "tours": [{"id": "full_tour", "name": "Тур", "stops": ["lab_demo"]}],
+        "knowledge": "текст корпуса",
+    }
+    assert build_system_prompt(**kwargs) == build_system_prompt(**kwargs)
+
+
+# -- build_action_instruction: каталог инструментов + правила выбора действия --
+
+
+def test_action_instruction_lists_exactly_given_visible_tools_with_descriptions() -> None:
+    instruction = build_action_instruction([_SAY, _STOP])
+
+    assert "- stop_tour: Прервать текущий тур совсем." in instruction
+
+
+def test_action_instruction_omits_llm_invisible_tools() -> None:
+    instruction = build_action_instruction([_SAY, _STOP, _HIDDEN])
+
+    assert "list_locations" not in instruction
+    assert "- stop_tour:" in instruction
+
+
+def test_action_instruction_is_deterministic_for_same_arguments() -> None:
+    tool_specs = [_SAY, _STOP]
+    assert build_action_instruction(tool_specs) == build_action_instruction(tool_specs)
+
+
+def test_action_instruction_mentions_json_form_with_think() -> None:
+    instruction = build_action_instruction([_STOP])
+    assert '{"think"' in instruction
+    assert '"tool"' in instruction
+    assert "noop" in instruction
+
+
+def test_action_instruction_targets_last_utterance() -> None:
+    """Действие выбирается по ПОСЛЕДНЕЙ реплике посетителя -- сказано явно."""
+    instruction = build_action_instruction([_STOP])
+    assert "ПОСЛЕДНЕЙ реплике" in instruction
+
+
+def test_action_instruction_tells_model_to_act_on_stated_intent() -> None:
+    """Живой баг: модель дважды подряд выбрала noop вместо start_tour, хотя
+    посетитель ясно попросил начать экскурсию -- инструкция обязана явно
+    запрещать откладывать уже озвученное намерение через noop."""
+    instruction = build_action_instruction([_STOP])
+    assert "явно попросил действие" in instruction
+    assert "выбери именно его" in instruction
+
+
+def test_action_instruction_lists_explicit_noop_reasons() -> None:
+    instruction = build_action_instruction([_STOP])
+    for reason in ("поздоровался", "поблагодарил", "неразборчива"):
+        assert reason in instruction
+
+
+def test_action_instruction_does_not_discourage_noop_as_a_delay_tactic() -> None:
+    """Ослабленное давление против noop (CLAUDE_CODE_TASK.md п.3): убрана
+    формулировка «noop -- не способ отложить решение»."""
+    instruction = build_action_instruction([_STOP])
+    assert "не способ отложить решение" not in instruction
+
+
+# -- build_answer_instruction: статичная инструкция фазы реплики --
+
+
+def test_answer_instruction_is_static() -> None:
+    assert build_answer_instruction() == build_answer_instruction()
+
+
+def test_answer_instruction_demands_consistency_and_honesty() -> None:
+    instruction = build_answer_instruction()
+    assert "согласована" in instruction
+    assert "не удалось" in instruction  # честность при провале действия
+    assert "переспроси" in instruction  # noop из-за неразборчивой реплики
+
+
+def test_answer_instruction_forbids_json_in_speech() -> None:
+    assert "без JSON" in build_answer_instruction()

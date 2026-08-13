@@ -35,6 +35,7 @@ class InteractionLogNode(LifecycleNode):
         self.declare_parameter("log_dir", "~/.guide_robot/llm_turns")
 
         self._sink: InteractionSink | None = None
+        self._seen_turn_keys: set[tuple[str, int]] = set()
         self._cb_reentrant = ReentrantCallbackGroup()
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
@@ -70,6 +71,19 @@ class InteractionLogNode(LifecycleNode):
             # от этого пострадать.
             self.get_logger().error(f"битый payload_json: {error}")
             return
+        # Повтор (session_id, turn_id) -- улика второго живого dialog_agent
+        # (или незакрытой старой подписки): пишем всё равно (улики не теряем),
+        # но заметно предупреждаем.
+        session_id = record.get("session_id")
+        turn_id = record.get("turn_id")
+        if isinstance(session_id, str) and isinstance(turn_id, int):
+            key = (session_id, turn_id)
+            if key in self._seen_turn_keys:
+                self.get_logger().warning(
+                    f"повтор записи session_id={session_id} turn_id={turn_id} -- "
+                    "возможно, работает второй dialog_agent"
+                )
+            self._seen_turn_keys.add(key)
         if self._sink is not None:
             self._sink.write(record)
 
@@ -89,6 +103,13 @@ class InteractionLogNode(LifecycleNode):
         if self._sink is not None:
             self._sink.close()
             self._sink = None
+        self._seen_turn_keys.clear()
+        # Подписку уничтожаем явно: cleanup -> configure иначе оставляет ДВЕ
+        # живые подписки на /dialog/interaction -- каждая запись писалась бы
+        # дважды (живой баг: задвоенные turn_id в jsonl).
+        if getattr(self, "_event_sub", None) is not None:
+            self.destroy_subscription(self._event_sub)
+            self._event_sub = None
 
 
 def main(args: list[str] | None = None) -> None:

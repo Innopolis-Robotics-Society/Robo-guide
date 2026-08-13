@@ -1,4 +1,4 @@
-"""interaction_log end-to-end: ход через dialog_agent -> jsonl на диске (llm_plam.md §6)."""
+"""interaction_log end-to-end: ход через dialog_agent -> jsonl на диске (план §8)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,8 @@ def test_turn_produces_interaction_log_record() -> None:
     harness = ToolBrokerTestHarness()
     try:
         wait_until(lambda: harness.dialog_agent.last_mission_state() is not None, timeout_s=5.0)
-        harness.llm_server.chunks = ['{"tool": "say", "args": {"text": "Привет!"}}']
+        harness.llm_server.chunks_no_grammar = ["Привет!"]
+        harness.llm_server.chunks_with_grammar = ['{"tool": "noop", "args": {}}']
 
         client = harness.make_client_node()
         _publish_transcript(client, "привет")
@@ -34,14 +35,39 @@ def test_turn_produces_interaction_log_record() -> None:
 
         assert len(lines) == 1
         record = lines[0]
+        assert record["schema_version"] == 4
         assert record["utterance"] == "привет"
-        assert record["stopped_reason"] == "terminal_tool"
+        assert isinstance(record["session_id"], str) and record["session_id"]
+        assert record["utterance_ts"] > 0
+        assert record["answer_text"] == "Привет!"
+        assert record["say_ok"] is True
+        assert record["stopped_reason"] == "ok"
         assert record["degraded"] is False
-        assert [c["tool"] for c in record["calls"]] == ["say"]
-        assert record["calls"][0]["ok"] is True
-        assert record["calls"][0]["content_version"] is None
-        assert any(t["stage"] == "llm_call" for t in record["stage_timings"])
-        assert any(t["stage"] == "tool_call" for t in record["stage_timings"])
+        assert record["action"] == {
+            "tool": "noop",
+            "args": {},
+            "think": "",
+            "ok": True,
+            "message": "",
+            "content_version": None,
+        }
+        assert record["repair_used"] is False
+        assert record["references"] == []
+        assert record["verbatim_overlap_words"] == 0
+        assert record["history_entries"] >= 2  # реплика посетителя + реплика робота
+        assert isinstance(record["told_ids"], list)
+        assert any(t["stage"] == "llm_answer" for t in record["stage_timings"])
+        assert any(t["stage"] == "say" for t in record["stage_timings"])
+        assert any(t["stage"] == "llm_action" for t in record["stage_timings"])
         assert record["total_ms"] > 0
+        # Сырой ввод/вывод ЛЛМ -- по запросу: весь обмен виден целиком, не
+        # только то, что дошло до озвучки/действия.
+        assert record["answer_raw_text"] == "Привет!"
+        assert record["answer_finish_reason"] == "stop"
+        assert record["action_raw_text"] == '{"tool": "noop", "args": {}}'
+        assert record["action_finish_reason"] == "stop"
+        assert record["llm_messages"][0]["role"] == "system"
+        roles = [m["role"] for m in record["llm_messages"]]
+        assert roles.count("assistant") == 2  # tool-call фазы действия + реплика
     finally:
         harness.shutdown()

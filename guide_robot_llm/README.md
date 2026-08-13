@@ -11,8 +11,56 @@
 completions`), не ROS-нода и не зависимость этого пакета.
 
 `ament_python`, ROS 2 Humble. Практический справочник по факту
-реализации — см. также `llm_plam.md` (план по шагам) и раздел «Отличия»
-ниже про то, где реализация от него разошлась.
+реализации — см. также `DIALOG_REWORK_PLAN.md` (план переработки
+диалогового слоя, по которому построена текущая реализация).
+
+## Ход диалога: действие → исполнение → реплика (два вызова ЛЛМ, не ReAct-цикл)
+
+Один финальный транскрипт → один ход. Ход — это `dialog/turn.py:run_turn()`.
+Порядок фаз инвертирован против первоначального дизайна (живой баг: реплика
+«отвожу вас к кафе» + действие `noop` в том же ходу) — реплика генерируется
+ПОСЛЕ исполнения действия и видит его реальный итог:
+
+```
+транскрипт (ведущее wake-слово срезано; голое «робот» ход не запускает)
+   │
+   ├─ ФАЗА ДЕЙСТВИЯ (GBNF, temperature.action)
+   │     messages = [system] + history
+   │                + [user: СОБЫТИЕ:*, [состояние: ...], реплика посетителя]
+   │                + [user: action_instruction]
+   │     → {"think": "...", "tool": "...", "args": {...}}
+   │       (think — короткое явное рассуждение, ReAct-Thought; уезжает в jsonl)
+   │
+   ├─ исполнение через ~/call_tool (barge-in до исполнения — действие отменяется)
+   │     ok:false → одна попытка починки (`llm.action_repair_attempts`),
+   │     посетитель её не слышит — ничего ещё не сказано
+   │
+   ├─ ФАЗА РЕПЛИКИ (без грамматики, temperature.answer)
+   │     messages += [assistant: tool-call JSON]
+   │                + [user: answer_instruction + "Итог действия: ..."]
+   │     → свободный русский текст, согласованный с реальным итогом
+   │     (system несёт весь корпус знаний целиком, секция «Справочник» —
+   │      см. «Корпус знаний» ниже; per-turn поиска по корпусу нет)
+   │
+   ├─ speak(text)  (barge-in до озвучки — реплика отбрасывается)
+   │
+   └─ history.append(visitor=utterance, robot=text если сказана,
+                     event=итог действия)
+```
+
+`say` — больше не инструмент, видимый модели: реплика — результат фазы
+реплики, а не выбор модели. Обработчик `say` в `tool_broker` остаётся (его
+зовёт сам `dialog_agent`, `ToolSpec.llm_visible=False`). Каталог
+инструментов не идёт в системный промпт — иначе модель зачитывала вслух
+описания инструментов. Он рендерится в `action_instruction`
+(`dialog/prompt.py:build_action_instruction()`); обе инструкции фаз
+считаются один раз на `on_activate` и передаются в `run_turn()`
+параметрами — обязаны быть побайтово одинаковыми на каждый ход (иначе
+теряется `CACHE_REUSE` префикса). Справочники (`list_locations`/
+`list_tours`/`estimate_route`) тоже скрыты от модели — локации и туры
+едут в системном промпте, собранном один раз на `on_activate`.
+Подробности и мотивация — `DIALOG_REWORK_PLAN.md` §0/§1,
+`CLAUDE_CODE_TASK.md` пп.2/3/5.
 
 ## Топология
 
@@ -28,13 +76,14 @@ completions`), не ROS-нода и не зависимость этого па�
                     │
 /asr/transcript ────┼──┐
 /mission/state ──────┼──┼──►┌────────────────┐
-/mission/presence ───┘  │   │  dialog_agent  │──► HTTP /v1/chat/completions
-/speech/cancel_all ─────┘   │  (ReAct-цикл)   │     (llm_server/, вне ROS)
+/mission/presence ───┘  │   │  dialog_agent  │──► HTTP /v1/chat/completions x2
+/speech/cancel_all ─────┘   │ (ход: действие │     (llm_server/, вне ROS)
+                             │   → реплика)   │
                              └────────┬───────┘
                               /dialog/interaction
                                        │
                              ┌─────────▼───────┐
-                             │ interaction_log │──► jsonl на диск
+                             │ interaction_log │──► jsonl на диск (схема v4)
                              └─────────────────┘
 ```
 
@@ -43,7 +92,7 @@ completions`), не ROS-нода и не зависимость этого па�
 внутренний вызов, а реальный ROS-сервис: `dialog_agent` не может
 дотянуться до Python-метода `ToolBrokerNode.call_tool()` напрямую.
 `interaction_log` подписан на `dialog_agent` fire-and-forget — медленный
-диск не блокирует ReAct-цикл/barge-in abort.
+диск не блокирует ход/barge-in abort.
 
 ## Ноды
 
@@ -55,28 +104,30 @@ completions`), не ROS-нода и не зависимость этого па�
 внятный `ToolResult(ok=False, "тур уже идёт...")`, не `REJECT` от action-
 сервера. `call_tool()` — единственная точка входа для любого вызывающего
 (CLI-скрипт в тестах, `~/call_tool` для `dialog_agent`) — гарантирует
-одинаковый гейт независимо от транспорта.
+одинаковый гейт независимо от транспорта, включая `say`, который
+`dialog_agent` зовёт напрямую (не через выбор модели).
 
 **Сервис**: `~/call_tool` (`CallTool.srv`, `guide_robot_msgs`) — `name`
 + `args_json` (JSON, не нативный ROS-тип: `.srv` не знает generic
 map/dict) → `ok`/`message`/`data_json`.
 
 **Действия**: `RunTour` (не ждёт результата — только принятия goal-а:
-рассказ на 3 минуты не должен вешать ReAct-ход), `Say`, `Narrate` (оба
-тоже fire-and-forget — см. «Известные пробелы» про `content_version`).
+рассказ на 3 минуты не должен вешать ход), `Say`, `Narrate` (оба тоже
+fire-and-forget — см. «Известные пробелы» про `content_version`).
 
 **Клиенты-сервисы**: `~/request_pause`, `~/request_resume`
 (`std_srvs/Trigger`), `~/submit_confirm` (`std_srvs/SetBool`),
 `~/submit_answer` (`SubmitAnswer.srv`) — все на `mission_fsm`.
 Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
-`semantic_map`.
+`semantic_map` — whitelist локаций/туров кэшируется ОДИН раз на
+`on_activate` (не на каждый `call_tool()`), сбрасывается на
+`on_deactivate`.
 
 **Подписки**: `/mission/state`, `/mission/presence` (свой кэш),
 `/asr/transcript` — быстрый путь мимо ЛЛМ: `matching.py` разбирает
 да/нет (`AWAITING_CONFIRM`) и стоп-фразы (`ANSWERING`) локально по
 финалам ASR и сразу зовёт `~/submit_confirm`/`~/submit_answer`, не ждёт
-ЛЛМ (риск §9 плана — суммарная латентность ASR→ЛЛМ→сервис не должна
-решать судьбу простого «да»).
+ЛЛМ.
 
 **Параметры**: `service_call_timeout_s`(2.0), `mission_fsm_ns`
 (`/mission_fsm`), `location_server_ns` (`/location_server`),
@@ -84,91 +135,168 @@ Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
 
 ### `dialog_agent`
 
-ReAct-цикл: транскрипт → снимок состояния → `complete()` с GBNF-
-грамматикой (только форма `{"tool":..,"args":{...}}`, не типизация
-per-tool — семантику по-прежнему проверяет `tool_broker`) → распарсенный
-tool-call → `~/call_tool` → результат обратно в диалог → повтор, до
-`max_tool_calls_per_turn`(2) или до УСПЕШНОГО терминального инструмента
-(`say`/`confirm`/`stop_tour`/... — список в `dialog/loop.py`; read-only
-справочники терминальными не считаются). Провалившийся терминальный вызов
-(`ok:false` — типично: маленькая модель прислала `tour_id` числом, не
-строкой, GBNF типы не проверяет, только форму) ход НЕ заканчивает —
-ошибка уходит обратно в диалог, модель может исправиться в пределах
-оставшихся вызовов (замечено вживую).
+Ход «действие → реплика» (см. выше): транскрипт → снимок состояния →
+фаза действия (GBNF, форма `{"think":..,"tool":..,"args":{...}}`) →
+`~/call_tool` → фаза реплики (свободный текст, знает итог действия) →
+`speak()` → история. Провалившийся вызов действия (`ok:false`) не
+заканчивает ход молча — одна попытка починки
+(`llm.action_repair_attempts`) ДО реплики, посетитель её не замечает.
+Транскрипт, пришедший пока ход в полёте, не выбрасывается: текущий ход
+прерывается (семантика barge-in), реплика ждёт в однослотовой очереди и
+отыгрывается сразу после (последняя побеждает).
 
 Кэш `/mission/state`/`/mission/presence` — свой, не `tool_broker`-овский
 (разные процессы). На каждый финальный транскрипт сначала прогоняется
 тот же `matching.py`-чек, что у `tool_broker` — уверенный матч означает
-«`tool_broker` уже обработал сам», ЛЛМ не зовём (иначе второй,
-потенциально противоречащий tool-call на ту же реплику).
+«`tool_broker` уже обработал сам», ЛЛМ не зовём; вместо этого в историю
+дописывается, ЧТО было распознано (не что сделал `tool_broker` — агент
+этого не наблюдает).
+
+**Каталог**: локации/туры тянутся через `~/call_tool` ОДИН раз на
+`on_activate` и рендерятся в системный промпт (`dialog/prompt.py`) —
+координаты в промпт не идут. Если каталог не пришёл за
+`catalog_ns_timeout_s` — `on_activate` возвращает `FAILURE` (агент без
+каталога не может назвать ни одной локации).
+
+**Память диалога** (`dialog/history.py`): append-only, режется по
+символам при записи (без токенизатора), обрезка половинами при
+превышении `history.max_entries`. Очищается: (1) если посетитель
+отсутствует дольше `history.clear_after_absent_s`, (2) на
+`on_deactivate`/`on_cleanup`. Переход в `IDLE` по концу тура сам по себе
+историю больше НЕ чистит (`CLAUDE_CODE_TASK.md` п.4, живой баг: тур
+остановлен, посетитель продолжает говорить про него, а история уже
+стёрта) — переходы `/mission/state` по-прежнему дописываются в историю
+как события (переход состояния, приход на остановку — с
+`told_ids.add()`, начало/прерывание вопроса, начало/конец тура) — только
+на ИЗМЕНЕНИЕ поля, без дребезга от heartbeat.
+
+**Корпус знаний** (`kb/`): офлайн `scripts/build_kb.py` режет
+`config/kb_source/*.md` на пассажи (`config/kb.jsonl`, коммитится в
+репозиторий). Корпус идёт в системный промпт ЦЕЛИКОМ, один раз на
+`on_activate` (секция «Справочник», `dialog/prompt.py`) — BM25-поиск по
+запросу внутри хода убран (`CLAUDE_CODE_TASK.md` п.5: на 7-пассажном
+корпусе абсолютный порог `min_score` не настраивался — «Иннополис» давал
+score ниже порога, «что у тебя есть» — пустую выдачу). `kb/retriever.py`
+(`BM25Okapi` + русский Snowball-стеммер) используется только чтобы
+распарсить `kb.jsonl` в пассажи при загрузке корпуса; `search()`/
+`boost_ids`/`min_score` больше не задействованы в рантайме `dialog_agent`,
+но остаются рабочими и покрыты `test_kb_retriever.py` на случай, если
+поиск понадобится снова. Пустой корпус — не ошибка: модель честно говорит
+«не знаю» (правило грунтования в `config/system_prompt.txt`).
 
 **Barge-in** (`/speech/cancel_all`, `REASON_BARGE_IN`): взводит
 `abort_event`, `llm_client.Backend` ловит его между SSE-чанками и
-поднимает `BackendAborted` — частичный ответ отбрасывается, `execute_tool`
-для оборванного шага не зовётся. Один ход в полёте максимум — новый
-транскрипт, пока предыдущий ход не завершился/не оборвался, отбрасывается
-(лог, не очередь — осознанное упрощение).
+поднимает `BackendAborted` в любой из двух фаз. Дополнительно
+`run_turn()` проверяет `abort_event` РОВНО один раз между фазой 1 и
+`speak()` — если посетитель отменил, пока текст ещё генерировался,
+начинать говорить уже нельзя. Один ход в полёте максимум.
 
 **Публикует**: `/dialog/interaction` (`InteractionEvent`, fire-and-forget,
 для `interaction_log`).
 
-**Параметры**: `llm.base_urls` (список, пробуются по порядку с retry —
-не stateful circuit breaker, см. `llm_client/ladder.py`),
-`llm.connect_timeout_s`(2.0), `llm.read_timeout_s`(30.0),
-`llm.max_tokens`(512), `llm.temperature`(0.2),
-`llm.max_attempts_per_backend`(2), `llm.backoff_s`(0.5), `llm.api_key`
-(""), `system_prompt_path` (файл, не embedded-текст — та же копия
-греет `llm_server/config/system_prompt.txt`), `tool_broker_ns`
-(`/tool_broker`), `service_call_timeout_s`(2.0),
-`max_tool_calls_per_turn`(2).
+**Параметры**: `llm.base_urls`, `llm.connect_timeout_s`(2.0),
+`llm.read_timeout_s`(30.0), `llm.api_key`(""),
+`llm.max_attempts_per_backend`(2), `llm.backoff_s`(0.5),
+`llm.max_tokens_answer`(160), `llm.max_tokens_action`(128),
+`llm.temperature_answer`(0.6), `llm.temperature_action`(0.0),
+`llm.action_repair_attempts`(1), `system_prompt_path`,
+`tool_broker_ns`(`/tool_broker`), `service_call_timeout_s`(2.0),
+`catalog_ns_timeout_s`(5.0), `history.max_entries`(16),
+`history.trim_to`(8), `history.cap_visitor_chars`(200),
+`history.cap_robot_chars`(300), `history.cap_event_chars`(120),
+`history.clear_after_absent_s`(90.0 в `config/llm.yaml`, 25.0 если
+параметр не задан — `presence_monitor` выводит присутствие из речевой
+активности, короткая пауза в разговоре не должна читаться как уход
+посетителя), `kb.corpus_path`, `answer.max_chars`(400).
 
 ### `interaction_log`
 
 jsonl-sink: одна строка на ход (`InteractionSink`, flush на каждую
-запись — падение процесса не должно стоить последних строк). Подписан
-на `/dialog/interaction`; битый `payload_json` — лог ошибки, не падение
-ноды (защита от бага на стороне `dialog_agent`, не повод ронять sink).
+запись). Подписан на `/dialog/interaction`; битый `payload_json` — лог
+ошибки, не падение ноды.
 
 **Параметры**: `log_dir` (`~/.guide_robot/llm_turns`) — файл
 `interaction_YYYYmmdd_HHMMSS.jsonl` на сессию активации.
 
-**Формат записи**:
+**Формат записи** (схема v4, `dialog/interaction_log.py`):
 
 ```json
 {
-  "ts": 1730000000.123, "turn_id": 42, "mission_state": "IDLE",
-  "utterance": "привет", "snapshot": {"...": "то, что ушло в промпт"},
-  "calls": [{"tool": "say", "args": {"text": "..."}, "ok": true,
-             "message": "", "content_version": null}],
-  "stage_timings": [{"stage": "llm_call", "tool": null, "ms": 812.3},
-                     {"stage": "tool_call", "tool": "say", "ms": 12.1}],
-  "stopped_reason": "terminal_tool", "degraded": false,
-  "degrade_reason": null, "total_ms": 850.2
+  "schema_version": 4,
+  "ts": 1730000000.123, "turn_id": 42,
+  "session_id": "3f9a1c2b4d5e", "utterance_ts": 1730000000.001,
+  "mission_state": "NARRATING",
+  "utterance": "а что это за штука?",
+  "snapshot": {"...": "то, что ушло бы в промпт (для лога)"},
+  "references": [],
+  "answer_text": "Это макет университетского кампуса...",
+  "answer_chars": 96,
+  "answer_raw_text": "Это макет университетского кампуса...",
+  "answer_finish_reason": "stop",
+  "action_raw_text": "{\"think\": \"...\", \"tool\": \"noop\", \"args\": {}}",
+  "action_finish_reason": "stop",
+  "verbatim_overlap_words": 3,
+  "say_ok": true,
+  "action": {"tool": "noop", "args": {}, "think": "светская реплика",
+             "ok": true, "message": "", "content_version": null},
+  "repair_used": false,
+  "history_entries": 9,
+  "history_cleared": false,
+  "told_ids": ["lab_demo"],
+  "stage_timings": [{"stage": "llm_action", "ms": 480.2},
+                    {"stage": "llm_answer", "ms": 2100.4},
+                    {"stage": "say", "ms": 11.0}],
+  "stopped_reason": "ok", "degraded": false, "degrade_reason": null,
+  "total_ms": 2595.1,
+  "llm_messages": [{"role": "system", "content": "..."}, "..."]
 }
 ```
 
+`(session_id, turn_id)` глобально уникальна — `turn_id` сам по себе лишь
+процессный счётчик, перезапуск `dialog_agent` при живом `interaction_log`
+начинает его заново. `action.think` — явное рассуждение модели перед
+выбором инструмента (готовая диагностика «почему выбрана эта ветка»).
+`llm_messages` — `TurnResult.messages` как есть: весь обмен с ЛЛМ за ход
+(system prompt, история, реплика посетителя, сырой tool-call на каждой
+попытке починки, инструкция и сырой текст фазы реплики) — единственное
+место, где виден буквально весь ввод/вывод модели. `answer_raw_text`/`action_raw_text` —
+то же самое отдельными полями, ДО постобработки: `answer_text` уже прошёл
+`sanitize_answer` (markdown/самопредставление/обрезка), а `answer_raw_text`
+— то, что модель ответила буквально. `action_raw_text`/`action_finish_reason`
+заполнены и когда `action` — `null` (`stopped_reason=action_parse_error`):
+единственное место, где виден сырой (невалидный) tool-call модели в этом
+случае. `*_finish_reason` — как сервер объяснил остановку генерации
+(`stop`/`length`/...), пусто, если бэкенд вообще не ответил.
+
 `content_version` всегда `null` — известный пробел, см. «Известные
-пробелы». `degrade_reason` — `"aborted"`/`"backend_error"`/`null`;
-FSM-таймаут `answer_max_s` отдельно НЕ детектируется (см. там же).
+пробелы». `references` всегда `[]` (`CLAUDE_CODE_TASK.md` п.5: ретрив из
+хода убран, корпус целиком уже в системном промпте) — поле осталось в
+схеме ради обратной совместимости. `verbatim_overlap_words`
+(`kb/verbatim.py`) — длина самой длинной общей последовательности слов
+между ответом и полным текстом корпуса знаний (не per-turn `references`);
+>= 8 — модель, вероятно, цитирует дословно, а не пересказывает.
 
 ## Каталог инструментов (`tools/schema.py`)
 
 Гейт «какие инструменты сейчас разрешены» — таблица `ToolSpec.allowed_states`
-по `MissionState.state`, один источник для `tool_broker.call_tool()` и
-для снимка (`tools_allowed` в промпте).
+по `MissionState.state`, один источник для `tool_broker.call_tool()`
+(`llm_only=False`, гейт по состоянию для всех вызывающих) и для
+GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, дополнительно
+фильтрует по `ToolSpec.llm_visible`).
 
-| Инструмент | Реальный вызов | Гейт |
-|---|---|---|
-| `start_tour` | `RunTour(tour_id)` | `IDLE` |
-| `guide_to` | `RunTour(location_ids=[id])` | `IDLE` |
-| `tour_by_points` | `EstimateRoute` → `RunTour(location_ids=ordered)` | `IDLE` |
-| `stop_tour` | отмена активного `RunTour`-goal-а | любое, кроме `IDLE` |
-| `pause` / `resume` | `~/request_pause` / `~/request_resume` | `NARRATING` / `PAUSED` |
-| `confirm` | `~/submit_confirm` | `AWAITING_CONFIRM` |
-| `finish_answer` | `~/submit_answer` | `ANSWERING` |
-| `say` | `Say`, `PRIORITY_DIALOG`/`SCOPE_DIALOG` | любое |
-| `tell_about` | `Narrate` | только `IDLE` (вне тура) |
-| `list_locations` / `list_tours` / `estimate_route` | read-only, `semantic_map` | любое |
+| Инструмент | Реальный вызов | Гейт | `llm_visible` |
+|---|---|---|---|
+| `start_tour` | `RunTour(tour_id)` | `IDLE` | да |
+| `guide_to` | `RunTour(location_ids=[id])` | `IDLE` | да |
+| `tour_by_points` | `EstimateRoute` → `RunTour(location_ids=ordered)` | `IDLE` | да |
+| `stop_tour` | отмена активного `RunTour`-goal-а | любое, кроме `IDLE` | да |
+| `pause` / `resume` | `~/request_pause` / `~/request_resume` | `NARRATING` / `PAUSED` | да |
+| `confirm` | `~/submit_confirm` | `AWAITING_CONFIRM` | да |
+| `finish_answer` | `~/submit_answer` | `ANSWERING` | да |
+| `noop` | ничего | любое | да |
+| `say` | `Say`, `PRIORITY_DIALOG`/`SCOPE_DIALOG` | любое | **нет** — зовёт сам `dialog_agent` |
+| `tell_about` | `Narrate` | только `IDLE` (вне тура) | да |
+| `list_locations` / `list_tours` / `estimate_route` | read-only, `semantic_map` | любое | **нет** — каталог в промпте |
 
 ## Чистая логика без ROS
 
@@ -178,16 +306,21 @@ FSM-таймаут `answer_max_s` отдельно НЕ детектируетс
 
 | Модуль | Что делает |
 |---|---|
-| `tools/schema.py` | Каталог инструментов + таблица гейтов по состоянию |
+| `tools/schema.py` | Каталог инструментов + таблица гейтов по состоянию/`llm_visible` |
 | `tools/validate.py` | Валидация args (whitelist локаций/туров, форма) до похода в ROS |
-| `matching.py` | ASR-фраза → да/нет/стоп-слово, локально, без ЛЛМ |
+| `matching.py` | ASR-фраза → да/нет/стоп-слово, локально, без ЛЛМ (с гейтом по длине/вопросам) |
 | `snapshot.py` | `MissionState`+`Presence` → компактный dict для промпта |
 | `llm_client/backend.py` | Один HTTP-бэкенд, всегда стримит (нужно для abort) |
 | `llm_client/grammar.py` | GBNF по форме tool-call JSON, не по содержимому |
 | `llm_client/ladder.py` | Список бэкендов, retry/backoff, без stateful circuit breaker |
-| `dialog/loop.py` | ReAct-шаг: сообщения → tool call → результат → сообщения |
-| `dialog/prompt.py` | Системный промпт: преамбул (файл) + каталог инструментов |
-| `dialog/interaction_log.py` | Сборка одной jsonl-записи из `ReactTurnResult`+тайминга |
+| `dialog/history.py` | Память диалога между ходами: append-only, обрезка по символам/половинам |
+| `dialog/sanitize.py` | Санитайзер фазы реплики: markdown/самопредставление/tool-call JSON (в т.ч. приклеенный к тексту)/обрезка по границе предложения |
+| `dialog/turn.py` | Двухфазный ход: реплика → `speak()` → действие, с починкой |
+| `dialog/prompt.py` | Системный промпт (преамбул + каталог локаций/туров + справочник) и инструкции фаз (`build_action_instruction`: каталог инструментов + правила выбора; `build_answer_instruction`: правила реплики) |
+| `dialog/interaction_log.py` | Сборка одной jsonl-записи хода (схема v4) |
+| `kb/chunker.py` | `.md` → пассажи по заголовкам, с перекрытием абзацев |
+| `kb/retriever.py` | BM25-поиск по корпусу (русский стемминг, `boost_ids`, `min_score`) |
+| `kb/verbatim.py` | Длина самой длинной общей последовательности слов (метрика цитирования) |
 | `lib/interaction_sink.py` | Построчный jsonl, flush на запись |
 
 `lib/qos.py` — единственный модуль пакета, которому разрешено
@@ -204,6 +337,20 @@ FSM-таймаут `answer_max_s` отдельно НЕ детектируетс
 | `/speech/cancel_all` | `CancelAll` (sub, RELIABLE/VOLATILE) | dialog_agent (abort хода) |
 
 QoS-профили — `lib/qos.py`.
+
+## Корпус знаний: пересборка
+
+```bash
+cd guide_robot_llm
+python3 scripts/build_kb.py   # config/kb_source/*.md -> config/kb.jsonl
+```
+
+Исходный `.md` — в репозитории (`config/kb_source/`), пересборка
+воспроизводима. `config/kb_source/tour.md` — стартовый корпус про
+Иннополис/университет/лабораторию; реальный текст экскурсовода
+поддерживающая команда должна расширить и выверить фактически, это
+только заготовка формата (заголовки → пассажи, `location_ids:` —
+привязка к остановке).
 
 ## Запуск
 
@@ -225,7 +372,10 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
 
 Перед `dialog_agent`: `llm_server/` должен отвечать на `/health` (см.
 `../llm_server/README.md`) — иначе каждый ход уходит в
-`degrade_reason=backend_error` после исчерпания `llm.max_attempts_per_backend`.
+`degrade_reason=backend_error`/`answer_backend_error` после исчерпания
+`llm.max_attempts_per_backend`. `dialog_agent.on_activate` также требует
+живого `tool_broker` (каталог локаций/туров) — активировать `tool_broker`
+раньше.
 
 Не зарегистрирован в `guide_robot_supervisor` — по прецеденту с `voice`/
 `semantic_map` (см. `guide_robot_mission_control/README.md`, «Известные
@@ -234,40 +384,56 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
 ## Известные пробелы
 
 - **`content_version` в `interaction_log` всегда `null`.** `tool_broker`
-  не ждёт результата `Say`/`Narrate` (fire-and-forget по дизайну — long-
-  running действие не должно вешать ReAct-ход), поэтому версия реально
-  озвученного контента (`GetExhibitContent`) никогда не доходит обратно
-  до `dialog_agent`. Прокинуть её означало бы менять fire-and-forget
-  дизайн `_tool_say`/`_tool_tell_about` — отдельная доработка.
+  не ждёт результата `Say`/`Narrate` (fire-and-forget по дизайну), поэтому
+  версия реально озвученного контента (`GetExhibitContent`) никогда не
+  доходит обратно до `dialog_agent`. Тот же корень, что у `truncated` в
+  истории — приближение через `CancelAll`, не точное значение.
+- **`nearby` в снимке не заполняется.** `snapshot.build_snapshot()`
+  поддерживает параметр (id ближайших локаций по координатам), но
+  `dialog_agent` не подписан ни на одну публикацию текущей позы робота —
+  посчитать «рядом» не из чего. Осознанный пробел этого захода, не
+  тихий пропуск.
+- **Мид-тур переадресация не реализована.** `guide_to`/`tour_by_points`
+  по-прежнему разрешены только в `IDLE` — «проводи меня к X» во время
+  тура недостижимо без `stop_tour`. См. `DIALOG_REWORK_PLAN.md` §7.5/§11.
+- **Whitelist локаций/туров в `tool_broker` кэшируется один раз на
+  `on_activate`.** Локация/тур, добавленные в `location_server` ПОСЛЕ
+  активации `tool_broker`, не пройдут валидацию до следующей
+  реактивации — осознанный компромисс латентности (план §7.2).
 - **FSM-таймаут `answer_max_s` не детектируется как отдельная
-  деградационная метрика** (риск §6 плана). Если `dialog_agent` не
-  успел ответить, `mission_fsm` резюмирует сам — деградация корректная,
-  но `dialog_agent` не наблюдает внутренний таймер `AnsweringState`
-  напрямую и не помечает эту ситуацию в `interaction_log` отдельно от
-  обычного успешного хода.
+  деградационная метрика.** Если `dialog_agent` не успел ответить,
+  `mission_fsm` резюмирует сам — деградация корректная, но не помечена в
+  `interaction_log` отдельно от обычного успешного хода.
 - **GBNF проверяется только структурно.** В тестовом окружении нет
   `llama.cpp`-бинаря для реального разбора грамматики (его поднимает
   `llm_server/`) — `test_llm_client_grammar.py` проверяет форму
   сгенерированного текста, не то, что `llama-server` действительно
   примет его как валидный GBNF.
-- **Нет персистентной истории между РАЗНЫМИ репликами посетителя.**
-  `dialog/loop.py` копит сообщения только внутри одного хода (между его
-  же tool-call/результат парами); снимок несёт актуальное состояние
-  каждый ход, длинная память не специфицирована ни в `llm_plam.md`, ни
-  в design.
-- **Один ход в полёте максимум.** Новый финальный транскрипт, пока
-  предыдущий ход `dialog_agent` не завершился/не оборван abort-ом,
-  просто пропускается (лог `"ход уже в полёте"`) — не встаёт в очередь.
-- **`python3 -m pytest test -q` без флага падает.** `anyio`
-  (pip, 4.x) не совместим с системным `pytest` 6.2.5 в образе
-  контейнера (`_pytest.scope` появился только в pytest 7+) — нужен
-  `-p no:anyio`. Пре-существующий, общеконтейнерный дефект, не
-  специфичный для этого пакета (воспроизводится в любом пакете
-  монорепо); фикс (`pytest.ini`) не сделан.
+- **`python3 -m pytest test -q` без флага падает.** `anyio` (pip, 4.x)
+  не совместим с системным `pytest` 6.2.5 в образе контейнера — нужен
+  `-p no:anyio`. Пре-существующий, общеконтейнерный дефект.
 - **Не смокано против реального `llm_server`.** Все тесты — на
-  `MockLlmServer` (`test/mocks/mock_llm_server.py`, голый `http.server`).
-  Живой прогон с настоящим `llama.cpp` (шаг 7 плана) не выполнялся из
-  этого контейнера.
+  `MockLlmServer` (голый `http.server`, различает фазы по наличию
+  `grammar` в теле запроса). Живой прогон (`scripts/eval_turns.py`
+  против настоящего `llama.cpp`) не выполнялся из этого контейнера.
+- **`config/kb_source/tour.md` — стартовый корпус, не выверенный текст
+  экскурсовода.** См. «Корпус знаний: пересборка» выше.
+- **`say` ack'ается по ПРИНЯТИЮ цели, не по концу озвучки.** Ответ на
+  реплику N может звучать заметно позже конца хода N; отложенная реплика
+  из однослотовой очереди отыгрывается сразу после хода, не дожидаясь
+  конца звука. Completion-aware `say` (ожидание результата `Say` или
+  подписка на состояние голосового планировщика) — отдельный заход.
+- **Два независимых кэша `/mission/state`.** `dialog_agent` фиксирует
+  состояние в момент транскрипта (по нему строится GBNF-каталог),
+  `tool_broker` перегейтивает своим кэшем в момент исполнения — переход
+  состояния между двумя вызовами ЛЛМ может сделать действие легальным
+  для грамматики и нелегальным для брокера (ход честно закончится
+  `action_invalid` с репликой-извинением, но не выполнит намерение).
+- **Блуждающий флак полного прогона тестов.** На `pytest test -q`
+  целиком изредка падает один из harness-тестов `test_voice_confirm`/
+  `test_tool_gating` (гонки teardown DDS-графов между последовательными
+  harness'ами: `Goal state not set`, invalid feedback publisher); в
+  изоляции и в малых батчах — стабильно зелёные.
 
 ## Тесты
 
@@ -277,62 +443,37 @@ python3 -m pytest test -q -p no:anyio
 ruff check .
 ```
 
-99 тестов (98 проходят + 1 skip), без ROS-железа — rclpy + моки
-(`test/mocks/`: `mock_llm_server.py` — голый `http.server`, chunked SSE;
-`mock_nav_server.py`/`mock_say_server.py`/`mock_semantic_map.py`/
+Без ROS-железа — rclpy + моки (`test/mocks/`: `mock_llm_server.py` —
+голый `http.server`, chunked SSE, различает фазы по `grammar` в теле
+запроса; `mock_nav_server.py`/`mock_say_server.py`/`mock_semantic_map.py`/
 `sim_clock.py` — переиспользованы из `guide_robot_mission_control` тем
-же приёмом «копия, не импорт», что и остальные пакеты монорепо).
-`test/mocks/harness.py` поднимает РЕАЛЬНЫЕ `mission_fsm`/
-`narration_server` (не мок поверх мока) + `tool_broker`+`dialog_agent`+
-`interaction_log` в одном `rclpy.Context()`.
+же приёмом «копия, не импорт»). `test/mocks/harness.py` поднимает
+РЕАЛЬНЫЕ `mission_fsm`/`narration_server` (не мок поверх мока) +
+`tool_broker`+`dialog_agent`+`interaction_log` в одном `rclpy.Context()`.
 
 | Файл | Что проверяет |
 |---|---|
-| `test_schema.py`, `test_validate.py` | Каталог инструментов, гейты, валидация args |
-| `test_matching.py` | ASR-фраза → да/нет/стоп-слово |
-| `test_snapshot.py` | Сборка компактного dict для промпта |
+| `test_schema.py`, `test_validate.py` | Каталог инструментов, гейты, `llm_visible`/`llm_only`, валидация args |
+| `test_matching.py` | ASR-фраза → да/нет/стоп-слово, гейт по длине/вопросительным словам |
+| `test_snapshot.py` | Сборка компактного dict для промпта, включая `already_told`/`nearby` |
+| `test_history.py` | Память диалога: обрезка при записи, склейка событий, обрезка половинами |
+| `test_sanitize.py` | Санитайзер фазы реплики: markdown, самопредставление, tool-call JSON (хвост/начало/середина), граница предложения |
+| `test_turn.py` | Двухфазный ход на фейковых `complete_*`/`speak`/`execute_tool` |
+| `test_kb_chunker.py` | Разбор `.md` на пассажи по заголовкам/длине/`location_ids:` |
+| `test_kb_retriever.py` | BM25-поиск: стемминг, `min_score`, `boost_ids` |
+| `test_verbatim.py` | Метрика самой длинной общей последовательности слов |
 | `test_llm_client_backend.py` | HTTP-механика: stream, timeout, HTTP-ошибка, abort |
 | `test_llm_client_ladder.py` | Порядок бэкендов, retry, abort не ретраится |
 | `test_llm_client_grammar.py` | GBNF форма (не содержимое) |
-| `test_dialog_loop.py` | ReAct-шаг на фейковых complete/execute_tool |
-| `test_dialog_prompt.py` | Сборка системного промпта |
+| `test_dialog_prompt.py` | Сборка системного промпта (каталог, справочник, детерминизм), `build_action_instruction` (каталог инструментов, honest noop, последняя реплика) и `build_answer_instruction` |
 | `test_interaction_sink.py` | jsonl-sink: flush, newline-delimited, idempotent close |
-| `test_interaction_log.py` | Сборка jsonl-записи из `ReactTurnResult` |
-| `test_tool_gating.py` | Полный тур/пауза/стоп/barge-in ТОЛЬКО через `call_tool()` |
+| `test_interaction_log.py` | Сборка jsonl-записи схемы v3 из `TurnResult`, включая сырой ввод/вывод ЛЛМ (`llm_messages`, `*_raw_text`, `*_finish_reason`) |
+| `test_tool_gating.py` | Полный тур/пауза/стоп/barge-in/`noop`/кэш whitelist ТОЛЬКО через `call_tool()` |
 | `test_voice_confirm.py` | `AWAITING_CONFIRM`/`ANSWERING` закрываются голосом мимо ЛЛМ |
-| `test_dialog_agent_e2e.py` | Транскрипт → ЛЛМ (мок) → `~/call_tool`, barge-in abort, fast-path подавление |
-| `test_interaction_log_e2e.py` | Ход через `dialog_agent` → jsonl-запись на диске |
+| `test_dialog_agent_e2e.py` | Транскрипт → ход «действие → реплика» (мок) → `~/call_tool`, barge-in abort, очередь транскриптов, fast-path, wake-слово, события истории |
+| `test_interaction_log_e2e.py` | Ход через `dialog_agent` → jsonl-запись схемы v3 на диске |
+| `test_answering_closes.py` | Регресс: в `ANSWERING` ход не может выбрать `say` как действие |
 
-Известный флейк, не специфичный для этого пакета: полный прогон
-`guide_robot_mission_control`/`guide_robot_llm` подряд несколько раз под
-нагрузкой хоста иногда даёт таймаут в barge-in→`ANSWERING`-сценариях
-(фиксированные 5-секундные `wait_until` в тестах, воспроизводится даже
-при полностью отключённом коде этого пакета) — не логическая ошибка,
-одиночные прогоны стабильно зелёные.
-
-## Отличия от `llm_plam.md`
-
-1. **`~/call_tool` — сервис, не было в исходном плане явно.**
-   `llm_plam.md` §3 называет `call_tool()` "единственной точкой входа
-   для скриптов/dialog_agent", что при чтении можно принять за прямой
-   Python-вызов. По факту `tool_broker`/`dialog_agent` — разные процессы
-   (как и везде в монорепо, mission_fsm/narration_server тому пример) —
-   единственная точка входа означает одну ТОЧКУ ГЕЙТА, не общий процесс.
-2. **GBNF — по форме, не по содержимому.** План не специфицировал
-   степень детализации; выбрано намеренно (обсуждено) — типизация
-   per-tool дублировала бы `tools/schema.py` и всё равно не могла бы
-   закрыть рантаймовые whitelist'ы (`location_id`).
-3. **Системный промпт — файл + программный каталог, не готовый текст.**
-   `config/system_prompt.txt` несёт только преамбул; каталог
-   инструментов собирается из `tools/schema.py` каждый раз заново, ВЕСЬ
-   (не отфильтрованный по состоянию) — иначе `CACHE_REUSE` на
-   `llm_server` не работал бы (префикс менялся бы с каждым переходом
-   состояния тура).
-4. **Деградация — список бэкендов с retry, не stateful circuit
-   breaker.** `llm_server/iros_llm_server_SPEC.md` §0 говорит про
-   "список бэкендов и circuit breaker"; реально развёрнут один сервер
-   (профили `qwen7b-q4`/`cpu-fallback` переключаются вручную через
-   `.env`, не два живых эндпоинта одновременно) — резервировать
-   cooldown-таймеры под несуществующий второй бэкенд не стали.
-5. **Персистентная история между репликами — не реализована** (см.
-   «Известные пробелы»), план явно не специфицирует её объём.
+`scripts/eval_turns.py`/`scripts/extract_golden.py` — не тесты в CI,
+ручные скрипты для прогона golden-набора против живого `llm_server`
+(`DIALOG_REWORK_PLAN.md` §9).

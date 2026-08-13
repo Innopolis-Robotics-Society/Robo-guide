@@ -59,7 +59,14 @@ def _escape_tool_name(name: str) -> str:
 
 
 def build_tool_call_grammar(tool_names: Sequence[str]) -> str:
-    """Собрать GBNF, фиксирующую форму `{"tool": <enum>, "args": <object>}`.
+    """Собрать GBNF формы `{"think": <string>, "tool": <enum>, "args": <object>}`.
+
+    `think` -- обязательное ПЕРВОЕ поле: короткое свободное рассуждение
+    («чего хочет посетитель и почему выбран инструмент») генерируется ДО
+    выбора имени инструмента -- классический ReAct-Thought, который прежняя
+    грамматика просто выкидывала. Содержимое think грамматикой не
+    ограничивается (обычное string-правило) -- длину сдерживает
+    `llm.max_tokens_action`.
 
     `tool_names` -- обычно `tools.schema.allowed_tools(mission_state)`: пустой
     список -- вырожденный случай (в такой момент `dialog_agent` не должен
@@ -72,7 +79,8 @@ def build_tool_call_grammar(tool_names: Sequence[str]) -> str:
         tool_alt = " | ".join(f'"\\"{_escape_tool_name(name)}\\""' for name in tool_names)
 
     root = (
-        'root ::= "{" ws "\\"tool\\"" ws ":" ws tool-name ws "," ws '
+        'root ::= "{" ws "\\"think\\"" ws ":" ws string ws "," ws '
+        '"\\"tool\\"" ws ":" ws tool-name ws "," ws '
         '"\\"args\\"" ws ":" ws object ws "}" ws\n'
         f"tool-name ::= {tool_alt}\n"
     )

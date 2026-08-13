@@ -1,11 +1,22 @@
-"""Каталог инструментов ЛЛМ + таблица гейтов по MissionState.state (llm_plam.md §4).
+"""Каталог инструментов ЛЛМ + таблица гейтов по MissionState.state (DIALOG_REWORK_PLAN.md §4.3).
 
-Гейт по состоянию живёт здесь, не в промпте и не в FSM (плана §4: "ЛЛМ,
-попросивший start_tour во время тура, получает не REJECT от FSM, а внятный
-результат «тур уже идёт, доступно: ...» -- и переспланирует"). Один источник
-для двух потребителей: `tool_broker_node.call_tool()` дёргает `is_tool_allowed`
-перед походом в ROS, `snapshot.py`/будущий промпт (шаг 5) берут `allowed_tools`
-для `tools_allowed`.
+Гейт по состоянию живёт здесь, не в промпте и не в FSM: ЛЛМ, попросивший
+`start_tour` во время тура, получает не REJECT от FSM, а внятный результат
+«тур уже идёт, доступно: ...». Один источник для двух потребителей:
+`tool_broker_node.call_tool()` дёргает `is_tool_allowed` перед походом в
+ROS (с `llm_only=False` -- гейт по состоянию действует на всех
+вызывающих, включая сам `dialog_agent`, зовущий невидимый модели `say`),
+`dialog_agent_node.py` берёт `allowed_tools(state, llm_only=True)` для
+GBNF-каталога и `tools_allowed` в снимке.
+
+`llm_visible=False` (DIALOG_REWORK_PLAN.md §0): `say` перестал быть
+выбором модели -- реплику определяет фаза 1 хода (свободный текст), а
+`say` в `tool_broker` только озвучивает уже готовый текст, зовёт его сам
+`dialog_agent`, не модель. `list_locations`/`list_tours`/`estimate_route`
+скрыты по той же причине, что убрано ReAct: каталог локаций/туров теперь
+целиком в системном промпте (`dialog/prompt.py`), а не read-only вызов в
+рантайме; `estimate_route` продолжает использоваться внутри
+`_tool_tour_by_points`, но не как отдельный вызов модели.
 
 `pause` разрешён только в NARRATING не произвольно -- это единственное
 состояние, которое реально вычитывает `FsmContext.take_pause_request()`
@@ -44,11 +55,17 @@ _TOUR_ACTIVE_STATES: frozenset[int] = ALL_STATES - {_S.STATE_IDLE}
 
 @dataclass(frozen=True)
 class ToolSpec:
-    """Один инструмент каталога: имя для ЛЛМ + состояния, в которых он разрешён."""
+    """Один инструмент каталога: имя + состояния, в которых он разрешён + видимость модели.
+
+    `llm_visible=False` -- инструмент существует и гейтится как обычно, но
+    не попадает в каталог, который видит ЛЛМ (`allowed_tools(..., llm_only=True)`):
+    `tool_broker.call_tool()` по-прежнему его принимает от `dialog_agent`.
+    """
 
     name: str
     description: str
     allowed_states: frozenset[int]
+    llm_visible: bool = True
 
 
 TOOLS: tuple[ToolSpec, ...] = (
@@ -82,15 +99,37 @@ TOOLS: tuple[ToolSpec, ...] = (
         "Закрыть текущий вопрос посетителя: вернуться/пропустить остановку/закончить тур.",
         frozenset({_S.STATE_ANSWERING}),
     ),
-    ToolSpec("say", "Сказать реплику посетителю (не рассказ экспоната).", ALL_STATES),
+    ToolSpec(
+        "say",
+        "Сказать реплику посетителю (не рассказ экспоната).",
+        ALL_STATES,
+        llm_visible=False,
+    ),
     ToolSpec(
         "tell_about",
         "Рассказать про экспонат (exhibit_id) вне тура.",
         frozenset({_S.STATE_IDLE}),
     ),
-    ToolSpec("list_locations", "Список локаций (read-only, только публичные).", ALL_STATES),
-    ToolSpec("list_tours", "Список заранее заданных туров (read-only).", ALL_STATES),
-    ToolSpec("estimate_route", "Оценить маршрут по списку локаций (read-only).", ALL_STATES),
+    ToolSpec(
+        "noop",
+        "Ничего не делать: реплики достаточно.",
+        ALL_STATES,
+    ),
+    ToolSpec(
+        "list_locations",
+        "Список локаций (read-only, только публичные).",
+        ALL_STATES,
+        llm_visible=False,
+    ),
+    ToolSpec(
+        "list_tours", "Список заранее заданных туров (read-only).", ALL_STATES, llm_visible=False
+    ),
+    ToolSpec(
+        "estimate_route",
+        "Оценить маршрут по списку локаций (read-only).",
+        ALL_STATES,
+        llm_visible=False,
+    ),
 )
 
 _BY_NAME: dict[str, ToolSpec] = {tool.name: tool for tool in TOOLS}
@@ -107,6 +146,17 @@ def is_tool_allowed(name: str, mission_state: int) -> bool:
     return spec is not None and mission_state in spec.allowed_states
 
 
-def allowed_tools(mission_state: int) -> list[str]:
-    """Имена всех инструментов, разрешённых при текущем `MissionState.state`."""
-    return [tool.name for tool in TOOLS if mission_state in tool.allowed_states]
+def allowed_tools(mission_state: int, *, llm_only: bool = False) -> list[str]:
+    """Имена инструментов, разрешённых при текущем `MissionState.state`.
+
+    `llm_only=True` -- дополнительно отфильтровать по `llm_visible` (для
+    GBNF-каталога и `tools_allowed` в снимке, которые видит модель).
+    `tool_broker.call_tool()` зовёт с `llm_only=False` (по умолчанию): гейт
+    по состоянию действует на всех вызывающих, а `say` от `dialog_agent`
+    обязан пройти, даже не будучи виден модели.
+    """
+    return [
+        tool.name
+        for tool in TOOLS
+        if mission_state in tool.allowed_states and (not llm_only or tool.llm_visible)
+    ]
