@@ -64,10 +64,13 @@ class SileroVad:
         options.inter_op_num_threads = 1
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
+        # Silero -- окно 512 сэмплов / 32 мс, ~1.2 мс на CPU. CUDA EP на таком
+        # графе на Orin дороже из-за H2D/D2H/sync (~24% ядра против ~4%) и
+        # срывает колбэки /audio/mic. Piper/GigaAM остаются на CUDA.
         self._session = ort.InferenceSession(
             self._model_path,
             sess_options=options,
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            providers=["CPUExecutionProvider"],
         )
         self.reset()
 

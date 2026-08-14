@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import math
 import threading
+import time
 
 import numpy as np
 import rclpy
@@ -96,6 +97,8 @@ class VadNode(LifecycleNode):
         self._barge_in_armed = True
         """False сразу после срабатывания -- одно барж-ин на сегмент речи."""
         self._barge_in_triggers_total = 0
+        self._gap_log_at = 0.0
+        self._gaps_suppressed = 0
 
     # -- lifecycle ------------------------------------------------------
 
@@ -158,6 +161,8 @@ class VadNode(LifecycleNode):
         self._was_active = False
         self._barge_in_streak = 0
         self._barge_in_armed = True
+        self._gap_log_at = 0.0
+        self._gaps_suppressed = 0
         with self._lock:
             self._is_active = True
         return super().on_activate(state)
@@ -190,10 +195,19 @@ class VadNode(LifecycleNode):
 
         expected = self._expected_first_sample
         if expected is not None and msg.first_sample != expected:
-            self.get_logger().warning(
-                f"разрыв в /audio/mic: ожидался first_sample={expected}, "
-                f"пришёл {msg.first_sample} -- сбрасываю состояние"
-            )
+            now = time.monotonic()
+            if now - self._gap_log_at >= 1.0:
+                extra = (
+                    f" (+{self._gaps_suppressed} ещё за секунду)" if self._gaps_suppressed else ""
+                )
+                self.get_logger().warning(
+                    f"разрыв в /audio/mic: ожидался first_sample={expected}, "
+                    f"пришёл {msg.first_sample} -- сбрасываю состояние{extra}"
+                )
+                self._gap_log_at = now
+                self._gaps_suppressed = 0
+            else:
+                self._gaps_suppressed += 1
             assert self._vad is not None
             assert self._hysteresis is not None
             self._vad.reset()
