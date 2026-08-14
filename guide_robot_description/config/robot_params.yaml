@@ -150,8 +150,9 @@ drive:
   motor_accel: 1000
 
 sensors:
-  # RPLIDAR C1. Этим же числом режет dual_laser_merger в sensors.launch.py,
-  # и по нему AMCL решает, считать ли возврат "максимальной дальностью".
+  # RPLIDAR C1. Этим же числом режет dual_laser_merger (lidars.launch.py /
+  # perception.launch.py), и по нему AMCL решает, считать ли возврат
+  # "максимальной дальностью".
   lidar_range_max: 12.0
 
 controller_manager:

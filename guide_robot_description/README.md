@@ -94,7 +94,8 @@ launch-файл его оттуда не запускает (см. «Извес�
 3. иначе → `guide_robot_hardware/GuideRobotSystem` — реальный Dynamixel-драйвер
    базы, получает через `<param>` весь раздел `drive` из `robot_params.yaml`
    (`serial_port`, `baud_rate`, ID моторов, `ticks_per_rev`, знаки направления,
-   `speed_coefficient`, `cmd_timeout`) плюс `wheel_radius` из `geometry`.
+   `speed_coefficient`, `speed_offset`, `cmd_timeout`) плюс `wheel_radius` из
+   `geometry`.
    Дефолты в `guide_robot_hardware/include/.../guide_robot_system.hpp:93-100`
    совпадают с текущими значениями `robot_params.yaml` — это дублирование
    значений в двух местах, но не рассинхронизировано на момент проверки.

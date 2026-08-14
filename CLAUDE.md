@@ -95,7 +95,7 @@ Two RPLIDAR C1 (right one delayed 5 s to avoid a power sag on simultaneous start
 
 **Gotcha:** the merger needs `enable_calibration: True` on real hardware (`lidars.launch.py`) — with `False` both `/scan` and the map come up empty. The `False` in `perception.launch.py` is the *simulation-only* merger instance, where Gazebo already publishes in correct TF frames.
 
-Seven sonars (IDs `1,2,4,5,6,8,9` — vendor wiring numbers, 3 and 7 do not exist) share one UART. `sonar_node_mult.py` is the production node publishing one `sensor_msgs/Range` per sensor on `/sonar/range/<frame_id>` with `SensorDataQoS` (BEST_EFFORT) straight into `collision_monitor`. `sonar_node.py` is the older aggregate-message variant and is launched by nothing.
+Seven sonars (IDs `1,2,4,5,6,8,9` — vendor wiring numbers, 3 and 7 do not exist) share one UART. `sonar_node_mult.py` publishes one `sensor_msgs/Range` per sensor on `/sonar/range/<frame_id>` with `SensorDataQoS` (BEST_EFFORT) straight into `collision_monitor`.
 
 The pybind11 module `furo_sonars_cpp` is installed into `lib/guide_robot_sonar/`, **not** site-packages, on purpose: `sys.path[0]` is the executed script's dir, so a stale copy left in site-packages by an earlier `PYTHON_INSTALL_DIR` layout cannot shadow the fresh build (colcon never deletes files a build stopped producing). Do not "fix" this by adding `PYTHON_INSTALL_DIR`.
 

@@ -6,7 +6,8 @@
     base_class_type="hardware_interface::SystemInterface">
     <description>
       Guide Robot hardware interface.
-      Dynamixel 1.0 Sync Write over UART (/dev/ttyUSB0).
+      FURO protocol (Dynamixel 1.0 clone, instruction 0x06) over UART
+      (/dev/tty_motors).
     </description>
   </class>
 </library>

@@ -22,6 +22,8 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from guide_robot_bringup.dual_laser_merger_params import merger_params
+
 
 def generate_launch_description():
     """Launch the perception stack (lidars + scan merger + sonars)."""
@@ -90,26 +92,12 @@ def generate_launch_description():
         ],
         parameters=[
             {"use_sim_time": use_sim_time},
-            {
-                "laser_1_topic": "/scan_left",
-                "laser_2_topic": "/scan_right",
-                "target_frame": merge_frame,
-                "tolerance": 0.05,
-                "queue_size": 10,
-                "angle_increment": 0.005,
-                "scan_time": 0.1,
-                "range_min": 0.1,
-                "range_max": 12.0,
-                "min_height": -0.5,
-                "max_height": 1.5,
-                "angle_min": -3.141592654,
-                "angle_max": 3.141592654,
-                "use_inf": True,
-                "inf_epsilon": 1.0,
-                "enable_calibration": False,
-                "enable_average_filter": False,
-                "enable_shadow_filter": False,
-            },
+            merger_params(
+                laser_1_topic="/scan_left",
+                laser_2_topic="/scan_right",
+                target_frame=merge_frame,
+                enable_calibration=False,
+            ),
         ],
     )
 

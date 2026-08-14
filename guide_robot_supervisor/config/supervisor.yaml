@@ -86,8 +86,10 @@ supervisor:
 
     - name: tf_odom
       class: guide_robot_supervisor.watchdogs.tf_available.TFWatchdog
-      params: {parent: odom, child: base_link, max_age: 1.0, grace: 20.0}
-      policy: {on_error: estop, debounce: 3, period: 0.5}
+      # 1.0 с ловило scheduling hitch (ros2 CLI / шторм /rosout) как
+      # пропажу одометрии и вешало estop. pause navigation, не вся база.
+      params: {parent: odom, child: base_link, max_age: 3.0, grace: 20.0}
+      policy: {on_error: pause, target: navigation, debounce: 3, period: 0.5}
 
     - name: tf_map
       class: guide_robot_supervisor.watchdogs.tf_available.TFWatchdog

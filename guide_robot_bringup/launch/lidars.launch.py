@@ -22,12 +22,19 @@ and /scan_right separately, see that node's docstring for usage).
 
 Merger output:
   /scan      — merged LaserScan in base_footprint frame (fed to Nav2 / SLAM)
+
+Note: a local Python scan_merger with TF deskew exists (scan_merger.py) but is
+NOT launched here — on the Orin under the full stack it ate ~1.4 cores and
+published BEST_EFFORT /scan that RELIABLE tools (echo/Foxglove) showed empty.
+Deskew needs a C++ port before it comes back on hardware.
 """
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+from guide_robot_bringup.dual_laser_merger_params import merger_params
 
 
 def generate_launch_description():
@@ -96,56 +103,31 @@ def generate_launch_description():
     # below, so nothing to widen here.
     right_blind_sectors_deg = "8.0,105.0"
 
-    # ── LEFT lidar ─────────────────────────────────────────────────────────────
-    # Publishes to: /scan_left
-    # frame_id must match the URDF link: laser_frame_left
-    lidar_left_node = Node(
-        package="sllidar_ros2",
-        executable="sllidar_node",
-        name="sllidar_left",
-        output="screen",
-        parameters=[
-            {
-                "serial_port": left_port,
-                "serial_baudrate": baudrate,
-                "frame_id": "laser_frame_left",
-                # Reverses the ranges-array order relative to the fixed
-                # angle array (sllidar_node.cpp), which mirrors the arc
-                # left/right. False here matches the real mount.
-                "inverted": False,
-                "angle_compensate": True,
-                "use_sim_time": use_sim_time,
-            }
-        ],
-        remappings=[
-            ("/scan", "/scan_left"),
-        ],
-    )
+    def sllidar(name, port, frame_id, scan_topic):
+        # inverted=False matches the real mount: sllidar_node.cpp reverses
+        # the ranges-array order relative to the fixed angle array.
+        return Node(
+            package="sllidar_ros2",
+            executable="sllidar_node",
+            name=name,
+            output="screen",
+            parameters=[
+                {
+                    "serial_port": port,
+                    "serial_baudrate": baudrate,
+                    "frame_id": frame_id,
+                    "inverted": False,
+                    "angle_compensate": True,
+                    "use_sim_time": use_sim_time,
+                }
+            ],
+            remappings=[("/scan", scan_topic)],
+        )
 
+    lidar_left_node = sllidar("sllidar_left", left_port, "laser_frame_left", "/scan_left")
     lidar_right_node = TimerAction(
         period=lidar_delay,
-        actions=[
-            Node(
-                package="sllidar_ros2",
-                executable="sllidar_node",
-                name="sllidar_right",
-                output="screen",
-                parameters=[
-                    {
-                        "serial_port": right_port,
-                        "serial_baudrate": baudrate,
-                        "frame_id": "laser_frame_right",
-                        # See sllidar_left above.
-                        "inverted": False,
-                        "angle_compensate": True,
-                        "use_sim_time": use_sim_time,
-                    }
-                ],
-                remappings=[
-                    ("/scan", "/scan_right"),
-                ],
-            )
-        ],
+        actions=[sllidar("sllidar_right", right_port, "laser_frame_right", "/scan_right")],
     )
 
     # Blank out each lidar's self-hit sector(s) before they reach the merger.
@@ -178,7 +160,10 @@ def generate_launch_description():
         ],
     )
 
-    # Merges /scan_left and /scan_right using TF into a single LaserScan on /scan
+    # Merges /scan_left and /scan_right using TF into a single LaserScan on /scan.
+    # Python scan_merger (deskew) rolled back 2026-08-11: ~1.4 cores on Orin
+    # under the full stack, and BEST_EFFORT /scan looked empty in RELIABLE
+    # tools. dual_laser_merger stays until deskew is C++.
     merger_node = Node(
         package="dual_laser_merger",
         executable="dual_laser_merger_node",
@@ -190,39 +175,25 @@ def generate_launch_description():
         ],
         parameters=[
             {"use_sim_time": use_sim_time},
-            {
-                "laser_1_topic": "/scan_left_filtered",
-                "laser_2_topic": "/scan_right_filtered",
-                "target_frame": merge_frame,
-                "tolerance": 0.05,
-                "queue_size": 10,
-                "angle_increment": 0.005,
-                "scan_time": 0.1,
-                "range_min": 0.1,
-                "range_max": 12.0,
-                "min_height": -0.5,
-                "max_height": 1.5,
-                "angle_min": -3.141592654,
-                "angle_max": 3.141592654,
-                "use_inf": True,
-                "inf_epsilon": 1.0,
+            merger_params(
+                laser_1_topic="/scan_left_filtered",
+                laser_2_topic="/scan_right_filtered",
+                target_frame=merge_frame,
                 # Confirmed on real hardware: with this False, /scan (and
                 # therefore /map) stayed empty even though the node and
                 # SLAM both started cleanly.
-                "enable_calibration": True,
+                enable_calibration=True,
                 # Both lidars sit on a metal bar guaranteed perpendicular to
                 # the robot's direction of travel, so x is trusted to be 0.
                 # y/yaw fitted from test/dual_lidar_raw_check2_0.db3 (ICP
                 # against the shared wall, seen by both lidars).
-                "laser_1_x_offset": 0.0,
-                "laser_1_y_offset": 0.0,
-                "laser_1_yaw_offset": 0.0,
-                "laser_2_x_offset": 0.0,
-                "laser_2_y_offset": -0.016,
-                "laser_2_yaw_offset": 0.028,
-                "enable_average_filter": False,
-                "enable_shadow_filter": False,
-            },
+                laser_1_x_offset=0.0,
+                laser_1_y_offset=0.0,
+                laser_1_yaw_offset=0.0,
+                laser_2_x_offset=0.0,
+                laser_2_y_offset=-0.016,
+                laser_2_yaw_offset=0.028,
+            ),
         ],
     )
 
