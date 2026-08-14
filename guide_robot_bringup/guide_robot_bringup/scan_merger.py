@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Merge two LaserScans into one /scan with motion compensation (deskew).
 
-Replaces the external dual_laser_merger on the real robot. That merger pairs
+NOT LAUNCHED BY ANYTHING as of 2026-08-11: rolled back on hardware (~1.4
+cores on the Orin under the full stack, and BEST_EFFORT /scan read empty in
+RELIABLE tools), dual_laser_merger is back in lidars.launch.py. Kept for the
+C++ port — the problem below is real, the Python solution was too expensive.
+
+It was written to replace the external dual_laser_merger, which pairs
 scans with message_filters.ApproximateTime and transforms each cloud by the
 STATIC TF only, so on a rotating robot the two halves of /scan disagree by
 |stamp_L - stamp_R| * omega (up to ~50 ms of pairing slop plus the half-sweep

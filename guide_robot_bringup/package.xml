@@ -17,8 +17,9 @@
   <exec_depend>guide_robot_hardware</exec_depend>
   <exec_depend>guide_robot_description</exec_depend>
   <exec_depend>sllidar_ros2</exec_depend>
-  <!-- dual_laser_merger: только для симуляции (perception.launch.py,
-       real_lidars:=false). На железе сканы сливает свой scan_merger. -->
+  <!-- Сливает сканы и на железе (lidars.launch.py), и в симуляции
+       (perception.launch.py, real_lidars:=false). Свой scan_merger
+       с deskew'ом откачен 2026-08-11 и не запускается ничем. -->
   <exec_depend>dual_laser_merger</exec_depend>
   <exec_depend>foxglove_bridge</exec_depend>
   <exec_depend>guide_robot_sonar</exec_depend>

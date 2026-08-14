@@ -2,7 +2,7 @@
 
 Пакет верхнеуровневой оркестрации запуска робота Guide-Robot (Guide Robot):
 собирает воедино `ros2_control` (диффдрайв), два лидара RPLIDAR C1 со
-слиянием сканов (`scan_merger` с deskew'ом), сонары, Foxglove Bridge,
+слиянием сканов (`dual_laser_merger`), сонары, Foxglove Bridge,
 стек Nav2 (AMCL или SLAM Toolbox), слой экскурсий (`guide_robot_voice` +
 `guide_robot_semantic_map` + `guide_robot_mission_control`), супервизор
 lifecycle-нод (`guide_robot_supervisor`) и RViz. Сам пакет не содержит
@@ -78,10 +78,11 @@ watchdog'ов до этого не действуют. `autostart_nav` уход�
 угловой сектор, где лидар видит собственное крепление / крепление
 второго лидара (жёстко заданные `left/right_blind_sectors_deg`,
 откалиброванные вручную через `laser_blind_sector_finder`), затем
-свой `scan_merger` сливает `/scan_left_filtered` + `/scan_right_filtered`
-в единый `/scan` в кадре `base_footprint` с компенсацией движения
-через TF `odom` (deskew). Калибровочные `laser_2_*_offset` — те же
-числа, что раньше жили в `dual_laser_merger` (ICP против общей стены).
+`dual_laser_merger` сливает `/scan_left_filtered` +
+`/scan_right_filtered` в единый `/scan` в кадре `base_footprint`.
+Компенсации движения (deskew) нет — пара сшивается статическим TF,
+цена этого меряется `scripts/lidar_lag.py` (см. ниже). Калибровочные
+`laser_2_*_offset` получены ICP против общей стены.
 
 Аргументы: `left_port` (`/dev/tty_lidar_left`), `right_port`
 (`/dev/tty_lidar_right`), `baudrate`, `use_sim_time`, `merge_frame`,
@@ -177,7 +178,7 @@ include завёрнут в свой `GroupAction` (scoped) — см. комме
 Из `package.xml` (`exec_depend`): `rclpy`, `sensor_msgs`, `tf2_ros`,
 `python3-numpy`, `robot_state_publisher`, `guide_robot_hardware`,
 `guide_robot_description`, `sllidar_ros2`, `dual_laser_merger`
-(только симуляция), `foxglove_bridge`, `guide_robot_sonar`,
+(и железо, и симуляция), `foxglove_bridge`, `guide_robot_sonar`,
 `slam_toolbox`, `guide_robot_navigation`, `rviz2`, `controller_manager`,
 `joint_state_publisher_gui`, `guide_robot_supervisor`,
 `guide_robot_simulation`, `guide_robot_mission_control`,
@@ -194,11 +195,12 @@ include завёрнут в свой `GroupAction` (scoped) — см. комме
 оно стоит на развороте. Анализатор — `scripts/lidar_lag.py`.
 
 Бланкер штамп сохраняет (переиздаёт то же сообщение). Штамп `/scan`
-зависит от мерджера: старый `dual_laser_merger` наследовал
-`header.stamp` первого лидара, свой `scan_merger` ставит общее время
-deskew'а (середина между центрами развёрток). Анализатор умеет оба —
-для новых бэгов стадия `filtered -> /scan` джойнится восстановлением
-пары, для старых — точным совпадением штампа.
+зависит от мерджера: `dual_laser_merger` наследует `header.stamp`
+первого лидара, поэтому стадия `filtered -> /scan` джойнится точным
+совпадением штампа — это основной путь. Второй путь, восстановление
+пары по ближайшим штампам, нужен для мерджера с общим временем
+(`scan_merger`, если вернётся) и включается сам, если точных
+совпадений нет.
 
 Поднимать стек **без Foxglove**: один лишний RELIABLE-читатель заметно
 поднимает CPU всех C++ нод, а мост стоит ~1.36 ядра — с ним бэг измерит не
