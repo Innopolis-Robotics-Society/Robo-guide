@@ -2,8 +2,8 @@
 
 Пакет опроса ультразвуковых дальномеров (sonar dome) робота Guide-Robot и публикации
 `sensor_msgs/Range` для `nav2_collision_monitor`. Смешанный C++/Python: низкоуровневый
-драйвер UART собран как pybind11-модуль `furo_sonars_cpp`, поверх него — два
-альтернативных rclpy-узла.
+драйвер UART собран как pybind11-модуль `furo_sonars_cpp`, поверх него — один
+rclpy-узел `sonar_node_mult.py`.
 
 ## Обзор
 
@@ -15,26 +15,20 @@
   датчик — дальность, счётчик подряд идущих неудачных опросов, номер опроса
   и возраст показания.
 - `src/sonar_driver_bindings.cpp` — pybind11-обёртка, экспортирует класс
-  `SonarDriver` в Python как модуль `furo_sonars_cpp`.
-- `scripts/sonar_node_mult.py` — **боевой** узел: публикует по одному
+  `SonarDriver` в Python как модуль `furo_sonars_cpp`. Дефолт порта —
+  `/dev/tty_sonar` (udev-симлинк, не `ttyUSB*`/`ttyCH341*`).
+- `scripts/sonar_node_mult.py` — боевой узел: публикует по одному
   `sensor_msgs/Range` на датчик в `sonar/range/<frame_id>` с `SensorDataQoS`
   (`BEST_EFFORT`), рассчитан на прямое подключение к `nav2_collision_monitor`.
-  Запускается из `guide_robot_bringup/launch/hardware.launch.py:174-186`
-  (`executable="sonar_node_mult.py"`, включён по умолчанию, `launch_sonar:=true`).
-- `scripts/sonar_node.py` — более старый/альтернативный узел: публикует
-  агрегированное сообщение `guide_robot_msgs/SonarRanges` в `sonar/ranges`,
-  опционально по одному `Range` на датчик в `sonar/<frame_id>` (другой префикс,
-  не совпадает с `sonar/range/<frame_id>`!), плюс `MarkerArray` для RViz/Foxglove.
-  Ни одним launch-файлом сейчас не запускается.
-- Сообщение `guide_robot_msgs/SonarRanges` (`std_msgs/Header header` +
-  `sensor_msgs/Range[] ranges`) объявлено в `guide_robot_msgs`, но реально
-  потребляется только тестовым/симуляционным кодом (`sonar_merge.py` в
-  `guide_robot_simulation`), не production-путём collision avoidance.
+  Запускается из `guide_robot_bringup/launch/perception.launch.py`
+  (`executable="sonar_node_mult.py"`, включён по умолчанию, `launch_sonar:=true`;
+  `hardware.launch.py` пробрасывает этот аргумент через include перцепции).
+- Сообщение `guide_robot_msgs/SonarRanges` объявлено в `guide_robot_msgs`, но
+  этим пакетом не публикуется. Агрегирующий узел `sonar_node.py` удалён.
 
 Логика фильтрации (медиана → deadband → гистерезис у границы диапазона)
-**идентична и продублирована** в обоих узлах (`sonar_node.py:62-112` и
-`sonar_node_mult.py:70-123`) — отдельного «фильтр-ноды» в пакете нет, вся
-фильтрация встроена в publish-callback.
+живёт в `_RangeFilter` внутри `sonar_node_mult.py` — отдельной «фильтр-ноды»
+нет, вся фильтрация встроена в publish-callback.
 
 ## Аппаратный интерфейс
 
@@ -52,8 +46,7 @@
   `activate_dome()` — фиксированная пауза 500 мс. Подтверждения в протоколе
   нет, проверяется только полная запись в порт (`is_dome_active()`).
 - Отображение `sonar_id → URDF frame_id` (`sonar_sensor_1/2/4/5/6/8/9`)
-  задаётся словарём `SONAR_MAPPING` в `scripts/sonar_mapping.py` — общий
-  источник правды для обоих узлов, сверен с
+  задаётся словарём `SONAR_MAPPING` в `scripts/sonar_mapping.py`, сверен с
   `guide_robot_description/urdf/guide_robot.urdf.xacro:171-180`.
 - Сырые показания — это **не миллиметры**, а счётчик времени пролёта эха;
   переводятся в метры параметрами `range_scale`/`range_offset`
@@ -62,23 +55,19 @@
   но ответ не пришёл или битый, `-2` — запрос не удалось отправить (порт
   пропал). Для узла `-1` и `-2` одинаково ошибка, различается только пауза
   перед следующим датчиком.
-- QoS: `sonar_node_mult.py:62-67` использует `SensorDataQoS`
+- QoS: `sonar_node_mult.py` использует `SensorDataQoS`
   (`BEST_EFFORT`, `depth=1`) намеренно, чтобы совпасть с
   `rclcpp::SensorDataQoS()` подписчика `nav2_collision_monitor`; в коде есть
-  явный комментарий «Do not change to RELIABLE». `sonar_node.py`, напротив,
-  создаёт публикаторы с QoS по умолчанию (`RELIABLE`, глубина 10) —
-  `sonar_node.py:190,195-198`.
+  явный комментарий «Do not change to RELIABLE».
 - Топики и `frame_id` сверены с конфигом Nav2:
-  `guide_robot_navigation/generated_config/first_iter_nav2.yaml:591-624`
+  `guide_robot_navigation/generated_config/first_iter_nav2.yaml`
   подписывается на `/sonar/range/sonar_sensor_{1,9,2,8,4,6,5}` — совпадает с
   тем, что публикует `sonar_node_mult.py` (топик-префикс по умолчанию
-  `sonar/range`). `sonar_node.py` публикует в другой неймспейс (`sonar/<frame>`)
-  и с несовместимым QoS — если его когда-нибудь подключат к
-  `collision_monitor` вместо `_mult`, топики молча не законнектятся.
+  `sonar/range`).
 
 ## Логика фильтрации
 
-Класс `_RangeFilter` (идентичен в обоих узлах) — конвейер из четырёх стадий:
+Класс `_RangeFilter` — конвейер из четырёх стадий:
 
 1. **Медиана по различающимся отсчётам**, окно `filter_window_size=3`
    (`statistics.median_low`), отсекает одиночные выбросы (перекрёстные
@@ -109,7 +98,7 @@
    Python-узла на верхнем уровне сводят «таймаут/ошибка чтения» (`-1`) и
    «эхо не вернулось, т.к. цели нет» (`0xFFFF`) к одному и тому же `range=inf`
    → `no_detection_value` (по умолчанию тоже `inf` на железе, см.
-   `hardware.launch.py:174-186`, `publish_inf_as_out_of_range: True`). Это
+   `perception.launch.py`, `publish_inf_as_out_of_range: True`). Это
    значение напрямую скармливается полигонам `nav2_collision_monitor`
    `SonarStopFront`/`SonarSlow`
    (`guide_robot_navigation/generated_config/first_iter_nav2.yaml:572-589`).
@@ -144,7 +133,7 @@
 
 3. **Числовое значение `range` может превышать заявленный `max_range` из
    того же сообщения.** Гистерезис (`_RangeFilter.update`,
-   `sonar_node_mult.py:73-84` / `sonar_node.py:79-90`) держит состояние
+   `sonar_node_mult.py`) держит состояние
    «в диапазоне» вплоть до `median_m > max_range + range_hysteresis_m` и в
    этом окне публикует реальную медиану как валидное числовое расстояние,
    хотя `msg.max_range` в этом же сообщении равен номинальным 2.0 м. Это
@@ -214,8 +203,7 @@
    ✅ **Исправлено.** Комментарий в `sonar_driver.hpp` описывает счётчик TOF.
 
 7. **`min_range` не применяется как порог отсечения.** `raw_m = max(0.0,
-   counts*range_scale+range_offset)` (`sonar_node_mult.py:214`,
-   `sonar_node.py:212`) может быть меньше `min_range` (0.1 м) и всё равно
+   counts*range_scale+range_offset)` (   `sonar_node_mult.py`) может быть меньше `min_range` (0.1 м) и всё равно
    публикуется как реальное расстояние. Направление ошибки безопасное
    (сообщает «слишком близко» вместо «нет данных»), но формально нарушает
    контракт `sensor_msgs/Range`.

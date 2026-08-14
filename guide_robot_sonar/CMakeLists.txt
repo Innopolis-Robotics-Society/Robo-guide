@@ -5,25 +5,15 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(sensor_msgs REQUIRED)
-find_package(guide_robot_msgs REQUIRED)
 find_package(Python3 COMPONENTS Development REQUIRED)
 find_package(pybind11 REQUIRED)
 
-# include directories
 include_directories(include)
 
-# create python binding library
 pybind11_add_module(furo_sonars_cpp SHARED
   src/sonar_driver.cpp
   src/sonar_driver_bindings.cpp
-)
-target_link_libraries(furo_sonars_cpp PRIVATE
-  rclcpp::rclcpp
 )
 
 # Install the bindings next to the scripts that import them, not into
@@ -42,9 +32,8 @@ install(TARGETS furo_sonars_cpp
 )
 
 # Python scripts. sonar_mapping.py is not an entry point — it's imported by
-# the two scripts above and resolves through the same sys.path[0].
+# sonar_node_mult.py and resolves through the same sys.path[0].
 install(PROGRAMS
-  scripts/sonar_node.py
   scripts/sonar_node_mult.py
   DESTINATION lib/${PROJECT_NAME}
 )

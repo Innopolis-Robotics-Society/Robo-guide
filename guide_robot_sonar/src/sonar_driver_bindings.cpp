@@ -18,7 +18,7 @@ PYBIND11_MODULE(furo_sonars_cpp, m)
 
   py::class_<guide_robot_sonar::SonarDriver>(m, "SonarDriver")
     .def(
-      py::init<const std::string &, int>(), py::arg("port") = "/dev/ttyCH341USB0",
+      py::init<const std::string &, int>(), py::arg("port") = "/dev/tty_sonar",
       py::arg("baudrate") = 9600)
     .def("start", &guide_robot_sonar::SonarDriver::start)
     .def("stop", &guide_robot_sonar::SonarDriver::stop)

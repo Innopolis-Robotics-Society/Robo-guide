@@ -1,4 +1,4 @@
-"""Sonar ID -> URDF frame mapping, shared by sonar_node.py and sonar_node_mult.py.
+"""Sonar ID -> URDF frame mapping, used by sonar_node_mult.py.
 
 Single source of truth: driver sonar IDs follow the original Guide-Robot
 harness labels, not poll order. These must match the sonar link names in
