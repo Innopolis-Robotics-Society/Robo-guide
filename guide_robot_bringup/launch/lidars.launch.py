@@ -22,6 +22,11 @@ and /scan_right separately, see that node's docstring for usage).
 
 Merger output:
   /scan      — merged LaserScan in base_footprint frame (fed to Nav2 / SLAM)
+
+Note: a local Python scan_merger with TF deskew exists (scan_merger.py) but is
+NOT launched here — on the Orin under the full stack it ate ~1.4 cores and
+published BEST_EFFORT /scan that RELIABLE tools (echo/Foxglove) showed empty.
+Deskew needs a C++ port before it comes back on hardware.
 """
 
 from launch import LaunchDescription
@@ -178,7 +183,10 @@ def generate_launch_description():
         ],
     )
 
-    # Merges /scan_left and /scan_right using TF into a single LaserScan on /scan
+    # Merges /scan_left and /scan_right using TF into a single LaserScan on /scan.
+    # Python scan_merger (deskew) rolled back 2026-08-11: ~1.4 cores on Orin
+    # under the full stack, and BEST_EFFORT /scan looked empty in RELIABLE
+    # tools. dual_laser_merger stays until deskew is C++.
     merger_node = Node(
         package="dual_laser_merger",
         executable="dual_laser_merger_node",
