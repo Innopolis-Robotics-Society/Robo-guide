@@ -14,6 +14,8 @@ Sector angles are in each lidar's own frame (same convention as the raw
 laser_blind_sector_finder — see that node's docstring.
 """
 
+import math
+
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
@@ -21,8 +23,7 @@ from sensor_msgs.msg import LaserScan
 
 def _normalize(angle):
     """Wrap an angle into [-pi, pi)."""
-    two_pi = 2.0 * 3.141592653589793
-    return (angle + 3.141592653589793) % two_pi - 3.141592653589793
+    return (angle + math.pi) % (2.0 * math.pi) - math.pi
 
 
 def _in_sector(angle, lo, hi):
@@ -86,7 +87,7 @@ class LaserSectorBlanker(Node):
 
 
 def _deg2rad(deg):
-    return deg * 3.141592653589793 / 180.0
+    return math.radians(deg)
 
 
 def main(args=None):

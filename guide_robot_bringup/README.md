@@ -13,7 +13,7 @@ lifecycle-нод (`guide_robot_supervisor`) и RViz. Сам пакет не со
 
 ## Обзор
 
-Слой запуска состоит из пяти launch-файлов и двух консольных нод:
+Слой запуска состоит из семи launch-файлов и трёх консольных нод:
 
 - на реальном роботе точка входа — `hardware.launch.py`;
 - в симуляции (Gazebo) — `simulation.launch.py`;
@@ -121,8 +121,8 @@ RViz с `rviz/sim.rviz`. Аргументы: `slam` (false), `map`, `rviz` (true
 и `simulation.launch.py`): SLAM Toolbox или AMCL+Nav2
 (`guide_robot_navigation`) + `guide_robot_supervisor` (берёт
 `supervisor_slam.yaml` при `slam:=true`, иначе `supervisor.yaml`).
-Аргументы: `nav` (true), `slam` (false), `map`, `nav_params_file`,
-`slam_params_file`, `autostart_nav` (true), `launch_supervisor` (true),
+Аргументы: `nav` (true), `slam` (false), `map` (`lab_105_full.yaml`), `nav_params_file`,
+`slam_params_file`, `autostart_nav` (false), `launch_supervisor` (true),
 `autostart_supervisor` (false).
 
 ### `launch/high_level_stack.launch.py`
@@ -172,6 +172,14 @@ include завёрнут в свой `GroupAction` (scoped) — см. комме
 - `scan_merger` — экспериментальный merge+deskew (Python). На железе
   **не запускается** (см. откат в `lidars.launch.py`): на Orin ~1.4 ядра.
   Unit-тесты математики — `test/test_scan_merge_math.py`.
+
+## Известные проблемы
+
+- `scan_merger` не поднимается ни одним launch: Python-deskew откачен
+  2026-08-11. `dual_laser_merger` остаётся, пока deskew не перепишут на C++.
+- Прямой `ros2 launch … nav_stack.launch.py` без обёртки теперь с
+  `autostart_nav:=false` (контракт супервизора). Для отладки одного Nav2
+  без супервизора нужно явно `autostart_nav:=true launch_supervisor:=false`.
 
 ## Зависимости
 

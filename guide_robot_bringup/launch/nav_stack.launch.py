@@ -52,7 +52,7 @@ def generate_launch_description():
     )
     declare_map = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg_navigation, "map", "lab_map.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "lab_105_full.yaml"),
         description="Готовая карта, используется только при slam:=false",
     )
     declare_nav_params = DeclareLaunchArgument(
@@ -66,7 +66,7 @@ def generate_launch_description():
         description="Full path to SLAM Toolbox parameters file",
     )
     declare_autostart_nav = DeclareLaunchArgument(
-        "autostart_nav", default_value="true", description="Autostart Nav2 lifecycle nodes"
+        "autostart_nav", default_value="false", description="Autostart Nav2 lifecycle nodes"
     )
     declare_launch_supervisor = DeclareLaunchArgument(
         "launch_supervisor", default_value="true", description="Launch guide_robot_supervisor"
@@ -148,9 +148,7 @@ def generate_launch_description():
                 launch_arguments={
                     "use_sim_time": use_sim_time,
                     "autostart_supervisor": autostart_supervisor,
-                    "config_file": os.path.join(
-                        pkg_supervisor, "config", "supervisor_slam.yaml"
-                    ),
+                    "config_file": os.path.join(pkg_supervisor, "config", "supervisor_slam.yaml"),
                 }.items(),
             ),
             IncludeLaunchDescription(
