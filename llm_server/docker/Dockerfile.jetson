@@ -1,0 +1,83 @@
+# Jetson (Tegra) сборка llama-server из исходников.
+#
+# Upstream-образ ghcr.io/ggml-org/llama.cpp:server-cuda НЕ подходит: его
+# arm64-вариант собран под SBSA (серверный arm64 + discrete CUDA), а Jetson --
+# Tegra-стек (другая дистрибуция CUDA, драйвер nvgpu, нет forward-совместимости
+# SASS). Плюс дефолтные CUDA-архитектуры ggml не включают sm_87. См.
+# iros_llm_server_JETSON_UPDATE.md, задача 3.
+#
+# LLAMA_REF обязан совпадать с версией, зашитой в LLAMA_TAG x86-профиля
+# (docker-compose.yml, ghcr.io/ggml-org/llama.cpp:${LLAMA_TAG}) -- иначе
+# расхождение в парсере GBNF-грамматики или семантике --cache-reuse между
+# ревизиями даст "на ноуте работает, на роботе нет". x86-профиль тянет
+# floating-тег без явного пина коммита; при сборке этого образа сверить
+# версию вручную (`docker run --rm --entrypoint /app/llama-server
+# ghcr.io/ggml-org/llama.cpp:<LLAMA_TAG> --version`) и передать сюда
+# соответствующий tag/commit.
+#
+# Собирать нативно на Jetson: QEMU для CUDA-компиляции не работает.
+# Если упрётся в BuildKit + host-CUDA -- DOCKER_BUILDKIT=0.
+#
+# ARG L4T_CUDA_TAG -- сверить существующие теги nvcr.io/nvidia/l4t-cuda
+# перед сборкой, дефолта нет намеренно (падать с понятной ошибкой, не тянуть
+# случайную версию).
+ARG L4T_CUDA_TAG
+ARG LLAMA_REF
+
+########################################
+# Build stage
+########################################
+FROM nvcr.io/nvidia/l4t-cuda:${L4T_CUDA_TAG}-devel AS build
+
+ARG LLAMA_REF
+RUN test -n "${LLAMA_REF}" || \
+    (echo "error: LLAMA_REF не задан -- см. JETSON_UPDATE.md задача 3" >&2 && exit 1)
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential cmake git libcurl4-openssl-dev pkg-config ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+# git fetch по произвольному ref (тег/ветка/коммит), а не только --branch --
+# LLAMA_REF может быть точным коммитом, GitHub поддерживает fetch по SHA.
+RUN git init -q . \
+    && git remote add origin https://github.com/ggml-org/llama.cpp.git \
+    && git fetch --depth 1 origin "${LLAMA_REF}" \
+    && git checkout -q FETCH_HEAD
+
+# -DCMAKE_CUDA_ARCHITECTURES=87 обязателен -- единственная арка Orin,
+# у Tegra нет forward-совместимости SASS с другими sm_*.
+# --target llama-server -j4, НЕ $(nproc): nvcc уходит в OOM на 8 GB unified-памяти.
+RUN cmake -B build \
+      -DGGML_CUDA=ON \
+      -DCMAKE_CUDA_ARCHITECTURES=87 \
+      -DGGML_NATIVE=OFF \
+      -DLLAMA_CURL=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build --target llama-server -j4
+
+########################################
+# Runtime stage
+########################################
+FROM nvcr.io/nvidia/l4t-cuda:${L4T_CUDA_TAG}-runtime AS runtime
+
+# curl нужен для healthcheck внутри сервиса -- sidecar llm-warmup из
+# x86-профиля на Jetson не нужен (прогрев переносится в entrypoint-обёртку,
+# см. JETSON_UPDATE.md задача 4).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgomp1 libcurl4 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+# Копируем всю bin/ -- llama.cpp по умолчанию собирает shared-библиотеки
+# (libggml*.so, libllama.so) рядом с исполняемым файлом, не только сам бинарь.
+COPY --from=build /src/build/bin/ /app/
+
+# Entrypoint-обёртка поднимает llama-server и прогревает префикс-кэш сама --
+# на Jetson нет отдельного сайдкара llm-warmup, см. entrypoint.jetson.sh.
+# chmod отдельным RUN, а не COPY --chmod: последнее требует BuildKit,
+# а сборка может упасть на DOCKER_BUILDKIT=0 (см. заметку выше про QEMU/BuildKit).
+COPY entrypoint.jetson.sh /app/entrypoint.sh
+RUN chmod 755 /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]

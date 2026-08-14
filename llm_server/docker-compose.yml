@@ -18,6 +18,12 @@ services:
       LLAMA_ARG_UBATCH: ${UBATCH:-512}
       LLAMA_ARG_FLASH_ATTN: ${FLASH_ATTN:-on}
       LLAMA_ARG_CACHE_REUSE: ${CACHE_REUSE:-256}
+      # Дефолты f16/0 воспроизводят прежнее поведение (флаги не выставлялись
+      # вовсе) -- добавлены ради Jetson-профиля (q8_0 экономит KV-память,
+      # см. llm_server/config/models/jetson-*.env), на x86 не меняют ничего.
+      LLAMA_ARG_CACHE_TYPE_K: ${CACHE_TYPE_K:-f16}
+      LLAMA_ARG_CACHE_TYPE_V: ${CACHE_TYPE_V:-f16}
+      LLAMA_ARG_NO_MMAP: ${NO_MMAP:-0}
       # SPEC называет эту переменную LLAMA_ARG_NO_CONTEXT_SHIFT. Проверено на
       # ghcr.io/ggml-org/llama.cpp:server (`llama-server --help`) — такого имени нет,
       # актуальное — LLAMA_ARG_CONTEXT_SHIFT (булево, 0 = запрет сдвига контекста,

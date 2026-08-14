@@ -34,6 +34,9 @@ curl -s localhost:8080/health   # {"status":"ok"}
 | `qwen7b-q4` (дефолт) | Qwen2.5-7B-Instruct Q4_K_M | ноут, дискретная GPU ≥8GB VRAM | `config/models/qwen7b-q4.env` |
 | `llama3.1-8b-q5` | Meta-Llama-3.1-8B-Instruct Q5_K_M | альтернатива qwen7b-q4, ноут, дискретная GPU ≥8GB VRAM | `config/models/llama3.1-8b-q5.env` |
 | `cpu-fallback` | Qwen2.5-3B-Instruct Q4_K_M | CPU-смоук, слабое железо, `LLAMA_TAG=server` | `config/models/cpu-fallback.env` |
+| `jetson-qwen2.5-1.5b` (дефолт для Jetson) | Qwen2.5-1.5B-Instruct Q4_K_M | Jetson Orin, `CTX_SIZE=2048` | `config/models/jetson-qwen2.5-1.5b.env` |
+| `jetson-qwen3-1.7b` | Qwen3-1.7B Q4_K_M | альтернатива jetson-qwen2.5-1.5b на Jetson | `config/models/jetson-qwen3-1.7b.env` |
+| `jetson-qwen2.5-3b` | Qwen2.5-3B-Instruct Q4_K_M | верхняя планка на Jetson, пробовать после 1.5B/1.7B | `config/models/jetson-qwen2.5-3b.env` |
 
 Официального `Llama-3.3-8B` от Meta не существует — Llama 3.3 выпущена только в 70B,
 8B есть в линейке 3.1. Профиль выше — `Llama-3.1-8B-Instruct`.
@@ -46,6 +49,37 @@ curl -s localhost:8080/health   # {"status":"ok"}
 следования GBNF-грамматике (грамматика приходит per-request от `guide_robot_llm`,
 сервер про неё не знает) и TTFT. Наличие готовых GGUF-сборок и лицензию не проверяли —
 см. SPEC §7.
+
+## Jetson-профиль
+
+Отдельный набор файлов для деплоя на робот (Jetson Orin, unified CPU+GPU
+память 7.4 GB — не дискретная GPU ноута): `docker/Dockerfile.jetson` (сборка
+`llama-server` из исходников под `sm_87`, upstream-образ не подходит под
+Tegra), `docker-compose.jetson.yml` (оверрайд: `runtime: nvidia`,
+`oom_score_adj`, без `mem_limit`/`llm-warmup`), `.env.jetson.example`,
+профили `config/models/jetson-*.env`, `systemd/iros-llm-jetson.service`.
+Подробности, обоснования и порядок первого деплоя — `docs/jetson_setup.md`
+и `iros_llm_server_JETSON_UPDATE.md`.
+
+**Перед первым запуском на конкретной единице железа обязательно** прогнать
+`scripts/cudamalloc_probe.sh` (подтверждает, что L4T-прошивка не наступает
+на баг сломанного аллокатора крупных CUDA-буферов) — не проверено в рамках
+этой реализации, в среде разработки нет физического Jetson. `scripts/mem_probe.sh`
+снимает реальный бюджет памяти (largest free block из `tegrastats`, не
+`nvidia-smi` — его на Jetson не существует).
+
+Запуск:
+
+```bash
+cp .env.jetson.example .env
+# скопировать нужный профиль модели поверх .env, см. таблицу выше
+./scripts/fetch_model.sh <repo> <file>
+docker build -f docker/Dockerfile.jetson \
+  --build-arg L4T_CUDA_TAG=<сверить тег> --build-arg LLAMA_REF=<как в x86-профиле> \
+  -t fabook/iros-llm:jetson-<LLAMA_REF> .
+docker compose -f docker-compose.yml -f docker-compose.jetson.yml up -d llm
+curl -s localhost:8080/health
+```
 
 ## Известные точки дрейфа/рассинхрона
 

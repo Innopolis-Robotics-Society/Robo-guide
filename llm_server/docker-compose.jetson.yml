@@ -1,0 +1,39 @@
+# Оверрайд для Jetson поверх docker-compose.yml. Запускать:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.jetson.yml up -d llm
+#
+# Явно только сервис `llm` -- llm-warmup из базового файла на Jetson не нужен
+# (прогрев встроен в entrypoint образа, см. docker/entrypoint.jetson.sh) и
+# намеренно не поднимается этой командой. Дельта и обоснования по каждому
+# полю -- iros_llm_server_JETSON_UPDATE.md, задача 4.
+#
+# Использует !reset (compose-spec merge-тег) ниже -- этот файл исключён из
+# хука check-yaml в .pre-commit-config.yaml, generic YAML-парсер тег не знает.
+services:
+  llm:
+    image: fabook/iros-llm:jetson-${LLAMA_REF:?set LLAMA_REF in .env (must match x86 profile, см. docker/Dockerfile.jetson)}
+    # deploy.resources.reservations.devices (базовый файл) на Jetson даёт
+    # битые маунты host-библиотек nvgpu -- runtime: nvidia работает корректно.
+    runtime: nvidia
+    # При OOM должен умирать LLM, а не nav2/slam_toolbox. На Tegra аллокация
+    # обычно проходит, OOM-killer срабатывает позже, когда разрастается
+    # KV-кэш -- без приоритета жертвой может стать соседний ROS-процесс.
+    # Диалог деградирует первым, навигация -- последней.
+    oom_score_adj: 500
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    # Намеренно НЕ ставим mem_limit: cgroup-учёт nvgpu-аллокаций (unified
+    # CPU+GPU память) на Tegra ненадёжен -- лимит может убить процесс по
+    # неверно посчитанному cgroup usage раньше, чем сработает oom_score_adj.
+    #
+    # Пустой список НЕ убирает devices при мёрже (Compose трактует [] как
+    # "не переопределять", база просачивается) -- нужен явный !reset, иначе
+    # деплой конфликтует с runtime: nvidia выше. Проверено `docker compose config`.
+    deploy:
+      resources:
+        reservations:
+          devices: !reset []

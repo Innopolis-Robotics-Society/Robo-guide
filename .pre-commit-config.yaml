@@ -20,6 +20,10 @@ repos:
       - id: check-xml
       - id: check-yaml
         args: ["--allow-multiple-documents"]
+        # llm_server/docker-compose.jetson.yml использует !reset -- валидный
+        # тег compose-spec (docker compose его понимает, см. `docker compose
+        # config`), но не общий YAML, generic-парсер check-yaml его не знает.
+        exclude: '^llm_server/docker-compose\.jetson\.yml$'
       - id: debug-statements
       - id: end-of-file-fixer
       - id: forbid-submodules

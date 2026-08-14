@@ -1,0 +1,42 @@
+[Unit]
+Description=iros-llm docker compose stack (llama.cpp inference backend, Jetson profile)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+# ВАЖНО: LLM должен подняться ДО остального ROS-стека (nav2, slam_toolbox),
+# не после. Причина — не порядок FSM супервизора (guide_robot_supervisor
+# идёт NAV -> LLM -> OPERATIONAL, но там проверяется ГОТОВНОСТЬ, а не момент
+# физической аллокации памяти). На Tegra cudaMalloc крупного непрерывного
+# буфера KV-кэша+весов проходит на свежезагруженной системе и может не
+# пройти на системе, проработавшей часами и фрагментировавшей unified-память
+# под ROS-процессы. См. iros_llm_server_JETSON_UPDATE.md задача 6.
+#
+# Плейсхолдер ниже: в этом репозитории пока нет systemd-юнита, поднимающего
+# `ros2 launch guide_robot_bringup hardware.launch.py` (см. CLAUDE.md) —
+# заменить <ros-stack>.service на фактическое имя юнита при деплое.
+Before=<ros-stack>.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Официальный воркэраунд NVIDIA перед крупной cudaMalloc-аллокацией на
+# Tegra: сброс page cache снижает фрагментацию unified-памяти. Требует
+# root — юнит по умолчанию и так выполняется от root (User= не задан).
+ExecStartPre=/bin/sh -c 'sync && echo 3 > /proc/sys/vm/drop_caches'
+# Заменить путь на фактическое расположение клона репозитория на хосте
+# (см. docs/jetson_setup.md). Оба compose-файла обязательны: jetson.yml —
+# оверрайд поверх базового (runtime, oom_score_adj, без mem_limit/llm-warmup).
+WorkingDirectory=/opt/iros-llm-server
+ExecStart=/usr/bin/docker compose -f /opt/iros-llm-server/docker-compose.yml -f /opt/iros-llm-server/docker-compose.jetson.yml up -d llm
+ExecStop=/usr/bin/docker compose -f /opt/iros-llm-server/docker-compose.yml -f /opt/iros-llm-server/docker-compose.jetson.yml down
+TimeoutStartSec=0
+# Перезапуск ≠ восстановление: после OOM на фрагментированной системе
+# следующая аллокация может не пройти по той же причине (ExecStartPre выше
+# помогает, но не гарантирует). RestartSec=10, а не дефолтные 100ms —
+# частый рестарт-луп на стабильно проваливающейся аллокации бесполезен и
+# просто жжёт CPU/логи, см. README.
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
