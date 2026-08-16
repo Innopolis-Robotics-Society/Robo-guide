@@ -3,6 +3,7 @@
 <BehaviorTree ID="NavigateToPose">
 <RecoveryNode number_of_retries="6" name="NavigateRecovery">
 
+
   <!--normal navigation-->
   <PipelineSequence name="NavigateWithReplanning">
 
@@ -39,7 +40,11 @@
       </Sequence>
 
 
-      <BackUp backup_dist="0.30" backup_speed="0.05"/>
+      <!-- BackUp with voice warning -->
+      <Sequence name="BackUpWithWarning">
+        <SayAction text="Внимание, отойдите!" server_name="say"/>
+        <BackUp backup_dist="0.30" backup_speed="0.05"/>
+      </Sequence>
 
 
       <Spin spin_dist="1.57"/>
@@ -47,8 +52,9 @@
 
       <Wait wait_duration="10"/>
 
-      <!-- the worst situation. large backup and spin -->
+      <!-- the worst situation. large backup and spin with voice warning-->
       <Sequence name="LargeBackupAndSpin">
+        <SayAction text="Внимание, робот отъезжает!" server_name="say"/>
         <BackUp backup_dist="0.60" backup_speed="0.05"/>
         <Spin spin_dist="3.14"/>
       </Sequence>

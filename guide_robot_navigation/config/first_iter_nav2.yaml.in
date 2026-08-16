@@ -97,6 +97,7 @@ bt_navigator:
     - nav2_planner_selector_bt_node
     - nav2_controller_selector_bt_node
     - nav2_goal_checker_selector_bt_node
+    - say_action_bt_node
 
 bt_navigator_rclcpp_node:
   ros__parameters:
@@ -340,7 +341,7 @@ collision_monitor:
     use_sim_time: False
     base_frame_id: "base_footprint"
     odom_frame_id: "odom"
-    cmd_vel_in_topic: "cmd_vel"
+    cmd_vel_in_topic: "/cmd_vel_mux_safety"
     cmd_vel_out_topic: "/cmd_vel_filtered"
     transform_tolerance: 0.5
     source_timeout: 0.5
@@ -418,12 +419,24 @@ collision_monitor:
 mux_safety:
   ros__parameters:
     topics:
-      collision_monitor_out:
-        topic: /cmd_vel_filtered
+      nav2:
+        topic: /cmd_vel
         timeout: 0.5
         priority: 10
       safety_teleop:
         topic: /safety_cmd_vel
+        timeout: 0.5
+        priority: 20
+
+mux_final:
+  ros__parameters:
+    topics:
+      collision_out:
+        topic: /cmd_vel_filtered
+        timeout: 0.5
+        priority: 10
+      admin:
+        topic: /admin_cmd_vel
         timeout: 0.5
         priority: 20
     locks:
@@ -431,15 +444,3 @@ mux_safety:
         topic: /supervisor/estop
         timeout: 0.0
         priority: 255
-
-mux_final:
-  ros__parameters:
-    topics:
-      mux_safety_out:
-        topic: /cmd_vel_mux_safety
-        timeout: 0.5
-        priority: 10
-      admin:
-        topic: /admin_cmd_vel
-        timeout: 0.5
-        priority: 20
