@@ -17,7 +17,7 @@
 # llm.base_urls -- реальный адрес llm_server/ (см. llm_server/.env: LLM_PORT=18080).
 /**/dialog_agent:
   ros__parameters:
-    llm.base_urls: ["http://127.0.0.1:18080/v1"]
+    llm.base_urls: ["http://10.100.20.195:18080/v1"]
     llm.connect_timeout_s: 2.0
     llm.read_timeout_s: 30.0
     llm.api_key: ""
