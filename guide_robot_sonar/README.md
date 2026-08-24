@@ -243,8 +243,9 @@ rclpy-узел `sonar_node_mult.py`.
     Модуль ставится мимо `PYTHONPATH`, а старая копия остаётся лежать
     (colcon не удаляет файлы, которые сборка перестала производить) и
     продолжает импортироваться — пересборка «не помогает», причина не видна.
-    Каталог скриптов — это `sys.path[0]`, он приоритетнее `PYTHONPATH` и не
-    зависит от того, как `sysconfig` резолвит `purelib`.
+    Узел сам кладёт `Path(__file__).parent` (каталог install-symlink) в
+    `sys.path`: при `--symlink-install` `sys.path[0]` — это realpath
+    (`src/.../scripts`), а `.so` лежит рядом с symlink в `lib/guide_robot_sonar`.
 
 11. **`get_parameter(...)` вызывается на каждый тик `publish_ranges()`**
     (до 20 Гц) вместо кэширования/callback на изменение параметра — не
