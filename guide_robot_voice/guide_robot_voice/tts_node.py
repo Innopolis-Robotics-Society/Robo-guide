@@ -327,6 +327,10 @@ class TtsNode(LifecycleNode):
             self._sink.bump("preempted_by_higher_priority")
 
         if decision.action is Action.QUEUE and not self._wait_for_turn(goal_id, goal_handle):
+            if goal_handle.is_cancel_requested:  # type: ignore[attr-defined]
+                goal_handle.canceled()  # type: ignore[attr-defined]
+            else:
+                goal_handle.abort()  # type: ignore[attr-defined]
             return self._finish(goal_id, Say.Result(status=Say.Result.STATUS_CANCELLED))
 
         return self._speak(goal_handle, utterance)
