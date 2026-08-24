@@ -17,6 +17,7 @@ __all__ = [
     "QOS_INTERACTION_EVENT",
     "QOS_MISSION_PRESENCE",
     "QOS_MISSION_STATE",
+    "QOS_WAKEWORD",
 ]
 
 # /mission/state -- design §7: RELIABLE, TRANSIENT_LOCAL, depth 1. Поздно
@@ -54,6 +55,15 @@ QOS_CANCEL_ALL = QoSProfile(
 QOS_INTERACTION_EVENT = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
+
+# /speech/wakeword -- событие, редкое и обязанное дойти (копия
+# guide_robot_voice/lib/qos.py). dialog_agent открывает окно слушания.
+QOS_WAKEWORD = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,
 )

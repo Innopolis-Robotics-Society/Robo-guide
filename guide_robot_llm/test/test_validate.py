@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from guide_robot_llm.tools.validate import ValidationError, validate_call
 
 
@@ -28,6 +29,43 @@ def test_start_tour_known_tour_id_accepted() -> None:
         tools_allowed=["start_tour"],
         known_tour_ids=frozenset({"hall_a"}),
     )
+
+
+def test_start_tour_from_povtori_rejected() -> None:
+    """Живой баг: «повтори» в IDLE стало start_tour lab_demo, робот поехал."""
+    with pytest.raises(ValidationError, match="явной просьбе"):
+        validate_call(
+            "start_tour",
+            {"tour_id": "lab_demo"},
+            tools_allowed=["start_tour"],
+            known_tour_ids=frozenset({"lab_demo"}),
+            user_text="повтори",
+        )
+
+
+def test_start_tour_from_privet_rejected() -> None:
+    with pytest.raises(ValidationError, match="явной просьбе"):
+        validate_call(
+            "start_tour",
+            {"tour_id": "lab_demo"},
+            tools_allowed=["start_tour"],
+            user_text="привет",
+        )
+
+
+def test_start_tour_explicit_excursion_accepted() -> None:
+    validate_call(
+        "start_tour",
+        {"tour_id": "lab_demo"},
+        tools_allowed=["start_tour"],
+        known_tour_ids=frozenset({"lab_demo"}),
+        user_text="проведи экскурсию по лаборатории",
+    )
+
+
+def test_guide_to_without_user_text_stays_programmatic() -> None:
+    """Скрипт/тест без реплики -- гейт не трогает, моторы можно завести руками."""
+    validate_call("guide_to", {"location_id": "lab105a"}, tools_allowed=["guide_to"])
 
 
 def test_empty_whitelist_skips_strict_membership_check() -> None:

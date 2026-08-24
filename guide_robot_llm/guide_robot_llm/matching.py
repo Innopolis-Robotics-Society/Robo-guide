@@ -27,7 +27,15 @@ from __future__ import annotations
 import re
 import unicodedata
 
-__all__ = ["match_confirm", "match_idle_dismiss", "match_stop_phrase", "strip_wake_word"]
+__all__ = [
+    "has_leading_wake_word",
+    "has_motion_intent",
+    "idle_turn_allowed",
+    "match_confirm",
+    "match_idle_dismiss",
+    "match_stop_phrase",
+    "strip_wake_word",
+]
 
 _NON_WORD = re.compile(r"[^\w\s]+", re.UNICODE)
 _WHITESPACE = re.compile(r"\s+")
@@ -90,6 +98,13 @@ _IDLE_DISMISS_IGNORED = _WAKE_WORDS
 # слово из середины/конца фразы вырезать нельзя.
 _LEADING_WAKE_RE = re.compile(r"^\s*(?:робот\b[\s,.!?—–-]*)+", re.IGNORECASE)
 
+# Явная просьба ехать: start_tour / guide_to / tour_by_points. Подстроки,
+# не NLP. «повтори»/«привет» сюда не входят -- живой баг: модель сожгла
+# «повтори» в start_tour lab_demo и робот поехал.
+_MOTION_INTENT_RE = re.compile(
+    r"экскурс|excursion|\btour\b|\bтур(?:а|у|ом|е|ы|ов)?\b|провед|проводи|отвед"
+)
+
 
 def _tokens(text: str) -> set[str]:
     folded = unicodedata.normalize("NFC", text).lower().replace("ё", "е")
@@ -103,6 +118,26 @@ def _confident_gate(tokens: set[str]) -> bool:
     if not tokens or len(tokens) > _MAX_TOKENS_FOR_MATCH:
         return False
     return not (tokens & _QUESTION_WORDS)
+
+
+def has_leading_wake_word(text: str) -> bool:
+    """Проверить, что фраза начинается с wake-слова («робот», «робот, ...»)."""
+    return bool(_LEADING_WAKE_RE.match(text))
+
+
+def idle_turn_allowed(raw: str, *, listen_armed: bool) -> bool:
+    """IDLE: ход только после wake-слова, окна слушания или явного «проведи/тур».
+
+    Голое chit-chat без «робот» -- мусор ASR, не диалог. «проведи экскурсию»
+    без wake-слова по-прежнему проходит (has_motion_intent). Стоп-фразы
+    сюда не входят: это стоп, не активация.
+    """
+    text = strip_wake_word(raw)
+    if not text:
+        return False
+    if listen_armed or has_leading_wake_word(raw) or has_motion_intent(text):
+        return True
+    return False
 
 
 def strip_wake_word(text: str) -> str:
@@ -140,6 +175,17 @@ def match_stop_phrase(text: str) -> bool:
     if not _confident_gate(tokens):
         return False
     return bool(tokens & _STOP_WORDS)
+
+
+def has_motion_intent(text: str) -> bool:
+    """Проверить, что фраза явно просит экскурсию, тур или отвести к месту.
+
+    Жёсткий стоп для моторов: без этих слов chit-chat не должен звать
+    start_tour/guide_to. Пустая строка -- не намерение.
+    """
+    # ponytail: несколько подстрок, словарь если появятся ложные отказы.
+    folded = unicodedata.normalize("NFC", text).lower().replace("ё", "е")
+    return bool(text.strip()) and bool(_MOTION_INTENT_RE.search(folded))
 
 
 def match_idle_dismiss(text: str) -> bool:

@@ -10,7 +10,11 @@
 
 from __future__ import annotations
 
-__all__ = ["ValidationError", "validate_call"]
+from guide_robot_llm.matching import has_motion_intent
+
+__all__ = ["MOTION_TOOLS", "ValidationError", "validate_call"]
+
+MOTION_TOOLS = frozenset({"start_tour", "guide_to", "tour_by_points"})
 
 
 class ValidationError(Exception):
@@ -24,11 +28,23 @@ def validate_call(
     tools_allowed: list[str],
     known_location_ids: frozenset[str] = frozenset(),
     known_tour_ids: frozenset[str] = frozenset(),
+    user_text: str | None = None,
 ) -> None:
-    """Бросить `ValidationError`, если вызов нельзя отправлять в ROS."""
+    """Бросить `ValidationError`, если вызов нельзя отправлять в ROS.
+
+    `user_text` -- последняя реплика посетителя. Для start_tour/guide_to/
+    tour_by_points непустой текст без явной просьбы ехать режет вызов
+    (живой баг: «повтори» -> lab_demo). Пустой/None -- вызов скрипта,
+    гейт не трогает.
+    """
     if name not in tools_allowed:
         available = ", ".join(tools_allowed) or "(ничего)"
         raise ValidationError(f"{name} сейчас недоступен, доступно: {available}")
+    if name in MOTION_TOOLS and user_text and not has_motion_intent(user_text):
+        raise ValidationError(
+            f"{name} только по явной просьбе начать экскурсию/тур или отвести "
+            f"к месту, а реплика {user_text!r} этого не содержит"
+        )
     _validate_args(
         name, args, known_location_ids=known_location_ids, known_tour_ids=known_tour_ids
     )

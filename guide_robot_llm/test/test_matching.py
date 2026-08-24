@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from guide_robot_llm.matching import (
+    has_leading_wake_word,
+    has_motion_intent,
+    idle_turn_allowed,
     match_confirm,
     match_idle_dismiss,
     match_stop_phrase,
@@ -160,3 +163,60 @@ def test_strip_wake_word_prefix_of_longer_word_is_kept() -> None:
 def test_strip_wake_word_empty_text() -> None:
     assert strip_wake_word("") == ""
     assert strip_wake_word("   ") == ""
+
+
+# -- has_motion_intent: «повтори» не должно заводить моторы --
+
+
+def test_motion_intent_rejects_chit_chat_and_asr_stubs() -> None:
+    for text in ("привет", "здравствуй", "приятно", "повтори", "рара", "включи ва"):
+        assert has_motion_intent(text) is False
+
+
+def test_motion_intent_accepts_explicit_tour_or_guide() -> None:
+    assert has_motion_intent("проведи экскурсию") is True
+    assert has_motion_intent("начать тур") is True
+    assert has_motion_intent("отведи меня в лабораторию") is True
+    assert has_motion_intent("start the tour") is True
+
+
+def test_motion_intent_empty_is_false() -> None:
+    assert has_motion_intent("") is False
+    assert has_motion_intent("   ") is False
+
+
+# -- idle_turn_allowed: IDLE без «робот» не должен уходить в ЛЛМ --
+
+
+def test_idle_turn_rejects_bare_chit_chat() -> None:
+    assert idle_turn_allowed("привет", listen_armed=False) is False
+    assert idle_turn_allowed("рара", listen_armed=False) is False
+    assert idle_turn_allowed("который год музей", listen_armed=False) is False
+
+
+def test_idle_turn_accepts_leading_wake_word() -> None:
+    assert idle_turn_allowed("робот, привет", listen_armed=False) is True
+    assert idle_turn_allowed("робот который год музей", listen_armed=False) is True
+
+
+def test_idle_turn_accepts_armed_listen_window() -> None:
+    assert idle_turn_allowed("привет", listen_armed=True) is True
+
+
+def test_idle_turn_accepts_motion_intent_without_wake() -> None:
+    assert idle_turn_allowed("проведи экскурсию", listen_armed=False) is True
+    assert idle_turn_allowed("отведи меня в лабораторию", listen_armed=False) is True
+
+
+def test_idle_turn_bare_wake_word_is_not_a_turn() -> None:
+    assert idle_turn_allowed("робот", listen_armed=False) is False
+
+
+def test_idle_turn_stop_without_wake_is_not_activation() -> None:
+    assert idle_turn_allowed("стоп", listen_armed=False) is False
+
+
+def test_has_leading_wake_word() -> None:
+    assert has_leading_wake_word("робот, привет") is True
+    assert has_leading_wake_word("привет") is False
+    assert has_leading_wake_word("что такое робот") is False

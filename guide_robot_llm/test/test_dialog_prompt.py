@@ -11,9 +11,7 @@ from guide_robot_llm.tools.schema import ToolSpec
 
 _SAY = ToolSpec("say", "Сказать реплику посетителю.", frozenset({0}))
 _STOP = ToolSpec("stop_tour", "Прервать текущий тур совсем.", frozenset({1}))
-_HIDDEN = ToolSpec(
-    "list_locations", "Список локаций.", frozenset({0}), llm_visible=False
-)
+_HIDDEN = ToolSpec("list_locations", "Список локаций.", frozenset({0}), llm_visible=False)
 
 
 # -- build_system_prompt: только преамбул + каталог локаций/туров + справочник --
@@ -49,6 +47,22 @@ def test_locations_catalog_renders_alias_zone_and_category() -> None:
     assert "Локации:" in prompt
     assert "- lab_demo (демонстрационная лаборатория; зона hall_1) — макеты, роботы" in prompt
     assert "- cafe (кафе; зона hall_2)" in prompt
+
+
+def test_exhibit_location_renders_exhibit_id() -> None:
+    prompt = build_system_prompt(
+        "x",
+        locations=[
+            {
+                "id": "robo_guide",
+                "aliases": ["робот-экскурсовод"],
+                "zone": "lab",
+                "category": "exhibit",
+            }
+        ],
+    )
+
+    assert "- robo_guide (робот-экскурсовод; зона lab) — exhibit, exhibit_id robo_guide" in prompt
 
 
 def test_locations_catalog_omits_coordinates() -> None:
@@ -164,8 +178,15 @@ def test_action_instruction_tells_model_to_act_on_stated_intent() -> None:
 
 def test_action_instruction_lists_explicit_noop_reasons() -> None:
     instruction = build_action_instruction([_STOP])
-    for reason in ("поздоровался", "поблагодарил", "неразборчива"):
+    for reason in ("поздоровался", "поблагодарил", "неразборчива", "повторить"):
         assert reason in instruction
+    assert "достаточно ответить словами" not in instruction
+
+
+def test_action_instruction_routes_exhibit_questions_to_tell_about() -> None:
+    instruction = build_action_instruction([_STOP])
+    assert "tell_about, не noop" in instruction
+    assert "robo_guide" in instruction
 
 
 def test_action_instruction_does_not_discourage_noop_as_a_delay_tactic() -> None:

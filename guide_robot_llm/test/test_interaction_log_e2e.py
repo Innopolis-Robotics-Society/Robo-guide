@@ -28,7 +28,7 @@ def test_turn_produces_interaction_log_record() -> None:
         harness.llm_server.chunks_with_grammar = ['{"tool": "noop", "args": {}}']
 
         client = harness.make_client_node()
-        _publish_transcript(client, "привет")
+        _publish_transcript(client, "робот, привет")
 
         wait_until(lambda: len(_log_lines(harness)) >= 1, timeout_s=5.0)
         lines = _log_lines(harness)

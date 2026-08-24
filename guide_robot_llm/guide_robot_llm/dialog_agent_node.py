@@ -56,11 +56,19 @@ from guide_robot_llm.lib.qos import (
     QOS_INTERACTION_EVENT,
     QOS_MISSION_PRESENCE,
     QOS_MISSION_STATE,
+    QOS_WAKEWORD,
 )
 from guide_robot_llm.llm_client import Backend, BackendConfig, complete_with_fallback
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
 from guide_robot_llm.tools import schema
-from guide_robot_msgs.msg import CancelAll, InteractionEvent, MissionState, Presence, Transcript
+from guide_robot_msgs.msg import (
+    CancelAll,
+    InteractionEvent,
+    MissionState,
+    Presence,
+    Transcript,
+    Wakeword,
+)
 from guide_robot_msgs.srv import CallTool
 
 __all__ = ["DialogAgentNode", "main"]
@@ -77,6 +85,8 @@ _STATE_NAMES = {
     MissionState.STATE_RETURNING: "RETURNING",
 }
 _DEGRADED_REASONS = frozenset({"answer_backend_error", "action_backend_error", "aborted"})
+_LISTEN_WINDOW_S = 8.0
+_ACTIVATION_KEYWORDS = frozenset({"робот", "слушай робот"})
 
 
 def _wait_future(future: Future, context: object, timeout_s: float) -> bool:
@@ -189,9 +199,7 @@ class DialogAgentNode(LifecycleNode):
         self._max_tokens_action = int(self.get_parameter("llm.max_tokens_action").value)
         self._temperature_answer = float(self.get_parameter("llm.temperature_answer").value)
         self._temperature_action = float(self.get_parameter("llm.temperature_action").value)
-        self._action_repair_attempts = int(
-            self.get_parameter("llm.action_repair_attempts").value
-        )
+        self._action_repair_attempts = int(self.get_parameter("llm.action_repair_attempts").value)
 
         self._service_call_timeout_s = float(self.get_parameter("service_call_timeout_s").value)
         self._catalog_ns_timeout_s = float(self.get_parameter("catalog_ns_timeout_s").value)
@@ -208,6 +216,7 @@ class DialogAgentNode(LifecycleNode):
             cap_event=int(self.get_parameter("history.cap_event_chars").value),
         )
         self._told_ids: set[str] = set()
+        self._listen_until = 0.0
         # Идентификатор сессии конфигурации: turn_id -- процессный счётчик,
         # без session_id перезапуск dialog_agent при живом interaction_log
         # переиспользует те же turn_id в том же jsonl-файле неотличимо от
@@ -276,6 +285,13 @@ class DialogAgentNode(LifecycleNode):
             QOS_ASR_TRANSCRIPT,
             callback_group=self._cb_reentrant,
         )
+        self._wakeword_sub = self.create_subscription(
+            Wakeword,
+            "/speech/wakeword",
+            self._on_wakeword,
+            QOS_WAKEWORD,
+            callback_group=self._cb_reentrant,
+        )
         self._cancel_all_sub = self.create_subscription(
             CancelAll,
             "/speech/cancel_all",
@@ -283,7 +299,6 @@ class DialogAgentNode(LifecycleNode):
             QOS_CANCEL_ALL,
             callback_group=self._cb_reentrant,
         )
-
         self.get_logger().info("dialog_agent сконфигурирован")
         return TransitionCallbackReturn.SUCCESS
 
@@ -308,9 +323,7 @@ class DialogAgentNode(LifecycleNode):
         if not locations_result.ok:
             self.get_logger().error(f"каталог локаций не пришёл: {locations_result.message}")
             return TransitionCallbackReturn.FAILURE
-        tours_result = self._execute_tool(
-            "list_tours", {}, timeout_s=self._catalog_ns_timeout_s
-        )
+        tours_result = self._execute_tool("list_tours", {}, timeout_s=self._catalog_ns_timeout_s)
         if not tours_result.ok:
             self.get_logger().error(f"каталог туров не пришёл: {tours_result.message}")
             return TransitionCallbackReturn.FAILURE
@@ -393,11 +406,18 @@ class DialogAgentNode(LifecycleNode):
                 self._history.clear()
             if hasattr(self, "_told_ids"):
                 self._told_ids.clear()
+            self._listen_until = 0.0
         # ROS-сущности уничтожаем явно: cleanup -> configure иначе оставляет
         # ВТОРОЙ комплект живых подписок/паблишеров (живой баг: задвоенные
         # записи в interaction_log). Идемпотентно -- teardown зовётся и из
         # on_cleanup, и из on_shutdown.
-        for attr in ("_transcript_sub", "_mission_state_sub", "_presence_sub", "_cancel_all_sub"):
+        for attr in (
+            "_transcript_sub",
+            "_wakeword_sub",
+            "_mission_state_sub",
+            "_presence_sub",
+            "_cancel_all_sub",
+        ):
             sub = getattr(self, attr, None)
             if sub is not None:
                 self.destroy_subscription(sub)
@@ -504,9 +524,39 @@ class DialogAgentNode(LifecycleNode):
         # обращение в третьем лице (живой баг: "робот стоп" как существительное).
         text = matching.strip_wake_word(msg.text)
         if not text:
+            self._arm_listen()
             self.get_logger().info("транскрипт -- только wake-слово, ход не запускаю")
             return
+        mission = self.last_mission_state()
+        if mission is None:
+            return
+        if mission.state == MissionState.STATE_IDLE and not matching.idle_turn_allowed(
+            msg.text, listen_armed=self._listen_armed()
+        ):
+            self.get_logger().info(f"IDLE без wakeword, игнор: {text!r}")
+            return
         self._handle_transcript(text)
+
+    def _on_wakeword(self, msg: Wakeword) -> None:
+        """Открыть окно слушания только на активацию, не на стоп и не на эхо TTS."""
+        if msg.tts_active:
+            return
+        keyword = (msg.keyword or "").strip().lower()
+        if keyword not in _ACTIVATION_KEYWORDS:
+            return
+        self._arm_listen()
+
+    def _arm_listen(self) -> None:
+        with self._state_lock:
+            self._listen_until = time.monotonic() + _LISTEN_WINDOW_S
+
+    def _disarm_listen(self) -> None:
+        with self._state_lock:
+            self._listen_until = 0.0
+
+    def _listen_armed(self) -> bool:
+        with self._state_lock:
+            return time.monotonic() < self._listen_until
 
     def _handle_transcript(self, text: str, *, is_replay: bool = False) -> None:
         """Обработать реплику: гейты -> fast-path -> старт хода (или отложить).
@@ -598,8 +648,6 @@ class DialogAgentNode(LifecycleNode):
             return "ответ обработан напрямую: команда отмены без содержания, ничего не делаю"
         return "ответ обработан напрямую: стоп-слово"
 
-    # -- ход: снимок -> действие (GBNF+think) -> исполнение -> реплика --
-
     def _run_turn(
         self,
         turn_id: int,
@@ -650,6 +698,7 @@ class DialogAgentNode(LifecycleNode):
             user_content = "\n".join(
                 [f"СОБЫТИЕ: {event}" for event in trailing_events] + [status_line, text]
             )
+            self.get_logger().info(f"ASR: {text!r}")
 
             def _complete_answer(messages: list[dict]):
                 start = time.monotonic()
@@ -745,6 +794,8 @@ class DialogAgentNode(LifecycleNode):
                 self._pending_text = None
                 self._turn_in_flight = False
                 self._abort_event = None
+            if pending_text is None:
+                self._disarm_listen()
 
         if result is not None:
             now = time.time()
