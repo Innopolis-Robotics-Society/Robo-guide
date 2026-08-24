@@ -152,6 +152,19 @@ launch-контекст к моменту `high_level_stack.launch.py` уже с
 include завёрнут в свой `GroupAction` (scoped) — см. комментарии в
 `high_level_stack.launch.py`.
 
+### `launch/desk.launch.py`
+
+Голос + semantic_map + mission + LLM **без** `ros2_control` / Nav2 /
+лидаров. Когда реле моторов снято, `hardware.launch.py` падает на
+драйвере — этот файл нет.
+
+```bash
+ros2 launch guide_robot_bringup desk.launch.py
+```
+
+`voice_jetson.yaml`, `autostart:=true` (супервизора нет). Тур из диалога
+не поедет: `NavigateToPose` некому исполнить.
+
 ### `launch/view_robot.launch.py`
 
 Только для визуальной проверки геометрии/TF URDF без реального робота

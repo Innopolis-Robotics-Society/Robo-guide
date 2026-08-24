@@ -77,12 +77,18 @@ def generate_launch_description():
         description="Autostart all three lifecycle_manager_* (bypasses guide_robot_supervisor "
         "-- for standalone testing only, the supervisor normally owns bring-up)",
     )
+    declare_voice_params_file = DeclareLaunchArgument(
+        "voice_params_file",
+        default_value=os.path.join(pkg_voice, "config", "voice.yaml"),
+        description="YAML for guide_robot_voice (voice_jetson.yaml on the real robot)",
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     launch_voice = LaunchConfiguration("launch_voice")
     launch_semantic_map = LaunchConfiguration("launch_semantic_map")
     launch_mission = LaunchConfiguration("launch_mission")
     autostart = LaunchConfiguration("autostart")
+    voice_params_file = LaunchConfiguration("voice_params_file")
 
     # ── Голос ─────────────────────────────────────────────────────────────────
     # autostart -- пробрасывается (default "false"): супервизор (группа
@@ -97,7 +103,7 @@ def generate_launch_description():
                 ),
                 condition=IfCondition(launch_voice),
                 launch_arguments={
-                    "params_file": os.path.join(pkg_voice, "config", "voice.yaml"),
+                    "params_file": voice_params_file,
                     "autostart": autostart,
                 }.items(),
             ),
@@ -116,9 +122,7 @@ def generate_launch_description():
                 condition=IfCondition(launch_semantic_map),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
-                    "params_file": os.path.join(
-                        pkg_semantic_map, "config", "semantic_map.yaml"
-                    ),
+                    "params_file": os.path.join(pkg_semantic_map, "config", "semantic_map.yaml"),
                     "autostart": autostart,
                 }.items(),
             ),
@@ -137,9 +141,7 @@ def generate_launch_description():
                 condition=IfCondition(launch_mission),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
-                    "params_file": os.path.join(
-                        pkg_mission_control, "config", "mission.yaml"
-                    ),
+                    "params_file": os.path.join(pkg_mission_control, "config", "mission.yaml"),
                     "autostart": autostart,
                 }.items(),
             ),
@@ -153,6 +155,7 @@ def generate_launch_description():
             declare_launch_semantic_map,
             declare_launch_mission,
             declare_autostart,
+            declare_voice_params_file,
             voice,
             semantic_map,
             mission,
