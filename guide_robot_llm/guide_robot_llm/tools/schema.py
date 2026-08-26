@@ -71,17 +71,21 @@ class ToolSpec:
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "start_tour",
-        "Начать заранее заданный тур по tour_id.",
+        "Начать заранее заданный тур по tour_id. Только если посетитель "
+        "явно попросил начать экскурсию или тур, не из приветствия, "
+        "«повтори» или светской беседы.",
         frozenset({_S.STATE_IDLE}),
     ),
     ToolSpec(
         "guide_to",
-        "Провести посетителя к одной локации (location_id), без полного тура.",
+        "Провести посетителя к одной локации (location_id), без полного тура. "
+        "Только по явной просьбе отвести или провести к месту.",
         frozenset({_S.STATE_IDLE}),
     ),
     ToolSpec(
         "tour_by_points",
-        "Построить маршрут по списку локаций (location_ids) и начать тур.",
+        "Построить маршрут по списку локаций (location_ids) и начать тур. "
+        "Только по явной просьбе составить маршрут или экскурсию.",
         frozenset({_S.STATE_IDLE}),
     ),
     ToolSpec("stop_tour", "Прервать текущий тур совсем.", _TOUR_ACTIVE_STATES),
@@ -107,7 +111,9 @@ TOOLS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         "tell_about",
-        "Рассказать про экспонат (exhibit_id) вне тура.",
+        "Рассказать про экспонат вне тура. exhibit_id = id локации "
+        "category=exhibit. «кто ты»/«расскажи о себе» → robo_guide. "
+        "Не noop, если спросили про конкретный экспонат.",
         frozenset({_S.STATE_IDLE}),
     ),
     ToolSpec(

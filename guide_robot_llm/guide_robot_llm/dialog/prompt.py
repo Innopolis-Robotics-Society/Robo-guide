@@ -49,9 +49,19 @@ _ACTION_HEADER = (
 
 _ACTION_NOOP_REASONS = (
     'Выбирай "noop", если: посетитель поздоровался; поблагодарил; сказал светскую '
-    "реплику; задал вопрос, на который достаточно ответить словами; речь была "
+    "реплику; попросил повторить без явной просьбы начать экскурсию; спросил общий "
+    "список экспонатов -- тогда назови их словами из каталога; речь была "
     "неразборчива (переспросишь в ответной реплике); посетитель только что получил "
     "ответ и сам ничего не попросил."
+)
+
+# Иначе Gemma отвечает из справочника и берёт noop -- официальный рассказ
+# (Narrate) так никогда не стартует.
+_ACTION_TELL_ABOUT = (
+    'Вопрос или просьба про конкретный экспонат, «кто ты», «расскажи о себе» -- '
+    "это tell_about, не noop. exhibit_id совпадает с id локации category=exhibit "
+    "из каталога; для «кто ты»/«о себе» бери id робота-экскурсовода (обычно "
+    "robo_guide). Не рассказывай экспонат из головы или справочника."
 )
 
 # Давление в сторону действия ослаблено (CLAUDE_CODE_TASK.md пункт 3): раньше
@@ -77,6 +87,7 @@ def build_action_instruction(tool_specs: Sequence[ToolSpec]) -> str:
             _ACTION_HEADER,
             "Доступные инструменты:\n" + catalog,
             _ACTION_NOOP_REASONS,
+            _ACTION_TELL_ABOUT,
             _ACTION_ACT_ON_INTENT,
         ]
     )
@@ -131,6 +142,8 @@ def _render_location(location: dict) -> str:
     parens_parts = [part for part in (name, f"зона {zone}" if zone else "") if part]
     parens = f" ({'; '.join(parens_parts)})" if parens_parts else ""
     suffix = f" — {category}" if category else ""
+    if category == "exhibit":
+        suffix += f", exhibit_id {location['id']}"
     return f"- {location['id']}{parens}{suffix}"
 
 

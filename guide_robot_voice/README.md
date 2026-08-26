@@ -51,7 +51,7 @@ gain, ресемплинг `device_rate → out_rate`, нарезка на ка�
 сброс состояния фильтров/ресемплера и `SystemEvent(severity=ERROR,
 id="audio.xrun")`, без "латания нулями".
 
-**Публикует**: `/audio/mic` (`AudioChunk`, BEST_EFFORT d5, 62.5 Гц),
+**Публикует**: `/audio/mic` (`AudioChunk`, BEST_EFFORT d20, 62.5 Гц),
 `/audio/mic_raw` (то же, `device_rate`, только если `publish_raw:=true`,
 диагностика), `/diagnostics` (1 Гц), `/system_event` (по xrun).
 
@@ -169,8 +169,8 @@ d1, 5 Гц heartbeat + по изменению), `/diagnostics`, `/system_event`
 
 | Топик | Тип | QoS | Издатель | Подписчики |
 |---|---|---|---|---|
-| `/audio/mic` | `AudioChunk` | BEST_EFFORT d5 | audio_frontend | vad_node, asr_node |
-| `/audio/mic_raw` | `AudioChunk` | BEST_EFFORT d5 | audio_frontend (опц.) | диагностика |
+| `/audio/mic` | `AudioChunk` | BEST_EFFORT d20 | audio_frontend | vad_node, asr_node |
+| `/audio/mic_raw` | `AudioChunk` | BEST_EFFORT d20 | audio_frontend (опц.) | диагностика |
 | `/vad` | `VoiceActivity` | BEST_EFFORT d1 | vad_node | asr_node |
 | `/speech/wakeword` | `Wakeword` | RELIABLE d1 | wakeword_node | — |
 | `/asr/partial` | `Transcript` | BEST_EFFORT d1 | asr_node | wakeword_node |

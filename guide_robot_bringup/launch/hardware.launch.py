@@ -88,6 +88,12 @@ def generate_launch_description():
         default_value="true",
         description="Launch the tour stack (voice + semantic_map + mission_control)",
     )
+    pkg_voice = get_package_share_directory("guide_robot_voice")
+    declare_voice_params_file = DeclareLaunchArgument(
+        "voice_params_file",
+        default_value=os.path.join(pkg_voice, "config", "voice_jetson.yaml"),
+        description="Voice YAML: USB mic + Pulse Bluetooth speaker on the real robot",
+    )
     # tooling
     declare_launch_foxglove = DeclareLaunchArgument(
         "launch_foxglove", default_value="true", description="Launch Foxglove Bridge"
@@ -196,7 +202,10 @@ def generate_launch_description():
             os.path.join(pkg_bringup, "launch", "high_level_stack.launch.py")
         ),
         condition=IfCondition(launch_high_level),
-        launch_arguments={"use_sim_time": use_sim_time}.items(),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "voice_params_file": LaunchConfiguration("voice_params_file"),
+        }.items(),
     )
 
     # ── Tooling ──────────────────────────────────────────────────────────────
@@ -240,6 +249,7 @@ def generate_launch_description():
             declare_autostart_nav,
             declare_autostart_supervisor,
             declare_launch_high_level,
+            declare_voice_params_file,
             declare_launch_foxglove,
             declare_launch_rviz,
             robot_state_publisher_node,

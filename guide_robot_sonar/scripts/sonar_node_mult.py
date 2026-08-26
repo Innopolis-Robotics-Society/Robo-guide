@@ -46,8 +46,13 @@ error count cannot see — driver thread wedged, port never opened at all.
 """
 
 import statistics
+import sys
 from collections import deque
+from pathlib import Path
 
+# --symlink-install: sys.path[0] is the script realpath (src/scripts). The
+# pybind .so is next to this file's install symlink, not in src.
+sys.path.insert(0, str(Path(__file__).parent))
 import furo_sonars_cpp
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus

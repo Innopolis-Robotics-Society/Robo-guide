@@ -25,12 +25,11 @@ require_aec_for_barge_in: AEC ещё не существует (Stage 2+, design
 забыли включить AEC, робот перебивает сам себя", реализованная максимально
 консервативно: нет источника подтверждения AEC -- нет и barge-in.
 
-Про xrun. audio_frontend уже сбрасывает свои фильтры при разрыве потока,
-но разрыв в first_sample -- это разрыв и для RNN-состояния Silero, и для
-гистерезиса: то, что "было до дыры", не должно склеиваться с тем, что
-после. Поэтому vad_node сам проверяет first_sample на непрерывность и
-сбрасывается независимо, а не полагается на то, что источник восстановится
-"как ни в чём не бывало".
+Про xrun. audio_frontend уже сбрасывает свои фильтры при разрыве потока.
+Дыра в 1–2 кадра (16–32 мс) для гистерезиса -- то же, что короткий провал
+внутри фразы: hangover_ms как раз для этого. Сброс Silero+гистерезиса на
+каждой такой дыре рвал /vad active и отдавал ASR обрубки. Сбрасываемся
+только если пропуск >= 80 мс (или rewind): это уже другой сегмент.
 """
 
 from __future__ import annotations
@@ -56,6 +55,8 @@ from guide_robot_voice.lib.vad_hysteresis import VadHysteresis
 from guide_robot_voice.lib.vad_model import SileroVad
 
 _WINDOW_SAMPLES = 512
+_FRAME_SAMPLES = 256
+_RESET_GAP_SAMPLES = 16 * _FRAME_SAMPLES
 _SILENCE_FLOOR_DBFS = -120.0
 _SPEAKING_STATUS_STALE_SEC = 0.4
 """Два периода heartbeat (design §2): протухший статус считается speaking=false."""
@@ -195,24 +196,30 @@ class VadNode(LifecycleNode):
 
         expected = self._expected_first_sample
         if expected is not None and msg.first_sample != expected:
+            skipped = int(msg.first_sample) - int(expected)
+            reset = skipped < 0 or skipped >= _RESET_GAP_SAMPLES
             now = time.monotonic()
             if now - self._gap_log_at >= 1.0:
                 extra = (
                     f" (+{self._gaps_suppressed} ещё за секунду)" if self._gaps_suppressed else ""
                 )
+                action = "сбрасываю состояние" if reset else "держу сегмент"
                 self.get_logger().warning(
                     f"разрыв в /audio/mic: ожидался first_sample={expected}, "
-                    f"пришёл {msg.first_sample} -- сбрасываю состояние{extra}"
+                    f"пришёл {msg.first_sample} (пропуск {skipped} сэмплов) "
+                    f"-- {action}{extra}"
                 )
                 self._gap_log_at = now
                 self._gaps_suppressed = 0
             else:
                 self._gaps_suppressed += 1
-            assert self._vad is not None
-            assert self._hysteresis is not None
-            self._vad.reset()
-            self._hysteresis.reset()
-            self._ring = RingBuffer(16000)
+            if reset:
+                assert self._vad is not None
+                assert self._hysteresis is not None
+                self._vad.reset()
+                self._hysteresis.reset()
+                self._ring = RingBuffer(16000)
+                self._barge_in_streak = 0
         self._expected_first_sample = msg.first_sample + len(msg.data)
 
         timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9

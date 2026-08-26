@@ -13,11 +13,9 @@
    в накопитель высказывания подаётся снимок pre-roll (без него срезается
    первый слог -- design §3.4).
 3. Каждый новый кадр /audio/mic во время открытого высказывания
-   добавляется в накопитель. Партиалы публикуются с троттлингом до
-   partial_rate_hz: OfflineRecognizer декодирует не весь накопитель,
-   а последние partial_window_s секунд (см. lib/asr_model.py -- полное
-   декодирование растёт по времени с длиной буфера и на потолке
-   max_utterance_s гарантированно выйдет за бюджет partial_rate_hz).
+   добавляется в накопитель. Партиалы считает таймер (partial_rate_hz),
+   не колбэк микрофона: OfflineRecognizer на том же executor'е иначе
+   не забирает /audio/mic (depth KEEP_LAST) и VAD видит дыры first_sample.
 4. Каждое /vad-сообщение во время открытого высказывания прогоняется
    через TurnPolicy.should_finalize(). Тишина берётся из state_duration
    самого /vad -- vad_node уже считает её точно, задваивать незачем.
@@ -52,6 +50,7 @@ from guide_robot_voice.lib.turn_policy import TurnPolicy, TurnPolicyConfig
 
 _SAMPLE_RATE = 16000
 _SPEAKING_STATUS_STALE_SEC = 0.4
+_TTS_ECHO_HOLD_S = 1.0
 
 
 class AsrNode(LifecycleNode):
@@ -72,6 +71,7 @@ class AsrNode(LifecycleNode):
         self.declare_parameter("base_silence_ms", 600.0)
         self.declare_parameter("short_silence_ms", 350.0)
         self.declare_parameter("max_utterance_s", 20.0)
+        self.declare_parameter("short_path_max_ms", 2500.0)
         self.declare_parameter("min_final_chars", 2)
         self.declare_parameter("gate_on_tts", False)
         self.declare_parameter("frame_id", "mic_array")
@@ -93,6 +93,7 @@ class AsrNode(LifecycleNode):
         self._last_partial_at = 0.0
 
         self._latest_speaking: SpeakingStatus | None = None
+        self._tts_hold_until = 0.0
 
         self._utterances_total = 0
         self._finals_published = 0
@@ -138,8 +139,10 @@ class AsrNode(LifecycleNode):
                 base_silence_ms=float(self.get_parameter("base_silence_ms").value),
                 short_silence_ms=float(self.get_parameter("short_silence_ms").value),
                 max_utterance_s=float(self.get_parameter("max_utterance_s").value),
+                short_path_max_ms=float(self.get_parameter("short_path_max_ms").value),
             )
         )
+        self.get_logger().info(f"turn_policy {self._turn_policy.config}")
 
         pre_roll_ms = float(self.get_parameter("pre_roll_ms").value)
         pre_roll_samples = int(_SAMPLE_RATE * pre_roll_ms / 1000.0)
@@ -160,6 +163,8 @@ class AsrNode(LifecycleNode):
             SpeakingStatus, "/voice/speaking", self._on_speaking_status, QOS_VOICE_SPEAKING
         )
         self._diag_timer = self.create_timer(1.0, self._publish_diagnostics)
+        partial_hz = float(self.get_parameter("partial_rate_hz").value)
+        self._partial_timer = self.create_timer(1.0 / max(partial_hz, 0.1), self._on_partial_timer)
 
         self.get_logger().info("asr_node сконфигурирован")
         return TransitionCallbackReturn.SUCCESS
@@ -171,6 +176,7 @@ class AsrNode(LifecycleNode):
         self._pre_roll = RingBuffer(_SAMPLE_RATE, max_samples=pre_roll_samples)
         self._close_utterance()
         self._latest_speaking = None
+        self._tts_hold_until = 0.0
         with self._lock:
             self._is_active = True
         return super().on_activate(state)
@@ -196,7 +202,10 @@ class AsrNode(LifecycleNode):
     # -- вход ---------------------------------------------------------------
 
     def _on_speaking_status(self, msg: SpeakingStatus) -> None:
+        prev = self._latest_speaking
         self._latest_speaking = msg
+        if prev is not None and prev.speaking and not msg.speaking:
+            self._tts_hold_until = time.monotonic() + _TTS_ECHO_HOLD_S
 
     def _is_tts_speaking(self) -> bool:
         status = self._latest_speaking
@@ -205,6 +214,11 @@ class AsrNode(LifecycleNode):
         stamp = status.stamp.sec + status.stamp.nanosec / 1e9
         age = self.get_clock().now().nanoseconds / 1e9 - stamp
         return age <= _SPEAKING_STATUS_STALE_SEC
+
+    def _tts_blocks_listen(self) -> bool:
+        if self._is_tts_speaking():
+            return True
+        return time.monotonic() < self._tts_hold_until
 
     def _on_audio(self, msg: AudioChunk) -> None:
         with self._lock:
@@ -221,6 +235,14 @@ class AsrNode(LifecycleNode):
 
         self._utterance_chunks.append(samples)
         self._utterance_samples += samples.shape[0]
+
+    def _on_partial_timer(self) -> None:
+        """Декод партиала вне колбэка /audio/mic: иначе GigaAM держит читателя."""
+        with self._lock:
+            if not self._is_active or not self._utterance_open:
+                return
+        if bool(self.get_parameter("gate_on_tts").value) and self._tts_blocks_listen():
+            return
         self._maybe_publish_partial()
 
     def _on_vad(self, msg: VoiceActivity) -> None:
@@ -230,8 +252,12 @@ class AsrNode(LifecycleNode):
         assert self._turn_policy is not None
 
         gate_on_tts = bool(self.get_parameter("gate_on_tts").value)
+        if gate_on_tts and self._tts_blocks_listen():
+            if self._utterance_open:
+                self._close_utterance()
+            return
         if not self._utterance_open:
-            if msg.active and not (gate_on_tts and self._is_tts_speaking()):
+            if msg.active:
                 self._open_utterance()
             return
 
@@ -306,10 +332,12 @@ class AsrNode(LifecycleNode):
 
         if len(text) < min_chars:
             self._finals_dropped_short += 1
+            self.get_logger().info(f"drop {text!r} {self._utterance_speech_ms():.0f}ms")
             self._close_utterance()
             return
 
         confidence = result.confidence if result is not None else -1.0
+        self.get_logger().info(f"final {text!r} {self._utterance_speech_ms():.0f}ms")
         self._publish_transcript(text, confidence, is_final=True)
         self._finals_published += 1
         self._close_utterance()

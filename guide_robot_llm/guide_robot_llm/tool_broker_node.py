@@ -81,6 +81,7 @@ class ToolBrokerNode(LifecycleNode):
         self._state_lock = threading.Lock()
         self._last_mission_state: MissionState | None = None
         self._last_presence: Presence | None = None
+        self._last_visitor_text = ""
 
         self._run_tour_lock = threading.Lock()
         self._run_tour_goal_handle: object | None = None
@@ -216,6 +217,7 @@ class ToolBrokerNode(LifecycleNode):
         with self._state_lock:
             self._last_mission_state = None
             self._last_presence = None
+            self._last_visitor_text = ""
         with self._run_tour_lock:
             self._run_tour_goal_handle = None
 
@@ -247,7 +249,11 @@ class ToolBrokerNode(LifecycleNode):
         Неуверенный случай -- просто лог; передача ЛЛМ (dialog_agent, шаг 5)
         здесь не реализована, это явная граница этого захода.
         """
-        if not msg.is_final or not self._active:
+        if not msg.is_final:
+            return
+        with self._state_lock:
+            self._last_visitor_text = msg.text
+        if not self._active:
             return
         mission = self.last_mission_state()
         if mission is None:
@@ -286,6 +292,10 @@ class ToolBrokerNode(LifecycleNode):
             self._known_location_ids_cache if _needs_location_whitelist(name) else frozenset()
         )
         known_tours = self._known_tour_ids_cache if name == "start_tour" else frozenset()
+        user_text = None
+        if name in validate.MOTION_TOOLS:
+            with self._state_lock:
+                user_text = self._last_visitor_text or None
         try:
             validate.validate_call(
                 name,
@@ -293,6 +303,7 @@ class ToolBrokerNode(LifecycleNode):
                 tools_allowed=tools_allowed,
                 known_location_ids=known_locations,
                 known_tour_ids=known_tours,
+                user_text=user_text,
             )
         except validate.ValidationError as error:
             return ToolResult(ok=False, message=str(error))

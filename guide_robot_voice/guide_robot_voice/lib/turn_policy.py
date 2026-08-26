@@ -8,14 +8,15 @@
 Три правила, любое достаточно:
 
   тишина >= base_silence_ms                                   -- базовый путь
-  тишина >= short_silence_ms И текст синтаксически завершён    -- быстрый путь
+  тишина >= short_silence_ms И текст синтаксически завершён
+      И utterance_ms <= short_path_max_ms                     -- быстрый путь
   длительность >= max_utterance_s                              -- страховка
+
+Быстрый путь только для коротких реплик. На длинной фразе пауза после
+придаточного выглядит как «законченный текст» -- финал режет хвост.
 
 "Синтаксически завершён" на Stage 1 -- эвристика, а не грамматика: длина
 >= min_words слов и последнее слово не предлог/союз/вопросительное слово.
-Ложное срабатывание (досрочный финал на самом деле не законченной фразы)
-это не разрушительно -- narration_server/mission получит транскрипт
-чуть короче, чем сказал человек, но не ждёт лишние 250 мс на КАЖДОЙ фразе.
 Список функциональных слов -- намеренно с запасом, тем же принципом,
 что и список сокращений в chunker.py: пропуск границы (не финализировали
 вовремя) безобиден, ложная граница -- тоже, раз есть base_silence_ms как
@@ -64,6 +65,7 @@ class TurnPolicyConfig:
     short_silence_ms: float = 350.0
     max_utterance_s: float = 20.0
     min_words_for_short: int = 2
+    short_path_max_ms: float = 2500.0
 
 
 class TurnPolicy:
@@ -83,8 +85,10 @@ class TurnPolicy:
         cfg = self._cfg
         if silence_ms >= cfg.base_silence_ms:
             return True
-        if silence_ms >= cfg.short_silence_ms and is_syntactically_complete(
-            partial_text, cfg.min_words_for_short
+        if (
+            silence_ms >= cfg.short_silence_ms
+            and utterance_ms <= cfg.short_path_max_ms
+            and is_syntactically_complete(partial_text, cfg.min_words_for_short)
         ):
             return True
         return utterance_ms >= cfg.max_utterance_s * 1000.0

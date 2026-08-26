@@ -25,10 +25,13 @@ __all__ = [
     "QOS_WAKEWORD",
 ]
 
-# /audio/mic -- 62.5 Гц, потеря кадра не критична, накопление задержки хуже.
+# /audio/mic -- 62.5 Гц. BEST_EFFORT: свежий кадр важнее ретрая.
+# depth=20 (не 5): 80 мс истории. При depth=5 короткий затор VAD/ASR
+# выкидывает кадры, first_sample рвётся, фраза режется на обрубки.
+# У живого читателя задержка не растёт -- KEEP_LAST это запас, не очередь.
 QOS_AUDIO_MIC = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
-    depth=5,
+    depth=20,
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
 )

@@ -17,14 +17,12 @@
 # llm.base_urls -- реальный адрес llm_server/ (см. llm_server/.env: LLM_PORT=18080).
 /**/dialog_agent:
   ros__parameters:
-    llm.base_urls: ["http://10.100.20.195:18080/v1"]
+    llm.base_urls: ["http://127.0.0.1:18080/v1", "http://10.100.20.195:18080/v1"]
     llm.connect_timeout_s: 2.0
     llm.read_timeout_s: 30.0
     llm.api_key: ""
     llm.max_attempts_per_backend: 2
     llm.backoff_s: 0.5
-    # Фаза 1 -- живая речь, без грамматики. Фаза 2 -- детерминированный
-    # выбор действия, GBNF.
     llm.max_tokens_answer: 100
     # 192, не 128: в JSON действия добавилось поле "think" (1-2 предложения
     # рассуждения до выбора инструмента) -- ему нужен свой запас токенов.

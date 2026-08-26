@@ -35,6 +35,7 @@ from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from guide_robot_voice.lib.keyword_spotter import KeywordSpotter
 from guide_robot_voice.lib.qos import (
     QOS_ASR_PARTIAL,
+    QOS_ASR_TRANSCRIPT,
     QOS_CANCEL_ALL,
     QOS_VOICE_SPEAKING,
     QOS_WAKEWORD,
@@ -65,6 +66,7 @@ class WakewordNode(LifecycleNode):
 
         self._latest_speaking: SpeakingStatus | None = None
         self._last_trigger_at: dict[str, float] = {}
+        self._last_trigger_utterance: dict[str, int] = {}
         self._triggers_total = 0
         self._stale_speaking_warnings = 0
 
@@ -106,6 +108,9 @@ class WakewordNode(LifecycleNode):
         self._partial_sub = self.create_subscription(
             Transcript, "/asr/partial", self._on_partial, QOS_ASR_PARTIAL
         )
+        self._transcript_sub = self.create_subscription(
+            Transcript, "/asr/transcript", self._on_partial, QOS_ASR_TRANSCRIPT
+        )
         self._speaking_sub = self.create_subscription(
             SpeakingStatus, "/voice/speaking", self._on_speaking_status, QOS_VOICE_SPEAKING
         )
@@ -120,6 +125,7 @@ class WakewordNode(LifecycleNode):
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         """Сбросить рефрактерное состояние и начать обработку."""
         self._last_trigger_at = {}
+        self._last_trigger_utterance = {}
         self._latest_speaking = None
         with self._lock:
             self._is_active = True
@@ -147,6 +153,15 @@ class WakewordNode(LifecycleNode):
     def _on_speaking_status(self, msg: SpeakingStatus) -> None:
         self._latest_speaking = msg
 
+    def _speaking_now(self) -> bool:
+        """Свежий heartbeat /voice/speaking. Без WARN -- горячий путь партиалов."""
+        status = self._latest_speaking
+        if status is None or not status.speaking:
+            return False
+        stamp = status.stamp.sec + status.stamp.nanosec / 1e9
+        age = self.get_clock().now().nanoseconds / 1e9 - stamp
+        return age <= _SPEAKING_STATUS_STALE_SEC
+
     def _tts_active(self) -> bool:
         """tts_active для Wakeword.msg. Протухший статус -- false, но с WARN.
 
@@ -172,6 +187,10 @@ class WakewordNode(LifecycleNode):
         with self._lock:
             if not self._is_active:
                 return
+        # Без AEC TTS с колонки попадает в ASR. Активация и стоп во время
+        # собственной речи -- ложные: «робот-экскурсовод» / «стоп» в тексте.
+        if self._speaking_now():
+            return
         assert self._activation_spotter is not None
         assert self._stop_spotter is not None
 
@@ -179,7 +198,7 @@ class WakewordNode(LifecycleNode):
 
         stop_match = self._stop_spotter.find(msg.text)
         if stop_match is not None and stop_match.confidence >= min_confidence:
-            if self._trigger(stop_match.phrase):
+            if self._trigger(stop_match.phrase, msg.utterance_id):
                 self._on_stop_phrase(stop_match.phrase, stop_match.confidence)
             return
 
@@ -187,18 +206,21 @@ class WakewordNode(LifecycleNode):
         if (
             activation_match is not None
             and activation_match.confidence >= min_confidence
-            and self._trigger(activation_match.phrase)
+            and self._trigger(activation_match.phrase, msg.utterance_id)
         ):
             self._publish_wakeword(activation_match.phrase, activation_match.confidence)
 
-    def _trigger(self, phrase: str) -> bool:
-        """Рефрактерный гейт: одно срабатывание на фразу за refractory_ms."""
+    def _trigger(self, phrase: str, utterance_id: int) -> bool:
+        """Одно срабатывание на utterance_id, плюс refractory_ms между разными."""
+        if self._last_trigger_utterance.get(phrase) == utterance_id:
+            return False
         refractory_s = float(self.get_parameter("refractory_ms").value) / 1000.0
         now = time.monotonic()
         last = self._last_trigger_at.get(phrase, -float("inf"))
         if now - last < refractory_s:
             return False
         self._last_trigger_at[phrase] = now
+        self._last_trigger_utterance[phrase] = utterance_id
         return True
 
     # -- срабатывание -----------------------------------------------------

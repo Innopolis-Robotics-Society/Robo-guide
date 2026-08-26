@@ -1,0 +1,13 @@
+[Unit]
+Description=Guide-Robot Pulse: keep Bluetooth speaker as default sink
+After=pulseaudio.service bluetooth.target
+Wants=pulseaudio.service
+
+[Service]
+Type=simple
+ExecStart=/home/jetson/Desktop/Projects/Robo-guide/scripts/jetson_audio.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

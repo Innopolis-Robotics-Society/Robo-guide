@@ -21,13 +21,19 @@
 (предположение о непрерывности потока нарушено), в first_sample делается
 разрыв (честная оценка "как минимум ещё один кадр потерян" -- ни ALSA,
 ни PortAudio не отдают точное число потерянных сэмплов на всех бэкендах),
-и немедленно публикуется SystemEvent(severity=ERROR, id="audio.xrun").
+и публикуется SystemEvent audio.xrun с воркера.
+Колбэк PortAudio только копирует сырой блок в очередь: downmix/HPF/
+ресемплинг/DDS на отдельном потоке. Иначе GIL+numpy каждые 16 мс
+срывают следующий период ALSA. ROS-таймер исполнителя сюда не годится:
+один затор DDS оставлял 18 кадров в очереди на 32 и рвал first_sample.
 """
 
 from __future__ import annotations
 
 import math
+import queue
 import threading
+import time
 
 import numpy as np
 import rclpy
@@ -42,6 +48,10 @@ from guide_robot_voice.lib.resampler import Resampler
 from guide_robot_voice.lib.ring import RingBuffer
 
 _SILENCE_FLOOR_DBFS = -120.0
+# ~4 с кадров по 16 мс. 32 кадра (~0.5 с) переполнялись, пока исполнитель
+# не успевал слить DDS. Не unbounded RAM -- при живом сливе 4 с с запасом.
+_CAP_QUEUE_MAX = 256
+_XRUN_LOG_SEC = 5.0
 
 
 class AudioFrontendNode(LifecycleNode):
@@ -80,6 +90,15 @@ class AudioFrontendNode(LifecycleNode):
         self._level_dbfs = _SILENCE_FLOOR_DBFS
         self._xrun_count = 0
         self._published_count = 0
+        self._overflows = 0
+        self._overflows_total = 0
+        self._xrun_log_at = 0.0
+        self._pub_lock = threading.Lock()
+        self._cap_queue: queue.Queue[tuple[float, np.ndarray, bool]] = queue.Queue(
+            maxsize=_CAP_QUEUE_MAX
+        )
+        self._worker_stop = threading.Event()
+        self._worker: threading.Thread | None = None
 
     # -- lifecycle ------------------------------------------------------
 
@@ -161,6 +180,7 @@ class AudioFrontendNode(LifecycleNode):
             SystemEvent, "/system_event", QOS_SYSTEM_EVENT
         )
         self._diag_timer = self.create_timer(1.0, self._publish_diagnostics)
+        self._start_worker()
 
         if bool(self.get_parameter("aec.enabled").value):
             self.get_logger().warning(
@@ -197,6 +217,12 @@ class AudioFrontendNode(LifecycleNode):
         """Закрыть устройство."""
         del state
         if self._stream is not None:
+            try:
+                self._stream.stop()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        self._stop_worker()
+        if self._stream is not None:
             self._stream.close()  # type: ignore[attr-defined]
             self._stream = None
         return TransitionCallbackReturn.SUCCESS
@@ -210,43 +236,48 @@ class AudioFrontendNode(LifecycleNode):
     def _callback(
         self, indata: np.ndarray, frames: int, time_info: object, status: object
     ) -> None:
-        """Колбэк PortAudio. Вызывается из отдельного аудио-потока.
-
-        Публикация rclpy из чужого потока безопасна (Publisher.publish()
-        не привязан к executor'у) -- отдельного механизма передачи в ROS-
-        поток не заводим, это лишняя сущность без выигрыша (design и так
-        не требует единого потока для ноды).
-        """
+        """Колбэк PortAudio. Только memcpy в очередь -- обработка на воркере."""
         del time_info
         try:
             now = self.get_clock().now().nanoseconds / 1e9
             capture_time = now - frames / float(self._stream.samplerate)  # type: ignore[attr-defined]
-
             xrun = bool(getattr(status, "input_overflow", False)) or bool(
                 getattr(status, "input_underflow", False)
             )
-            if xrun:
-                self._handle_xrun(status)
+            self._cap_queue.put_nowait((capture_time, indata.copy(), xrun))
+        except queue.Full:
+            with self._pub_lock:
+                self._overflows += 1
+                self._overflows_total += 1
+        except Exception:
+            # Лог из RT-потока сам провоцирует следующие xrun.
+            with self._pub_lock:
+                self._overflows += 1
+                self._overflows_total += 1
 
-            mono = self._downmix(indata)
+    def _process_capture(self, capture_time: float, indata: np.ndarray, xrun: bool) -> None:
+        """Downmix / HPF / ресемплинг. Живёт на воркере, не в ALSA и не на таймере."""
+        if xrun:
+            self._handle_xrun()
+
+        mono = self._downmix(indata)
+        if self._raw_pub is not None:
             self._publish_raw_if_enabled(capture_time, mono)
 
-            assert self._dc_blocker is not None
-            assert self._resampler is not None
-            assert self._ring is not None
-            filtered = self._dc_blocker.process(mono)
-            if self._gain_linear != 1.0:
-                filtered = np.clip(
-                    filtered.astype(np.float64) * self._gain_linear, -32768, 32767
-                ).astype(np.int16)
-            self._update_level(filtered)
+        assert self._dc_blocker is not None
+        assert self._resampler is not None
+        assert self._ring is not None
+        filtered = self._dc_blocker.process(mono)
+        if self._gain_linear != 1.0:
+            filtered = np.clip(
+                filtered.astype(np.float64) * self._gain_linear, -32768, 32767
+            ).astype(np.int16)
+        self._update_level(filtered)
 
-            converted = self._resampler.process(filtered)
-            if converted.size:
-                self._ring.push(capture_time, converted)
-            self._drain_ring()
-        except Exception as error:
-            self.get_logger().error(f"сбой в колбэке захвата: {error}")
+        converted = self._resampler.process(filtered)
+        if converted.size:
+            self._ring.push(capture_time, converted)
+        self._drain_ring()
 
     def _downmix(self, indata: np.ndarray) -> np.ndarray:
         """Свести к моно. На Stage 1 тривиально -- один канал или среднее."""
@@ -254,8 +285,8 @@ class AudioFrontendNode(LifecycleNode):
             return indata.reshape(-1)
         return indata.mean(axis=1).astype(np.int16)
 
-    def _handle_xrun(self, status: object) -> None:
-        """Сбросить состояние непрерывности и сообщить о разрыве честно.
+    def _handle_xrun(self) -> None:
+        """Сбросить фильтры. Разрыв first_sample и лог -- на воркере.
 
         Ни ALSA, ни PortAudio не отдают точное число потерянных сэмплов
         на всех бэкендах, поэтому first_sample сдвигается на один кадр
@@ -268,12 +299,14 @@ class AudioFrontendNode(LifecycleNode):
         if self._resampler is not None:
             self._resampler.reset()
         self._first_sample += self._out_frame_samples
-        overflow = getattr(status, "input_overflow", None)
-        detail = f"input_overflow={overflow}, count={self._xrun_count}"
-        self.get_logger().error(f"audio.xrun: {detail}")
-        event = SystemEvent(id="audio.xrun", severity=SystemEvent.ERROR, detail=detail)
-        event.header.stamp = self.get_clock().now().to_msg()
-        self._event_pub.publish(event)
+        if self._log_xrun_throttled("input overflow"):
+            event = SystemEvent(
+                id="audio.xrun",
+                severity=SystemEvent.ERROR,
+                detail=f"count={self._xrun_count}",
+            )
+            event.header.stamp = self.get_clock().now().to_msg()
+            self._event_pub.publish(event)
 
     def _drain_ring(self) -> None:
         """Выдать все полностью накопленные кадры фиксированной длины."""
@@ -284,6 +317,47 @@ class AudioFrontendNode(LifecycleNode):
                 return
             timestamp, frame = popped
             self._publish_frame(timestamp, frame)
+
+    def _start_worker(self) -> None:
+        """Поток: pop очереди захвата -> обработка -> publish. Не таймер исполнителя."""
+        self._worker_stop.clear()
+        self._worker = threading.Thread(
+            target=self._worker_loop, name="audio_frontend_pub", daemon=True
+        )
+        self._worker.start()
+
+    def _stop_worker(self) -> None:
+        self._worker_stop.set()
+        if self._worker is not None:
+            self._worker.join(timeout=1.0)
+            self._worker = None
+
+    def _worker_loop(self) -> None:
+        """Слить cap_queue полностью, кадр за кадром, без ожидания тика ROS."""
+        while not self._worker_stop.is_set():
+            try:
+                capture_time, indata, xrun = self._cap_queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            with self._pub_lock:
+                dropped = self._overflows
+                self._overflows = 0
+            if dropped:
+                self._first_sample += dropped * self._out_frame_samples
+                self._log_xrun_throttled(f"cap_queue overflow x{dropped}")
+            try:
+                self._process_capture(capture_time, indata, xrun)
+            except Exception as error:
+                self.get_logger().error(f"сбой обработки кадра захвата: {error}")
+
+    def _log_xrun_throttled(self, detail: str) -> bool:
+        """ERROR раз в 5 с: сам лог/DDS на xrun жрёт CPU. True -- лог ушёл."""
+        now = time.monotonic()
+        if now - self._xrun_log_at < _XRUN_LOG_SEC:
+            return False
+        self._xrun_log_at = now
+        self.get_logger().error(f"audio.xrun: {detail}, count={self._xrun_count}")
+        return True
 
     def _publish_frame(self, timestamp: float, frame: np.ndarray) -> None:
         """Опубликовать один кадр /audio/mic."""
@@ -337,14 +411,16 @@ class AudioFrontendNode(LifecycleNode):
             level = self._level_dbfs
         diag = DiagnosticArray()
         diag.header.stamp = self.get_clock().now().to_msg()
+        warn = bool(self._xrun_count or self._overflows_total)
         entry = DiagnosticStatus(
             name="voice/audio_frontend",
             hardware_id="audio_frontend",
-            level=DiagnosticStatus.WARN if self._xrun_count else DiagnosticStatus.OK,
+            level=DiagnosticStatus.WARN if warn else DiagnosticStatus.OK,
             message=f"level_dbfs={level:.1f}",
             values=[
                 KeyValue(key="level_dbfs", value=f"{level:.1f}"),
                 KeyValue(key="xrun_count", value=str(self._xrun_count)),
+                KeyValue(key="queue_overflows", value=str(self._overflows_total)),
                 KeyValue(key="first_sample", value=str(self._first_sample)),
                 KeyValue(key="published_frames", value=str(self._published_count)),
             ],

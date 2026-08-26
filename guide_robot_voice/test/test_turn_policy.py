@@ -26,6 +26,13 @@ def test_short_silence_with_complete_text_finalizes() -> None:
     assert policy.should_finalize("сколько лет этому роботу", 350.0, 2000.0)
 
 
+def test_short_silence_does_not_cut_long_utterance() -> None:
+    """Длинная фраза: пауза после придаточного не закрывает ход."""
+    policy = make()
+    assert not policy.should_finalize("когда я экскурсию запустил он", 350.0, 4000.0)
+    assert policy.should_finalize("когда я экскурсию запустил он", 600.0, 4000.0)
+
+
 def test_short_silence_with_incomplete_text_waits() -> None:
     """Короткой тишины недостаточно, если фраза явно не закончена."""
     policy = make()
