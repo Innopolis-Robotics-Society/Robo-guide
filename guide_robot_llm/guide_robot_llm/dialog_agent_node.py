@@ -304,8 +304,10 @@ class DialogAgentNode(LifecycleNode):
             QOS_CANCEL_ALL,
             callback_group=self._cb_reentrant,
         )
+
         if self._raw_llm:
             self.get_logger().warning("llm.raw=true — чат без system/GBNF/инструментов")
+
         self.get_logger().info("dialog_agent сконфигурирован")
         return TransitionCallbackReturn.SUCCESS
 
@@ -330,9 +332,7 @@ class DialogAgentNode(LifecycleNode):
         if not locations_result.ok:
             self.get_logger().error(f"каталог локаций не пришёл: {locations_result.message}")
             return TransitionCallbackReturn.FAILURE
-        tours_result = self._execute_tool(
-            "list_tours", {}, timeout_s=self._catalog_ns_timeout_s
-        )
+        tours_result = self._execute_tool("list_tours", {}, timeout_s=self._catalog_ns_timeout_s)
         if not tours_result.ok:
             self.get_logger().error(f"каталог туров не пришёл: {tours_result.message}")
             return TransitionCallbackReturn.FAILURE

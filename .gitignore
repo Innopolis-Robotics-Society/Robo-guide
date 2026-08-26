@@ -23,6 +23,7 @@ local/
 .claude
 guide_robot_navigation/generated_config/
 odom_test_runs/
+asr_takes/
 
 # System files
 .DS_Store

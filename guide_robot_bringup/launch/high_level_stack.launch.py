@@ -122,9 +122,7 @@ def generate_launch_description():
                 condition=IfCondition(launch_semantic_map),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
-                    "params_file": os.path.join(
-                        pkg_semantic_map, "config", "semantic_map.yaml"
-                    ),
+                    "params_file": os.path.join(pkg_semantic_map, "config", "semantic_map.yaml"),
                     "autostart": autostart,
                 }.items(),
             ),
@@ -143,9 +141,7 @@ def generate_launch_description():
                 condition=IfCondition(launch_mission),
                 launch_arguments={
                     "use_sim_time": use_sim_time,
-                    "params_file": os.path.join(
-                        pkg_mission_control, "config", "mission.yaml"
-                    ),
+                    "params_file": os.path.join(pkg_mission_control, "config", "mission.yaml"),
                     "autostart": autostart,
                 }.items(),
             ),

@@ -29,6 +29,9 @@ services:
       # актуальное — LLAMA_ARG_CONTEXT_SHIFT (булево, 0 = запрет сдвига контекста,
       # т.е. переполнение = явная ошибка, а не молчаливый сдвиг окна). См. README.
       LLAMA_ARG_CONTEXT_SHIFT: 0
+      # Gemma 4 (и подобные) по умолчанию жрут max_tokens в reasoning_content.
+      # dialog_agent читает только delta.content -- thinking для робота бесполезен.
+      LLAMA_ARG_REASONING: ${REASONING:-off}
       LLAMA_ARG_ENDPOINT_METRICS: 1
       LLAMA_API_KEY: ${LLM_API_KEY:-}
     deploy:

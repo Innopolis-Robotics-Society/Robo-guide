@@ -17,7 +17,6 @@ import json
 import time
 
 from guide_robot_llm.lib.qos import QOS_MISSION_STATE
-
 from guide_robot_msgs.msg import CancelAll, MissionState, Transcript
 from test.mocks.harness import ToolBrokerTestHarness, pump_clock, wait_until
 from test.mocks.mock_llm_server import MockLlmServer
@@ -151,7 +150,11 @@ def test_barge_in_aborts_in_flight_turn_before_tool_executes() -> None:
         # Первая фаза хода теперь -- действие (с грамматикой): медленный стрим
         # именно её, чтобы barge-in пришёлся на генерацию в полёте.
         harness.llm_server.chunks_with_grammar = [
-            '{"think": "', "думаю", '"', ", ", '"tool": "noop", "args": {}}'
+            '{"think": "',
+            "думаю",
+            '"',
+            ", ",
+            '"tool": "noop", "args": {}}',
         ]
         harness.llm_server.chunks_no_grammar = ["ок"]
         harness.llm_server.chunk_delay_s = 0.3
@@ -184,7 +187,11 @@ def test_pending_transcript_replayed_after_turn() -> None:
         wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
         harness.llm_server.mode = MockLlmServer.MODE_SLOW
         harness.llm_server.chunks_with_grammar = [
-            '{"think": "', "долго", " думаю", '"', ', "tool": "noop", "args": {}}'
+            '{"think": "',
+            "долго",
+            " думаю",
+            '"',
+            ', "tool": "noop", "args": {}}',
         ]
         harness.llm_server.chunks_no_grammar = ["ок"]
         harness.llm_server.chunk_delay_s = 0.3
@@ -209,8 +216,7 @@ def test_pending_transcript_replayed_after_turn() -> None:
         # Первая (прерванная) реплика не потеряна -- лежит в истории реплея.
         body = harness.llm_server.last_request_body
         assert any(
-            m["role"] == "user" and m["content"] == "первая реплика"
-            for m in body["messages"]
+            m["role"] == "user" and m["content"] == "первая реплика" for m in body["messages"]
         )
         # Прерванный ход не оставил пустой реплики робота в истории.
         entries = harness.dialog_agent._history._entries  # noqa: SLF001

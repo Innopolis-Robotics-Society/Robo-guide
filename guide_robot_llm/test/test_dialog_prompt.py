@@ -11,9 +11,7 @@ from guide_robot_llm.tools.schema import ToolSpec
 
 _SAY = ToolSpec("say", "Сказать реплику посетителю.", frozenset({0}))
 _STOP = ToolSpec("stop_tour", "Прервать текущий тур совсем.", frozenset({1}))
-_HIDDEN = ToolSpec(
-    "list_locations", "Список локаций.", frozenset({0}), llm_visible=False
-)
+_HIDDEN = ToolSpec("list_locations", "Список локаций.", frozenset({0}), llm_visible=False)
 
 
 # -- build_system_prompt: только преамбул + каталог локаций/туров + справочник --
