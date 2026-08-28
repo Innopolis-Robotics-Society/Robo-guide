@@ -502,3 +502,116 @@ def test_render_action_outcome_noop_and_failure() -> None:
     )
     expected = "не удалось: guide_to(location_id='cafe') — нет локации"
     assert render_action_outcome(failed) == expected
+
+
+# -- read_only-инструменты: полный текст, а не "выполнено: name(...)" ------------
+
+
+def test_render_action_outcome_read_only_lookup_content_shows_full_text() -> None:
+    from guide_robot_llm.dialog.turn import ToolCallRecord
+
+    record = ToolCallRecord(
+        name="lookup_content",
+        args={"content_id": "robo_guide"},
+        result_ok=True,
+        result_message="",
+        result_data={"chunks": ["Раз.", "Два."], "title": "Робот-экскурсовод"},
+        read_only=True,
+    )
+    assert render_action_outcome(record) == "Робот-экскурсовод: Раз. Два."
+
+
+def test_render_action_outcome_read_only_search_content_shows_hits() -> None:
+    from guide_robot_llm.dialog.turn import ToolCallRecord
+
+    record = ToolCallRecord(
+        name="search_content",
+        args={"query": "лидар"},
+        result_ok=True,
+        result_message="",
+        result_data={
+            "hits": [
+                {
+                    "content_id": "livox_mid70",
+                    "kind": "exhibit",
+                    "title": "Лидар",
+                    "text": "Это лидар.",
+                }
+            ]
+        },
+        read_only=True,
+    )
+    assert render_action_outcome(record) == "[exhibit: Лидар] Это лидар."
+
+
+def test_render_action_outcome_read_only_empty_hits_says_not_found() -> None:
+    from guide_robot_llm.dialog.turn import ToolCallRecord
+
+    record = ToolCallRecord(
+        name="search_content",
+        args={"query": "кафе"},
+        result_ok=True,
+        result_message="",
+        result_data={"hits": []},
+        read_only=True,
+    )
+    assert render_action_outcome(record) == "ничего не найдено"
+
+
+def test_render_action_outcome_read_only_resolve_location_shows_candidates() -> None:
+    from guide_robot_llm.dialog.turn import ToolCallRecord
+
+    record = ToolCallRecord(
+        name="resolve_location",
+        args={"query": "лидар"},
+        result_ok=True,
+        result_message="",
+        result_data={"candidates": [{"id": "livox_mid70"}]},
+        read_only=True,
+    )
+    assert render_action_outcome(record) == "возможные локации: livox_mid70"
+
+
+def test_render_action_outcome_read_only_failure_keeps_short_form() -> None:
+    from guide_robot_llm.dialog.turn import ToolCallRecord
+
+    record = ToolCallRecord(
+        name="lookup_content",
+        args={"content_id": "ghost"},
+        result_ok=False,
+        result_message="контент не найден",
+        result_data={},
+        read_only=True,
+    )
+    assert render_action_outcome(record) == "не удалось: lookup_content — контент не найден"
+
+
+def test_run_turn_passes_read_only_tools_to_render_action_outcome() -> None:
+    def complete_action(messages: list[dict], grammar: str) -> CompletionResult:
+        del messages, grammar
+        call = {"think": "ищет факт", "tool": "search_content", "args": {"query": "x"}}
+        return CompletionResult(text=json.dumps(call))
+
+    def execute_tool(name: str, args: dict) -> _FakeResult:
+        del name, args
+        hit = {"kind": "exhibit", "title": "T", "text": "текст факта"}
+        return _FakeResult(ok=True, data={"hits": [hit]})
+
+    seen_messages: list[list[dict]] = []
+
+    def complete_answer(messages: list[dict]) -> CompletionResult:
+        seen_messages.append(messages)
+        return CompletionResult(text="Вот что нашёл.")
+
+    result = _run(
+        complete_action=complete_action,
+        execute_tool=execute_tool,
+        complete_answer=complete_answer,
+        read_only_tools=frozenset({"search_content"}),
+    )
+
+    assert result.action is not None
+    assert result.action.read_only is True
+    answer_prompt = seen_messages[0][-1]["content"]
+    assert "[exhibit: T] текст факта" in answer_prompt
+    assert "выполнено: search_content" not in answer_prompt

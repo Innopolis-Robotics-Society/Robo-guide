@@ -17,6 +17,7 @@ import json
 import time
 
 from guide_robot_llm.lib.qos import QOS_MISSION_STATE
+
 from guide_robot_msgs.msg import CancelAll, MissionState, Transcript
 from test.mocks.harness import ToolBrokerTestHarness, pump_clock, wait_until
 from test.mocks.mock_llm_server import MockLlmServer
@@ -40,6 +41,13 @@ def _dialog_agent_has_mission_state(harness: ToolBrokerTestHarness):
 def _publish_transcript(client, text: str) -> None:
     pub = client.create_publisher(Transcript, "/asr/transcript", 10)
     pub.publish(Transcript(utterance_id=1, text=text, is_final=True))
+
+
+def _log_lines(harness: ToolBrokerTestHarness) -> list[dict]:
+    path = harness.interaction_log._sink.path  # noqa: SLF001 -- тестовая интроспекция
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def _setup_two_stop_tour(harness: ToolBrokerTestHarness) -> None:
@@ -75,6 +83,52 @@ def test_transcript_in_idle_drives_say_through_call_tool() -> None:
         assert finals, "сообщение с текущей репликой не найдено в запросе к ЛЛМ"
         assert "[состояние: IDLE" in finals[0]
         assert '"snapshot"' not in finals[0] and '"utterance"' not in finals[0]
+    finally:
+        harness.shutdown()
+
+
+def test_search_content_hit_appears_in_spravka_and_references() -> None:
+    """CLAUDE_CODE_TASK_stage1_knowledge.md п.7.1/7.3: автосправка + references в логе."""
+    harness = ToolBrokerTestHarness()
+    try:
+        wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
+        harness.fixtures.set_search_hits(
+            [
+                {
+                    "content_id": "livox_mid70",
+                    "kind": "exhibit",
+                    "title": "Лидар",
+                    "chunk_id": "c1",
+                    "text": "Это твердотельный лидар Livox Mid-70.",
+                    "score": 1.5,
+                    "version": "v1",
+                }
+            ]
+        )
+        harness.llm_server.chunks_no_grammar = ["Это лидар."]
+        harness.llm_server.chunks_with_grammar = [_NOOP]
+
+        client = harness.make_client_node()
+        _publish_transcript(client, "робот, что это за штука")
+
+        wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
+
+        body = harness.llm_server.last_request_body
+        assert body is not None
+        finals = [
+            m["content"]
+            for m in body["messages"]
+            if m["role"] == "user" and m["content"].endswith("что это за штука")
+        ]
+        assert finals, "сообщение с текущей репликой не найдено в запросе к ЛЛМ"
+        assert "СПРАВКА (только эти факты" in finals[0]
+        assert "[exhibit: Лидар] Это твердотельный лидар Livox Mid-70." in finals[0]
+
+        wait_until(lambda: len(_log_lines(harness)) >= 1, timeout_s=5.0)
+        record = _log_lines(harness)[0]
+        assert record["references"] == [
+            {"content_id": "livox_mid70", "chunk_id": "c1", "score": 1.5, "source": "auto"}
+        ]
     finally:
         harness.shutdown()
 

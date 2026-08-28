@@ -248,6 +248,7 @@ class DialogAgentNode(LifecycleNode):
         self._system_prompt = self._preamble
         self._action_instruction = ""
         self._answer_instruction = ""
+        self._read_only_tool_names: frozenset[str] = frozenset()
         self._locations_catalog: list[dict] = []
         self._tours_catalog: list[dict] = []
         self._location_name_by_id: dict[str, str] = {}
@@ -357,6 +358,9 @@ class DialogAgentNode(LifecycleNode):
         )
         self._action_instruction = build_action_instruction(schema.TOOLS)
         self._answer_instruction = build_answer_instruction()
+        self._read_only_tool_names = frozenset(
+            spec.name for spec in schema.TOOLS if spec.read_only
+        )
 
         self._active = True
         return TransitionCallbackReturn.SUCCESS
@@ -666,9 +670,8 @@ class DialogAgentNode(LifecycleNode):
         turn_start = time.monotonic()
         stage_timings: list[dict] = []
         snap: dict = {"mission": {"state": "UNKNOWN"}}
-        # Локальный корпус убран целиком (CLAUDE_CODE_TASK_stage1_knowledge.md
-        # п.5); автосправка из semantic_map ещё не подключена -- будет в п.7.
         references: list[dict] = []
+        corpus_texts: list[str] = []
         result: TurnResult | None = None
         degraded = False
         degrade_reason: str | None = None
@@ -692,15 +695,68 @@ class DialogAgentNode(LifecycleNode):
                 location_name=location_name,
                 told_ids=told_ids,
             )
+            status_line = snapshot.render_status_line(snap)
+
+            # Автосправка ДО фазы действия (CLAUDE_CODE_TASK_stage1_knowledge.md
+            # п.7.1): текущая остановка целиком (если есть) + поиск по
+            # реплике, всегда. Пропускается в llm.raw -- там нет ни
+            # системного промпта, ни user_content, справка некому смотреть.
+            knowledge_block = "СПРАВКА: ничего не найдено."
+            if not self._raw_llm:
+                lookup_data: dict | None = None
+                if mission.exhibit_id:
+                    lookup_start = time.monotonic()
+                    lookup_result = self._execute_tool(
+                        "lookup_content", {"content_id": mission.exhibit_id, "mode": "full"}
+                    )
+                    stage_timings.append(
+                        {
+                            "stage": "tool_call",
+                            "tool": "lookup_content",
+                            "ms": (time.monotonic() - lookup_start) * 1000,
+                        }
+                    )
+                    if lookup_result.ok:
+                        lookup_data = lookup_result.data
+
+                search_start = time.monotonic()
+                search_result = self._execute_tool(
+                    "search_content", {"query": text, "max_results": 5}
+                )
+                stage_timings.append(
+                    {
+                        "stage": "tool_call",
+                        "tool": "search_content",
+                        "ms": (time.monotonic() - search_start) * 1000,
+                    }
+                )
+                search_hits = search_result.data.get("hits", []) if search_result.ok else []
+
+                candidates: list[dict] = []
+                stop_title = ""
+                if lookup_data:
+                    stop_title = str(lookup_data.get("title", ""))
+                    candidates.extend(
+                        _spravka_candidates_from_lookup(mission.exhibit_id, lookup_data)
+                    )
+                candidates.extend(_spravka_candidates_from_hits(search_hits, source="auto"))
+
+                knowledge_block, references, corpus_texts = _build_knowledge_block(
+                    stop_title, candidates
+                )
+
             # Реплика посетителя -- ПОСЛЕДНЯЯ строка последнего сообщения,
             # той же формы, что реплики в истории (голый текст, не JSON):
             # снимок уезжает служебной строкой [состояние: ...], хвостовые
             # события истории вклеиваются сюда же, а не отдельным
             # user-сообщением -- иначе 8B-модель отвечает на предпоследнее
             # «нормальное» сообщение вместо текущей реплики (живой баг).
-            status_line = snapshot.render_status_line(snap)
+            # СПРАВКА -- волатильный хвост ПОСЛЕ статус-строки: префикс до
+            # неё (system + история + сама статус-строка) не меняется от
+            # факта поиска, префикс-кэш не страдает.
             user_content = "\n".join(
-                [f"СОБЫТИЕ: {event}" for event in trailing_events] + [status_line, text]
+                [f"СОБЫТИЕ: {event}" for event in trailing_events]
+                + [status_line, knowledge_block, text]
             )
             self.get_logger().info(f"ASR: {text!r}")
 
@@ -779,7 +835,19 @@ class DialogAgentNode(LifecycleNode):
                     repair_attempts=self._action_repair_attempts,
                     check_aborted=abort_event.is_set,
                     answer_max_chars=self._answer_max_chars,
+                    read_only_tools=self._read_only_tool_names,
                 )
+            if (
+                result.action is not None
+                and result.action.read_only
+                and result.action.result_ok
+            ):
+                # Явный read_only-вызов модели (фаза 1) -- те же чанки, что
+                # видела фаза реплики, идут в references/corpus_texts с
+                # source="tool", отдельно от source="auto" выше (п.7.3).
+                tool_refs, tool_texts = _references_from_tool_result(result.action)
+                references = [*references, *tool_refs]
+                corpus_texts = [*corpus_texts, *tool_texts]
             degraded = result.stopped_reason in _DEGRADED_REASONS
             degrade_reason = result.stopped_reason if degraded else None
             action_name = result.action.name if result.action is not None else None
@@ -829,7 +897,7 @@ class DialogAgentNode(LifecycleNode):
                 utterance=text,
                 snapshot=snap,
                 references=references,
-                corpus_texts=[],
+                corpus_texts=corpus_texts,
                 result=result,
                 stage_timings=stage_timings,
                 history_entries=history_entries_after,
@@ -888,13 +956,146 @@ def _action_event_text(action: ToolCallRecord | None) -> str | None:
     """Собрать итог действия как событие истории.
 
     `noop` НЕ порождает событие -- "ничего не делать" не несёт информации,
-    которую стоило бы занести в историю. Для остальных инструментов строка
-    делегируется `turn.render_action_outcome` -- истории и промпту фазы
-    реплики положено видеть побайтово одинаковый итог.
+    которую стоило бы занести в историю. read_only-инструменты -- КОРОТКОЕ
+    событие (`уточнил справку: <title>`, без текста), иначе история
+    раздувается найденными фактами на каждый вопрос
+    (CLAUDE_CODE_TASK_stage1_knowledge.md п.7.2). Для остальных (мутирующих)
+    инструментов строка делегируется `turn.render_action_outcome` --
+    истории и промпту фазы реплики положено видеть побайтово одинаковый
+    итог.
     """
     if action is None or action.name == "noop":
         return None
+    if action.read_only:
+        return f"уточнил справку: {_read_only_result_title(action)}"
     return render_action_outcome(action)
+
+
+def _read_only_result_title(action: ToolCallRecord) -> str:
+    """Короткая подпись найденного read_only-результата -- для события истории."""
+    data = action.result_data
+    if data.get("title"):
+        return str(data["title"])
+    hits = data.get("hits") or []
+    if hits:
+        return str(hits[0].get("title", ""))
+    candidates = data.get("candidates") or []
+    if candidates:
+        return str(candidates[0].get("id", ""))
+    return str(action.args.get("content_id") or action.args.get("query") or "")
+
+
+def _spravka_candidates_from_lookup(exhibit_id: str, lookup_data: dict) -> list[dict]:
+    """Чанки текущей остановки (`lookup_content`) -- группа "stop", приоритет над находками."""
+    chunks = lookup_data.get("chunks", [])
+    chunk_ids = lookup_data.get("chunk_ids", [])
+    return [
+        {
+            "text": text,
+            "group": "stop",
+            "ref": {
+                "content_id": exhibit_id,
+                "chunk_id": chunk_id,
+                "score": 0.0,
+                "source": "auto",
+            },
+        }
+        for text, chunk_id in zip(chunks, chunk_ids, strict=False)
+    ]
+
+
+def _spravka_candidates_from_hits(hits: list[dict], *, source: str) -> list[dict]:
+    """Находки `search_content` -- группа "hit", уже отсортированы content_server-ом по score."""
+    return [
+        {
+            "text": hit.get("text", ""),
+            "group": "hit",
+            "kind": hit.get("kind", ""),
+            "title": hit.get("title", ""),
+            "ref": {
+                "content_id": hit.get("content_id", ""),
+                "chunk_id": hit.get("chunk_id", ""),
+                "score": hit.get("score", 0.0),
+                "source": source,
+            },
+        }
+        for hit in hits
+    ]
+
+
+_SPRAVKA_CHAR_BUDGET = 2500
+
+
+def _build_knowledge_block(
+    stop_title: str, candidates: list[dict]
+) -> tuple[str, list[dict], list[str]]:
+    """СПРАВКА-блок для `user_content` + `references` + тексты для verbatim.
+
+    `candidates` уже в приоритетном порядке: чанки текущей остановки первыми
+    (группа "stop"), затем находки `search_content` по убыванию score
+    (группа "hit") -- CLAUDE_CODE_TASK_stage1_knowledge.md п.7.1/7.4.
+    Обрезка -- по целым чанкам суммарно на ≤2500 символов; первый чанк
+    входит всегда, даже если сам длиннее бюджета (иначе резать нечего).
+    Пустой результат -- строка "СПРАВКА: ничего не найдено." (модель видит,
+    что искали, а не молчание), без записей в `references`.
+    """
+    kept: list[dict] = []
+    used_chars = 0
+    for candidate in candidates:
+        length = len(candidate["text"])
+        if kept and used_chars + length > _SPRAVKA_CHAR_BUDGET:
+            break
+        kept.append(candidate)
+        used_chars += length
+
+    if not kept:
+        return "СПРАВКА: ничего не найдено.", [], []
+
+    lines = ["СПРАВКА (только эти факты, своими словами):"]
+    stop_texts = [c["text"] for c in kept if c["group"] == "stop"]
+    if stop_texts:
+        lines.append(f"[текущая остановка: {stop_title}] " + " ".join(stop_texts))
+    for candidate in kept:
+        if candidate["group"] != "hit":
+            continue
+        lines.append(f"[{candidate['kind']}: {candidate['title']}] {candidate['text']}")
+
+    references = [candidate["ref"] for candidate in kept]
+    corpus_texts = [candidate["text"] for candidate in kept]
+    return "\n".join(lines), references, corpus_texts
+
+
+def _references_from_tool_result(action: ToolCallRecord) -> tuple[list[dict], list[str]]:
+    """references+тексты чанков, которые модель увидела через ЯВНЫЙ read_only-вызов.
+
+    `source: "tool"` -- отличает их от автосправки (`source: "auto"`) в
+    одном и том же логе (CLAUDE_CODE_TASK_stage1_knowledge.md п.7.3).
+    `resolve_location` сюда не попадает -- отдаёт локации, не текст чанков,
+    цитировать нечего.
+    """
+    data = action.result_data
+    if action.name == "lookup_content":
+        content_id = str(action.args.get("content_id", ""))
+        chunks = data.get("chunks", [])
+        chunk_ids = data.get("chunk_ids", [])
+        refs = [
+            {"content_id": content_id, "chunk_id": chunk_id, "score": 0.0, "source": "tool"}
+            for chunk_id in chunk_ids
+        ]
+        return refs, list(chunks)
+    if action.name == "search_content":
+        hits = data.get("hits", [])
+        refs = [
+            {
+                "content_id": hit.get("content_id", ""),
+                "chunk_id": hit.get("chunk_id", ""),
+                "score": hit.get("score", 0.0),
+                "source": "tool",
+            }
+            for hit in hits
+        ]
+        return refs, [hit.get("text", "") for hit in hits]
+    return [], []
 
 
 def main(args: list[str] | None = None) -> None:

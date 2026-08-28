@@ -12,6 +12,7 @@ from guide_robot_semantic_map.lib.content_io import (
     load_content_dir,
     load_content_file,
     pick_language,
+    select_chunk_ids,
     select_chunks,
 )
 
@@ -209,6 +210,24 @@ def test_select_chunks_preserves_file_order(tmp_path: Path) -> None:
     content, _ = load_content_file(path)
     assert select_chunks(content, "short") == ["Второй.", "Третий."]
     assert select_chunks(content, "full") == ["Первый.", "Второй.", "Третий."]
+
+
+# -- select_chunk_ids -- параллельно select_chunks -------------------------------
+
+
+def test_select_chunk_ids_matches_select_chunks_order(tmp_path: Path) -> None:
+    doc = _content_doc(
+        chunks=[
+            {"id": "c1", "level": "full", "text": "Первый."},
+            {"id": "c2", "level": "short", "text": "Второй."},
+            {"id": "c3", "level": "short", "text": "Третий."},
+        ]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    assert select_chunk_ids(content, "short") == ["c2", "c3"]
+    assert select_chunk_ids(content, "full") == ["c1", "c2", "c3"]
+    assert len(select_chunk_ids(content, "full")) == len(select_chunks(content, "full"))
 
 
 # -- pick_language -----------------------------------------------------------

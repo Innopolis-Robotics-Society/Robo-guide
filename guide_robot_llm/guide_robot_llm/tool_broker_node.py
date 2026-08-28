@@ -568,6 +568,7 @@ class ToolBrokerNode(LifecycleNode):
             ok=True,
             data={
                 "chunks": list(response.chunks),
+                "chunk_ids": list(response.chunk_ids),
                 "title": response.title,
                 "kind": response.kind,
                 "version": response.version,

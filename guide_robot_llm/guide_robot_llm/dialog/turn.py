@@ -48,6 +48,7 @@ class ToolCallRecord:
     result_message: str
     result_data: dict
     think: str = ""
+    read_only: bool = False
 
 
 @dataclass
@@ -92,19 +93,57 @@ class TurnResult:
 
 
 def render_action_outcome(record: ToolCallRecord | None) -> str:
-    """Отрендерить итог действия одной строкой -- для промпта фазы реплики.
+    """Отрендерить итог действия для промпта фазы реплики.
 
-    Та же строка (для не-noop) используется `dialog_agent_node._action_event_text`
-    как событие истории: то, на что опиралась реплика, и то, что запомнит
-    история, обязаны совпадать побайтово.
+    Для read_only-инструментов (`lookup_content`/`search_content`/
+    `resolve_location`/старый read-only каталог) -- полный найденный текст
+    (`chunks`/`hits`/`candidates`), а не `выполнено: name(...)`
+    (CLAUDE_CODE_TASK_stage1_knowledge.md п.7.2): фаза реплики обязана
+    видеть сами факты, не только имя вызова. Для остальных (мутирующих)
+    инструментов -- прежняя короткая строка; та же строка используется
+    `dialog_agent_node._action_event_text` как событие истории, поэтому
+    она обязана совпадать побайтово в обоих местах -- в отличие от
+    read_only, где история короче найденного текста (см. `_action_event_text`).
     """
     if record is None or record.name == "noop":
         return "noop (никакого действия не выполнялось)"
+    if record.read_only:
+        if not record.result_ok:
+            return f"не удалось: {record.name} — {record.result_message}"
+        return _render_read_only_result(record.result_data)
     args_str = ", ".join(f"{key}={value!r}" for key, value in record.args.items())
     call = f"{record.name}({args_str})"
     if record.result_ok:
         return f"выполнено: {call}"
     return f"не удалось: {call} — {record.result_message}"
+
+
+def _render_read_only_result(data: dict) -> str:
+    """Полный текст, найденный read_only-инструментом -- без обрезки по длине.
+
+    Порядок проверок -- по форме `data`, не по имени инструмента: `dialog/
+    turn.py` не знает имён инструментов сверх того, что пришло в записи.
+    """
+    if "chunks" in data:
+        if not data["chunks"]:
+            return "ничего не найдено"
+        title = data.get("title", "")
+        prefix = f"{title}: " if title else ""
+        return prefix + " ".join(data["chunks"])
+    if "hits" in data:
+        if not data["hits"]:
+            return "ничего не найдено"
+        return " ".join(
+            f"[{hit.get('kind', '')}: {hit.get('title', '')}] {hit.get('text', '')}"
+            for hit in data["hits"]
+        )
+    if "candidates" in data:
+        if not data["candidates"]:
+            return "локация не найдена"
+        return "возможные локации: " + ", ".join(
+            candidate.get("id", "") for candidate in data["candidates"]
+        )
+    return "готово"
 
 
 def run_turn(
@@ -122,6 +161,7 @@ def run_turn(
     repair_attempts: int = 1,
     check_aborted: Callable[[], bool] = lambda: False,
     answer_max_chars: int = 400,
+    read_only_tools: frozenset[str] = frozenset(),
 ) -> TurnResult:
     """Прогнать один ход: действие (GBNF) -> исполнение -> реплика -> `speak()`.
 
@@ -146,6 +186,13 @@ def run_turn(
     починка средствами этого модуля бессмысленна (GBNF и так гарантирует
     форму, а провал парсинга -- баг сервера/грамматики). Починка происходит
     ДО фазы реплики -- посетитель её не слышит и не замечает.
+
+    `read_only_tools` -- имена инструментов, чей результат `render_action_
+    outcome()` показывает фазе реплики целиком (`chunks`/`hits`/
+    `candidates`), а не короткой строкой `выполнено: name(...)`
+    (`tools.schema.ToolSpec.read_only`, CLAUDE_CODE_TASK_stage1_knowledge.md
+    п.7.2). Пустой набор по умолчанию -- вызывающий код без каталога
+    инструментов (тесты на голых фейках) не обязан его знать.
     """
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
@@ -217,6 +264,7 @@ def run_turn(
             result_message=result.message,
             result_data=dict(result.data),
             think=think,
+            read_only=name in read_only_tools,
         )
 
         if result.ok or attempts_left <= 0:

@@ -24,6 +24,7 @@ from guide_robot_semantic_map.lib.content_io import (
     ExhibitContent,
     load_content_dir,
     pick_language,
+    select_chunk_ids,
     select_chunks,
 )
 from guide_robot_semantic_map.lib.locations_io import LocationsError, load_locations
@@ -210,6 +211,7 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
 
         content = self._content[(request.exhibit_id, language)]
         response.chunks = select_chunks(content, mode)
+        response.chunk_ids = select_chunk_ids(content, mode)
         response.title = content.title
         response.kind = content.kind
         response.version = content.version

@@ -38,7 +38,14 @@ __all__ = ["SCHEMA_VERSION", "build_interaction_record"]
 # (момент приёма транскрипта): `(session_id, turn_id)` глобально уникальна --
 # перезапуск dialog_agent при живом interaction_log больше не производит
 # записей, неотличимых от дублей.
-SCHEMA_VERSION = 4
+# v5: `references` сменил форму с {id, heading, score} (пассаж старого
+# kb.jsonl) на {content_id, chunk_id, score, source} -- источник фактов
+# теперь guide_robot_semantic_map/content/, единица -- чанк, не пассаж;
+# `source` различает автосправку ("auto", CLAUDE_CODE_TASK_stage1_knowledge.md
+# п.7.1) от явного read_only-вызова модели ("tool", п.7.2). Обратная
+# совместимость со старой формой не нужна -- единственный потребитель
+# (`kb.jsonl`) удалён вместе с корпусом.
+SCHEMA_VERSION = 5
 
 
 def build_interaction_record(
@@ -61,23 +68,25 @@ def build_interaction_record(
     total_ms: float,
     now_s: float,
 ) -> dict:
-    """Собрать одну jsonl-запись хода диалога (схема v2).
+    """Собрать одну jsonl-запись хода диалога (схема v5).
 
-    `references` -- CLAUDE_CODE_TASK.md п.5: ретрив из хода убран (корпус
-    целиком идёт в системный промпт, секция «Справочник»), поэтому вызывающий
-    всегда передаёт `[]` -- поле оставлено в схеме лога ради обратной
-    совместимости, а не потому что что-то в него пишет.
+    `references` -- все чанки, что модель видела в ходу: автосправка перед
+    фазой действия (`source: "auto"`) + явный read_only-вызов, если модель
+    его выбрала (`source: "tool"`) -- `dialog_agent_node.py::_run_turn`
+    собирает оба списка и передаёт уже готовым (CLAUDE_CODE_TASK_stage1_
+    knowledge.md п.7.1-7.3). Пустой список -- ничего не нашли ни разу за ход.
 
-    `corpus_texts` -- полный текст корпуса (по пассажу: `heading` + `text`),
-    против него считается `verbatim_overlap_words`: метрика «пересказ или
-    дословная цитата» по-прежнему осмысленна и без per-turn ретрива --
-    достаточно знать, что модель имела в виду весь справочник целиком.
+    `corpus_texts` -- тексты этих же чанков (parallel к `references`, без
+    метаданных), против них считается `verbatim_overlap_words`: метрика
+    «пересказ или дословная цитата» теперь per-turn, не против всего
+    корпуса целиком (локального корпуса знаний больше нет, п.5).
 
-    `action.content_version` всегда `None` -- известный, задокументированный
-    пробел: `tool_broker._tool_tell_about`/`_tool_say` не ждут результата
-    `Narrate`/`Say` (fire-and-forget по дизайну), поэтому версия реально
-    озвученного контента (`GetExhibitContent`) никогда не доходит обратно
-    до `dialog_agent`.
+    `action.content_version` -- версия контента из `result_data["version"]`,
+    если read_only-вызов её вернул (`lookup_content`/`search_content` синхронны
+    и несут версию в ответе); `None` для остальных инструментов --
+    `tool_broker._tool_tell_about`/`_tool_say` не ждут результата
+    `Narrate`/`Say` (fire-and-forget по дизайну), версия реально озвученного
+    контента до `dialog_agent` не доходит.
 
     `llm_messages` -- `result.messages` как есть: весь обмен с ЛЛМ за ход
     (system prompt, история, реплика посетителя, сырой tool-call на КАЖДОЙ
@@ -99,7 +108,7 @@ def build_interaction_record(
             "think": result.action.think,
             "ok": result.action.result_ok,
             "message": result.action.result_message,
-            "content_version": None,
+            "content_version": result.action.result_data.get("version"),
         }
 
     return {
@@ -112,7 +121,12 @@ def build_interaction_record(
         "utterance": utterance,
         "snapshot": snapshot,
         "references": [
-            {"id": ref["id"], "heading": ref["heading"], "score": ref["score"]}
+            {
+                "content_id": ref["content_id"],
+                "chunk_id": ref["chunk_id"],
+                "score": ref["score"],
+                "source": ref["source"],
+            }
             for ref in references
         ],
         "answer_text": result.answer_text,

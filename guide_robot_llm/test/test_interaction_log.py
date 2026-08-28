@@ -1,4 +1,4 @@
-"""`dialog.interaction_log.build_interaction_record()` -- схема v3 (DIALOG_REWORK_PLAN.md §8)."""
+"""`dialog.interaction_log.build_interaction_record()` -- схема v5 (DIALOG_REWORK_PLAN.md §8)."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def _base_kwargs(**overrides) -> dict:
 def test_record_carries_core_fields_verbatim() -> None:
     record = build_interaction_record(**_base_kwargs(turn_id=42, mission_state_name="IDLE"))
 
-    assert record["schema_version"] == 4
+    assert record["schema_version"] == 5
     assert record["turn_id"] == 42
     assert record["session_id"] == "abc123def456"
     assert record["utterance_ts"] == 1729999999.5
@@ -113,7 +113,7 @@ def test_action_none_when_turn_result_has_no_action() -> None:
     assert record["action"] is None
 
 
-def test_action_serialized_with_content_version_always_none() -> None:
+def test_action_serialized_with_content_version_none_when_absent() -> None:
     call = ToolCallRecord(
         name="noop", args={}, result_ok=True, result_message="", result_data={}
     )
@@ -127,6 +127,21 @@ def test_action_serialized_with_content_version_always_none() -> None:
         "message": "",
         "content_version": None,
     }
+
+
+def test_action_content_version_from_read_only_result_data() -> None:
+    """lookup_content/search_content -- синхронные, версия приходит в result_data."""
+    call = ToolCallRecord(
+        name="lookup_content",
+        args={"content_id": "robo_guide"},
+        result_ok=True,
+        result_message="",
+        result_data={"chunks": ["Раз."], "version": "2026-08-04.1"},
+        read_only=True,
+    )
+    record = build_interaction_record(**_base_kwargs(result=_result(action=call)))
+
+    assert record["action"]["content_version"] == "2026-08-04.1"
 
 
 def test_action_think_passes_through_to_record() -> None:
@@ -144,24 +159,39 @@ def test_action_think_passes_through_to_record() -> None:
     assert record["action"]["think"] == "посетитель просит отвести к кафе"
 
 
-def test_references_output_omits_text_keeps_id_heading_score() -> None:
-    """Ретрив из хода убран (CLAUDE_CODE_TASK.md п.5) -- `references` в схеме остался,
-    но обычно приходит пустым; поле всё ещё умеет отдать id/heading/score без text,
-    если вызывающий когда-нибудь снова начнёт его наполнять."""
+def test_references_output_keeps_content_id_chunk_id_score_source() -> None:
+    """v5: references -- чанки semantic_map, не пассажи старого kb.jsonl (п.7.3)."""
     references = [
-        {"id": "kb_0007", "heading": "Иннополис > Кампус", "text": "полный текст", "score": 4.2}
+        {"content_id": "robo_guide", "chunk_id": "c5", "score": 0.0, "source": "auto"},
+        {"content_id": "livox_mid70", "chunk_id": "c1", "score": 2.4, "source": "tool"},
+    ]
+    record = build_interaction_record(**_base_kwargs(references=references))
+
+    assert record["references"] == references
+
+
+def test_references_output_omits_extra_keys() -> None:
+    """Вызывающий код может положить лишние ключи (например `text`) -- лог их не тащит."""
+    references = [
+        {
+            "content_id": "robo_guide",
+            "chunk_id": "c5",
+            "score": 1.5,
+            "source": "auto",
+            "text": "не должно попасть в лог",
+        }
     ]
     record = build_interaction_record(**_base_kwargs(references=references))
 
     assert record["references"] == [
-        {"id": "kb_0007", "heading": "Иннополис > Кампус", "score": 4.2}
+        {"content_id": "robo_guide", "chunk_id": "c5", "score": 1.5, "source": "auto"}
     ]
-    assert "текст" not in str(record["references"])
+    assert "не должно попасть" not in str(record["references"])
 
 
-def test_verbatim_overlap_computed_against_full_corpus_texts() -> None:
-    """CLAUDE_CODE_TASK.md п.5: метрика считается против полного текста корпуса,
-    а не против (теперь всегда пустого) per-turn `references`."""
+def test_verbatim_overlap_computed_against_per_turn_corpus_texts() -> None:
+    """v5: метрика считается против текстов чанков, увиденных В ЭТОМ ходу (п.7.3),
+    не против всего корпуса (локального корпуса знаний больше нет, п.5)."""
     corpus_texts = ["город основан указом президента"]
     result = _result(answer_text="город основан указом президента")
     record = build_interaction_record(

@@ -3,6 +3,7 @@ string mode
 string language
 ---
 string[] chunks
+string[] chunk_ids     # параллельно chunks -- id каждого чанка (references)
 string title
 string kind
 string version

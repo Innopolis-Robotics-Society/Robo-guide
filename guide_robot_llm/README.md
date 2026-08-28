@@ -24,9 +24,14 @@ completions`), не ROS-нода и не зависимость этого па�
 ```
 транскрипт (ведущее wake-слово срезано; голое «робот» ход не запускает)
    │
+   ├─ АВТОСПРАВКА (~/call_tool, ДО фазы действия, п.7.1)
+   │     lookup_content(exhibit_id текущей остановки, mode=full) -- если есть
+   │     search_content(query=реплика, max_results=5) -- всегда
+   │     → блок СПРАВКА (целые чанки, ≤2500 символов, остановка первой)
+   │
    ├─ ФАЗА ДЕЙСТВИЯ (GBNF, temperature.action)
    │     messages = [system] + history
-   │                + [user: СОБЫТИЕ:*, [состояние: ...], реплика посетителя]
+   │                + [user: СОБЫТИЕ:*, [состояние: ...], СПРАВКА, реплика]
    │                + [user: action_instruction]
    │     → {"think": "...", "tool": "...", "args": {...}}
    │       (think — короткое явное рассуждение, ReAct-Thought; уезжает в jsonl)
@@ -34,6 +39,8 @@ completions`), не ROS-нода и не зависимость этого па�
    ├─ исполнение через ~/call_tool (barge-in до исполнения — действие отменяется)
    │     ok:false → одна попытка починки (`llm.action_repair_attempts`),
    │     посетитель её не слышит — ничего ещё не сказано
+   │     read_only (lookup_content/search_content/resolve_location) --
+   │     итог фазе реплики целиком (chunks/hits), не "выполнено: name(...)"
    │
    ├─ ФАЗА РЕПЛИКИ (без грамматики, temperature.answer)
    │     messages += [assistant: tool-call JSON]
@@ -43,7 +50,7 @@ completions`), не ROS-нода и не зависимость этого па�
    ├─ speak(text)  (barge-in до озвучки — реплика отбрасывается)
    │
    └─ history.append(visitor=utterance, robot=text если сказана,
-                     event=итог действия)
+                     event=итог действия -- read_only коротко: "уточнил справку: <title>")
 ```
 
 `say` — больше не инструмент, видимый модели: реплика — результат фазы
@@ -117,9 +124,13 @@ fire-and-forget — см. «Известные пробелы» про `content_
 (`std_srvs/Trigger`), `~/submit_confirm` (`std_srvs/SetBool`),
 `~/submit_answer` (`SubmitAnswer.srv`) — все на `mission_fsm`.
 Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
-`semantic_map` — whitelist локаций/туров кэшируется ОДИН раз на
-`on_activate` (не на каждый `call_tool()`), сбрасывается на
-`on_deactivate`.
+`location_server`/`route_planner` (whitelist локаций/туров кэшируется
+ОДИН раз на `on_activate`, не на каждый `call_tool()`, сбрасывается на
+`on_deactivate`); `~/get_exhibit_content`, `~/search_content` на
+`content_server` и `~/resolve_location` на `location_server`
+(`content_server_ns`/`location_server_ns`, п.6) — видны модели как
+`lookup_content`/`search_content`/`resolve_location`, буст `search_content`
+берёт `stop_id` из кэша `/mission/state`.
 
 **Подписки**: `/mission/state`, `/mission/presence` (свой кэш),
 `/asr/transcript` — быстрый путь мимо ЛЛМ: `matching.py` разбирает
@@ -210,17 +221,18 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
 **Параметры**: `log_dir` (`~/.guide_robot/llm_turns`) — файл
 `interaction_YYYYmmdd_HHMMSS.jsonl` на сессию активации.
 
-**Формат записи** (схема v4, `dialog/interaction_log.py`):
+**Формат записи** (схема v5, `dialog/interaction_log.py`):
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "ts": 1730000000.123, "turn_id": 42,
   "session_id": "3f9a1c2b4d5e", "utterance_ts": 1730000000.001,
   "mission_state": "NARRATING",
   "utterance": "а что это за штука?",
   "snapshot": {"...": "то, что ушло бы в промпт (для лога)"},
-  "references": [],
+  "references": [{"content_id": "robo_guide", "chunk_id": "c5",
+                  "score": 0.0, "source": "auto"}],
   "answer_text": "Это макет университетского кампуса...",
   "answer_chars": 96,
   "answer_raw_text": "Это макет университетского кампуса...",
@@ -260,14 +272,22 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
 случае. `*_finish_reason` — как сервер объяснил остановку генерации
 (`stop`/`length`/...), пусто, если бэкенд вообще не ответил.
 
-`content_version` всегда `null` — известный пробел, см. «Известные
-пробелы». `references` всегда `[]` (`CLAUDE_CODE_TASK_stage1_knowledge.md`
-п.5: локальный корпус убран, автосправка из `guide_robot_semantic_map`
-ещё не подключена) — поле осталось в схеме ради обратной совместимости.
-`verbatim_overlap_words` (`dialog/verbatim.py`) — длина самой длинной
-общей последовательности слов между ответом и `corpus_texts`, которые
-передал вызывающий (`dialog_agent_node.py`, сейчас всегда `[]`); >= 8 —
-модель, вероятно, цитирует дословно, а не пересказывает.
+`content_version` — версия из `result_data["version"]`, если read_only-вызов
+её вернул (`lookup_content`/`search_content` синхронны); `null` для
+остальных инструментов — `tool_broker._tool_tell_about`/`_tool_say` не
+ждут результата `Narrate`/`Say` (fire-and-forget), версия реально
+озвученного контента до `dialog_agent` не доходит.
+
+`references` — все чанки `guide_robot_semantic_map/content/`, что модель
+видела в ходу: автосправка перед фазой действия (`source: "auto"`,
+`dialog_agent_node.py::_run_turn`, CLAUDE_CODE_TASK_stage1_knowledge.md
+п.7.1) + явный read_only-вызов, если модель его выбрала (`source: "tool"`,
+п.7.2/7.3). Пусто — за ход не нашли ничего ни автосправкой, ни вызовом.
+`verbatim_overlap_words` (`dialog/verbatim.py`) — длина самой длинной общей
+последовательности слов между ответом и `corpus_texts` (тексты этих же
+чанков, без метаданных); >= 8 — модель, вероятно, цитирует дословно, а не
+пересказывает. Метрика per-turn (не против всего корпуса — локального
+корпуса знаний больше нет, п.5).
 
 ## Каталог инструментов (`tools/schema.py`)
 
@@ -277,19 +297,22 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
 GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, дополнительно
 фильтрует по `ToolSpec.llm_visible`).
 
-| Инструмент | Реальный вызов | Гейт | `llm_visible` |
-|---|---|---|---|
-| `start_tour` | `RunTour(tour_id)` | `IDLE` | да |
-| `guide_to` | `RunTour(location_ids=[id])` | `IDLE` | да |
-| `tour_by_points` | `EstimateRoute` → `RunTour(location_ids=ordered)` | `IDLE` | да |
-| `stop_tour` | отмена активного `RunTour`-goal-а | любое, кроме `IDLE` | да |
-| `pause` / `resume` | `~/request_pause` / `~/request_resume` | `NARRATING` / `PAUSED` | да |
-| `confirm` | `~/submit_confirm` | `AWAITING_CONFIRM` | да |
-| `finish_answer` | `~/submit_answer` | `ANSWERING` | да |
-| `noop` | ничего | любое | да |
-| `say` | `Say`, `PRIORITY_DIALOG`/`SCOPE_DIALOG` | любое | **нет** — зовёт сам `dialog_agent` |
-| `tell_about` | `Narrate` | только `IDLE` (вне тура) | да |
-| `list_locations` / `list_tours` / `estimate_route` | read-only, `semantic_map` | любое | **нет** — каталог в промпте |
+| Инструмент | Реальный вызов | Гейт | `llm_visible` | `read_only` |
+|---|---|---|---|---|
+| `start_tour` | `RunTour(tour_id)` | `IDLE` | да | нет |
+| `guide_to` | `RunTour(location_ids=[id])` | `IDLE` | да | нет |
+| `tour_by_points` | `EstimateRoute` → `RunTour(location_ids=ordered)` | `IDLE` | да | нет |
+| `stop_tour` | отмена активного `RunTour`-goal-а | любое, кроме `IDLE` | да | нет |
+| `pause` / `resume` | `~/request_pause` / `~/request_resume` | `NARRATING` / `PAUSED` | да | нет |
+| `confirm` | `~/submit_confirm` | `AWAITING_CONFIRM` | да | нет |
+| `finish_answer` | `~/submit_answer` | `ANSWERING` | да | нет |
+| `noop` | ничего | любое | да | нет |
+| `say` | `Say`, `PRIORITY_DIALOG`/`SCOPE_DIALOG` | любое | **нет** — зовёт сам `dialog_agent` | нет |
+| `tell_about` | `Narrate` | только `IDLE` (вне тура) | да | нет |
+| `lookup_content` | `GetExhibitContent(exhibit_id=content_id)` | любое | да | **да** |
+| `search_content` | `SearchContent(query, boost=stop_id)` | любое | да | **да** |
+| `resolve_location` | `ResolveLocation(query)` | любое | да | **да** |
+| `list_locations` / `list_tours` / `estimate_route` | read-only, `semantic_map` | любое | **нет** — каталог в промпте | **да** |
 
 ## Чистая логика без ROS
 
@@ -308,7 +331,7 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | `llm_client/ladder.py` | Список бэкендов, retry/backoff, без stateful circuit breaker |
 | `dialog/history.py` | Память диалога между ходами: append-only, обрезка по символам/половинам |
 | `dialog/sanitize.py` | Санитайзер фазы реплики: markdown/самопредставление/tool-call JSON (в т.ч. приклеенный к тексту)/обрезка по границе предложения |
-| `dialog/turn.py` | Двухфазный ход: реплика → `speak()` → действие, с починкой |
+| `dialog/turn.py` | Двухфазный ход: действие → исполнение → реплика → `speak()`, с починкой; read_only-итог рендерится фазе реплики целиком |
 | `dialog/prompt.py` | Системный промпт (преамбул + каталог локаций/туров) и инструкции фаз (`build_action_instruction`: каталог инструментов + правила выбора; `build_answer_instruction`: правила реплики) |
 | `dialog/interaction_log.py` | Сборка одной jsonl-записи хода (схема v4) |
 | `dialog/verbatim.py` | Длина самой длинной общей последовательности слов (метрика цитирования) |
@@ -360,11 +383,13 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
 
 ## Известные пробелы
 
-- **`content_version` в `interaction_log` всегда `null`.** `tool_broker`
-  не ждёт результата `Say`/`Narrate` (fire-and-forget по дизайну), поэтому
-  версия реально озвученного контента (`GetExhibitContent`) никогда не
-  доходит обратно до `dialog_agent`. Тот же корень, что у `truncated` в
-  истории — приближение через `CancelAll`, не точное значение.
+- **`content_version` в `interaction_log` -- `null` для `tell_about`/`say`.**
+  `tool_broker` не ждёт результата `Say`/`Narrate` (fire-and-forget по
+  дизайну), поэтому версия реально озвученного контента (`GetExhibitContent`)
+  никогда не доходит обратно до `dialog_agent`. Тот же корень, что у
+  `truncated` в истории — приближение через `CancelAll`, не точное значение.
+  Для `lookup_content`/`search_content` (синхронные read_only-вызовы)
+  версия заполняется реально, см. `dialog/interaction_log.py`.
 - **`nearby` в снимке не заполняется.** `snapshot.build_snapshot()`
   поддерживает параметр (id ближайших локаций по координатам), но
   `dialog_agent` не подписан ни на одну публикацию текущей позы робота —
@@ -433,18 +458,18 @@ ruff check .
 | `test_snapshot.py` | Сборка компактного dict для промпта, включая `already_told`/`nearby` |
 | `test_history.py` | Память диалога: обрезка при записи, склейка событий, обрезка половинами |
 | `test_sanitize.py` | Санитайзер фазы реплики: markdown, самопредставление, tool-call JSON (хвост/начало/середина), граница предложения |
-| `test_turn.py` | Двухфазный ход на фейковых `complete_*`/`speak`/`execute_tool` |
+| `test_turn.py` | Двухфазный ход на фейковых `complete_*`/`speak`/`execute_tool`, read_only-рендер итога (`chunks`/`hits`/`candidates`) |
 | `test_verbatim.py` | Метрика самой длинной общей последовательности слов |
 | `test_llm_client_backend.py` | HTTP-механика: stream, timeout, HTTP-ошибка, abort |
 | `test_llm_client_ladder.py` | Порядок бэкендов, retry, abort не ретраится |
 | `test_llm_client_grammar.py` | GBNF форма (не содержимое) |
 | `test_dialog_prompt.py` | Сборка системного промпта (каталог локаций/туров, детерминизм), `build_action_instruction` (каталог инструментов, honest noop, последняя реплика) и `build_answer_instruction` |
 | `test_interaction_sink.py` | jsonl-sink: flush, newline-delimited, idempotent close |
-| `test_interaction_log.py` | Сборка jsonl-записи схемы v3 из `TurnResult`, включая сырой ввод/вывод ЛЛМ (`llm_messages`, `*_raw_text`, `*_finish_reason`) |
+| `test_interaction_log.py` | Сборка jsonl-записи схемы v5 из `TurnResult`, включая сырой ввод/вывод ЛЛМ (`llm_messages`, `*_raw_text`, `*_finish_reason`) и `references` (`content_id`/`chunk_id`/`score`/`source`) |
 | `test_tool_gating.py` | Полный тур/пауза/стоп/barge-in/`noop`/кэш whitelist ТОЛЬКО через `call_tool()` |
 | `test_voice_confirm.py` | `AWAITING_CONFIRM`/`ANSWERING` закрываются голосом мимо ЛЛМ |
-| `test_dialog_agent_e2e.py` | Транскрипт → ход «действие → реплика» (мок) → `~/call_tool`, barge-in abort, очередь транскриптов, fast-path, wake-слово, события истории |
-| `test_interaction_log_e2e.py` | Ход через `dialog_agent` → jsonl-запись схемы v3 на диске |
+| `test_dialog_agent_e2e.py` | Транскрипт → ход «действие → реплика» (мок) → `~/call_tool`, barge-in abort, очередь транскриптов, fast-path, wake-слово, события истории, автосправка в `user_content` + `references` в логе |
+| `test_interaction_log_e2e.py` | Ход через `dialog_agent` → jsonl-запись схемы v5 на диске |
 | `test_answering_closes.py` | Регресс: в `ANSWERING` ход не может выбрать `say` как действие |
 
 `scripts/eval_turns.py`/`scripts/extract_golden.py` — не тесты в CI,

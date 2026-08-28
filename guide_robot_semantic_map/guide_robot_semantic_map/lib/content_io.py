@@ -29,6 +29,7 @@ __all__ = [
     "load_content_dir",
     "load_content_file",
     "pick_language",
+    "select_chunk_ids",
     "select_chunks",
 ]
 
@@ -119,6 +120,19 @@ def select_chunks(content: ExhibitContent, mode: str) -> list[str]:
     if mode == "full":
         return [c.text for c in content.chunks]
     return [c.text for c in content.chunks if c.level == "short"]
+
+
+def select_chunk_ids(content: ExhibitContent, mode: str) -> list[str]:
+    """Отдать id чанков для того же mode и в том же порядке, что `select_chunks`.
+
+    Параллельный массив к `select_chunks` -- вызывающий код (`content_server`)
+    отдаёт оба в `GetExhibitContent.Response` (`chunks`/`chunk_ids`), чтобы
+    references могли ссылаться на конкретный чанк, а не на весь exhibit_id
+    (CLAUDE_CODE_TASK_stage1_knowledge.md п.7.3).
+    """
+    if mode == "full":
+        return [c.id for c in content.chunks]
+    return [c.id for c in content.chunks if c.level == "short"]
 
 
 def pick_language(available: set[str], requested: str, default_language: str) -> str | None:

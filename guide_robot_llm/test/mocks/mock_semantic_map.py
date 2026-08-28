@@ -10,10 +10,18 @@ from dataclasses import dataclass
 
 from rclpy.node import Node
 
+from guide_robot_msgs.msg import ContentHit as ContentHitMsg
 from guide_robot_msgs.msg import Location as LocationMsg
 from guide_robot_msgs.msg import Tour as TourMsg
 from guide_robot_msgs.msg import TourStop as TourStopMsg
-from guide_robot_msgs.srv import EstimateRoute, GetExhibitContent, ListLocations, ListTours
+from guide_robot_msgs.srv import (
+    EstimateRoute,
+    GetExhibitContent,
+    ListLocations,
+    ListTours,
+    ResolveLocation,
+    SearchContent,
+)
 
 __all__ = [
     "MockContentServer",
@@ -27,6 +35,9 @@ __all__ = [
 class _ExhibitFixture:
     chunks: list[str]
     version: str
+    title: str = ""
+    kind: str = "exhibit"
+    chunk_ids: list[str] | None = None
 
 
 class SemanticMapFixtures:
@@ -41,14 +52,63 @@ class SemanticMapFixtures:
         self.route_distance_m = 5.0
         self.route_duration_min = 2.0
         self.route_feasible = True
+        self.search_hits: list[ContentHitMsg] = []
+        self.resolve_candidates: list[LocationMsg] = []
+        self.resolve_scores: list[float] = []
+        self.resolve_confident = False
 
     def add_exhibit(
-        self, exhibit_id: str, chunks: list[str], *, language: str = "ru", version: str = "v1"
+        self,
+        exhibit_id: str,
+        chunks: list[str],
+        *,
+        language: str = "ru",
+        version: str = "v1",
+        title: str = "",
+        kind: str = "exhibit",
+        chunk_ids: list[str] | None = None,
     ) -> None:
-        """Положить фикстуру контента для GetExhibitContent(exhibit_id, language)."""
+        """Положить фикстуру контента для GetExhibitContent(exhibit_id, language).
+
+        `chunk_ids` по умолчанию -- "c0", "c1", ... по числу chunks (тот же
+        формат id, что реальный content_server отдаёт параллельно chunks).
+        """
         self._exhibits[(exhibit_id, language)] = _ExhibitFixture(
-            chunks=list(chunks), version=version
+            chunks=list(chunks),
+            version=version,
+            title=title,
+            kind=kind,
+            chunk_ids=list(chunk_ids) if chunk_ids is not None else [
+                f"c{i}" for i in range(len(chunks))
+            ],
         )
+
+    def set_search_hits(self, hits: list[dict]) -> None:
+        """Задать фиксированный результат SearchContent для всех запросов (как route_estimate).
+
+        `hits` -- список словарей {content_id, kind, title, chunk_id, text,
+        score, version}; отсутствующие ключи -- default пустая строка/0.0.
+        """
+        self.search_hits = [
+            ContentHitMsg(
+                content_id=hit.get("content_id", ""),
+                kind=hit.get("kind", ""),
+                title=hit.get("title", ""),
+                chunk_id=hit.get("chunk_id", ""),
+                text=hit.get("text", ""),
+                score=hit.get("score", 0.0),
+                version=hit.get("version", ""),
+            )
+            for hit in hits
+        ]
+
+    def set_resolve_result(
+        self, candidates: list[str], scores: list[float], *, confident: bool = False
+    ) -> None:
+        """Задать фиксированный результат ResolveLocation -- candidates по id из add_location()."""
+        self.resolve_candidates = [self._locations[loc_id] for loc_id in candidates]
+        self.resolve_scores = list(scores)
+        self.resolve_confident = confident
 
     def add_location(
         self,
@@ -95,14 +155,14 @@ class SemanticMapFixtures:
 
     # -- обработчики, дёргаются нодами-обёртками ниже --------------------
 
-    def get_exhibit_content(self, exhibit_id: str, language: str) -> tuple[list[str], str]:
-        """Вернуть (chunks, version); ([], "") -- контента нет."""
+    def get_exhibit_content(self, exhibit_id: str, language: str) -> _ExhibitFixture | None:
+        """Вернуть фикстуру целиком; `None` -- контента нет."""
         key = (exhibit_id, language or "ru")
         fixture = self._exhibits.get(key)
         if fixture is None:
-            return [], ""
+            return None
         self._call_counts[key] = self._call_counts.get(key, 0) + 1
-        return list(fixture.chunks), fixture.version
+        return fixture
 
     def list_locations(self) -> list[LocationMsg]:
         """Все локации add_location() без учёта is_public/zone -- фильтр в MockLocationServer."""
@@ -126,13 +186,32 @@ class MockContentServer(Node):
         super().__init__(node_name, **node_kwargs)
         self._fixtures = fixtures
         self.create_service(GetExhibitContent, "~/get_exhibit_content", self._handle)
+        self.create_service(SearchContent, "~/search_content", self._handle_search)
 
     def _handle(
         self, request: GetExhibitContent.Request, response: GetExhibitContent.Response
     ) -> GetExhibitContent.Response:
-        chunks, version = self._fixtures.get_exhibit_content(request.exhibit_id, request.language)
-        response.chunks = chunks
-        response.version = version
+        fixture = self._fixtures.get_exhibit_content(request.exhibit_id, request.language)
+        if fixture is None:
+            return response
+        response.chunks = fixture.chunks
+        response.chunk_ids = fixture.chunk_ids or []
+        response.title = fixture.title
+        response.kind = fixture.kind
+        response.version = fixture.version
+        return response
+
+    def _handle_search(
+        self, request: SearchContent.Request, response: SearchContent.Response
+    ) -> SearchContent.Response:
+        """Канонический результат из `set_search_hits()` -- без реального ранжирования.
+
+        Как `MockRoutePlanner`: тест задаёт фиксированный ответ, содержимое
+        запроса (`query`/`location_ids`/`kinds`) здесь не используется --
+        реальный BM25-поиск живёт в guide_robot_semantic_map, не копируется.
+        """
+        del request
+        response.hits = list(self._fixtures.search_hits)
         return response
 
 
@@ -152,11 +231,12 @@ class MockLocationServer(Node):
         node_name: str = "location_server",
         **node_kwargs: object,
     ) -> None:
-        """Поднять сервисы list_locations/list_tours под именем узла location_server."""
+        """Поднять сервисы list_locations/list_tours/resolve_location под location_server."""
         super().__init__(node_name, **node_kwargs)
         self._fixtures = fixtures
         self.create_service(ListLocations, "~/list_locations", self._handle_list_locations)
         self.create_service(ListTours, "~/list_tours", self._handle_list_tours)
+        self.create_service(ResolveLocation, "~/resolve_location", self._handle_resolve_location)
 
     def _handle_list_locations(
         self, request: ListLocations.Request, response: ListLocations.Response
@@ -169,6 +249,16 @@ class MockLocationServer(Node):
         else:
             candidates = [loc for loc in candidates if loc.is_public]
         response.locations = candidates
+        return response
+
+    def _handle_resolve_location(
+        self, request: ResolveLocation.Request, response: ResolveLocation.Response
+    ) -> ResolveLocation.Response:
+        """Канонический результат из `set_resolve_result()` -- без реального fuzzy-матча."""
+        del request
+        response.candidates = list(self._fixtures.resolve_candidates)
+        response.scores = list(self._fixtures.resolve_scores)
+        response.confident = self._fixtures.resolve_confident
         return response
 
     def _handle_list_tours(
