@@ -42,6 +42,31 @@ def test_confirm_both_yes_and_no_tokens_is_unsure() -> None:
     assert match_confirm("да нет, не знаю") is None
 
 
+# -- stage2 C3, живой баг 2.4: составные фразы с союзом не схлопываются в "да" --
+
+
+def test_confirm_compound_phrase_with_conjunction_is_unsure() -> None:
+    assert match_confirm("хорошо но сначала туалет") is None
+
+
+def test_confirm_no_davai_is_unsure() -> None:
+    assert match_confirm("не, давай") is None
+
+
+def test_confirm_nu_net_is_confident_no() -> None:
+    assert match_confirm("ну нет") is False
+
+
+def test_confirm_plain_da_still_confident_yes() -> None:
+    assert match_confirm("да") is True
+
+
+def test_confirm_yes_word_with_short_conjunction_is_unsure() -> None:
+    """Живой баг 2.4 в его самой опасной форме: короткая реплика (<= 3 токена),
+    где голое пересечение множеств раньше давало уверенное "да"."""
+    assert match_confirm("хорошо но подожди") is None
+
+
 def test_stop_phrase_hwatit() -> None:
     assert match_stop_phrase("хватит, дальше") is True
 
