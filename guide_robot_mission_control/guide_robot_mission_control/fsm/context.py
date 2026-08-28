@@ -50,6 +50,8 @@ class FsmContext:
         hard_stop_result_timeout_s: float,
         known_location_ids: frozenset[str] = frozenset(),
         redirect_done_phrase: str = "",
+        transit_after_s: float = 6.0,
+        is_speaking: Callable[[], bool] = lambda: False,
         on_state_changed: Callable[[str, object], None] | None = None,
         log: Callable[[str], None] | None = None,
     ) -> None:
@@ -60,6 +62,9 @@ class FsmContext:
         специфично для текущего прогона. `known_location_ids` (stage2 B2) --
         те же id, что уже разрешены в `resolve_pose` -- `~/redirect`
         валидирует `location_id` синхронно, до похода в FSM-поток.
+        `transit_after_s`/`is_speaking` (stage2 блок E) -- транзитный
+        нарратив в `NavigatingState`: молчание `is_speaking()` дольше
+        `transit_after_s` -- сигнал сказать пару слов "пока идём".
         """
         self.now_ns = now_ns
         self.goal_handle = goal_handle
@@ -82,6 +87,8 @@ class FsmContext:
         self.hard_stop_result_timeout_s = hard_stop_result_timeout_s
         self.known_location_ids = known_location_ids
         self.redirect_done_phrase = redirect_done_phrase
+        self.transit_after_s = transit_after_s
+        self.is_speaking = is_speaking
         self._on_state_changed = on_state_changed
         self._log = log
 

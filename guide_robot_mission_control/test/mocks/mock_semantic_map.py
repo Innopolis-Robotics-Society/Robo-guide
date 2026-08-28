@@ -96,9 +96,15 @@ class SemanticMapFixtures:
         stops: list[tuple[str, str, int, str]],
         *,
         duration_min_estimate: int = 0,
+        transit_content_id: str = "",
     ) -> None:
         """Положить фикстуру тура. stops -- (location_id, exhibit_id, dwell_s, mode)."""
-        tour = TourMsg(id=tour_id, name=name, duration_min_estimate=duration_min_estimate)
+        tour = TourMsg(
+            id=tour_id,
+            name=name,
+            duration_min_estimate=duration_min_estimate,
+            transit_content_id=transit_content_id,
+        )
         tour.stops = [
             TourStopMsg(location_id=loc, exhibit_id=exh, dwell_s=dwell, mode=mode)
             for loc, exh, dwell, mode in stops

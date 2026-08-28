@@ -3,6 +3,7 @@ tours:
   - id: lab_demo
     name: {ru: "Тестовая экскурсия по лаборатории", en: "Lab demo tour"}
     default: false
+    transit_content_id: transit_lab
     stops:
       - {location_id: entrance,             exhibit_id: intro,                 dwell_s: 30,  mode: short}
       - {location_id: robo_guide,           exhibit_id: robo_guide,            dwell_s: 60,  mode: full}

@@ -8,9 +8,20 @@
 в шаге 7 сознательно не реализован, дефолт `on_timeout=ASSUME_DEFAULT`
 ("пропустить") применяется напрямую, без вопроса.
 
-Транзитный нарратив на ходу (design §5.6) отложен -- см. решение к шагу 7
-в истории задачи: NAVIGATING только ведёт `NavigateToPose`, без
-параллельного DROPPABLE-`Narrate`.
+Транзитный нарратив на ходу (design §5.6, stage2 блок E): не более
+одного `Narrate`-чанка за ход навигации, только если ход длится дольше
+`transit_after_s` и речь сейчас не идёт (`ctx.is_speaking()`). Чанк идёт
+с `text=` уже готовым (взят из `blackboard.tour.transit_chunks`,
+пополненных ОДИН раз на весь тур в `mission_fsm_node._execute_run_tour`)
+-- `narration_server._resolve_content()` тогда не лезет за
+`GetExhibitContent` сам и строит план из ОДНОГО чанка, который
+завершается `OUTCOME_COMPLETED` без резюме сам по себе: `continuity`/
+`priority`/`scope` полей `Narrate.Goal` narration_server сегодня НЕ
+читает вовсе (говорит всегда своими параметрами узла
+`say_priority`/`say_scope`, по умолчанию как раз `PRIORITY_NARRATION`/
+`SCOPE_NARRATION`) -- отсутствие резюме гарантирует не поле `continuity`,
+а то, что этот `resume_token` просто никогда никем не переиспользуется.
+Fire-and-forget: FSM не ждёт результата, не гейтит на нём навигацию.
 
 `hold_position` (stage2 D3): `FsmContext.take_pause_request()` (тот же
 примитив, что и у `NarratingState`) отменяет активный `NavigateToPose` и
@@ -24,6 +35,7 @@ NAVIGATING нет фрейма стека) просто заново шлёт `N
 from __future__ import annotations
 
 from action_msgs.msg import GoalStatus
+from guide_robot_msgs.action import Narrate, Say
 from nav2_msgs.action import NavigateToPose
 
 from guide_robot_mission_control.fsm import outcomes
@@ -47,6 +59,7 @@ class NavigatingState(InterruptibleState):
         self._goal_handle: object | None = None
         self._result_future: object | None = None
         self._start_ns = self.ctx.now_ns()
+        self._transit_fired = False
 
     def poll(self, blackboard: Blackboard, now_ns: int) -> str | None:
         """Дождаться принятия goal-а, затем результата, следя за nav_stop_timeout_s."""
@@ -57,6 +70,7 @@ class NavigatingState(InterruptibleState):
             blackboard.pause_reason = "user"
             self.cancel_active_work(blackboard, outcomes.PAUSED)
             return outcomes.PAUSED
+        self._maybe_fire_transit(blackboard, now_ns)
         if self._goal_handle is None:
             return self._poll_send(blackboard)
         elapsed_s = (now_ns - self._start_ns) / 1e9
@@ -65,6 +79,40 @@ class NavigatingState(InterruptibleState):
             reason = f"nav_stop_timeout_s={self.ctx.nav_stop_timeout_s} истёк"
             return self._skip_stop(blackboard, reason)
         return self._poll_result(blackboard)
+
+    def _maybe_fire_transit(self, blackboard: Blackboard, now_ns: int) -> None:
+        """Сказать один транзитный чанк, если ход достаточно долгий (stage2 блок E).
+
+        Не более одного чанка за ЭТОТ ход (`self._transit_fired`) и не
+        более `len(transit_chunks)` за весь тур (`transit_next_index`) --
+        "без повторов за тур". `is_speaking()` -- не мешать барж-ину/уже
+        идущей речи; барж-ин поверх УЖЕ звучащего транзитного чанка и так
+        перебивает его через общий `/speech/cancel_all` narration_server-а,
+        сюда это никак не сигналится и не должно -- FSM его не ждёт.
+        """
+        if self._transit_fired:
+            return
+        if blackboard.tour.transit_next_index >= len(blackboard.tour.transit_chunks):
+            return
+        elapsed_s = (now_ns - self._start_ns) / 1e9
+        if elapsed_s < self.ctx.transit_after_s or self.ctx.is_speaking():
+            return
+        text = blackboard.tour.transit_chunks[blackboard.tour.transit_next_index]
+        blackboard.tour.transit_next_index += 1
+        self._transit_fired = True
+        # priority/scope -- значения из Say.Goal (Narrate.Goal их не
+        # объявляет сама, rosidl не даёт делить константы между файлами;
+        # см. Narrate.action). narration_server сегодня их не читает вовсе
+        # (свои say_priority/say_scope, по умолчанию те же самые) -- поля
+        # заполнены на будущее и для ясности намерения, не для эффекта.
+        goal = Narrate.Goal(
+            exhibit_id=blackboard.tour.transit_content_id,
+            text=text,
+            priority=Say.Goal.PRIORITY_NARRATION,
+            scope=Say.Goal.SCOPE_NARRATION,
+            continuity=Narrate.Goal.CONTINUITY_DROPPABLE,
+        )
+        self.ctx.narrate_client.send_goal_async(goal)
 
     def _poll_send(self, blackboard: Blackboard) -> str | None:
         if not self._send_future.done():  # type: ignore[attr-defined]

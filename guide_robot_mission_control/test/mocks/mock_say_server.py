@@ -77,6 +77,9 @@ class MockSayServer(Node):
         self._lock = threading.Lock()
         self.epoch = 0
         self.goals_received = 0  # все входящие Say-goal-ы, включая отклонённые
+        # stage2 блок E: тексты реально принятых Say-целей -- тест на
+        # транзитный нарратив проверяет, что произнесён именно ожидаемый чанк.
+        self.texts_received: list[str] = []
         self._active_goal_id: str | None = None
         self._queue: list[_QueuedGoal] = []
         self._preempted_goal_ids: set[str] = set()
@@ -132,6 +135,7 @@ class MockSayServer(Node):
     def _on_goal(self, goal_request: Say.Goal) -> GoalResponse:
         with self._lock:
             self.goals_received += 1
+            self.texts_received.append(goal_request.text)
         if not goal_request.text.strip():
             return GoalResponse.REJECT
         return GoalResponse.ACCEPT

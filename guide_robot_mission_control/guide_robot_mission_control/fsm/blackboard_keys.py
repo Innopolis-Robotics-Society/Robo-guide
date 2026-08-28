@@ -35,6 +35,15 @@ class TourPlan:
     narrate: bool = True
     confirm_between_stops: bool = True
     return_home: bool = True
+    # stage2 блок E: чанки транзитного нарратива ("пока идём..."), взятые
+    # ОДИН раз при разрешении тура (mission_fsm_node._execute_run_tour) --
+    # NavigatingState продвигает transit_next_index, без повторов за тур.
+    # Пусто -- у тура нет transit_content_id, транзит не звучит вовсе.
+    # `transit_content_id` -- на Narrate.Goal.exhibit_id чисто для
+    # логов/идентичности resume-токена, сам текст уже в transit_chunks.
+    transit_content_id: str = ""
+    transit_chunks: list[str] = field(default_factory=list)
+    transit_next_index: int = 0
 
     @property
     def current_stop_id(self) -> str:

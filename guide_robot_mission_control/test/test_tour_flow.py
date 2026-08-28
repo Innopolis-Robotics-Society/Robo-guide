@@ -448,6 +448,48 @@ def test_hold_position_pauses_navigation_and_resumes_to_same_stop(
     del client_node
 
 
+def test_transit_narration_fires_once_per_leg_without_repeats(
+    harness: MissionTestHarness,
+) -> None:
+    """Блок E: во время долгого перегона и тишины звучит один транзитный чанк за
+    ход навигации, чанки не повторяются за весь тур (2 чанка, 3 перегона)."""
+    stop_ids = _setup_three_stop_tour(harness)
+    harness.fixtures.add_tour(
+        "lab_demo",
+        "Тестовая экскурсия",
+        [(sid, sid, 0, "short") for sid in stop_ids],
+        transit_content_id="transit_lab",
+    )
+    harness.fixtures.add_exhibit("transit_lab", ["Транзит раз.", "Транзит два."], version="rev1")
+    harness.nav.duration_s = 1.0  # дольше transit_after_s, чтобы транзит успел сработать
+
+    make_narration_node(harness, lookahead=0)
+    fsm_node = make_fsm_node(
+        harness, nav_stop_timeout_s=5.0, confirm_timeout_s=3.0, transit_after_s=0.2
+    )
+    client_node, run_tour_client = make_run_tour_client(harness)
+    state = state_listener(client_node)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            tour_id="lab_demo", greet=False, narrate=True, confirm_between_stops=False
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.05, max_iterations=400)
+    wait_for_future(result_future, timeout_s=15.0)
+    result: RunTour.Result = result_future.result().result
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+
+    transit_spoken = [t for t in harness.say.texts_received if t.startswith("Транзит")]
+    assert transit_spoken == ["Транзит раз.", "Транзит два."], transit_spoken
+    del client_node, fsm_node, state
+
+
 def test_redirect_rejected_when_no_tour_active(harness: MissionTestHarness) -> None:
     """stage2 B2: в IDLE (нет активного тура) редирект отклоняется."""
     _client_node, _run_tour_client, _state, fsm_node = _base_stack(harness)

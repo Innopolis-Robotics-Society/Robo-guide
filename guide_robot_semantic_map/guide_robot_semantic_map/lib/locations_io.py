@@ -101,6 +101,10 @@ class Tour:
     name: dict[str, str]
     default: bool
     stops: list[TourStop]
+    # stage2 блок E: content_id транзитного нарратива ("пока идём..."),
+    # kind=transit в guide_robot_semantic_map/content/. Пусто -- транзитный
+    # нарратив для этого тура не звучит.
+    transit_content_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -298,7 +302,18 @@ def _parse_tour(raw: dict[str, Any], index: int, source: str) -> Tour:
         raise LocationsError(f"{where}.stops должен быть непустым списком")
 
     stops = [_parse_stop(raw_stop, i, where) for i, raw_stop in enumerate(raw_stops)]
-    return Tour(id=tour_id, name=dict(name), default=default, stops=stops)
+
+    transit_content_id = raw.get("transit_content_id", "")
+    if not isinstance(transit_content_id, str):
+        raise LocationsError(f"{where}.transit_content_id должен быть строкой")
+
+    return Tour(
+        id=tour_id,
+        name=dict(name),
+        default=default,
+        stops=stops,
+        transit_content_id=transit_content_id,
+    )
 
 
 def _parse_stop(raw: Any, index: int, where: str) -> TourStop:

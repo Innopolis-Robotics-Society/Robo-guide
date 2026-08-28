@@ -272,6 +272,7 @@ class LocationServerNode(ServiceGuardMixin, LifecycleNode):
                     id=tour.id,
                     name=tour.name[language],
                     duration_min_estimate=0,
+                    transit_content_id=tour.transit_content_id,
                     stops=[
                         TourStopMsg(
                             location_id=stop.location_id,

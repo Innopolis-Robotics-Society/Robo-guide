@@ -189,6 +189,25 @@ def test_rejects_duplicate_tour_id() -> None:
         parse_tours(doc)
 
 
+def test_tour_transit_content_id_defaults_to_empty() -> None:
+    """stage2 блок E: старые tours.yaml без поля продолжают парситься как есть."""
+    doc = _tours_doc(_tour("t", _stop("a")))
+    parsed = parse_tours(doc)
+    assert parsed.tours["t"].transit_content_id == ""
+
+
+def test_tour_transit_content_id_parsed() -> None:
+    doc = _tours_doc({**_tour("t", _stop("a")), "transit_content_id": "transit_lab"})
+    parsed = parse_tours(doc)
+    assert parsed.tours["t"].transit_content_id == "transit_lab"
+
+
+def test_tour_transit_content_id_must_be_string() -> None:
+    doc = _tours_doc({**_tour("t", _stop("a")), "transit_content_id": 5})
+    with pytest.raises(LocationsError, match="transit_content_id"):
+        parse_tours(doc)
+
+
 def test_rejects_invalid_mode() -> None:
     doc = _tours_doc(_tour("t", _stop("a", mode="medium")))
     with pytest.raises(LocationsError, match="mode"):

@@ -20,8 +20,14 @@ import time
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from guide_robot_msgs.action import Narrate, RunTour, Say
-from guide_robot_msgs.msg import CancelAll, MissionState
-from guide_robot_msgs.srv import ListLocations, ListTours, Redirect, SubmitAnswer
+from guide_robot_msgs.msg import CancelAll, MissionState, SpeakingStatus
+from guide_robot_msgs.srv import (
+    GetExhibitContent,
+    ListLocations,
+    ListTours,
+    Redirect,
+    SubmitAnswer,
+)
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
@@ -34,7 +40,11 @@ from std_srvs.srv import SetBool, Trigger
 from guide_robot_mission_control.fsm.blackboard_keys import Blackboard, TourPlan
 from guide_robot_mission_control.fsm.context import FsmContext
 from guide_robot_mission_control.fsm.root_sm import RootStateMachine
-from guide_robot_mission_control.lib.qos import QOS_CANCEL_ALL, QOS_MISSION_STATE
+from guide_robot_mission_control.lib.qos import (
+    QOS_CANCEL_ALL,
+    QOS_MISSION_STATE,
+    QOS_VOICE_SPEAKING,
+)
 
 __all__ = ["MissionFsmNode", "main"]
 
@@ -113,6 +123,7 @@ class MissionFsmNode(LifecycleNode):
         self.declare_parameter("greeting_text", "Здравствуйте! Я проведу для вас экскурсию.")
         self.declare_parameter("confirm_question_text", "Идём дальше?")
         self.declare_parameter("redirect_done_phrase", "Мы на месте. Чем ещё могу помочь?")
+        self.declare_parameter("transit_after_s", 6.0)
         self.declare_parameter("home_frame", "map")
         self.declare_parameter("home_pose", [0.0, 0.0, 0.0])
 
@@ -129,6 +140,8 @@ class MissionFsmNode(LifecycleNode):
 
         self._estop = False
         self._supervisor_state = ""
+        # stage2 блок E: транзитный нарратив молчит, пока кто-то говорит.
+        self._speaking = False
 
         self._cb_reentrant = ReentrantCallbackGroup()
         self._cb_sub = MutuallyExclusiveCallbackGroup()
@@ -162,6 +175,7 @@ class MissionFsmNode(LifecycleNode):
             "greeting_text": str(self.get_parameter("greeting_text").value),
             "confirm_question_text": str(self.get_parameter("confirm_question_text").value),
             "redirect_done_phrase": str(self.get_parameter("redirect_done_phrase").value),
+            "transit_after_s": float(self.get_parameter("transit_after_s").value),
             "home_frame": str(self.get_parameter("home_frame").value),
             "home_pose": [float(v) for v in self.get_parameter("home_pose").value],
         }
@@ -177,12 +191,26 @@ class MissionFsmNode(LifecycleNode):
         self._list_locations_client = self.create_client(
             ListLocations, "/location_server/list_locations"
         )
+        # stage2 блок E: транзитный нарратив -- те же чанки, что и обычный
+        # контент, тем же сервисом. Адрес хардкожен, как и у
+        # narration_server_node.py's _content_client -- этот пакет нигде
+        # не параметризует content_server_ns.
+        self._content_client = self.create_client(
+            GetExhibitContent, "/content_server/get_exhibit_content"
+        )
 
         self._cancel_sub = self.create_subscription(
             CancelAll,
             "/speech/cancel_all",
             self._on_cancel_all,
             QOS_CANCEL_ALL,
+            callback_group=self._cb_sub,
+        )
+        self._speaking_sub = self.create_subscription(
+            SpeakingStatus,
+            "/voice/speaking",
+            self._on_speaking_status,
+            QOS_VOICE_SPEAKING,
             callback_group=self._cb_sub,
         )
         self._estop_sub = self.create_subscription(
@@ -332,6 +360,21 @@ class MissionFsmNode(LifecycleNode):
         self._last_state_msg = None
         self._estop = False
         self._supervisor_state = ""
+        self._speaking = False
+
+    # -- голос (stage2 блок E: транзитный нарратив ждёт тишины) --------------
+
+    def _on_speaking_status(self, msg: SpeakingStatus) -> None:
+        self._speaking = bool(msg.speaking)
+
+    def is_speaking(self) -> bool:
+        """Последнее известное `/voice/speaking` -- без отдельной проверки протухания.
+
+        Как и `presence_monitor` (см. его `_speaking`), берём значение как
+        есть -- пропущенный heartbeat здесь означает лишь один пропущенный
+        транзитный чанк, не более, цена ошибки мала.
+        """
+        return self._speaking
 
     # -- безопасность (design §5.7, реконсиляция §0.5) -----------------------
 
@@ -397,13 +440,18 @@ class MissionFsmNode(LifecycleNode):
             return self._finish_run_tour(
                 goal_handle, RunTour.Result.OUTCOME_ABORTED, 0, 0, "tour_not_found"
             )
-        stop_ids, exhibit_ids = resolved
+        stop_ids, exhibit_ids, transit_content_id = resolved
         locations = self._fetch_locations()
         if locations is None:
             self.get_logger().error("location_server недоступен -- тур не может начаться")
             return self._finish_run_tour(
                 goal_handle, RunTour.Result.OUTCOME_ABORTED, 0, 0, "location_service_unavailable"
             )
+        # stage2 блок E: чанки транзитного нарратива берём ОДИН раз здесь,
+        # не при каждом ходе NAVIGATING -- NavigatingState просто читает
+        # готовый список из TourPlan. Недоступный content_server/пустой
+        # content_id -- транзит молча не звучит, тур это не блокирует.
+        transit_chunks = self._fetch_transit_chunks(transit_content_id)
 
         tour = TourPlan(
             stop_ids=stop_ids,
@@ -414,6 +462,8 @@ class MissionFsmNode(LifecycleNode):
             narrate=bool(goal.narrate),
             confirm_between_stops=bool(goal.confirm_between_stops),
             return_home=bool(goal.return_home),
+            transit_content_id=transit_content_id,
+            transit_chunks=transit_chunks,
         )
         blackboard = Blackboard(tour=tour)
         ctx = self._make_context(goal_handle, locations)
@@ -507,14 +557,23 @@ class MissionFsmNode(LifecycleNode):
             hard_stop_result_timeout_s=float(self._params["hard_stop_result_timeout_s"]),
             known_location_ids=frozenset(locations),
             redirect_done_phrase=str(self._params["redirect_done_phrase"]),
+            transit_after_s=float(self._params["transit_after_s"]),
+            is_speaking=self.is_speaking,
             on_state_changed=self._on_fsm_state_changed,
             log=self.get_logger().info,
         )
 
-    def _resolve_tour(self, goal: RunTour.Goal) -> tuple[list[str], list[str]] | None:
+    def _resolve_tour(self, goal: RunTour.Goal) -> tuple[list[str], list[str], str] | None:
+        """Разрешить (stop_ids, exhibit_ids, transit_content_id).
+
+        `transit_content_id` -- пусто для явного `RunTour.Goal.location_ids`
+        (guide_to/redirect/tour_by_points): у одностопового/ad-hoc плана
+        нет "тура" в смысле tours.yaml, транзитный нарратив (stage2 блок E)
+        для него не заявлен в спеке.
+        """
         if goal.location_ids:
             ids = list(goal.location_ids)
-            return ids, ids
+            return ids, ids, ""
         if not self._list_tours_client.wait_for_service(
             timeout_sec=self._params["service_call_timeout_s"]
         ):
@@ -530,7 +589,34 @@ class MissionFsmNode(LifecycleNode):
         return (
             [stop.location_id for stop in tour.stops],
             [stop.exhibit_id for stop in tour.stops],
+            str(tour.transit_content_id),
         )
+
+    def _fetch_transit_chunks(self, transit_content_id: str) -> list[str]:
+        """Забрать все чанки транзитного контента (stage2 блок E), пусто при любой неудаче.
+
+        `mode="full"` -- транзитные чанки в content/*.yaml помечены
+        `level: short`, но нам нужны ВСЕ, не только уровень short
+        (`select_chunks("full")` отдаёт все чанки независимо от level).
+        Недоступный content_server/отсутствующий exhibit_id -- не повод
+        ронять тур, просто не будет транзитного нарратива.
+        """
+        if not transit_content_id:
+            return []
+        if not self._content_client.wait_for_service(
+            timeout_sec=self._params["service_call_timeout_s"]
+        ):
+            return []
+        future = self._content_client.call_async(
+            GetExhibitContent.Request(
+                exhibit_id=transit_content_id,
+                mode="full",
+                language=str(self._params["language"]),
+            )
+        )
+        if not _wait_future(future, self.context, self._params["service_call_timeout_s"]):
+            return []
+        return list(future.result().chunks)
 
     def _fetch_locations(self) -> dict[str, PoseStamped] | None:
         if not self._list_locations_client.wait_for_service(

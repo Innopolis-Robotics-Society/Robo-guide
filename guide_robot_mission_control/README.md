@@ -82,7 +82,9 @@ design §5.4 п.6, нет реального ASR/LLM): `~/request_pause`,
 `heartbeat_s`(1.0), `service_call_timeout_s`(2.0), `language`("ru"),
 `greeting_text`, `confirm_question_text`, `home_frame`("map"),
 `home_pose`([x,y,yaw]), `redirect_done_phrase`("Мы на месте. Чем ещё могу
-помочь?" — stage2 B2, финальная фраза `redirect_done`).
+помочь?" — stage2 B2, финальная фраза `redirect_done`),
+`transit_after_s`(6.0 — stage2 блок E, порог тишины для транзитного
+нарратива).
 
 ### `narration_server`
 
@@ -183,6 +185,20 @@ REJECTED — см. «Известные грабли»).
 (`PAUSE_SAFETY`/`PAUSE_PRESENCE` по-прежнему не заведены — см. `fsm/
 states/paused.py`). Фраза «стоп» из fast-path стоп-слов сюда не
 относится — это по-прежнему жёсткий аварийный `CancelAll`+`stop_tour`.
+
+**Транзитный нарратив** (stage2 блок E, design §5.6): не более одного
+`Narrate`-чанка за ход `NavigatingState`, только если ход длится дольше
+`transit_after_s` (6.0) и `/voice/speaking` молчит (новая подписка узла,
+`is_speaking()`). Чанки тура (`blackboard.tour.transit_chunks`) читаются
+ОДИН раз при разрешении тура (`~/get_exhibit_content` по
+`ListTours.tours[].transit_content_id`) — без повторов за тур, план "по
+одному, по порядку", `search_content` не участвует. Отправляется с уже
+готовым `text=` (`Narrate.Goal`), поэтому `narration_server` строит план
+из одного чанка сам, без похода за контентом; `continuity`/`priority`/
+`scope` полей `Narrate.Goal` `narration_server` сегодня НЕ читает вовсе
+(свои `say_priority`/`say_scope` узла) — отсутствие резюме гарантирует не
+`CONTINUITY_DROPPABLE`, а то, что `resume_token` результата просто
+никогда не переиспользуется. Fire-and-forget — FSM не ждёт результата.
 
 **Стек прерываний глубины 1** (`interrupt_stack.py`, design §5.4) — не
 структура «стек» в общем смысле, ровно один слот; второй одновременный
