@@ -331,6 +331,7 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | `tour_by_points` | `EstimateRoute` → `RunTour(location_ids=ordered)` | `IDLE` | да | нет |
 | `stop_tour` | отмена активного `RunTour`-goal-а | любое, кроме `IDLE` | да | нет |
 | `pause` / `resume` | `~/request_pause` / `~/request_resume` | `NARRATING` / `PAUSED` | да | нет |
+| `hold_position` | `~/request_pause` (тот же вызов, что `pause`, stage2 D3) | `NAVIGATING` | да | нет |
 | `confirm` | `~/submit_confirm` | `AWAITING_CONFIRM` | да | нет |
 | `finish_answer` | `~/submit_answer` | `ANSWERING` | да | нет |
 | `noop` | ничего | любое | да | нет |

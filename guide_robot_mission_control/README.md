@@ -173,6 +173,17 @@ REJECTED — см. «Известные грабли»).
 при этом теряется безвозвратно — `RunTour.Result.detail`/`/mission/state`
 после редиректа несут `"redirected"`, отличимое от обычного конца тура.
 
+**hold_position** (stage2 D3, `~/request_pause`/`~/request_resume`): до
+этого шага только `narrating` вычитывал `FsmContext.take_pause_request()`
+— теперь `navigating` тоже, тем же примитивом, тем же исходом `PAUSED` и
+той же `paused`. Специального «сохранения цели» не нужно —
+`blackboard.tour.index` не двигается, `resume` заново шлёт
+`NavigateToPose` на ту же остановку из свежего `NavigatingState.on_enter()`.
+`blackboard.pause_reason="user"` → `MissionState.pause_reason=PAUSE_USER`
+(`PAUSE_SAFETY`/`PAUSE_PRESENCE` по-прежнему не заведены — см. `fsm/
+states/paused.py`). Фраза «стоп» из fast-path стоп-слов сюда не
+относится — это по-прежнему жёсткий аварийный `CancelAll`+`stop_tour`.
+
 **Стек прерываний глубины 1** (`interrupt_stack.py`, design §5.4) — не
 структура «стек» в общем смысле, ровно один слот; второй одновременный
 запрос на прерывание — явный `StackBusyError`, не очередь. `answer`-фрейм

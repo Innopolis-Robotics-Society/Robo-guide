@@ -77,6 +77,11 @@ class Blackboard:
     redirect_location_id: str = ""
     redirected: bool = False
 
+    # -- stage2 D3: hold_position -- отражается в MissionState.pause_reason
+    # (mission_fsm_node._on_fsm_state_changed) как PAUSE_USER; "" -- обычный
+    # пока-не-реализованный presence-путь PausedState (см. её докстринг).
+    pause_reason: str = ""
+
     # -- design §5.3, пока не наполняются в шаге 7 --
     presence: object | None = None
     safety: object | None = None

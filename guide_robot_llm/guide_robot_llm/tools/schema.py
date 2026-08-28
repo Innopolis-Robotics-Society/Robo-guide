@@ -18,11 +18,15 @@ GBNF-каталога и `tools_allowed` в снимке.
 рантайме; `estimate_route` продолжает использоваться внутри
 `_tool_tour_by_points`, но не как отдельный вызов модели.
 
-`pause` разрешён только в NARRATING не произвольно -- это единственное
-состояние, которое реально вычитывает `FsmContext.take_pause_request()`
-(guide_robot_mission_control/fsm/states/narrating.py); в остальных
-состояниях запрос молча повис бы, гейтить нужно тут, а не полагаться на
-то, что FSM промолчит. `tell_about` разрешён только вне тура -- вне тура
+`pause`/`hold_position` разрешены только в NARRATING/NAVIGATING
+соответственно не произвольно -- это единственные состояния, которые
+реально вычитывают `FsmContext.take_pause_request()`
+(guide_robot_mission_control/fsm/states/narrating.py,
+fsm/states/navigating.py, stage2 D3); в остальных состояниях запрос
+молча повис бы, гейтить нужно тут, а не полагаться на то, что FSM
+промолчит. Оба маппятся на один и тот же `~/request_pause` брокером
+(`tool_broker_node.py::_HANDLERS`) -- различие для модели только в имени
+и гейте. `tell_about` разрешён только вне тура -- вне тура
 narration_server свободен (единственный активный Narrate-исполнитель, design
 guide_robot_mission_control §4), во время тура он занят остановкой самого
 тура и ответит REJECTED("busy").
@@ -99,6 +103,12 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("stop_tour", "Прервать текущий тур совсем.", _TOUR_ACTIVE_STATES),
     ToolSpec(
         "pause", "Приостановить рассказ (посетитель отошёл).", frozenset({_S.STATE_NARRATING})
+    ),
+    ToolSpec(
+        "hold_position",
+        "Остановиться на месте во время движения, не отменяя тур "
+        "(«постой», «подожди секунду»). Не для аварийной остановки.",
+        frozenset({_S.STATE_NAVIGATING}),
     ),
     ToolSpec("resume", "Возобновить приостановленный тур.", frozenset({_S.STATE_PAUSED})),
     ToolSpec(

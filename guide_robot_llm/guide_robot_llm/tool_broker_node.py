@@ -678,6 +678,11 @@ class ToolBrokerNode(LifecycleNode):
         "tour_by_points": _tool_tour_by_points,
         "stop_tour": _tool_stop_tour,
         "pause": _tool_pause,
+        # hold_position (stage2 D3) -- механически то же самое, что pause:
+        # ~/request_pause -> ctx.request_pause(), состояние-агностично.
+        # Различие для модели -- только в имени/гейте (tools/schema.py):
+        # pause это NARRATING (рассказ), hold_position -- NAVIGATING (ход).
+        "hold_position": _tool_pause,
         "resume": _tool_resume,
         "confirm": _tool_confirm,
         "finish_answer": _tool_finish_answer,

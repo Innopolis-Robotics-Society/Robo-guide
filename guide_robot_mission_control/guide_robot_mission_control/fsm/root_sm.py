@@ -85,6 +85,8 @@ _TRANSITIONS: dict[str, dict[str, str | None]] = {
         outcomes.ARRIVED: "narrating",
         outcomes.NAV_FAILED: "navigating",
         outcomes.TOUR_FINISHED: TOUR_FINISHED_PSEUDO,
+        # hold_position (stage2 D3) -- тот же PAUSED, что и NarratingState.
+        outcomes.PAUSED: "paused",
         outcomes.SHUTDOWN: None,
         **_UNIVERSAL,
     },

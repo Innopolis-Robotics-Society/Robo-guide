@@ -405,6 +405,49 @@ def test_cancel_from_navigating_stops_in_place_not_returning_home(
     del client_node
 
 
+def test_hold_position_pauses_navigation_and_resumes_to_same_stop(
+    harness: MissionTestHarness,
+) -> None:
+    """stage2 D3: hold_position -- отменяет активный NavigateToPose, стоит в PAUSED
+    с pause_reason=PAUSE_USER, resume заново шлёт NavigateToPose на ТУ ЖЕ остановку
+    (tour.index не двигался -- "сохранение цели" не требует отдельного поля)."""
+    stop_ids = _setup_three_stop_tour(harness)
+    client_node, run_tour_client, state, fsm_node = _base_stack(harness)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=stop_ids,
+            greet=False,
+            narrate=True,
+            confirm_between_stops=False,
+            return_home=False,
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    assert harness.nav.goals_received == 1
+
+    fsm_node.request_pause()
+    wait_until(state_is(state, MissionState.STATE_PAUSED), timeout_s=15.0)
+    assert state["latest"].pause_reason == MissionState.PAUSE_USER
+    assert harness.nav.goals_received == 1, "resume ещё не звался -- второй NavigateToPose рано"
+
+    fsm_node.request_resume()
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    assert harness.nav.goals_received == 2, "resume обязан заново отправить NavigateToPose"
+    assert state["latest"].stop_id == stop_ids[0], "цель после resume та же остановка"
+
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.1, max_iterations=200)
+    wait_for_future(result_future, timeout_s=15.0)
+    result: RunTour.Result = result_future.result().result
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    del client_node
+
+
 def test_redirect_rejected_when_no_tour_active(harness: MissionTestHarness) -> None:
     """stage2 B2: в IDLE (нет активного тура) редирект отклоняется."""
     _client_node, _run_tour_client, _state, fsm_node = _base_stack(harness)

@@ -721,6 +721,12 @@ class MissionFsmNode(LifecycleNode):
         msg.exhibit_id = blackboard.tour.current_exhibit_id
         msg.resume_token = blackboard.resume_token
         msg.resume_available = bool(blackboard.resume_token)
+        # stage2 D3: hold_position -- единственный сейчас реальный источник
+        # pause_reason (PAUSE_SAFETY/PAUSE_PRESENCE не заведены, см.
+        # fsm/states/paused.py и recompute_safety_hold -- тот идёт через
+        # отдельный HELD, не PausedState).
+        if name == "paused" and blackboard.pause_reason == "user":
+            msg.pause_reason = MissionState.PAUSE_USER
         self.get_logger().info(
             f"-> {name.upper()} (остановка {msg.stop_index + 1}/{msg.stop_total}, "
             f"stop_id={msg.stop_id or '-'}, exhibit_id={msg.exhibit_id or '-'}, "

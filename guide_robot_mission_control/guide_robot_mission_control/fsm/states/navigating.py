@@ -11,6 +11,14 @@
 Транзитный нарратив на ходу (design §5.6) отложен -- см. решение к шагу 7
 в истории задачи: NAVIGATING только ведёт `NavigateToPose`, без
 параллельного DROPPABLE-`Narrate`.
+
+`hold_position` (stage2 D3): `FsmContext.take_pause_request()` (тот же
+примитив, что и у `NarratingState`) отменяет активный `NavigateToPose` и
+уводит в PAUSED. Специального "сохранения цели" не нужно --
+`blackboard.tour.index` не двигается, поэтому `RESUMED -> resume_base ->
+navigating` (root_sm._resume_target через `interrupted_from`, т.к. у
+NAVIGATING нет фрейма стека) просто заново шлёт `NavigateToPose` на ТУ ЖЕ
+остановку из свежего `on_enter()`.
 """
 
 from __future__ import annotations
@@ -42,6 +50,13 @@ class NavigatingState(InterruptibleState):
 
     def poll(self, blackboard: Blackboard, now_ns: int) -> str | None:
         """Дождаться принятия goal-а, затем результата, следя за nav_stop_timeout_s."""
+        if self.ctx.take_pause_request():
+            # stage2 D3: hold_position -- остановиться на месте, не отменяя
+            # тур. Как и у CANCELED/HELD, активная работа обязана быть
+            # остановлена здесь же, до выдачи исхода.
+            blackboard.pause_reason = "user"
+            self.cancel_active_work(blackboard, outcomes.PAUSED)
+            return outcomes.PAUSED
         if self._goal_handle is None:
             return self._poll_send(blackboard)
         elapsed_s = (now_ns - self._start_ns) / 1e9

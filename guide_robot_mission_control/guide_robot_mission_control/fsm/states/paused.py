@@ -48,3 +48,8 @@ class PausedState(InterruptibleState):
             self.ctx.log(f"paused: pause_timeout_s={self.ctx.pause_timeout_s} истёк -> едем домой")
             return outcomes.TIMEOUT_NO_VISITOR
         return None
+
+    def on_exit(self, blackboard: Blackboard, outcome: str) -> None:
+        """Сбросить `pause_reason` (stage2 D3) -- не переживает эту паузу, не бывает stale."""
+        del outcome
+        blackboard.pause_reason = ""
