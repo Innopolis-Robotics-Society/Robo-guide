@@ -151,6 +151,15 @@ REJECTED — см. «Известные грабли»).
 `navigating`/`narrating` не абортят тур на сбое — пропускают остановку
 (`stops_skipped++`, `NAV_FAILED`/`NARRATE_FAILED`) и едут к следующей.
 
+`CANCELED` из `greeting`/`navigating`/`narrating`/`answering`/
+`awaiting_confirm` терминален НА МЕСТЕ — не ведёт в `returning`
+(`fsm/root_sm.py::_UNIVERSAL`). В кодовой базе он приходит только от
+явной отмены `RunTour`-goal-а клиентом (`stop_tour`/CLI `--cancel`) —
+робот остаётся там, где был, а не едет на базу (`returning` там дальше
+означало «домой», даже когда посетитель просто попросил остановиться).
+`held`/`returning` не участвуют в этом правиле — у обоих `CANCELED`
+прописан явно и по-другому.
+
 **Стек прерываний глубины 1** (`interrupt_stack.py`, design §5.4) — не
 структура «стек» в общем смысле, ровно один слот; второй одновременный
 запрос на прерывание — явный `StackBusyError`, не очередь. `answer`-фрейм

@@ -40,6 +40,10 @@ class MockNavServer(Node):
         # и снимается, иначе используется self.mode. Позволяет тесту менять
         # исход по ходу одного RunTour (например, второй перегон -- hang).
         self.mode_queue: list[str] = []
+        # stage2 A6: посчитать реально отправленные NavigateToPose-цели --
+        # тест на "cancel не уезжает домой" отличает 1 (только к остановке)
+        # от 2 (остановка + home_pose).
+        self.goals_received = 0
 
         self._action_server = ActionServer(
             self,
@@ -60,6 +64,7 @@ class MockNavServer(Node):
 
     def _execute(self, goal_handle: object) -> NavigateToPose.Result:
         request: NavigateToPose.Goal = goal_handle.request  # type: ignore[attr-defined]
+        self.goals_received += 1
         mode = self.mode_queue.pop(0) if self.mode_queue else self.mode
         start = self.get_clock().now()
 

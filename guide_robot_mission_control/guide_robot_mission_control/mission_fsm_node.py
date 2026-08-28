@@ -255,13 +255,14 @@ class MissionFsmNode(LifecycleNode):
         )
         return TransitionCallbackReturn.SUCCESS
 
-    def _idle_state_msg(self) -> MissionState:
+    def _idle_state_msg(self, *, detail: str = "") -> MissionState:
         msg = MissionState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.state = MissionState.STATE_IDLE
+        msg.detail = detail
         return msg
 
-    def _publish_idle_state(self) -> None:
+    def _publish_idle_state(self, *, detail: str = "") -> None:
         """Опубликовать IDLE и запомнить его как последнее состояние (heartbeat берёт отсюда).
 
         Публикация внутри `_state_lock` -- иначе конкурентный heartbeat
@@ -270,9 +271,13 @@ class MissionFsmNode(LifecycleNode):
         опубликовать его ПОСЛЕ этого IDLE, навсегда перекрыв его у
         подписчика (депеша порядка не гарантируется между независимыми
         `.publish()`-вызовами с разных потоков одного паблишера).
+
+        `detail` (stage2 A6) -- человекочитаемая причина ухода в IDLE после
+        конца тура (`_execute_run_tour`'s finally); пустая строка для
+        обычных вызовов (`on_activate`/`on_deactivate`).
         """
         with self._state_lock:
-            self._last_state_msg = self._idle_state_msg()
+            self._last_state_msg = self._idle_state_msg(detail=detail)
             self._state_pub.publish(self._last_state_msg)
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
@@ -399,6 +404,7 @@ class MissionFsmNode(LifecycleNode):
             f"greet={tour.greet} narrate={tour.narrate} "
             f"confirm_between_stops={tour.confirm_between_stops} return_home={tour.return_home}"
         )
+        outcome: str | None = None
         try:
             outcome = RootStateMachine(ctx).run_tour(blackboard)
         finally:
@@ -413,8 +419,20 @@ class MissionFsmNode(LifecycleNode):
             # ещё активен" даже после его завершения. on_activate/
             # on_deactivate уже публикуют IDLE тем же путём -- здесь третий
             # случай: конец execute_callback вне зависимости от исхода.
+            #
+            # detail (stage2 A6): CANCELED теперь терминален В МЕСТЕ (без
+            # RETURNING, см. root_sm._UNIVERSAL) -- отличить в /mission/state
+            # "отменён, стою" от обычного конца тура, а не оставлять detail
+            # пустым как раньше. `outcome is None` -- run_tour() бросил
+            # исключение (например, RuntimeError на необработанном исходе
+            # состояния) -- пустой detail, тур и так не завершился штатно.
             if self._active:
-                self._publish_idle_state()
+                idle_detail = (
+                    "отменён по просьбе посетителя, стою на месте"
+                    if outcome == "canceled"
+                    else ""
+                )
+                self._publish_idle_state(detail=idle_detail)
 
         result_outcome = _FINAL_OUTCOME_TO_RESULT[outcome]
         return self._finish_run_tour(

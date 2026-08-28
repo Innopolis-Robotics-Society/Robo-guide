@@ -45,7 +45,20 @@ SKIP_STOP_PSEUDO = "__skip_stop__"
 
 # Каждое прерываемое состояние обязано принимать CANCELED/HELD -- их
 # производит база (fsm/base.py) для ЛЮБОГО состояния единообразно.
-_UNIVERSAL = {outcomes.CANCELED: "returning", outcomes.HELD: "held"}
+#
+# CANCELED -- терминален здесь (stage2 A6), не ведёт в "returning": в
+# кодовой базе он приходит ИСКЛЮЧИТЕЛЬНО от явной отмены RunTour-goal-а
+# клиентом (`goal_handle.is_cancel_requested`, fsm/context.py) -- то есть
+# от tool_broker._tool_stop_tour/cli.py, посетитель сам попросил
+# остановиться. Другого источника CANCELED нет (safety идёт через
+# отдельный HELD). Раньше "returning" здесь ехал домой, если
+# tour.return_home (обычно True) -- живой баг: "стоп" бросал посетителя и
+# уезжал на базу. cancel_active_work() уже остановил активный
+# Say/Narrate/NavigateToPose ДО этого исхода -- робот просто стоит там,
+# где был. "held"/"returning" не используют этот словарь -- у обоих
+# CANCELED прописан явно и по-другому (held: едет разбираться через
+# returning; returning: уже в пути домой -- CANCELED там и так терминален).
+_UNIVERSAL = {outcomes.CANCELED: None, outcomes.HELD: "held"}
 
 _TRANSITIONS: dict[str, dict[str, str | None]] = {
     "greeting": {

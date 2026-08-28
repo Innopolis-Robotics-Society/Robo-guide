@@ -360,3 +360,46 @@ def test_cancel_run_tour_in_each_state(harness: MissionTestHarness, target_state
     result: RunTour.Result = result_future.result().result
     assert result.outcome == RunTour.Result.OUTCOME_CANCELED
     del client_node
+
+
+def test_cancel_from_navigating_stops_in_place_not_returning_home(
+    harness: MissionTestHarness,
+) -> None:
+    """stage2 A6: живой баг -- "стоп" уводил в RETURNING, робот уезжал на базу,
+    бросая посетителя. Отмена по инициативе посетителя теперь терминальна на
+    месте: RETURNING не появляется в истории состояний, домой не едет (ровно
+    один NavigateToPose, не два), detail в IDLE отличим от обычного конца тура.
+    """
+    stop_ids = _setup_three_stop_tour(harness)
+    client_node, run_tour_client, state, _fsm = _base_stack(harness)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=stop_ids,
+            greet=False,
+            narrate=True,
+            confirm_between_stops=False,
+            return_home=True,
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    assert harness.nav.goals_received == 1
+
+    cancel_future = goal_handle.cancel_goal_async()
+    wait_for_future(cancel_future, timeout_s=15.0)
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.1, max_iterations=200)
+    wait_for_future(result_future, timeout_s=15.0)
+
+    result: RunTour.Result = result_future.result().result
+    assert result.outcome == RunTour.Result.OUTCOME_CANCELED
+    assert harness.nav.goals_received == 1, "не должен был отправлять NavigateToPose домой"
+    assert all(msg.state != MissionState.STATE_RETURNING for msg in state["history"])
+
+    wait_until(state_is(state, MissionState.STATE_IDLE), timeout_s=15.0)
+    assert "отмен" in state["latest"].detail
+    del client_node
