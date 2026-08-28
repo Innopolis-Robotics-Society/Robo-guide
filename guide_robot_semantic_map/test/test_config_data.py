@@ -56,14 +56,13 @@ def test_content_dir_loads_without_errors() -> None:
     assert warnings == []
 
 
-def test_lab_demo_tour_stops_missing_content_are_known_gaps() -> None:
-    # "intro" (остановка entrance) и claude_code_ros2_kit -- реальные
-    # экскурсоводческие тексты, которых пока нет и которые этот модуль
-    # не должен придумывать (design.md §1.3: content_server не порождает
-    # текст). Тест документирует пробел, а не проверяет его отсутствие.
+def test_lab_demo_tour_stops_have_content() -> None:
+    # "intro" (остановка entrance) больше не пробел -- content/intro.ru.yaml
+    # добавлен вместе с миграцией kb_source/tour.md
+    # (CLAUDE_CODE_TASK_stage1_knowledge.md §2.1).
     content, _ = load_content_dir(_CONTENT_DIR)
     tours = load_tours(_CONFIG_DIR / "tours.yaml")
     stop_exhibit_ids = {stop.exhibit_id for stop in tours.tours["lab_demo"].stops}
     covered = {exhibit_id for exhibit_id, _language in content}
     missing = stop_exhibit_ids - covered
-    assert missing == {"intro"}
+    assert missing == set()

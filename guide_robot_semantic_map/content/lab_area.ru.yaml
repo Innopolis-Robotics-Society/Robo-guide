@@ -1,0 +1,10 @@
+exhibit_id: lab_area
+language: ru
+version: "2026-08-28.1"
+kind: place
+location_ids: [entrance, robo_guide, promobot_m13_artist, sam3_autolabeling, nav2_course, livox_mid70]
+reviewed_by: ""
+reviewed_at: ""
+title: "Демонстрационная лаборатория"
+chunks:
+  - {id: c1, level: short, text: "В демонстрационной лаборатории показывают действующие макеты и прототипы студенческих и исследовательских проектов: мобильных роботов, манипуляторов и систем компьютерного зрения. Экспонаты периодически обновляются — студенты приносят сюда свои текущие разработки."}
