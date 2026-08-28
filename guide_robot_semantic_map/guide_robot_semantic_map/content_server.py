@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
-from guide_robot_msgs.msg import SystemEvent
-from guide_robot_msgs.srv import GetExhibitContent
+from guide_robot_msgs.msg import ContentHit, SystemEvent
+from guide_robot_msgs.srv import GetExhibitContent, SearchContent
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_semantic_map.lib.content_io import (
@@ -28,7 +28,11 @@ from guide_robot_semantic_map.lib.content_io import (
 )
 from guide_robot_semantic_map.lib.locations_io import LocationsError, load_locations
 from guide_robot_semantic_map.lib.qos import QOS_SYSTEM_EVENT
+from guide_robot_semantic_map.lib.search import ContentIndex
 from guide_robot_semantic_map.service_guard import ServiceGuardMixin
+
+_SEARCH_DEFAULT_RESULTS = 5
+_SEARCH_MAX_RESULTS = 20
 
 
 class ContentServerNode(ServiceGuardMixin, LifecycleNode):
@@ -43,6 +47,7 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
         self.declare_parameter("locations_file", "")
 
         self._content: dict[tuple[str, str], ExhibitContent] = {}
+        self._indexes: dict[str, ContentIndex] = {}
         self._active = False
         self._event_pub = None
         self._stage = "инициализация"
@@ -72,12 +77,18 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
         for warning in warnings:
             self.get_logger().warning(warning)
 
+        self._stage = "индекс поиска"
+        self._indexes = self._build_indexes()
+
         self._stage = "интерфейсы ROS"
         self._event_pub = self.create_lifecycle_publisher(
             SystemEvent, "/system_event", QOS_SYSTEM_EVENT
         )
         self._service = self.create_service(
             GetExhibitContent, "~/get_exhibit_content", self._on_get_exhibit_content
+        )
+        self._search_service = self.create_service(
+            SearchContent, "~/search_content", self._on_search_content
         )
 
         self._stage = "проверка location_ids"
@@ -89,6 +100,13 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
             f"контента из {content_dir}"
         )
         return TransitionCallbackReturn.SUCCESS
+
+    def _build_indexes(self) -> dict[str, ContentIndex]:
+        """Один `ContentIndex` на язык -- поиск не смешивает языки в одном ранжировании."""
+        by_language: dict[str, list[ExhibitContent]] = {}
+        for (_exhibit_id, language), content in self._content.items():
+            by_language.setdefault(language, []).append(content)
+        return {language: ContentIndex(items) for language, items in by_language.items()}
 
     def _warn_unknown_location_ids(self) -> None:
         """Предупредить о location_ids, которых нет в locations.yaml -- не отказ.
@@ -140,6 +158,7 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
         """Освободить загруженный контент."""
         del state
         self._content = {}
+        self._indexes = {}
         return TransitionCallbackReturn.SUCCESS
 
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:
@@ -194,6 +213,44 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
         response.title = content.title
         response.kind = content.kind
         response.version = content.version
+        return response
+
+    def _on_search_content(
+        self, request: SearchContent.Request, response: SearchContent.Response
+    ) -> SearchContent.Response:
+        if not self._require_active("search_content"):
+            return response
+
+        default_language = str(self.get_parameter("default_language").value)
+        language = pick_language(set(self._indexes), request.language, default_language)
+        if language is None:
+            self.get_logger().warning(
+                f"search_content: нет индекса ни для запрошенного языка "
+                f"{request.language!r}, ни для default {default_language!r}"
+            )
+            return response
+
+        max_results = request.max_results or _SEARCH_DEFAULT_RESULTS
+        max_results = min(max_results, _SEARCH_MAX_RESULTS)
+
+        hits = self._indexes[language].search(
+            request.query,
+            top_k=max_results,
+            boost_location_ids=list(request.location_ids),
+            kinds=list(request.kinds),
+        )
+        response.hits = [
+            ContentHit(
+                content_id=hit.content_id,
+                kind=hit.kind,
+                title=hit.title,
+                chunk_id=hit.chunk_id,
+                text=hit.text,
+                score=hit.score,
+                version=hit.version,
+            )
+            for hit in hits
+        ]
         return response
 
 

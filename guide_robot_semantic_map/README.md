@@ -50,15 +50,33 @@ graph.geojson ─────► │   route_server  │  чужой пакет 
 нет файла для `exhibit_id`/языка — пустой `chunks[]` и `version=""`,
 решение (переспросить, промолчать) принимает вызывающая сторона.
 
-**Сервис**: `~/get_exhibit_content` (`GetExhibitContent`) —
-`exhibit_id, mode, language` → `chunks[], version`.
+**Сервисы**:
+- `~/get_exhibit_content` (`GetExhibitContent`) —
+  `exhibit_id, mode, language` → `chunks[], title, kind, version`.
+- `~/search_content` (`SearchContent`) — `query, language, location_ids,
+  kinds, max_results` → `hits: ContentHit[]`. BM25 (`lib/search.py`,
+  перенесён из бывшего `guide_robot_llm/kb/retriever.py`) по одному индексу
+  на язык, единица индекса — чанк (`content_id, chunk_id`), не файл целиком.
+  `location_ids` — буст (`score *= 1.5`), не фильтр; `kinds` — фильтр (пусто
+  = все). `max_results`: `0` → default `5`, максимум `20`. Абсолютного
+  `min_score` нет (живой баг, унаследован от `kb/retriever.py`: порог на
+  малом корпусе не настраивался).
+
+Каждый элемент `content/*.yaml` несёт `kind` (`exhibit|place|city|org|
+transit`, по умолчанию `exhibit`) и `location_ids` (локации, к которым
+привязан текст; по умолчанию `[exhibit_id]` для `kind: exhibit`, иначе
+пусто) — используются для буста поиска и фильтра по типу текста.
+`location_ids`, которых нет в `locations.yaml`, — не отказ активации, а
+`WARN`-лог + `SystemEvent` (`semantic_map.content_unknown_location_id`):
+контент про город/организацию вправе ссылаться на зону, а не на локацию.
 
 Фолбэк языка: запрошенный → `default_language` → пусто. Молчаливая
 подмена запрещена — факт фолбэка идёт `WARN`-логом и `SystemEvent`
 (`semantic_map.content_language_fallback`).
 
 **Параметры**: `content_dir` (пусто → `share/guide_robot_semantic_map/content`),
-`default_language="ru"`.
+`locations_file` (пусто → `share/.../config/locations.yaml`, только для
+WARN-проверки `location_ids` выше), `default_language="ru"`.
 
 ### `location_server`
 
@@ -143,6 +161,7 @@ pairwise матрица `route_cost`/`distance_m` между **всеми** ло
 | Сервис | Тип | Нода |
 |---|---|---|
 | `~/get_exhibit_content` | `GetExhibitContent` | content_server |
+| `~/search_content` | `SearchContent` | content_server |
 | `~/list_locations` | `ListLocations` | location_server |
 | `~/resolve_location` | `ResolveLocation` | location_server |
 | `~/list_tours` | `ListTours` | location_server |
@@ -175,10 +194,10 @@ content/
 в `locations.yaml` обязателен и не может быть `null`: битая/отсутствующая
 ссылка — ошибка данных, а не деградация).
 
-**Дыры в контенте**, тоже намеренные: `content/` не содержит текста для
-`intro` (остановка `entrance` в туре `lab_demo`) и для `claude_code_ros2_kit`
-— это реальные экскурсоводческие тексты, которых пока никто не написал,
-и `content_server` их не выдумывает (см. выше).
+**Дыры в контенте закрыты для `lab_demo`:** все шесть остановок тура,
+включая `intro` (остановка `entrance`), покрыты `content/*.yaml` —
+`content_server` по-прежнему ничего не выдумывает (см. выше), но текстов,
+которых раньше не было, больше нет ни для одной остановки этого тура.
 
 ## `lib/` — логика без rclpy
 
@@ -287,7 +306,7 @@ python3 -m pytest test/ -q
 ruff check .
 ```
 
-164 юнит-теста на `lib/` и на реальных `config/`/`content/` разом
+179 юнит-тестов на `lib/` и на реальных `config/`/`content/` разом
 (`test_config_data.py` — данные лаборатории проходят через весь стек
 валидаторов, не только фикстуры), без ROS. Ноды (`*_server.py`,
 `route_planner.py`) юнитами не покрыты сознательно — design разносит
