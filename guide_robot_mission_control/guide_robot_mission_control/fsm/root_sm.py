@@ -26,7 +26,7 @@ ANSWERING сама выполнила `stack.pop()` перед ANSWERED/TIMEOUT)
 from __future__ import annotations
 
 from guide_robot_mission_control.fsm import outcomes
-from guide_robot_mission_control.fsm.blackboard_keys import Blackboard
+from guide_robot_mission_control.fsm.blackboard_keys import Blackboard, TourPlan
 from guide_robot_mission_control.fsm.context import FsmContext
 from guide_robot_mission_control.fsm.states.answering import AnsweringState
 from guide_robot_mission_control.fsm.states.awaiting_confirm import AwaitingConfirmState
@@ -35,6 +35,7 @@ from guide_robot_mission_control.fsm.states.held import HeldState
 from guide_robot_mission_control.fsm.states.narrating import NarratingState
 from guide_robot_mission_control.fsm.states.navigating import NavigatingState
 from guide_robot_mission_control.fsm.states.paused import PausedState
+from guide_robot_mission_control.fsm.states.redirect_done import RedirectDoneState
 from guide_robot_mission_control.fsm.states.returning import ReturningState
 
 __all__ = ["RootStateMachine"]
@@ -42,6 +43,8 @@ __all__ = ["RootStateMachine"]
 RESUME_BASE = "__resume_base__"
 CONFIRM_OR_CONTINUE = "__confirm_or_continue__"
 SKIP_STOP_PSEUDO = "__skip_stop__"
+REDIRECT_PSEUDO = "__redirect__"
+TOUR_FINISHED_PSEUDO = "__tour_finished__"
 
 # Каждое прерываемое состояние обязано принимать CANCELED/HELD -- их
 # производит база (fsm/base.py) для ЛЮБОГО состояния единообразно.
@@ -58,7 +61,12 @@ SKIP_STOP_PSEUDO = "__skip_stop__"
 # где был. "held"/"returning" не используют этот словарь -- у обоих
 # CANCELED прописан явно и по-другому (held: едет разбираться через
 # returning; returning: уже в пути домой -- CANCELED там и так терминален).
-_UNIVERSAL = {outcomes.CANCELED: None, outcomes.HELD: "held"}
+#
+# REDIRECTED (stage2 B2) -- только состояния с `redirect_eligible = True`
+# (fsm/base.py) вообще производят этот исход, но словарь один и тот же:
+# GREETING/NAVIGATING/NARRATING/ANSWERING/AWAITING_CONFIRM -- ровно
+# состояния, спредящие `_UNIVERSAL` ниже.
+_UNIVERSAL = {outcomes.CANCELED: None, outcomes.HELD: "held", outcomes.REDIRECTED: REDIRECT_PSEUDO}
 
 _TRANSITIONS: dict[str, dict[str, str | None]] = {
     "greeting": {
@@ -76,7 +84,7 @@ _TRANSITIONS: dict[str, dict[str, str | None]] = {
         # исхода INTERRUPTED у NAVIGATING в шаге 7 нет.
         outcomes.ARRIVED: "narrating",
         outcomes.NAV_FAILED: "navigating",
-        outcomes.TOUR_FINISHED: "returning",
+        outcomes.TOUR_FINISHED: TOUR_FINISHED_PSEUDO,
         outcomes.SHUTDOWN: None,
         **_UNIVERSAL,
     },
@@ -88,7 +96,7 @@ _TRANSITIONS: dict[str, dict[str, str | None]] = {
         # продвинут самим NarratingState -- продолжаем с NAVIGATING на
         # следующую остановку, а не рушим тур.
         outcomes.SUCCEEDED: CONFIRM_OR_CONTINUE,
-        outcomes.TOUR_FINISHED: "returning",
+        outcomes.TOUR_FINISHED: TOUR_FINISHED_PSEUDO,
         outcomes.INTERRUPTED: "answering",
         outcomes.PAUSED: "paused",
         outcomes.NARRATE_FAILED: "navigating",
@@ -128,6 +136,17 @@ _TRANSITIONS: dict[str, dict[str, str | None]] = {
         outcomes.HELD: "held",
         outcomes.SHUTDOWN: None,
     },
+    # stage2 B2: конец одностопового плана редиректа -- прощальная фраза,
+    # затем терминально (design блок B: "IDLE на месте", не RETURNING).
+    # Не спредит `_UNIVERSAL` -- `redirect_eligible` здесь не установлен
+    # (см. fsm/states/redirect_done.py), REDIRECTED из этого состояния не
+    # производится, а CANCELED/HELD RedirectDoneState принимает сама.
+    "redirect_done": {
+        outcomes.SUCCEEDED: None,
+        outcomes.CANCELED: None,
+        outcomes.HELD: "held",
+        outcomes.SHUTDOWN: None,
+    },
 }
 
 
@@ -163,6 +182,43 @@ def _skip_stop_target(blackboard: Blackboard) -> str:
     return "navigating"
 
 
+def _apply_redirect(blackboard: Blackboard) -> str:
+    """REDIRECTED: заменить план тура на одну точку, пойти в NAVIGATING (stage2 B2).
+
+    `location_id` идёт и в `stop_ids`, и в `exhibit_ids` -- тот же приём,
+    что `mission_fsm_node._resolve_tour()` уже использует для явного
+    `RunTour.Goal.location_ids` (redirect не ходит в location_server за
+    `category`): если это не экспонат, `NarratingState` получит
+    `NARRATE_FAILED`/пропуск от `narration_server`, а не наврёт наррацию.
+    `resume_token` исходного тура теряется безвозвратно -- прерванный
+    фрейм ANSWERING/AWAITING_CONFIRM уже снят (`cancel_active_work` тех
+    состояний), а новый одностоповый план о нём не знает.
+    """
+    location_id = blackboard.redirect_location_id
+    blackboard.redirect_location_id = ""
+    blackboard.tour = TourPlan(
+        stop_ids=[location_id],
+        exhibit_ids=[location_id],
+        tour_id="",
+        greet=False,
+        narrate=True,
+        confirm_between_stops=False,
+        return_home=False,
+    )
+    blackboard.resume_token = ""
+    blackboard.redirected = True
+    return "navigating"
+
+
+def _tour_finished_target(blackboard: Blackboard) -> str:
+    """TOUR_FINISHED из NAVIGATING/NARRATING.
+
+    Обычный конец тура едет домой, редиректный одностоповый план -- нет
+    (design блок B: "IDLE на месте").
+    """
+    return "redirect_done" if blackboard.redirected else "returning"
+
+
 class RootStateMachine:
     """Прогоняет состояния друг за другом по `_TRANSITIONS`, начиная с GREETING/NAVIGATING."""
 
@@ -178,6 +234,7 @@ class RootStateMachine:
             "paused": PausedState(ctx),
             "held": HeldState(ctx),
             "returning": ReturningState(ctx),
+            "redirect_done": RedirectDoneState(ctx),
         }
 
     def run_tour(self, blackboard: Blackboard) -> str:
@@ -202,5 +259,9 @@ class RootStateMachine:
                 next_state = (
                     "awaiting_confirm" if blackboard.tour.confirm_between_stops else "navigating"
                 )
+            elif next_state == REDIRECT_PSEUDO:
+                next_state = _apply_redirect(blackboard)
+            elif next_state == TOUR_FINISHED_PSEUDO:
+                next_state = _tour_finished_target(blackboard)
             current = next_state
         return last_outcome

@@ -30,6 +30,7 @@ class NarratingState(InterruptibleState):
     """Отправляет `Narrate`, ждёт результата -- сама его не отменяет (см. докстринг модуля)."""
 
     name = "narrating"
+    redirect_eligible = True
 
     def on_enter(self, blackboard: Blackboard) -> None:
         """Отправить Narrate-goal на текущий экспонат -- пропустить, если tour.narrate=False."""

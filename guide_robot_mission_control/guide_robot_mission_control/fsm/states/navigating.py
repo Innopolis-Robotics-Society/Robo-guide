@@ -29,6 +29,7 @@ class NavigatingState(InterruptibleState):
     """Отправляет `NavigateToPose` на позу текущей остановки, следит за таймаутом."""
 
     name = "navigating"
+    redirect_eligible = True
 
     def on_enter(self, blackboard: Blackboard) -> None:
         """Отправить NavigateToPose на позу текущей остановки тура."""

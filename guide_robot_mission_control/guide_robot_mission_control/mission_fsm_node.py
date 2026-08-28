@@ -21,7 +21,7 @@ import rclpy
 from geometry_msgs.msg import PoseStamped
 from guide_robot_msgs.action import Narrate, RunTour, Say
 from guide_robot_msgs.msg import CancelAll, MissionState
-from guide_robot_msgs.srv import ListLocations, ListTours, SubmitAnswer
+from guide_robot_msgs.srv import ListLocations, ListTours, Redirect, SubmitAnswer
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
@@ -57,6 +57,20 @@ _FINAL_OUTCOME_TO_RESULT = {
     "canceled": RunTour.Result.OUTCOME_CANCELED,
     "shutdown": RunTour.Result.OUTCOME_CANCELED,
 }
+
+# stage2 B2: состояния, где ~/redirect принимается -- зеркало
+# `redirect_eligible` состояний fsm/base.py, но по значению MissionState.state
+# (сервис синхронно отвечает accepted/message ДО того, как FSM-поток вообще
+# заберёт запрос из очереди -- ему нужна отдельная, не-FSM-объектная копия).
+_REDIRECT_ALLOWED_STATES = frozenset(
+    {
+        MissionState.STATE_GREETING,
+        MissionState.STATE_NAVIGATING,
+        MissionState.STATE_NARRATING,
+        MissionState.STATE_ANSWERING,
+        MissionState.STATE_AWAITING_CONFIRM,
+    }
+)
 
 _RUN_TOUR_OUTCOME_NAMES = {
     RunTour.Result.OUTCOME_COMPLETED: "COMPLETED",
@@ -98,6 +112,7 @@ class MissionFsmNode(LifecycleNode):
         self.declare_parameter("language", "ru")
         self.declare_parameter("greeting_text", "Здравствуйте! Я проведу для вас экскурсию.")
         self.declare_parameter("confirm_question_text", "Идём дальше?")
+        self.declare_parameter("redirect_done_phrase", "Мы на месте. Чем ещё могу помочь?")
         self.declare_parameter("home_frame", "map")
         self.declare_parameter("home_pose", [0.0, 0.0, 0.0])
 
@@ -146,6 +161,7 @@ class MissionFsmNode(LifecycleNode):
             "language": str(self.get_parameter("language").value),
             "greeting_text": str(self.get_parameter("greeting_text").value),
             "confirm_question_text": str(self.get_parameter("confirm_question_text").value),
+            "redirect_done_phrase": str(self.get_parameter("redirect_done_phrase").value),
             "home_frame": str(self.get_parameter("home_frame").value),
             "home_pose": [float(v) for v in self.get_parameter("home_pose").value],
         }
@@ -217,6 +233,12 @@ class MissionFsmNode(LifecycleNode):
             SubmitAnswer,
             "~/submit_answer",
             self._srv_submit_answer,
+            callback_group=self._cb_reentrant,
+        )
+        self._redirect_srv = self.create_service(
+            Redirect,
+            "~/redirect",
+            self._srv_redirect,
             callback_group=self._cb_reentrant,
         )
 
@@ -420,27 +442,36 @@ class MissionFsmNode(LifecycleNode):
             # on_deactivate уже публикуют IDLE тем же путём -- здесь третий
             # случай: конец execute_callback вне зависимости от исхода.
             #
-            # detail (stage2 A6): CANCELED теперь терминален В МЕСТЕ (без
+            # detail (stage2 A6/B2): CANCELED теперь терминален В МЕСТЕ (без
             # RETURNING, см. root_sm._UNIVERSAL) -- отличить в /mission/state
             # "отменён, стою" от обычного конца тура, а не оставлять detail
-            # пустым как раньше. `outcome is None` -- run_tour() бросил
-            # исключение (например, RuntimeError на необработанном исходе
-            # состояния) -- пустой detail, тур и так не завершился штатно.
+            # пустым как раньше. Редирект (blackboard.redirected) -- ещё один
+            # путь, минующий RETURNING, с потерей resume_token исходного
+            # тура -- отражаем это явно, а не просто пустой строкой.
+            # `outcome is None` -- run_tour() бросил исключение (например,
+            # RuntimeError на необработанном исходе состояния) -- пустой
+            # detail, тур и так не завершился штатно.
             if self._active:
-                idle_detail = (
-                    "отменён по просьбе посетителя, стою на месте"
-                    if outcome == "canceled"
-                    else ""
-                )
+                if outcome == "canceled":
+                    idle_detail = "отменён по просьбе посетителя, стою на месте"
+                elif outcome == "succeeded" and blackboard.redirected:
+                    idle_detail = "тур прерван редиректом (resume_token утрачен), стою на месте"
+                else:
+                    idle_detail = ""
                 self._publish_idle_state(detail=idle_detail)
 
+        # detail в RunTour.Result (stage2 B2): "redirected", а не "succeeded",
+        # когда тур закончился редиректом -- отличимо от обычного конца тура
+        # тем же способом, что и снаружи в /mission/state.
+        redirected_ok = outcome == "succeeded" and blackboard.redirected
+        result_detail = "redirected" if redirected_ok else outcome
         result_outcome = _FINAL_OUTCOME_TO_RESULT[outcome]
         return self._finish_run_tour(
             goal_handle,
             result_outcome,
             blackboard.stops_completed,
             blackboard.stops_skipped,
-            outcome,
+            result_detail,
         )
 
     def _make_context(self, goal_handle: object, locations: dict[str, PoseStamped]) -> FsmContext:
@@ -474,6 +505,8 @@ class MissionFsmNode(LifecycleNode):
             held_max_s=float(self._params["held_max_s"]),
             poll_period_s=float(self._params["poll_period_s"]),
             hard_stop_result_timeout_s=float(self._params["hard_stop_result_timeout_s"]),
+            known_location_ids=frozenset(locations),
+            redirect_done_phrase=str(self._params["redirect_done_phrase"]),
             on_state_changed=self._on_fsm_state_changed,
             log=self.get_logger().info,
         )
@@ -572,6 +605,31 @@ class MissionFsmNode(LifecycleNode):
         if ctx is not None:
             ctx.request_resume()
 
+    def redirect(self, location_id: str) -> tuple[bool, str]:
+        """«Отведи к X» во время тура (stage2 B2) -- зовётся и `~/redirect`, и тестами напрямую.
+
+        Решает СИНХРОННО по текущему `/mission/state`, не дожидаясь
+        FSM-потока -- тот заберёт `location_id` из очереди на ближайшем
+        eligible-poll (fsm/base.py) и продолжит асинхронно, как и
+        RunTour-цель в tool_broker._send_run_tour. `known_location_ids`
+        валидируется здесь же, чтобы `NavigatingState` не упал на
+        `KeyError` из `resolve_pose()` внутри FSM-потока.
+        """
+        with self._state_lock:
+            current_state = (
+                self._last_state_msg.state
+                if self._last_state_msg is not None
+                else MissionState.STATE_IDLE
+            )
+        with self._exec_lock:
+            ctx = self._active_ctx
+        if ctx is None or current_state not in _REDIRECT_ALLOWED_STATES:
+            return False, "редирект сейчас недоступен"
+        if location_id not in ctx.known_location_ids:
+            return False, f"локация {location_id!r} не найдена"
+        ctx.request_redirect(location_id)
+        return True, "еду"
+
     def _log_hook_call(self, name: str, *, extra: str = "") -> FsmContext | None:
         with self._exec_lock:
             ctx = self._active_ctx
@@ -629,6 +687,12 @@ class MissionFsmNode(LifecycleNode):
         with self._state_lock:
             last = self._last_state_msg
             response.resume_token = last.resume_token if last is not None else ""
+        return response
+
+    def _srv_redirect(
+        self, request: Redirect.Request, response: Redirect.Response
+    ) -> Redirect.Response:
+        response.accepted, response.message = self.redirect(str(request.location_id))
         return response
 
     # -- публикация /mission/state + RunTour feedback ------------------------

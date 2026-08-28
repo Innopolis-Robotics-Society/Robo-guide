@@ -20,6 +20,7 @@ class GreetingState(InterruptibleState):
     """Здоровается один раз, если tour.greet -- иначе сразу SUCCEEDED."""
 
     name = "greeting"
+    redirect_eligible = True
 
     def on_enter(self, blackboard: Blackboard) -> None:
         """Отправить приветственный Say, если это требуется планом тура."""

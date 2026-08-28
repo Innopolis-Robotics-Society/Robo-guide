@@ -68,6 +68,15 @@ class Blackboard:
     # -- заполняется root_sm.py при входе в ANSWERING/HELD/PAUSED (design §5.4) --
     interrupted_from: str = ""
 
+    # -- stage2 B2: редирект («отведи к X» во время тура) --
+    # `redirect_location_id` -- цель, положенная FsmContext.take_redirect_request()
+    # в blackboard тем состоянием, что первым его забрало (fsm/base.py);
+    # `redirected` -- тур сейчас идёт по одностоповому плану редиректа, а не
+    # по исходному -- root_sm читает его на TOUR_FINISHED, чтобы не уйти в
+    # RETURNING (design блок B: "IDLE на месте", не "домой").
+    redirect_location_id: str = ""
+    redirected: bool = False
+
     # -- design §5.3, пока не наполняются в шаге 7 --
     presence: object | None = None
     safety: object | None = None

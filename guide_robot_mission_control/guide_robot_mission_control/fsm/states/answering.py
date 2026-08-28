@@ -39,6 +39,7 @@ class AnsweringState(InterruptibleState):
     """Держит answer-фрейм, пока не придёт ответ или не истечёт answer_max_s."""
 
     name = "answering"
+    redirect_eligible = True
 
     def on_enter(self, blackboard: Blackboard) -> None:
         """Открыть answer-фрейм с base_state = состояние, которое было прервано."""
@@ -46,6 +47,16 @@ class AnsweringState(InterruptibleState):
         blackboard.stack.push_answer(
             base_state=blackboard.interrupted_from, resume_token=blackboard.resume_token, now=now_s
         )
+
+    def cancel_active_work(self, blackboard: Blackboard, outcome: str) -> None:
+        """REDIRECTED (stage2 B2): тур продолжается по новому плану -- снять answer-фрейм.
+
+        Не тронуто для CANCELED/HELD -- тур либо заканчивается совсем
+        (CANCELED теперь терминален, fsm/root_sm.py::_UNIVERSAL), либо
+        фрейм обязан пережить HELD как есть (design правило 5).
+        """
+        if outcome == outcomes.REDIRECTED:
+            blackboard.stack.pop()
 
     def poll(self, blackboard: Blackboard, now_ns: int) -> str | None:
         """Ждать ответ/повторный barge-in/answer_max_s -- см. докстринг класса."""

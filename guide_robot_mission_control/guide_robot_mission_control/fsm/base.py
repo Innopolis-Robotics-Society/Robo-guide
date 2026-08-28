@@ -28,6 +28,9 @@ class InterruptibleState:
     """Один узел верхней SM. Подклассы переопределяют `on_enter`/`poll`/`on_exit`."""
 
     name: str = "state"
+    # stage2 B2: только эти состояния принимают ~/redirect (design блок B) --
+    # проверяется здесь же, где CANCELED/HELD, теми же средствами.
+    redirect_eligible: bool = False
 
     def __init__(self, ctx: FsmContext) -> None:
         """Запомнить контекст (очереди/флаги/клиенты) -- своё состояние заводит подкласс."""
@@ -71,6 +74,12 @@ class InterruptibleState:
             if self.name != "held" and self.ctx.safety_hold_event.is_set():
                 self.cancel_active_work(blackboard, outcomes.HELD)
                 return outcomes.HELD
+            if self.redirect_eligible:
+                location_id = self.ctx.take_redirect_request()
+                if location_id is not None:
+                    blackboard.redirect_location_id = location_id
+                    self.cancel_active_work(blackboard, outcomes.REDIRECTED)
+                    return outcomes.REDIRECTED
             outcome = self.poll(blackboard, self.ctx.now_ns())
             if outcome is not None:
                 return outcome

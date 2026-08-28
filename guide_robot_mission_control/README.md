@@ -81,7 +81,8 @@ design §5.4 п.6, нет реального ASR/LLM): `~/request_pause`,
 `held_max_s`(300), `poll_period_s`(0.02), `hard_stop_result_timeout_s`(1.0),
 `heartbeat_s`(1.0), `service_call_timeout_s`(2.0), `language`("ru"),
 `greeting_text`, `confirm_question_text`, `home_frame`("map"),
-`home_pose`([x,y,yaw]).
+`home_pose`([x,y,yaw]), `redirect_done_phrase`("Мы на месте. Чем ещё могу
+помочь?" — stage2 B2, финальная фраза `redirect_done`).
 
 ### `narration_server`
 
@@ -147,9 +148,10 @@ design §6 не подключается вовсе — под него нет �
 REJECTED — см. «Известные грабли»).
 
 **Состояния** (`fsm/states/`): `greeting`, `navigating`, `narrating`,
-`answering`, `awaiting_confirm`, `paused`, `held`, `returning`.
-`navigating`/`narrating` не абортят тур на сбое — пропускают остановку
-(`stops_skipped++`, `NAV_FAILED`/`NARRATE_FAILED`) и едут к следующей.
+`answering`, `awaiting_confirm`, `paused`, `held`, `returning`,
+`redirect_done`. `navigating`/`narrating` не абортят тур на сбое —
+пропускают остановку (`stops_skipped++`, `NAV_FAILED`/`NARRATE_FAILED`) и
+едут к следующей.
 
 `CANCELED` из `greeting`/`navigating`/`narrating`/`answering`/
 `awaiting_confirm` терминален НА МЕСТЕ — не ведёт в `returning`
@@ -159,6 +161,17 @@ REJECTED — см. «Известные грабли»).
 означало «домой», даже когда посетитель просто попросил остановиться).
 `held`/`returning` не участвуют в этом правиле — у обоих `CANCELED`
 прописан явно и по-другому.
+
+**Редирект** (stage2 B2, `~/redirect`): те же пять состояний (плюс
+`redirect_eligible = True`, `fsm/base.py`) принимают REDIRECTED тем же
+механизмом, что CANCELED/HELD. `root_sm._apply_redirect` заменяет
+`blackboard.tour` на одностоповый план (`greet=False`,
+`confirm_between_stops=False`, `return_home=False`) и уходит в
+`navigating`; по завершении (`TOUR_FINISHED` из `navigating`/`narrating`)
+план с `blackboard.redirected=True` ведёт в `redirect_done` (прощальная
+фраза, `SUCCEEDED`), а не в `returning`. `resume_token` исходного тура
+при этом теряется безвозвратно — `RunTour.Result.detail`/`/mission/state`
+после редиректа несут `"redirected"`, отличимое от обычного конца тура.
 
 **Стек прерываний глубины 1** (`interrupt_stack.py`, design §5.4) — не
 структура «стек» в общем смысле, ровно один слот; второй одновременный
@@ -181,6 +194,7 @@ ROS: и `narration_server`, и `mission_fsm`, и тесты обязаны по�
 | `run_tour` | `RunTour` (action) | mission_fsm |
 | `~/request_pause`, `~/request_resume` | `std_srvs/Trigger` | mission_fsm |
 | `~/submit_confirm` | `std_srvs/SetBool` | mission_fsm |
+| `~/redirect` | `Redirect` (stage2 B2 — «отведи к X» во время тура) | mission_fsm |
 | `/mission/state` | `MissionState` (pub, TRANSIENT_LOCAL depth 1) | mission_fsm |
 | `narrate` | `Narrate` (action) | narration_server |
 | `~/control` | `NarrationControl` | narration_server (не вызывается mission_fsm) |

@@ -26,6 +26,7 @@ __all__ = [
     "NAV_FAILED",
     "NO",
     "PAUSED",
+    "REDIRECTED",
     "RESUMED",
     "SHUTDOWN",
     "SKIP_STOP",
@@ -61,3 +62,7 @@ HOLD_TIMEOUT = "hold_timeout"
 PAUSED = "paused"
 RESUMED = "resumed"
 TIMEOUT_NO_VISITOR = "timeout_no_visitor"
+# stage2 B2: "отведи к X" во время тура -- прерывает активную работу
+# состояния так же, как CANCELED/HELD, но ведёт не в "returning"/"held", а
+# в новый одностоповый план (root_sm._apply_redirect).
+REDIRECTED = "redirected"

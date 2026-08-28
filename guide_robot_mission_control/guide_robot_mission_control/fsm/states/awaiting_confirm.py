@@ -31,6 +31,7 @@ class AwaitingConfirmState(InterruptibleState):
     """Держит confirm-фрейм, переспрашивает на barge-in, таймаут/лимит повторов -> NO."""
 
     name = "awaiting_confirm"
+    redirect_eligible = True
 
     def on_enter(self, blackboard: Blackboard) -> None:
         """Задать вопрос первый раз -- либо продолжить с уже открытого фрейма.
@@ -102,6 +103,10 @@ class AwaitingConfirmState(InterruptibleState):
         return outcomes.NO
 
     def cancel_active_work(self, blackboard: Blackboard, outcome: str) -> None:
-        """Снять фрейм при CANCELED (тур заканчивается); НЕ трогать при HELD (design правило 5)."""
-        if outcome == outcomes.CANCELED:
+        """Снять фрейм при CANCELED/REDIRECTED; НЕ трогать при HELD (design правило 5).
+
+        REDIRECTED (stage2 B2) -- как и CANCELED, confirm-фрейм больше не
+        актуален: тур продолжается по совсем другому (одностоповому) плану.
+        """
+        if outcome in (outcomes.CANCELED, outcomes.REDIRECTED):
             blackboard.stack.pop()

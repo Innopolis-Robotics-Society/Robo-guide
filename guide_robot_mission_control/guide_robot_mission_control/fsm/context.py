@@ -48,6 +48,8 @@ class FsmContext:
         held_max_s: float,
         poll_period_s: float,
         hard_stop_result_timeout_s: float,
+        known_location_ids: frozenset[str] = frozenset(),
+        redirect_done_phrase: str = "",
         on_state_changed: Callable[[str, object], None] | None = None,
         log: Callable[[str], None] | None = None,
     ) -> None:
@@ -55,7 +57,9 @@ class FsmContext:
 
         `safety_hold_event`/`deactivating_event` -- общие для ВСЕХ туров
         объекты узла (не пересоздаются на каждый goal), остальное --
-        специфично для текущего прогона.
+        специфично для текущего прогона. `known_location_ids` (stage2 B2) --
+        те же id, что уже разрешены в `resolve_pose` -- `~/redirect`
+        валидирует `location_id` синхронно, до похода в FSM-поток.
         """
         self.now_ns = now_ns
         self.goal_handle = goal_handle
@@ -76,6 +80,8 @@ class FsmContext:
         self.held_max_s = held_max_s
         self.poll_period_s = poll_period_s
         self.hard_stop_result_timeout_s = hard_stop_result_timeout_s
+        self.known_location_ids = known_location_ids
+        self.redirect_done_phrase = redirect_done_phrase
         self._on_state_changed = on_state_changed
         self._log = log
 
@@ -84,6 +90,7 @@ class FsmContext:
         self._confirm_queue: queue.Queue[bool] = queue.Queue()
         self._pause_queue: queue.Queue[bool] = queue.Queue()
         self._resume_queue: queue.Queue[bool] = queue.Queue()
+        self._redirect_queue: queue.Queue[str] = queue.Queue()
 
     def is_cancel_requested(self) -> bool:
         """Вернуть True, если клиент запросил отмену текущего `RunTour`-goal-а."""
@@ -144,6 +151,17 @@ class FsmContext:
             return True
         except queue.Empty:
             return False
+
+    def request_redirect(self, location_id: str) -> None:
+        """Запросить редирект на `location_id` -- заберёт ближайшая eligible-poll (fsm/base.py)."""
+        self._redirect_queue.put(location_id)
+
+    def take_redirect_request(self) -> str | None:
+        """Забрать запрошенный редирект, если он был, иначе None."""
+        try:
+            return self._redirect_queue.get_nowait()
+        except queue.Empty:
+            return None
 
     def consume_barge_in(self) -> bool:
         """Вернуть True и сбросить флаг, если с прошлого вызова было хотя бы одно barge-in."""

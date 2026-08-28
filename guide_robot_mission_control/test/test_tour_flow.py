@@ -403,3 +403,81 @@ def test_cancel_from_navigating_stops_in_place_not_returning_home(
     wait_until(state_is(state, MissionState.STATE_IDLE), timeout_s=15.0)
     assert "отмен" in state["latest"].detail
     del client_node
+
+
+def test_redirect_rejected_when_no_tour_active(harness: MissionTestHarness) -> None:
+    """stage2 B2: в IDLE (нет активного тура) редирект отклоняется."""
+    _client_node, _run_tour_client, _state, fsm_node = _base_stack(harness)
+    accepted, message = fsm_node.redirect("stop0")
+    assert not accepted
+    assert message
+
+
+def test_redirect_rejected_for_unknown_location(harness: MissionTestHarness) -> None:
+    """stage2 B2: `~/redirect` валидирует `location_id` синхронно, до похода в FSM-поток."""
+    stop_ids = _setup_three_stop_tour(harness)
+    _client_node, run_tour_client, state, fsm_node = _base_stack(harness)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=stop_ids,
+            greet=False,
+            narrate=True,
+            confirm_between_stops=False,
+            return_home=True,
+        )
+    )
+    wait_for_future(goal_future)
+    assert goal_future.result().accepted
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+
+    accepted, message = fsm_node.redirect("no_such_location")
+    assert not accepted
+    assert "no_such_location" in message
+
+
+def test_redirect_mid_tour_skips_home_and_ends_in_place(harness: MissionTestHarness) -> None:
+    """stage2 B2, приёмка п.3: редирект во время тура едет к цели, рассказывает про
+    неё, говорит прощальную фразу и заканчивает тур на месте, без RETURNING.
+    """
+    stop_ids = _setup_three_stop_tour(harness)
+    harness.fixtures.add_exhibit("lidar_stand", ["Про лидар."], version="rev1")
+    harness.fixtures.add_location("lidar_stand", x=9.0, y=9.0)
+    client_node, run_tour_client, state, fsm_node = _base_stack(harness)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=stop_ids,
+            greet=False,
+            narrate=True,
+            confirm_between_stops=False,
+            return_home=True,
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+
+    accepted, message = fsm_node.redirect("lidar_stand")
+    assert accepted, message
+
+    pump_clock(
+        harness, state_is(state, MissionState.STATE_NARRATING), step=_NAV_DURATION_S + 0.02
+    )
+    assert state["latest"].stop_id == "lidar_stand"
+    assert state["latest"].exhibit_id == "lidar_stand"
+
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.1, max_iterations=200)
+    wait_for_future(result_future, timeout_s=15.0)
+
+    result: RunTour.Result = result_future.result().result
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    assert result.detail == "redirected"
+    assert all(msg.state != MissionState.STATE_RETURNING for msg in state["history"])
+
+    wait_until(state_is(state, MissionState.STATE_IDLE), timeout_s=15.0)
+    assert "редирект" in state["latest"].detail
+    del client_node
