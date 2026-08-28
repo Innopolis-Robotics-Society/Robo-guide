@@ -210,7 +210,9 @@ Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
 `history.clear_after_absent_s`(90.0 в `config/llm.yaml`, 25.0 если
 параметр не задан — `presence_monitor` выводит присутствие из речевой
 активности, короткая пауза в разговоре не должна читаться как уход
-посетителя), `answer.max_chars`(400).
+посетителя), `answer.max_chars`(400), `wake_grace_s`(30.0 — окно после
+конца хода, в течение которого транскрипты в `IDLE` принимаются без
+wake-слова; сбрасывается каждым ходом, обнуляется по `presence=false`).
 
 ### `interaction_log`
 

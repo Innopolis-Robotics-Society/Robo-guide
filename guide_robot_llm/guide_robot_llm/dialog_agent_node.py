@@ -157,6 +157,7 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("history.clear_after_absent_s", 25.0)
 
         self.declare_parameter("answer.max_chars", 400)
+        self.declare_parameter("wake_grace_s", 30.0)
 
         self._active = False
         self._state_lock = threading.Lock()
@@ -219,6 +220,11 @@ class DialogAgentNode(LifecycleNode):
         )
         self._told_ids: set[str] = set()
         self._listen_until = 0.0
+        # stage2 A5: грейс-период без wakeword сразу после конца хода --
+        # живой баг: "расскажи про себя" через 1с после stop_tour ушло в
+        # "IDLE без wakeword, игнор", хотя разговор только что был.
+        self._wake_grace_s = float(self.get_parameter("wake_grace_s").value)
+        self._wake_grace_until = 0.0
         # Идентификатор сессии конфигурации: turn_id -- процессный счётчик,
         # без session_id перезапуск dialog_agent при живом interaction_log
         # переиспользует те же turn_id в том же jsonl-файле неотличимо от
@@ -393,6 +399,7 @@ class DialogAgentNode(LifecycleNode):
             if hasattr(self, "_told_ids"):
                 self._told_ids.clear()
             self._listen_until = 0.0
+            self._wake_grace_until = 0.0
         # ROS-сущности уничтожаем явно: cleanup -> configure иначе оставляет
         # ВТОРОЙ комплект живых подписок/паблишеров (живой баг: задвоенные
         # записи в interaction_log). Идемпотентно -- teardown зовётся и из
@@ -459,6 +466,10 @@ class DialogAgentNode(LifecycleNode):
     def _on_presence(self, msg: Presence) -> None:
         with self._state_lock:
             self._last_presence = msg
+            if not msg.present:
+                # stage2 A5: посетитель ушёл -- грейс-период без wakeword
+                # больше не имеет смысла (следующий транскрипт не от него).
+                self._wake_grace_until = 0.0
 
     def last_mission_state(self) -> MissionState | None:
         """Последнее полученное `/mission/state`, либо `None`, если ещё не пришло."""
@@ -517,7 +528,7 @@ class DialogAgentNode(LifecycleNode):
         if mission is None:
             return
         if mission.state == MissionState.STATE_IDLE and not matching.idle_turn_allowed(
-            msg.text, listen_armed=self._listen_armed()
+            msg.text, listen_armed=self._listen_armed() or self._wake_grace_active()
         ):
             self.get_logger().info(f"IDLE без wakeword, игнор: {text!r}")
             return
@@ -539,6 +550,15 @@ class DialogAgentNode(LifecycleNode):
     def _disarm_listen(self) -> None:
         with self._state_lock:
             self._listen_until = 0.0
+
+    def _arm_wake_grace(self) -> None:
+        """Продлить окно без wakeword на `wake_grace_s` от конца хода (stage2 A5)."""
+        with self._state_lock:
+            self._wake_grace_until = time.monotonic() + self._wake_grace_s
+
+    def _wake_grace_active(self) -> bool:
+        with self._state_lock:
+            return time.monotonic() < self._wake_grace_until
 
     def _listen_armed(self) -> bool:
         with self._state_lock:
@@ -873,6 +893,7 @@ class DialogAgentNode(LifecycleNode):
                 self._abort_event = None
             if pending_text is None:
                 self._disarm_listen()
+            self._arm_wake_grace()
 
         if result is not None:
             now = time.time()

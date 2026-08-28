@@ -86,7 +86,9 @@ def pump_clock(
 class ToolBrokerTestHarness:
     """Поднимает mission_fsm + narration_server + tool_broker + моки в одном executor-е."""
 
-    def __init__(self, *, num_threads: int = 16) -> None:
+    def __init__(
+        self, *, num_threads: int = 16, dialog_agent_overrides: tuple[Parameter, ...] = ()
+    ) -> None:
         """Создать изолированный rclpy.Context, поднять весь стек, запустить спин в фоне."""
         self.context = rclpy.Context()
         rclpy.init(context=self.context)
@@ -144,6 +146,7 @@ class ToolBrokerTestHarness:
                 Parameter("llm.connect_timeout_s", value=1.0),
                 Parameter("llm.read_timeout_s", value=5.0),
                 Parameter("system_prompt_path", value=self._system_prompt_file.name),
+                *dialog_agent_overrides,
             ],
         )
 

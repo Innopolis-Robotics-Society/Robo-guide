@@ -46,6 +46,11 @@
 
     answer.max_chars: 400
 
+    # stage2 A5: после конца хода транскрипты в IDLE принимаются без
+    # wakeword ещё wake_grace_s -- разговор, только что законченный, не
+    # обязан начинаться заново со слова "робот".
+    wake_grace_s: 30.0
+
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
 /**/interaction_log:
   ros__parameters:
