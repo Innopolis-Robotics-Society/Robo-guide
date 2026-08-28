@@ -43,6 +43,14 @@ def test_empty_query_returns_empty() -> None:
     assert index.search("   ") == []
 
 
+def test_query_with_no_shared_terms_returns_empty() -> None:
+    """stage2 A3: BM25-ноль (нет общих термов) отбрасывается, не добивает top_k мусором."""
+    index = ContentIndex(
+        [_item("livox_mid70", "Лидар", [Chunk(id="c1", level="short", text="Это лидар Livox.")])]
+    )
+    assert index.search("промобот") == []
+
+
 def test_finds_exact_word() -> None:
     index = ContentIndex(
         [_item("livox_mid70", "Лидар", [Chunk(id="c1", level="short", text="Это лидар Livox.")])]

@@ -120,13 +120,22 @@ class ContentIndex:
         чанка умножается на `location_boost`, если `item.location_ids`
         пересекает `boost_location_ids`. Абсолютного `min_score` нет --
         живой баг retriever.py, порог на малом корпусе не настраивался.
-        Пустой запрос -- пустой результат.
+        Хиты без ни одного общего терма с запросом отбрасываются ДО обрезки
+        по `top_k` (stage2 A3): иначе они добивают `top_k` мусором, когда
+        релевантных хитов меньше `top_k` (живой лог: «стоп» -> 8 хитов со
+        score 0.0, включая заглушку). Проверка -- по пересечению множеств
+        токенов, НЕ по знаку итогового скора: классический BM25 (`rank_bm25`,
+        без сглаживания idf) даёт ОТРИЦАТЕЛЬНЫЙ скор для терма, который
+        встречается более чем в половине документов маленького корпуса --
+        `score <= 0` резал бы и настоящие совпадения на таком корпусе, не
+        только пустые. Пустой запрос -- пустой результат.
         """
         if self._bm25 is None:
             return []
         query_tokens = _normalize(query)
         if not query_tokens:
             return []
+        query_token_set = set(query_tokens)
 
         scores = self._bm25.get_scores(query_tokens)
         kind_filter = frozenset(kinds)
@@ -135,6 +144,8 @@ class ContentIndex:
         ranked: list[tuple[_Entry, float]] = []
         for entry, raw_score in zip(self._entries, scores, strict=True):
             if kind_filter and entry.item.kind not in kind_filter:
+                continue
+            if query_token_set.isdisjoint(entry.tokens):
                 continue
             score = float(raw_score)
             if boost and set(entry.item.location_ids) & boost:
