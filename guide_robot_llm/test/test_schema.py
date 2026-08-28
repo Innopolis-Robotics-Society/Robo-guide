@@ -72,6 +72,15 @@ def test_guide_to_allowed_in_every_state() -> None:
         assert is_tool_allowed("guide_to", state)
 
 
+def test_guide_to_description_points_to_ask_visitor_not_explicit_request() -> None:
+    """stage2 D2: "только по явной просьбе" убрано (мёртвый текст после D1 --
+    гейт живёт в tool_broker, не в тексте описания); взамен -- явная отсылка
+    к ask_visitor для мид-тур случая."""
+    description = tool_spec("guide_to").description
+    assert "только по явной просьбе" not in description.lower()
+    assert "ask_visitor" in description
+
+
 def test_read_only_tools_allowed_in_every_state() -> None:
     for name in (
         "list_locations",

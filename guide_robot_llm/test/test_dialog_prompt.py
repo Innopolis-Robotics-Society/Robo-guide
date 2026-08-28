@@ -161,6 +161,14 @@ def test_action_instruction_tells_model_to_act_on_stated_intent() -> None:
     assert "выбери именно его" in instruction
 
 
+def test_action_instruction_directs_motion_during_tour_to_ask_visitor() -> None:
+    """stage2 D2: движение во время тура без подтверждения отклоняется брокером --
+    инструкция обязана направлять модель на ask_visitor, а не на прямой guide_to."""
+    instruction = build_action_instruction([_STOP])
+    assert "ask_visitor" in instruction
+    assert "guide_to" in instruction
+
+
 def test_action_instruction_lists_explicit_noop_reasons() -> None:
     """CLAUDE_CODE_TASK_stage1_knowledge.md п.8.2: давление к noop сокращено --
     только "реплики достаточно", без перечисления частных случаев."""

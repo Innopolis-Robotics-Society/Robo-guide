@@ -60,6 +60,15 @@ _ACTION_NOOP_REASONS = (
 # модель выбирала действие даже при непонятной реплике.
 _ACTION_ACT_ON_INTENT = "Если посетитель явно попросил действие -- выбери именно его."
 
+# stage2 D2: guide_to/start_tour/tour_by_points во время тура без
+# подтверждения отклоняются брокером (tools/schema.py, tool_broker_node.py) --
+# ask_visitor единственный путь к движению из тура, инструкция должна
+# явно направлять модель туда, а не оставлять её натыкаться на REJECT.
+_ACTION_MOTION_DURING_TOUR = (
+    "Если посетитель просит поехать куда-то во время тура -- используй "
+    "ask_visitor: спроси, прервать ли экскурсию, в on_yes положи guide_to."
+)
+
 _ANSWER_INSTRUCTION = (
     "Теперь сформулируй короткую реплику посетителю: двумя-тремя короткими "
     "предложениями, только по-русски, без JSON и без упоминания инструментов. "
@@ -81,6 +90,7 @@ def build_action_instruction(tool_specs: Sequence[ToolSpec]) -> str:
             "Доступные инструменты:\n" + catalog,
             _ACTION_NOOP_REASONS,
             _ACTION_ACT_ON_INTENT,
+            _ACTION_MOTION_DURING_TOUR,
         ]
     )
 
