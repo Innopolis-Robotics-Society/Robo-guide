@@ -1,0 +1,10 @@
+# Прервать текущий тур и отвести робота к одной локации, минуя базу
+# (guide_robot_mission_design.md, stage2 блок B). Принимается mission_fsm
+# только пока владеет активным RunTour-goal-ом в GREETING/NAVIGATING/
+# NARRATING/ANSWERING/AWAITING_CONFIRM -- в IDLE/PAUSED/HELD/RETURNING
+# нет смысла (RunTour отдельно берёт guide_to в IDLE).
+
+string location_id
+---
+bool   accepted
+string message

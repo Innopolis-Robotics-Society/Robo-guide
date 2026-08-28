@@ -29,6 +29,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SubmitAnswer.srv"
   "srv/CallTool.srv"
   "srv/SearchContent.srv"
+  "srv/Redirect.srv"
   "action/Narrate.action"
   "action/RunTour.action"
   "action/AskUser.action"
