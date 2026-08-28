@@ -1,0 +1,7 @@
+string query
+string language
+string[] location_ids  # буст (не фильтр) для чанков этих локаций
+string[] kinds         # пустой = все
+uint8 max_results      # 0 = default 5
+---
+ContentHit[] hits

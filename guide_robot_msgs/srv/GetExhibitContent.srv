@@ -3,4 +3,6 @@ string mode
 string language
 ---
 string[] chunks
+string title
+string kind
 string version
