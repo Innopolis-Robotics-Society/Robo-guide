@@ -504,6 +504,24 @@ def test_render_action_outcome_noop_and_failure() -> None:
     assert render_action_outcome(failed) == expected
 
 
+def test_render_action_outcome_ask_visitor_says_question() -> None:
+    """stage2 C2: фаза реплики обязана озвучить сам вопрос, а не "выполнено: ...".."""
+    from guide_robot_llm.dialog.turn import ToolCallRecord
+
+    record = ToolCallRecord(
+        name="ask_visitor",
+        args={
+            "question": "Прервать экскурсию и пойти к лидару?",
+            "on_yes": {"tool": "guide_to", "args": {"location_id": "livox_mid70"}},
+            "on_no": "Хорошо, продолжаем.",
+        },
+        result_ok=True,
+        result_message="",
+        result_data={},
+    )
+    assert render_action_outcome(record) == "задай вопрос: Прервать экскурсию и пойти к лидару?"
+
+
 # -- read_only-инструменты: полный текст, а не "выполнено: name(...)" ------------
 
 

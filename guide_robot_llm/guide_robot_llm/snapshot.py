@@ -67,6 +67,7 @@ def build_snapshot(
     location_name: str = "",
     told_ids: Sequence[str] = (),
     nearby: Sequence[str] = (),
+    pending_question: str | None = None,
 ) -> dict:
     """Собрать компактный dict для промпта -- форма как в DIALOG_REWORK_PLAN.md §3.4.
 
@@ -106,6 +107,11 @@ def build_snapshot(
         snap["already_told"] = list(told_ids)
     if nearby:
         snap["nearby"] = list(nearby)
+    if pending_question:
+        # stage2 C2: реплика отвечает на живой ask_visitor -- для
+        # interaction_log/ручного разбора, модель это не видит (не идёт в
+        # render_status_line).
+        snap["pending_question"] = pending_question
     return snap
 
 

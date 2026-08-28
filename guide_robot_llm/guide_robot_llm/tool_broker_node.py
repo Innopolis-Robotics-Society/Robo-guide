@@ -530,6 +530,17 @@ class ToolBrokerNode(LifecycleNode):
         del args
         return ToolResult(ok=True, message="")
 
+    def _tool_ask_visitor(self, args: dict) -> ToolResult:
+        """Ничего не делает здесь -- слот живёт в `dialog_agent_node.py` (stage2 C2).
+
+        `_pending_question` не в `tool_broker`/ROS. Вызов существует
+        только чтобы пройти через обычный `call_tool()` (валидация,
+        history-событие через `render_action_outcome`) тем же путём, что и
+        мутирующие инструменты.
+        """
+        del args
+        return ToolResult(ok=True, message="вопрос принят")
+
     # -- read-only справочники ------------------------------------------------
 
     def _tool_list_locations(self, args: dict) -> ToolResult:
@@ -664,6 +675,7 @@ class ToolBrokerNode(LifecycleNode):
         "say": _tool_say,
         "tell_about": _tool_tell_about,
         "noop": _tool_noop,
+        "ask_visitor": _tool_ask_visitor,
         "list_locations": _tool_list_locations,
         "list_tours": _tool_list_tours,
         "estimate_route": _tool_estimate_route,

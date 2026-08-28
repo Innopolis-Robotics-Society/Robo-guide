@@ -109,6 +109,19 @@ def test_nearby_empty_omits_key() -> None:
     assert "nearby" not in snap
 
 
+def test_pending_question_becomes_key_when_given() -> None:
+    """stage2 C2: снимок для interaction_log отражает вопрос, на который отвечает ход."""
+    snap = build_snapshot(
+        _MissionState(), _Presence(), tools_allowed=[], pending_question="Идём к лидару?"
+    )
+    assert snap["pending_question"] == "Идём к лидару?"
+
+
+def test_pending_question_absent_by_default() -> None:
+    snap = build_snapshot(_MissionState(), _Presence(), tools_allowed=[])
+    assert "pending_question" not in snap
+
+
 # -- render_status_line: служебная строка [состояние: ...] последнего сообщения --
 
 

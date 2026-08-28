@@ -240,6 +240,69 @@ def test_wake_grace_expires_after_wake_grace_s() -> None:
         harness.shutdown()
 
 
+def test_ask_visitor_speaks_the_question() -> None:
+    """stage2 C2: фаза реплики озвучивает сам вопрос, не "выполнено: ...".."""
+    harness = ToolBrokerTestHarness()
+    try:
+        wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
+        harness.llm_server.chunks_no_grammar = ["Прервать экскурсию и пойти к лидару?"]
+        harness.llm_server.chunks_with_grammar = [
+            json.dumps(
+                {
+                    "think": "нужно подтверждение перед движением",
+                    "tool": "ask_visitor",
+                    "args": {
+                        "question": "Прервать экскурсию и пойти к лидару?",
+                        "on_yes": {"tool": "noop", "args": {}},
+                        "on_no": "Хорошо, продолжаем.",
+                    },
+                }
+            )
+        ]
+
+        client = harness.make_client_node()
+        _publish_transcript(client, "робот, хочу к лидару")
+
+        wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
+        assert "Прервать экскурсию" in harness.say.texts_received[-1]
+    finally:
+        harness.shutdown()
+
+
+def test_ask_visitor_then_no_speaks_on_no_without_calling_llm_again() -> None:
+    """stage2 C2: fast-path "нет" озвучивает on_no напрямую, без похода к ЛЛМ."""
+    harness = ToolBrokerTestHarness()
+    try:
+        wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
+        harness.llm_server.chunks_no_grammar = ["Прервать экскурсию и пойти к лидару?"]
+        harness.llm_server.chunks_with_grammar = [
+            json.dumps(
+                {
+                    "think": "нужно подтверждение перед движением",
+                    "tool": "ask_visitor",
+                    "args": {
+                        "question": "Прервать экскурсию и пойти к лидару?",
+                        "on_yes": {"tool": "noop", "args": {}},
+                        "on_no": "Хорошо, продолжаем.",
+                    },
+                }
+            )
+        ]
+
+        client = harness.make_client_node()
+        _publish_transcript(client, "робот, хочу к лидару")
+        wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
+
+        # Сентинел -- если "нет" вдруг пошло бы через ЛЛМ, мы бы его услышали.
+        harness.llm_server.chunks_no_grammar = ["ЛЛМ не должен был вызываться"]
+        _publish_transcript(client, "нет")
+        wait_until(lambda: harness.say.goals_received >= 2, timeout_s=5.0)
+
+        assert harness.say.texts_received[-1] == "Хорошо, продолжаем."
+    finally:
+        harness.shutdown()
+
+
 def test_start_tour_from_dialog_sends_greet_false_and_skips_greeting_state() -> None:
     """stage2 A2: реплика фазы 2 по итогу start_tour и есть приветствие -- заготовленный
     Say из GreetingState иначе звучит дублем следом. RunTour.Goal.greet=False, тур

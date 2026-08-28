@@ -27,7 +27,14 @@ from guide_robot_llm.dialog.sanitize import sanitize_answer
 from guide_robot_llm.llm_client import CompletionResult, build_tool_call_grammar
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
 
-__all__ = ["ToolCallRecord", "ToolResultLike", "TurnResult", "render_action_outcome", "run_turn"]
+__all__ = [
+    "ToolCallRecord",
+    "ToolResultLike",
+    "TurnResult",
+    "render_action_outcome",
+    "run_answer_phase",
+    "run_turn",
+]
 
 
 class ToolResultLike(Protocol):
@@ -107,6 +114,12 @@ def render_action_outcome(record: ToolCallRecord | None) -> str:
     """
     if record is None or record.name == "noop":
         return "noop (никакого действия не выполнялось)"
+    if record.name == "ask_visitor":
+        # stage2 C2: фаза реплики обязана озвучить сам вопрос -- "выполнена"
+        # для ask_visitor значит "вопрос принят", а не "уже что-то сделано".
+        if not record.result_ok:
+            return f"не удалось: ask_visitor — {record.result_message}"
+        return f"задай вопрос: {record.args.get('question', '')}"
     if record.read_only:
         if not record.result_ok:
             return f"не удалось: {record.name} — {record.result_message}"
@@ -274,10 +287,47 @@ def run_turn(
         repair_used = True
         messages = [*messages, {"role": "user", "content": result.message}]
 
+    return run_answer_phase(
+        messages=messages,
+        record=record,
+        answer_instruction=answer_instruction,
+        complete_answer=complete_answer,
+        speak=speak,
+        check_aborted=check_aborted,
+        answer_max_chars=answer_max_chars,
+        action_raw_text=action_raw_text,
+        action_finish_reason=action_finish_reason,
+        repair_used=repair_used,
+    )
+
+
+def run_answer_phase(
+    *,
+    messages: list[dict],
+    record: ToolCallRecord,
+    answer_instruction: str,
+    complete_answer: Callable[[list[dict]], CompletionResult],
+    speak: Callable[[str], ToolResultLike],
+    check_aborted: Callable[[], bool] = lambda: False,
+    answer_max_chars: int = 400,
+    action_raw_text: str = "",
+    action_finish_reason: str = "",
+    repair_used: bool = False,
+) -> TurnResult:
+    """Фаза реплики целиком: рендер итога действия -> ЛЛМ -> `sanitize` -> `speak()`.
+
+    Вынесена из `run_turn()`, чтобы её можно было прогнать САМОСТОЯТЕЛЬНО,
+    поверх уже готового `record` -- без фазы действия перед ней
+    (`dialog_agent_node.py`: fast-path «да» на `ask_visitor.on_yes`,
+    CLAUDE_CODE_TASK_stage2_redirect_dialog.md блок C -- исполненный
+    `on_yes` не проходит заново через GBNF-выбор, только через эту фазу).
+    `messages` -- всё, что должно предшествовать инструкции реплики
+    (`system` + история + текущая реплика, при обычном ходе -- ещё и
+    action_raw_text ассистента); статика (`answer_instruction`) ПЕРВОЙ,
+    волатильный итог действия -- хвостом (правило кэша, см. `run_turn`).
+    """
     action_stopped_reason = "ok" if record.result_ok else "action_invalid"
 
-    # Фаза реплики: статичная инструкция ПЕРВОЙ, волатильный итог действия --
-    # хвостом (CACHE_REUSE: префикс до итога совпадает от хода к ходу).
     outcome_line = render_action_outcome(record)
     messages = [
         *messages,

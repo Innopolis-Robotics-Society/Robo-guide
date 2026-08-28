@@ -194,6 +194,17 @@ Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
 `speak()` — если посетитель отменил, пока текст ещё генерировался,
 начинать говорить уже нельзя. Один ход в полёте максимум.
 
+**`ask_visitor`-слот** (stage2 C2): успешный `ask_visitor` кладёт
+`{question, on_yes, on_no, deadline}` в `self._pending_question`. Следующий
+финальный транскрипт (в пределах `ask_visitor_ttl_s`) разбирается
+`matching.match_confirm` ДО обычного пути хода: «да» исполняет `on_yes`
+через `~/call_tool` и генерирует реплику фазой 2 (`dialog/
+turn.run_answer_phase`, без повторной фазы действия); «нет» с непустым
+`on_no` озвучивает его напрямую, без похода к ЛЛМ; «нет» с пустым `on_no`
+и неуверенный ответ (C3: составные фразы вроде «хорошо, но сначала...»)
+уходят обычным ходом, слот при этом снимается всегда. Очищается также по
+смене `MissionState.state` и по `presence=false`.
+
 **Публикует**: `/dialog/interaction` (`InteractionEvent`, fire-and-forget,
 для `interaction_log`).
 
@@ -212,7 +223,9 @@ Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
 активности, короткая пауза в разговоре не должна читаться как уход
 посетителя), `answer.max_chars`(400), `wake_grace_s`(30.0 — окно после
 конца хода, в течение которого транскрипты в `IDLE` принимаются без
-wake-слова; сбрасывается каждым ходом, обнуляется по `presence=false`).
+wake-слова; сбрасывается каждым ходом, обнуляется по `presence=false`),
+`ask_visitor_ttl_s`(30.0 — окно, в течение которого да/нет на `ask_visitor`
+разбирается fast-path'ом, `matching.match_confirm`).
 
 ### `interaction_log`
 

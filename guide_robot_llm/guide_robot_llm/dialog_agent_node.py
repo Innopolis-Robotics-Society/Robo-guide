@@ -50,6 +50,7 @@ from guide_robot_llm.dialog.turn import (
     ToolCallRecord,
     TurnResult,
     render_action_outcome,
+    run_answer_phase,
     run_turn,
 )
 from guide_robot_llm.lib.qos import (
@@ -158,6 +159,7 @@ class DialogAgentNode(LifecycleNode):
 
         self.declare_parameter("answer.max_chars", 400)
         self.declare_parameter("wake_grace_s", 30.0)
+        self.declare_parameter("ask_visitor_ttl_s", 30.0)
 
         self._active = False
         self._state_lock = threading.Lock()
@@ -225,6 +227,10 @@ class DialogAgentNode(LifecycleNode):
         # "IDLE без wakeword, игнор", хотя разговор только что был.
         self._wake_grace_s = float(self.get_parameter("wake_grace_s").value)
         self._wake_grace_until = 0.0
+        # stage2 C2: {question, on_yes, on_no, deadline} -- живёт до ответа,
+        # ask_visitor_ttl_s, смены mission_state или presence=false.
+        self._ask_visitor_ttl_s = float(self.get_parameter("ask_visitor_ttl_s").value)
+        self._pending_question: dict | None = None
         # Идентификатор сессии конфигурации: turn_id -- процессный счётчик,
         # без session_id перезапуск dialog_agent при живом interaction_log
         # переиспользует те же turn_id в том же jsonl-файле неотличимо от
@@ -400,6 +406,7 @@ class DialogAgentNode(LifecycleNode):
                 self._told_ids.clear()
             self._listen_until = 0.0
             self._wake_grace_until = 0.0
+            self._pending_question = None
         # ROS-сущности уничтожаем явно: cleanup -> configure иначе оставляет
         # ВТОРОЙ комплект живых подписок/паблишеров (живой баг: задвоенные
         # записи в interaction_log). Идемпотентно -- teardown зовётся и из
@@ -432,6 +439,12 @@ class DialogAgentNode(LifecycleNode):
             self._last_mission_state = msg
             if old is None:
                 return
+            if old.state != msg.state:
+                # stage2 C2: вопрос ask_visitor относится к КОНКРЕТНОМУ
+                # состоянию, в котором был задан -- смена состояния (тур
+                # продвинулся/прервался сам) обесценивает и вопрос, и его
+                # on_yes/on_no.
+                self._pending_question = None
             for event_text in self._diff_events(old, msg):
                 self._history.add_event(event_text, ts=time.time())
             # Очистка по окончании тура УБРАНА (CLAUDE_CODE_TASK.md п.4): живой
@@ -470,6 +483,9 @@ class DialogAgentNode(LifecycleNode):
                 # stage2 A5: посетитель ушёл -- грейс-период без wakeword
                 # больше не имеет смысла (следующий транскрипт не от него).
                 self._wake_grace_until = 0.0
+                # stage2 C2: как и вопрос на паузе -- отвечать на ask_visitor
+                # уже некому.
+                self._pending_question = None
 
     def last_mission_state(self) -> MissionState | None:
         """Последнее полученное `/mission/state`, либо `None`, если ещё не пришло."""
@@ -564,6 +580,37 @@ class DialogAgentNode(LifecycleNode):
         with self._state_lock:
             return time.monotonic() < self._listen_until
 
+    def _set_pending_question(self, question: str, on_yes: dict, on_no: str) -> None:
+        with self._state_lock:
+            self._pending_question = {
+                "question": question,
+                "on_yes": on_yes,
+                "on_no": on_no,
+                "deadline": time.monotonic() + self._ask_visitor_ttl_s,
+            }
+
+    def _consume_pending_question(self, text: str) -> dict | None:
+        """Разобрать транскрипт против живого `_pending_question` (stage2 C2).
+
+        Слот ВСЕГДА снимается здесь, независимо от исхода: неуверенный
+        ответ («хорошо, но сначала...», C3) возвращает None и уходит
+        обычным ходом -- модель видит вопрос в истории и решает сама, не
+        сама себе засоряя следующую попытку старым слотом.
+        """
+        with self._state_lock:
+            pending = self._pending_question
+            if pending is None:
+                return None
+            self._pending_question = None
+            if time.monotonic() >= pending["deadline"]:
+                return None
+        answer = matching.match_confirm(text)
+        if answer is True:
+            return {"kind": "yes", "question": pending["question"], "on_yes": pending["on_yes"]}
+        if answer is False:
+            return {"kind": "no", "question": pending["question"], "on_no": pending["on_no"]}
+        return None
+
     def _handle_transcript(self, text: str, *, is_replay: bool = False) -> None:
         """Обработать реплику: гейты -> fast-path -> старт хода (или отложить).
 
@@ -580,6 +627,13 @@ class DialogAgentNode(LifecycleNode):
 
         with self._state_lock:
             history_cleared = self._maybe_clear_history_for_absence_locked()
+
+        pending_answer = None if self._raw_llm else self._consume_pending_question(text)
+        if pending_answer is not None:
+            self._start_pending_answer_turn(
+                mission, text, history_cleared, utterance_ts, pending_answer
+            )
+            return
 
         if not self._raw_llm and self._fast_path_handles(mission.state, text):
             event_text = self._fast_path_event_text(mission.state, text)
@@ -614,6 +668,41 @@ class DialogAgentNode(LifecycleNode):
         threading.Thread(
             target=self._run_turn,
             args=(turn_id, mission, text, history_cleared, utterance_ts),
+            daemon=True,
+        ).start()
+
+    def _start_pending_answer_turn(
+        self,
+        mission: MissionState,
+        text: str,
+        history_cleared: bool,
+        utterance_ts: float,
+        pending_answer: dict,
+    ) -> None:
+        """Старт хода по да/нет на `ask_visitor` (stage2 C2) -- без defer-очереди.
+
+        В отличие от обычного пути, занятый `_turn_in_flight` здесь просто
+        отбрасывает реплику, а не откладывает: слот `_pending_question` уже
+        снят `_consume_pending_question()`, повторный `_handle_transcript`
+        (`is_replay=True`) на отложенном тексте потерял бы связку
+        on_yes/on_no -- нормальный ход к этому моменту почти наверняка уже
+        завершился (слот выставляется ПОСЛЕ конца предыдущего хода), так
+        что практическая цена отброса пренебрежимо мала.
+        """
+        with self._turn_lock:
+            if self._turn_in_flight:
+                self.get_logger().info(
+                    "ход уже идёт -- ответ на ask_visitor отброшен, слот уже снят"
+                )
+                return
+            self._turn_in_flight = True
+            self._abort_event = threading.Event()
+            self._turn_counter += 1
+            turn_id = self._turn_counter
+
+        threading.Thread(
+            target=self._run_turn,
+            args=(turn_id, mission, text, history_cleared, utterance_ts, pending_answer),
             daemon=True,
         ).start()
 
@@ -677,6 +766,76 @@ class DialogAgentNode(LifecycleNode):
             stopped_reason="ok",
         )
 
+    def _run_pending_answer_phase(
+        self,
+        pending_answer: dict,
+        *,
+        system_prompt: str,
+        history_messages: list[dict],
+        user_content: str,
+        complete_answer,
+        speak,
+        execute_tool,
+        check_aborted,
+    ) -> TurnResult:
+        """Реплика на да/нет к `ask_visitor` -- без фазы действия (stage2 C2).
+
+        «да»: `on_yes` исполняется, реплика генерируется по его РЕАЛЬНОМУ
+        итогу -- та же гарантия согласованности речи с действием, что и у
+        обычного хода (`dialog/prompt.py`), просто без повторного выбора
+        действия моделью.
+
+        «нет» с непустым `on_no` -- озвучивается ПРЯМО, без похода к ЛЛМ:
+        ответ уже известен целиком, дальше нечего решать. «нет» с пустым
+        `on_no` -- noop-запись, реплика генерируется: отказ ("нет") уже
+        попадёт в историю как реплика посетителя, модель откликается сама.
+        """
+        if pending_answer["kind"] == "no" and pending_answer["on_no"]:
+            say_result = speak(pending_answer["on_no"])
+            return TurnResult(
+                answer_text=pending_answer["on_no"],
+                say_ok=say_result.ok,
+                action=ToolCallRecord(
+                    name="noop", args={}, result_ok=True, result_message="", result_data={}
+                ),
+                stopped_reason="ok",
+            )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            *history_messages,
+            {"role": "user", "content": user_content},
+        ]
+        if pending_answer["kind"] == "yes":
+            on_yes = pending_answer["on_yes"]
+            tool_name = str(on_yes.get("tool", ""))
+            tool_args = dict(on_yes.get("args") or {})
+            if check_aborted():
+                return TurnResult(messages=messages, stopped_reason="aborted")
+            tool_result = execute_tool(tool_name, tool_args)
+            record = ToolCallRecord(
+                name=tool_name,
+                args=tool_args,
+                result_ok=tool_result.ok,
+                result_message=tool_result.message,
+                result_data=dict(tool_result.data),
+                read_only=tool_name in self._read_only_tool_names,
+            )
+        else:
+            record = ToolCallRecord(
+                name="noop", args={}, result_ok=True, result_message="", result_data={}
+            )
+
+        return run_answer_phase(
+            messages=messages,
+            record=record,
+            answer_instruction=self._answer_instruction,
+            complete_answer=complete_answer,
+            speak=speak,
+            check_aborted=check_aborted,
+            answer_max_chars=self._answer_max_chars,
+        )
+
     def _run_turn(
         self,
         turn_id: int,
@@ -684,6 +843,7 @@ class DialogAgentNode(LifecycleNode):
         text: str,
         history_cleared: bool,
         utterance_ts: float,
+        pending_answer: dict | None = None,
     ) -> None:
         with self._turn_lock:
             abort_event = self._abort_event
@@ -714,6 +874,7 @@ class DialogAgentNode(LifecycleNode):
                 location_zone=location_zone,
                 location_name=location_name,
                 told_ids=told_ids,
+                pending_question=pending_answer["question"] if pending_answer else None,
             )
             status_line = snapshot.render_status_line(snap)
 
@@ -836,7 +997,18 @@ class DialogAgentNode(LifecycleNode):
                         }
                     )
 
-            if self._raw_llm:
+            if pending_answer is not None:
+                result = self._run_pending_answer_phase(
+                    pending_answer,
+                    system_prompt=self._system_prompt,
+                    history_messages=history_messages,
+                    user_content=user_content,
+                    complete_answer=_complete_answer,
+                    speak=_speak,
+                    execute_tool=_execute_tool_timed,
+                    check_aborted=abort_event.is_set,
+                )
+            elif self._raw_llm:
                 result = self._run_raw_chat(
                     text, complete_answer=_complete_answer, speak=_speak, abort_event=abort_event
                 )
@@ -868,6 +1040,23 @@ class DialogAgentNode(LifecycleNode):
                 tool_refs, tool_texts = _references_from_tool_result(result.action)
                 references = [*references, *tool_refs]
                 corpus_texts = [*corpus_texts, *tool_texts]
+            if (
+                pending_answer is None
+                and result.action is not None
+                and result.action.name == "ask_visitor"
+                and result.action.result_ok
+            ):
+                # stage2 C2: вопрос принят (фаза действия "выполнена" для
+                # ask_visitor значит именно это) -- слот живёт до ответа,
+                # ask_visitor_ttl_s, смены mission_state или presence=false.
+                # pending_answer is None -- не переустанавливаем слот сразу
+                # после его же обработки, если on_yes САМ окажется ask_visitor
+                # (невозможно по validate.py, но не полагаемся на это здесь).
+                self._set_pending_question(
+                    question=str(result.action.args.get("question", "")),
+                    on_yes=dict(result.action.args.get("on_yes") or {}),
+                    on_no=str(result.action.args.get("on_no", "")),
+                )
             degraded = result.stopped_reason in _DEGRADED_REASONS
             degrade_reason = result.stopped_reason if degraded else None
             action_name = result.action.name if result.action is not None else None
