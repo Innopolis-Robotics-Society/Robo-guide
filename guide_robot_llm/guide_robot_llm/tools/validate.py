@@ -45,9 +45,54 @@ def validate_call(
             f"{name} только по явной просьбе начать экскурсию/тур или отвести "
             f"к месту, а реплика {user_text!r} этого не содержит"
         )
+    if name == "ask_visitor":
+        _validate_ask_visitor(
+            args,
+            tools_allowed=tools_allowed,
+            known_location_ids=known_location_ids,
+            known_tour_ids=known_tour_ids,
+        )
+        return
     _validate_args(
         name, args, known_location_ids=known_location_ids, known_tour_ids=known_tour_ids
     )
+
+
+def _validate_ask_visitor(
+    args: dict,
+    *,
+    tools_allowed: list[str],
+    known_location_ids: frozenset[str],
+    known_tour_ids: frozenset[str],
+) -> None:
+    """`on_yes` гоняется через обычный `validate_call`.
+
+    Рекурсия глубиной 1 -- `on_yes.tool != "ask_visitor"` проверяется ДО
+    рекурсии (C1). `user_text` в рекурсивный вызов НЕ прокидывается: `on_yes` исполняется
+    позже, по ответу «да», а не по реплике, которая породила сам вопрос --
+    у MOTION_TOOLS гейта (has_motion_intent) здесь нет текста для проверки,
+    да и не должно быть -- подтверждённое через ask_visitor движение и есть
+    новый гейт вместо регулярки по подстроке (stage2 D1).
+    """
+    if not str(args.get("question", "")).strip():
+        raise ValidationError("ask_visitor: question обязателен")
+    on_yes = args.get("on_yes")
+    if not isinstance(on_yes, dict):
+        raise ValidationError("ask_visitor: on_yes должен быть объектом {tool, args}")
+    on_yes_tool = on_yes.get("tool")
+    if not isinstance(on_yes_tool, str) or not on_yes_tool:
+        raise ValidationError("ask_visitor: on_yes.tool обязателен")
+    if on_yes_tool == "ask_visitor":
+        raise ValidationError("ask_visitor: on_yes.tool не может быть ask_visitor")
+    validate_call(
+        on_yes_tool,
+        on_yes.get("args") or {},
+        tools_allowed=tools_allowed,
+        known_location_ids=known_location_ids,
+        known_tour_ids=known_tour_ids,
+    )
+    if not isinstance(args.get("on_no", ""), str):
+        raise ValidationError("ask_visitor: on_no должен быть строкой")
 
 
 def _validate_args(

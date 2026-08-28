@@ -159,3 +159,91 @@ def test_resolve_location_valid_accepted() -> None:
     validate_call(
         "resolve_location", {"query": "лидар"}, tools_allowed=["resolve_location"]
     )
+
+
+def test_ask_visitor_empty_question_rejected() -> None:
+    with pytest.raises(ValidationError, match="question"):
+        validate_call(
+            "ask_visitor",
+            {"question": "  ", "on_yes": {"tool": "noop", "args": {}}, "on_no": ""},
+            tools_allowed=["ask_visitor", "noop"],
+        )
+
+
+def test_ask_visitor_missing_on_yes_rejected() -> None:
+    with pytest.raises(ValidationError, match="on_yes"):
+        validate_call(
+            "ask_visitor",
+            {"question": "Прервать экскурсию?"},
+            tools_allowed=["ask_visitor"],
+        )
+
+
+def test_ask_visitor_on_yes_tool_not_allowed_rejected() -> None:
+    """on_yes.tool гоняется через обычный validate_call -- недоступный в
+    текущем состоянии инструмент режется тем же гейтом, что и прямой вызов."""
+    with pytest.raises(ValidationError, match="guide_to сейчас недоступен"):
+        validate_call(
+            "ask_visitor",
+            {
+                "question": "Прервать экскурсию и пойти к лидару?",
+                "on_yes": {"tool": "guide_to", "args": {"location_id": "livox_mid70"}},
+                "on_no": "Хорошо, продолжаем.",
+            },
+            tools_allowed=["ask_visitor"],  # guide_to НЕ в списке
+        )
+
+
+def test_ask_visitor_on_yes_recursion_into_ask_visitor_rejected() -> None:
+    with pytest.raises(ValidationError, match="ask_visitor"):
+        validate_call(
+            "ask_visitor",
+            {
+                "question": "Точно?",
+                "on_yes": {"tool": "ask_visitor", "args": {}},
+                "on_no": "",
+            },
+            tools_allowed=["ask_visitor"],
+        )
+
+
+def test_ask_visitor_on_no_must_be_string() -> None:
+    with pytest.raises(ValidationError, match="on_no"):
+        validate_call(
+            "ask_visitor",
+            {
+                "question": "Прервать экскурсию?",
+                "on_yes": {"tool": "noop", "args": {}},
+                "on_no": None,
+            },
+            tools_allowed=["ask_visitor", "noop"],
+        )
+
+
+def test_ask_visitor_on_yes_motion_intent_gate_not_applied_to_user_text() -> None:
+    """stage2 D2 golden case: «хочу посмотреть промобот» не содержит явной просьбы
+    ехать -- but on_yes=guide_to обязан пройти, подтверждение придёт отдельным
+    ходом («да»), а не из этой реплики (C1: user_text в рекурсию не идёт)."""
+    validate_call(
+        "ask_visitor",
+        {
+            "question": "Прервать экскурсию и поехать к промоботу?",
+            "on_yes": {"tool": "guide_to", "args": {"location_id": "promobot_m13_artist"}},
+            "on_no": "Хорошо, продолжаем.",
+        },
+        tools_allowed=["ask_visitor", "guide_to"],
+        known_location_ids=frozenset({"promobot_m13_artist"}),
+        user_text="хочу посмотреть промобот",
+    )
+
+
+def test_ask_visitor_valid_accepted() -> None:
+    validate_call(
+        "ask_visitor",
+        {
+            "question": "Прервать экскурсию?",
+            "on_yes": {"tool": "noop", "args": {}},
+            "on_no": "Хорошо, продолжаем.",
+        },
+        tools_allowed=["ask_visitor", "noop"],
+    )

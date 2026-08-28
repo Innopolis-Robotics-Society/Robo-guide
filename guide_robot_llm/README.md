@@ -309,6 +309,7 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | `confirm` | `~/submit_confirm` | `AWAITING_CONFIRM` | да | нет |
 | `finish_answer` | `~/submit_answer` | `ANSWERING` | да | нет |
 | `noop` | ничего | любое | да | нет |
+| `ask_visitor` | ставит `_pending_question` (stage2 C2), сразу ничего не вызывает | любое | да | нет |
 | `say` | `Say`, `PRIORITY_DIALOG`/`SCOPE_DIALOG` | любое | **нет** — зовёт сам `dialog_agent` | нет |
 | `tell_about` | `Narrate` | только `IDLE` (вне тура) | да | нет |
 | `lookup_content` | `GetExhibitContent(exhibit_id=content_id)` | любое | да | **да** |

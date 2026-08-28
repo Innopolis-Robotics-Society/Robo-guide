@@ -61,6 +61,17 @@ def test_tell_about_only_allowed_idle() -> None:
     assert not is_tool_allowed("tell_about", _S.STATE_NARRATING)
 
 
+def test_ask_visitor_allowed_in_every_state() -> None:
+    for state in range(9):
+        assert is_tool_allowed("ask_visitor", state)
+
+
+def test_guide_to_allowed_in_every_state() -> None:
+    """stage2 B3: guide_to больше не IDLE-only -- различие решает брокер."""
+    for state in range(9):
+        assert is_tool_allowed("guide_to", state)
+
+
 def test_read_only_tools_allowed_in_every_state() -> None:
     for name in (
         "list_locations",
@@ -91,7 +102,7 @@ def test_read_only_flag_set_for_catalog_and_content_tools() -> None:
 
 
 def test_read_only_flag_false_for_mutating_tools() -> None:
-    for name in ("start_tour", "guide_to", "tell_about", "noop", "say"):
+    for name in ("start_tour", "guide_to", "tell_about", "noop", "say", "ask_visitor"):
         assert tool_spec(name).read_only is False
 
 
@@ -103,6 +114,7 @@ def test_allowed_tools_idle_matches_expected_set() -> None:
         "tell_about",
         "say",
         "noop",
+        "ask_visitor",
         "lookup_content",
         "search_content",
         "resolve_location",
@@ -146,6 +158,7 @@ def test_llm_only_still_gates_by_state() -> None:
         "stop_tour",
         "pause",
         "noop",
+        "ask_visitor",
         "lookup_content",
         "search_content",
         "resolve_location",
