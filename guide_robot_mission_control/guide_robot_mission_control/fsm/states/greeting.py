@@ -31,7 +31,12 @@ class GreetingState(InterruptibleState):
         goal = Say.Goal(
             text=self.ctx.greeting_text,
             scope=Say.Goal.SCOPE_DIALOG,
-            priority=Say.Goal.PRIORITY_DIALOG,
+            # PRIORITY_NARRATION (не PRIORITY_DIALOG), как у narration_server
+            # для остановок (stage2 A1): реплика ЛЛМ идёт с PRIORITY_DIALOG
+            # (tool_broker._tool_say) и обязана перебивать заготовленное
+            # приветствие, а не вставать за ним в FIFO -- живой баг:
+            # равный приоритет давал дубль (заготовка + речь ЛЛМ подряд).
+            priority=Say.Goal.PRIORITY_NARRATION,
             interruptible=True,
         )
         self._send_future = self.ctx.say_client.send_goal_async(goal)
