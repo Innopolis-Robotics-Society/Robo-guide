@@ -137,7 +137,7 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("llm.api_key", "")
         self.declare_parameter("llm.max_attempts_per_backend", 2)
         self.declare_parameter("llm.backoff_s", 0.5)
-        self.declare_parameter("llm.max_tokens_answer", 100)
+        self.declare_parameter("llm.max_tokens_answer", 160)
         self.declare_parameter("llm.max_tokens_action", 192)
         self.declare_parameter("llm.temperature_answer", 0.6)
         self.declare_parameter("llm.temperature_action", 0.0)
@@ -156,7 +156,7 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("history.cap_event_chars", 120)
         self.declare_parameter("history.clear_after_absent_s", 25.0)
 
-        self.declare_parameter("answer.max_chars", 250)
+        self.declare_parameter("answer.max_chars", 400)
 
         self._active = False
         self._state_lock = threading.Lock()

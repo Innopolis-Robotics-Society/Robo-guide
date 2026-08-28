@@ -24,7 +24,7 @@
     llm.api_key: ""
     llm.max_attempts_per_backend: 2
     llm.backoff_s: 0.5
-    llm.max_tokens_answer: 100
+    llm.max_tokens_answer: 160
     # 192, не 128: в JSON действия добавилось поле "think" (1-2 предложения
     # рассуждения до выбора инструмента) -- ему нужен свой запас токенов.
     llm.max_tokens_action: 192
@@ -44,7 +44,7 @@
     history.cap_event_chars: 120
     history.clear_after_absent_s: 90.0
 
-    answer.max_chars: 250
+    answer.max_chars: 400
 
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
 /**/interaction_log:

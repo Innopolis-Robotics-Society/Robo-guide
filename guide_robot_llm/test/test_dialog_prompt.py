@@ -162,16 +162,11 @@ def test_action_instruction_tells_model_to_act_on_stated_intent() -> None:
 
 
 def test_action_instruction_lists_explicit_noop_reasons() -> None:
+    """CLAUDE_CODE_TASK_stage1_knowledge.md п.8.2: давление к noop сокращено --
+    только "реплики достаточно", без перечисления частных случаев."""
     instruction = build_action_instruction([_STOP])
-    for reason in ("поздоровался", "поблагодарил", "неразборчива", "повторить"):
+    for reason in ("приветствие", "светская беседа", "хватает справки", "неразборчива"):
         assert reason in instruction
-    assert "достаточно ответить словами" not in instruction
-
-
-def test_action_instruction_routes_exhibit_questions_to_tell_about() -> None:
-    instruction = build_action_instruction([_STOP])
-    assert "tell_about, не noop" in instruction
-    assert "robo_guide" in instruction
 
 
 def test_action_instruction_does_not_discourage_noop_as_a_delay_tactic() -> None:
@@ -197,3 +192,11 @@ def test_answer_instruction_demands_consistency_and_honesty() -> None:
 
 def test_answer_instruction_forbids_json_in_speech() -> None:
     assert "без JSON" in build_answer_instruction()
+
+
+def test_answer_instruction_demands_retelling_not_quoting() -> None:
+    """CLAUDE_CODE_TASK_stage1_knowledge.md п.8.4: пересказ найденного своими
+    словами, не дословное цитирование справки/итога действия."""
+    instruction = build_answer_instruction()
+    assert "своими словами" in instruction
+    assert "не цитируй" in instruction
