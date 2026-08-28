@@ -194,6 +194,47 @@ def test_action_reaches_tool_broker_then_answer_is_spoken() -> None:
         harness.shutdown()
 
 
+def test_start_tour_from_dialog_sends_greet_false_and_skips_greeting_state() -> None:
+    """stage2 A2: реплика фазы 2 по итогу start_tour и есть приветствие -- заготовленный
+    Say из GreetingState иначе звучит дублем следом. RunTour.Goal.greet=False, тур
+    стартует прямо в NAVIGATING, GREETING в последовательности состояний не появляется."""
+    harness = ToolBrokerTestHarness()
+    try:
+        wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
+        harness.fixtures.add_exhibit("stop0", ["Раз."], version="rev1")
+        harness.fixtures.add_location("stop0", x=1.0, y=0.0)
+        harness.fixtures.add_tour("full", "Полный тур", [("stop0", "stop0", 0, "short")])
+        harness.nav.duration_s = 0.05
+        harness.say.chars_per_sec = 50.0
+
+        states_seen: list[int] = []
+        client = harness.make_client_node()
+        client.create_subscription(
+            MissionState,
+            "/mission/state",
+            lambda msg: states_seen.append(msg.state),
+            QOS_MISSION_STATE,
+        )
+
+        harness.llm_server.chunks_no_grammar = ["Начинаем экскурсию."]
+        harness.llm_server.chunks_with_grammar = [
+            json.dumps(
+                {
+                    "think": "явная просьба начать тур",
+                    "tool": "start_tour",
+                    "args": {"tour_id": "full"},
+                }
+            )
+        ]
+
+        _publish_transcript(client, "проведи экскурсию")
+
+        wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
+        assert _S.STATE_GREETING not in states_seen
+    finally:
+        harness.shutdown()
+
+
 def test_barge_in_aborts_in_flight_turn_before_tool_executes() -> None:
     """DIALOG_REWORK_PLAN.md: abort реального HTTP-запроса -- speak() для оборванного хода
     не зовётся, а следующий ход после abort-а проходит штатно (агент разблокировался)."""

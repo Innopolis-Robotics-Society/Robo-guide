@@ -365,9 +365,14 @@ class ToolBrokerNode(LifecycleNode):
     # -- туры: RunTour, не ждём результата -- только принятия goal-а --------
 
     def _tool_start_tour(self, args: dict) -> ToolResult:
+        # greet=False по умолчанию (stage2 A2): реплика фазы 2, сгенерированная
+        # по итогу start_tour, и есть приветствие -- заготовленный Say из
+        # GreetingState иначе звучит дублем следом за ней. Заготовка остаётся
+        # для туров, запущенных в обход диалога (CLI, отладка) -- там greet
+        # передаётся явным args["greet"].
         goal = RunTour.Goal(
             tour_id=str(args["tour_id"]),
-            greet=bool(args.get("greet", True)),
+            greet=bool(args.get("greet", False)),
             narrate=bool(args.get("narrate", True)),
             confirm_between_stops=bool(args.get("confirm_between_stops", True)),
             return_home=bool(args.get("return_home", True)),
@@ -396,7 +401,8 @@ class ToolBrokerNode(LifecycleNode):
             return ToolResult(ok=False, message="маршрут по заданным точкам не построить")
         goal = RunTour.Goal(
             location_ids=list(route_result.ordered_ids),
-            greet=bool(args.get("greet", True)),
+            # greet=False по умолчанию -- см. комментарий в _tool_start_tour (stage2 A2).
+            greet=bool(args.get("greet", False)),
             narrate=bool(args.get("narrate", True)),
             confirm_between_stops=bool(args.get("confirm_between_stops", True)),
             return_home=bool(args.get("return_home", True)),
