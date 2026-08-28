@@ -39,8 +39,6 @@ completions`), не ROS-нода и не зависимость этого па�
    │     messages += [assistant: tool-call JSON]
    │                + [user: answer_instruction + "Итог действия: ..."]
    │     → свободный русский текст, согласованный с реальным итогом
-   │     (system несёт весь корпус знаний целиком, секция «Справочник» —
-   │      см. «Корпус знаний» ниже; per-turn поиска по корпусу нет)
    │
    ├─ speak(text)  (barge-in до озвучки — реплика отбрасывается)
    │
@@ -170,19 +168,13 @@ Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
 `told_ids.add()`, начало/прерывание вопроса, начало/конец тура) — только
 на ИЗМЕНЕНИЕ поля, без дребезга от heartbeat.
 
-**Корпус знаний** (`kb/`): офлайн `scripts/build_kb.py` режет
-`config/kb_source/*.md` на пассажи (`config/kb.jsonl`, коммитится в
-репозиторий). Корпус идёт в системный промпт ЦЕЛИКОМ, один раз на
-`on_activate` (секция «Справочник», `dialog/prompt.py`) — BM25-поиск по
-запросу внутри хода убран (`CLAUDE_CODE_TASK.md` п.5: на 7-пассажном
-корпусе абсолютный порог `min_score` не настраивался — «Иннополис» давал
-score ниже порога, «что у тебя есть» — пустую выдачу). `kb/retriever.py`
-(`BM25Okapi` + русский Snowball-стеммер) используется только чтобы
-распарсить `kb.jsonl` в пассажи при загрузке корпуса; `search()`/
-`boost_ids`/`min_score` больше не задействованы в рантайме `dialog_agent`,
-но остаются рабочими и покрыты `test_kb_retriever.py` на случай, если
-поиск понадобится снова. Пустой корпус — не ошибка: модель честно говорит
-«не знаю» (правило грунтования в `config/system_prompt.txt`).
+**Корпус знаний убран** (`CLAUDE_CODE_TASK_stage1_knowledge.md` п.5):
+локального `kb/` (пассажи из `.md`, `config/kb.jsonl`) в пакете больше
+нет. Единственный источник фактов про экспонаты/площадку/город —
+`guide_robot_semantic_map/content/`; `dialog_agent` читает его за ход
+через read-only инструменты, не встраивает целиком в системный промпт.
+Пустой результат поиска — не ошибка: модель честно говорит «не знаю»
+(правило грунтования в `config/system_prompt.txt`).
 
 **Barge-in** (`/speech/cancel_all`, `REASON_BARGE_IN`): взводит
 `abort_event`, `llm_client.Backend` ловит его между SSE-чанками и
@@ -207,7 +199,7 @@ score ниже порога, «что у тебя есть» — пустую в
 `history.clear_after_absent_s`(90.0 в `config/llm.yaml`, 25.0 если
 параметр не задан — `presence_monitor` выводит присутствие из речевой
 активности, короткая пауза в разговоре не должна читаться как уход
-посетителя), `kb.corpus_path`, `answer.max_chars`(400).
+посетителя), `answer.max_chars`(400).
 
 ### `interaction_log`
 
@@ -269,12 +261,13 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
 (`stop`/`length`/...), пусто, если бэкенд вообще не ответил.
 
 `content_version` всегда `null` — известный пробел, см. «Известные
-пробелы». `references` всегда `[]` (`CLAUDE_CODE_TASK.md` п.5: ретрив из
-хода убран, корпус целиком уже в системном промпте) — поле осталось в
-схеме ради обратной совместимости. `verbatim_overlap_words`
-(`kb/verbatim.py`) — длина самой длинной общей последовательности слов
-между ответом и полным текстом корпуса знаний (не per-turn `references`);
->= 8 — модель, вероятно, цитирует дословно, а не пересказывает.
+пробелы». `references` всегда `[]` (`CLAUDE_CODE_TASK_stage1_knowledge.md`
+п.5: локальный корпус убран, автосправка из `guide_robot_semantic_map`
+ещё не подключена) — поле осталось в схеме ради обратной совместимости.
+`verbatim_overlap_words` (`dialog/verbatim.py`) — длина самой длинной
+общей последовательности слов между ответом и `corpus_texts`, которые
+передал вызывающий (`dialog_agent_node.py`, сейчас всегда `[]`); >= 8 —
+модель, вероятно, цитирует дословно, а не пересказывает.
 
 ## Каталог инструментов (`tools/schema.py`)
 
@@ -316,11 +309,9 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | `dialog/history.py` | Память диалога между ходами: append-only, обрезка по символам/половинам |
 | `dialog/sanitize.py` | Санитайзер фазы реплики: markdown/самопредставление/tool-call JSON (в т.ч. приклеенный к тексту)/обрезка по границе предложения |
 | `dialog/turn.py` | Двухфазный ход: реплика → `speak()` → действие, с починкой |
-| `dialog/prompt.py` | Системный промпт (преамбул + каталог локаций/туров + справочник) и инструкции фаз (`build_action_instruction`: каталог инструментов + правила выбора; `build_answer_instruction`: правила реплики) |
+| `dialog/prompt.py` | Системный промпт (преамбул + каталог локаций/туров) и инструкции фаз (`build_action_instruction`: каталог инструментов + правила выбора; `build_answer_instruction`: правила реплики) |
 | `dialog/interaction_log.py` | Сборка одной jsonl-записи хода (схема v4) |
-| `kb/chunker.py` | `.md` → пассажи по заголовкам, с перекрытием абзацев |
-| `kb/retriever.py` | BM25-поиск по корпусу (русский стемминг, `boost_ids`, `min_score`) |
-| `kb/verbatim.py` | Длина самой длинной общей последовательности слов (метрика цитирования) |
+| `dialog/verbatim.py` | Длина самой длинной общей последовательности слов (метрика цитирования) |
 | `lib/interaction_sink.py` | Построчный jsonl, flush на запись |
 
 `lib/qos.py` — единственный модуль пакета, которому разрешено
@@ -337,20 +328,6 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | `/speech/cancel_all` | `CancelAll` (sub, RELIABLE/VOLATILE) | dialog_agent (abort хода) |
 
 QoS-профили — `lib/qos.py`.
-
-## Корпус знаний: пересборка
-
-```bash
-cd guide_robot_llm
-python3 scripts/build_kb.py   # config/kb_source/*.md -> config/kb.jsonl
-```
-
-Исходный `.md` — в репозитории (`config/kb_source/`), пересборка
-воспроизводима. `config/kb_source/tour.md` — стартовый корпус про
-Иннополис/университет/лабораторию; реальный текст экскурсовода
-поддерживающая команда должна расширить и выверить фактически, это
-только заготовка формата (заголовки → пассажи, `location_ids:` —
-привязка к остановке).
 
 ## Запуск
 
@@ -416,8 +393,6 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
   `MockLlmServer` (голый `http.server`, различает фазы по наличию
   `grammar` в теле запроса). Живой прогон (`scripts/eval_turns.py`
   против настоящего `llama.cpp`) не выполнялся из этого контейнера.
-- **`config/kb_source/tour.md` — стартовый корпус, не выверенный текст
-  экскурсовода.** См. «Корпус знаний: пересборка» выше.
 - **`say` ack'ается по ПРИНЯТИЮ цели, не по концу озвучки.** Ответ на
   реплику N может звучать заметно позже конца хода N; отложенная реплика
   из однослотовой очереди отыгрывается сразу после хода, не дожидаясь
@@ -459,13 +434,11 @@ ruff check .
 | `test_history.py` | Память диалога: обрезка при записи, склейка событий, обрезка половинами |
 | `test_sanitize.py` | Санитайзер фазы реплики: markdown, самопредставление, tool-call JSON (хвост/начало/середина), граница предложения |
 | `test_turn.py` | Двухфазный ход на фейковых `complete_*`/`speak`/`execute_tool` |
-| `test_kb_chunker.py` | Разбор `.md` на пассажи по заголовкам/длине/`location_ids:` |
-| `test_kb_retriever.py` | BM25-поиск: стемминг, `min_score`, `boost_ids` |
 | `test_verbatim.py` | Метрика самой длинной общей последовательности слов |
 | `test_llm_client_backend.py` | HTTP-механика: stream, timeout, HTTP-ошибка, abort |
 | `test_llm_client_ladder.py` | Порядок бэкендов, retry, abort не ретраится |
 | `test_llm_client_grammar.py` | GBNF форма (не содержимое) |
-| `test_dialog_prompt.py` | Сборка системного промпта (каталог, справочник, детерминизм), `build_action_instruction` (каталог инструментов, honest noop, последняя реплика) и `build_answer_instruction` |
+| `test_dialog_prompt.py` | Сборка системного промпта (каталог локаций/туров, детерминизм), `build_action_instruction` (каталог инструментов, honest noop, последняя реплика) и `build_answer_instruction` |
 | `test_interaction_sink.py` | jsonl-sink: flush, newline-delimited, idempotent close |
 | `test_interaction_log.py` | Сборка jsonl-записи схемы v3 из `TurnResult`, включая сырой ввод/вывод ЛЛМ (`llm_messages`, `*_raw_text`, `*_finish_reason`) |
 | `test_tool_gating.py` | Полный тур/пауза/стоп/barge-in/`noop`/кэш whitelist ТОЛЬКО через `call_tool()` |

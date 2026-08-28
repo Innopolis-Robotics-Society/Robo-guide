@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from guide_robot_llm.kb.verbatim import max_shingle_overlap
+from guide_robot_llm.dialog.verbatim import max_shingle_overlap
 
 if TYPE_CHECKING:
     from guide_robot_llm.dialog.turn import TurnResult

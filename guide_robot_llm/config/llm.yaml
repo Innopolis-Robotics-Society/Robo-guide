@@ -43,8 +43,6 @@
     history.cap_event_chars: 120
     history.clear_after_absent_s: 90.0
 
-    kb.corpus_path: "$(find-pkg-share guide_robot_llm)/config/kb.jsonl"
-
     answer.max_chars: 250
 
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.

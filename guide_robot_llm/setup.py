@@ -16,7 +16,7 @@ setup(
         (f"share/{PACKAGE_NAME}/launch", glob("launch/*.launch.py")),
         (
             f"share/{PACKAGE_NAME}/config",
-            glob("config/*.yaml") + glob("config/*.txt") + glob("config/*.jsonl"),
+            glob("config/*.yaml") + glob("config/*.txt"),
         ),
     ],
     install_requires=["setuptools"],

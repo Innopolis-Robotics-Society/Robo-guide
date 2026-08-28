@@ -1,8 +1,8 @@
-"""`kb.verbatim.max_shingle_overlap()` -- чистая логика, без ROS (DIALOG_REWORK_PLAN.md §3.2)."""
+"""`dialog.verbatim.max_shingle_overlap()` -- чистая логика без ROS."""
 
 from __future__ import annotations
 
-from guide_robot_llm.kb.verbatim import max_shingle_overlap
+from guide_robot_llm.dialog.verbatim import max_shingle_overlap
 
 
 def test_exact_long_quote_returns_full_word_count() -> None:

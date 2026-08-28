@@ -14,9 +14,12 @@
 `complete_answer`/`complete_action`/`speak`/`execute_tool` и реагирует на
 ROS-события (транскрипт, переходы `/mission/state`, barge-in).
 
-Корпус знаний (CLAUDE_CODE_TASK.md п.5) целиком уходит в системный промпт
-на `on_activate` (секция «Справочник» в `dialog/prompt.py`) -- ретрив по
-запросу внутри хода не делается, `references` в снимке/логе всегда пуст.
+Локальный корпус знаний (`kb/`, `config/kb.jsonl`) убран
+(CLAUDE_CODE_TASK_stage1_knowledge.md п.5): единственный источник фактов
+про экспонаты/площадку/город -- `guide_robot_semantic_map/content/`, к
+которому `dialog_agent` обращается через read-only инструменты
+(`lookup_content`/`search_content`), а не через встроенный в системный
+промпт текст.
 """
 
 from __future__ import annotations
@@ -49,8 +52,6 @@ from guide_robot_llm.dialog.turn import (
     render_action_outcome,
     run_turn,
 )
-from guide_robot_llm.kb.chunker import Passage
-from guide_robot_llm.kb.retriever import BM25Retriever
 from guide_robot_llm.lib.qos import (
     QOS_ASR_TRANSCRIPT,
     QOS_CANCEL_ALL,
@@ -155,10 +156,6 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("history.cap_event_chars", 120)
         self.declare_parameter("history.clear_after_absent_s", 25.0)
 
-        self.declare_parameter(
-            "kb.corpus_path", "$(find-pkg-share guide_robot_llm)/config/kb.jsonl"
-        )
-
         self.declare_parameter("answer.max_chars", 250)
 
         self._active = False
@@ -228,7 +225,6 @@ class DialogAgentNode(LifecycleNode):
         # дублей (живой баг: задвоенный turn=8 в логе).
         self._session_id = uuid.uuid4().hex[:12]
 
-        self._kb_corpus_path = str(self.get_parameter("kb.corpus_path").value)
         self._answer_max_chars = int(self.get_parameter("answer.max_chars").value)
 
         self._backends = [
@@ -257,7 +253,6 @@ class DialogAgentNode(LifecycleNode):
         self._location_name_by_id: dict[str, str] = {}
         self._location_zone_by_id: dict[str, str] = {}
         self._tour_name_by_id: dict[str, str] = {}
-        self._kb_passage_texts: list[str] = []
 
         self._call_tool_client = self.create_client(
             CallTool, f"{tool_broker_ns}/call_tool", callback_group=self._cb_reentrant
@@ -350,10 +345,6 @@ class DialogAgentNode(LifecycleNode):
             tour["id"]: tour.get("name", tour["id"]) for tour in self._tours_catalog
         }
 
-        kb_passages = self._load_kb_passages()
-        self._kb_passage_texts = [passage.text for passage in kb_passages]
-        knowledge = "\n\n".join(f"{passage.heading}\n{passage.text}" for passage in kb_passages)
-
         # Каталог инструментов НЕ идёт в системный промпт (CLAUDE_CODE_TASK.md
         # п.2) -- реплика иначе зачитывала вслух описания инструментов. Он
         # живёт в инструкции фазы действия; обе инструкции строятся один раз
@@ -363,30 +354,12 @@ class DialogAgentNode(LifecycleNode):
             self._preamble,
             locations=self._locations_catalog,
             tours=self._tours_catalog,
-            knowledge=knowledge,
         )
         self._action_instruction = build_action_instruction(schema.TOOLS)
         self._answer_instruction = build_answer_instruction()
 
         self._active = True
         return TransitionCallbackReturn.SUCCESS
-
-    def _load_kb_passages(self) -> tuple[Passage, ...]:
-        """`kb.jsonl` отсутствует/бит -- предупреждение и пустой корпус, НЕ `FAILURE`.
-
-        Корпус знаний необязателен для управления роботом: пустой корпус
-        означает, что секция «Справочник» в промпте пуста, и модель честно
-        говорит «не знаю» (DIALOG_REWORK_PLAN.md §6.2). CLAUDE_CODE_TASK.md
-        п.5: ретрив по запросу убран -- корпус целиком уходит в промпт один
-        раз здесь, поиск в `_run_turn` больше не нужен.
-        """
-        try:
-            return BM25Retriever.from_jsonl(self._kb_corpus_path).passages
-        except (OSError, ValueError, KeyError) as error:
-            self.get_logger().warning(
-                f"kb.jsonl не загружен ({self._kb_corpus_path}: {error}) -- справочник пуст"
-            )
-            return ()
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
         """Запретить новые ходы (уже начатый -- доигрывает или получит abort снаружи)."""
@@ -693,9 +666,8 @@ class DialogAgentNode(LifecycleNode):
         turn_start = time.monotonic()
         stage_timings: list[dict] = []
         snap: dict = {"mission": {"state": "UNKNOWN"}}
-        # Ретрив из хода убран (CLAUDE_CODE_TASK.md п.5) -- корпус целиком
-        # уже в системном промпте, "Справочник"; поле оставлено пустым ради
-        # стабильности схемы interaction_log.
+        # Локальный корпус убран целиком (CLAUDE_CODE_TASK_stage1_knowledge.md
+        # п.5); автосправка из semantic_map ещё не подключена -- будет в п.7.
         references: list[dict] = []
         result: TurnResult | None = None
         degraded = False
@@ -857,7 +829,7 @@ class DialogAgentNode(LifecycleNode):
                 utterance=text,
                 snapshot=snap,
                 references=references,
-                corpus_texts=self._kb_passage_texts,
+                corpus_texts=[],
                 result=result,
                 stage_timings=stage_timings,
                 history_entries=history_entries_after,

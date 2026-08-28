@@ -16,10 +16,12 @@
 Системный промпт целиком -- статическая часть `messages`, обязана идти
 ПЕРВОЙ и не меняться от хода к ходу: `CACHE_REUSE` на сервере переиспользует
 префикс только если он побайтово совпадает с прошлым разом. Каталог
-локаций/туров и справочник (корпус знаний, CLAUDE_CODE_TASK.md пункт 5)
-рендерятся один раз на `on_activate` и дальше считаются неизменными до
-`on_deactivate` (DIALOG_REWORK_PLAN.md §1) -- координаты в промпт намеренно
-не идут.
+локаций/туров рендерится один раз на `on_activate` и дальше считается
+неизменным до `on_deactivate` (DIALOG_REWORK_PLAN.md §1) -- координаты в
+промпт намеренно не идут. Локальный корпус знаний убран
+(CLAUDE_CODE_TASK_stage1_knowledge.md п.5): единственный источник фактов
+про экспонаты/площадку/город -- `guide_robot_semantic_map/content/`, за
+которым ходят read-only инструменты, а не статичная секция здесь.
 
 `build_action_instruction(tool_specs)`/`build_answer_instruction()` --
 вызываются один раз на `on_activate`, результат хранится полями ноды: они
@@ -107,15 +109,16 @@ def build_system_prompt(
     *,
     locations: Sequence[dict] = (),
     tours: Sequence[dict] = (),
-    knowledge: str = "",
 ) -> str:
-    """Собрать системный промпт фазы 1: преамбул + каталог локаций/туров + справочник.
+    """Собрать системный промпт фазы 1: преамбул + каталог локаций/туров.
 
     `locations`/`tours` -- элементы в форме, которую отдаёт
     `tool_broker._tool_list_locations`/`_tool_list_tours`
     (`{"id","aliases","zone","category",...}` / `{"id","name","stops"}`).
-    `knowledge` -- полный текст корпуса знаний (склейка всех пассажей,
-    CLAUDE_CODE_TASK.md пункт 5), статичен -- идёт в кэшируемый префикс.
+    Факты про экспонаты/площадку/город сюда больше не идут -- источник
+    единственный, `guide_robot_semantic_map/content/`, и он читается за
+    ход через `lookup_content`/`search_content`, не встраивается в
+    статичный промпт целиком (CLAUDE_CODE_TASK_stage1_knowledge.md п.5).
     Пустые аргументы -- соответствующая секция просто не появляется в
     промпте (детерминированный результат для тех же аргументов).
     """
@@ -127,8 +130,6 @@ def build_system_prompt(
     if tours:
         rendered_tours = "\n".join(_render_tour(tour) for tour in tours)
         sections.append("Туры:\n" + rendered_tours)
-    if knowledge:
-        sections.append("Справочник:\n" + knowledge)
 
     return "\n\n".join(sections)
 

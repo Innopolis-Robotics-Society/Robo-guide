@@ -31,8 +31,7 @@ from guide_robot_llm.dialog.prompt import (  # noqa: E402
     build_system_prompt,
 )
 from guide_robot_llm.dialog.turn import TurnResult, run_turn  # noqa: E402
-from guide_robot_llm.kb.retriever import BM25Retriever  # noqa: E402
-from guide_robot_llm.kb.verbatim import max_shingle_overlap  # noqa: E402
+from guide_robot_llm.dialog.verbatim import max_shingle_overlap  # noqa: E402
 from guide_robot_llm.llm_client import Backend, BackendConfig, complete_with_fallback  # noqa: E402
 from guide_robot_llm.snapshot import render_status_line  # noqa: E402
 from guide_robot_llm.tools import schema  # noqa: E402
@@ -40,7 +39,6 @@ from guide_robot_llm.tools import schema  # noqa: E402
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_GOLDEN = _PACKAGE_ROOT / "test" / "data" / "turns_golden.jsonl"
 _DEFAULT_PREAMBLE = _PACKAGE_ROOT / "config" / "system_prompt.txt"
-_DEFAULT_KB = _PACKAGE_ROOT / "config" / "kb.jsonl"
 _VERBATIM_FLAG_WORDS = 8
 
 
@@ -143,14 +141,19 @@ def _percentile(values: list[float], pct: float) -> float:
     return ordered[index]
 
 
-def evaluate(golden_path: Path, preamble_path: Path, kb_path: Path, base_url: str) -> None:
-    """Прогнать `golden_path` через `base_url`, напечатать сводку метрик в stdout."""
+def evaluate(golden_path: Path, preamble_path: Path, base_url: str) -> None:
+    """Прогнать `golden_path` через `base_url`, напечатать сводку метрик в stdout.
+
+    Локальный корпус знаний убран (CLAUDE_CODE_TASK_stage1_knowledge.md
+    п.5): `verbatim_overlap_words` здесь больше не считается против всего
+    корпуса, только `""` -- полная адаптация под справку из
+    `guide_robot_semantic_map` (per-ход `references`) -- отдельная задача
+    (п.9.1), не входит в этот скрипт-заготовку.
+    """
     records = _load_jsonl(golden_path)
     preamble = preamble_path.read_text(encoding="utf-8")
-    passages = BM25Retriever.from_jsonl(str(kb_path)).passages if kb_path.exists() else ()
-    corpus_texts = [passage.text for passage in passages]
-    knowledge = "\n\n".join(f"{passage.heading}\n{passage.text}" for passage in passages)
-    system_prompt = build_system_prompt(preamble, knowledge=knowledge)
+    corpus_texts: list[str] = []
+    system_prompt = build_system_prompt(preamble)
     action_instruction = build_action_instruction(schema.TOOLS)
     answer_instruction = build_answer_instruction()
     backend = Backend(BackendConfig(base_url=base_url, read_timeout_s=60.0))
@@ -233,10 +236,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--golden", type=Path, default=_DEFAULT_GOLDEN)
     parser.add_argument("--preamble", type=Path, default=_DEFAULT_PREAMBLE)
-    parser.add_argument("--kb", type=Path, default=_DEFAULT_KB)
     parser.add_argument("--base-url", default="http://127.0.0.1:18080/v1")
     args = parser.parse_args()
-    evaluate(args.golden, args.preamble, args.kb, args.base_url)
+    evaluate(args.golden, args.preamble, args.base_url)
 
 
 if __name__ == "__main__":

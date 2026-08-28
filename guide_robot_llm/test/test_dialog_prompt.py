@@ -14,7 +14,7 @@ _STOP = ToolSpec("stop_tour", "Прервать текущий тур совсе
 _HIDDEN = ToolSpec("list_locations", "Список локаций.", frozenset({0}), llm_visible=False)
 
 
-# -- build_system_prompt: только преамбул + каталог локаций/туров + справочник --
+# -- build_system_prompt: только преамбул + каталог локаций/туров --
 
 
 def test_prompt_starts_with_preamble_verbatim() -> None:
@@ -109,26 +109,11 @@ def test_non_public_locations_not_passed_do_not_appear() -> None:
     assert "server_room" not in prompt
 
 
-def test_knowledge_section_renders_full_corpus_text() -> None:
-    """CLAUDE_CODE_TASK.md п.5: корпус целиком в промпт, секция «Справочник»."""
-    prompt = build_system_prompt("x", knowledge="Иннополис -- город недалеко от Казани.")
-
-    assert "Справочник:" in prompt
-    assert "Иннополис -- город недалеко от Казани." in prompt
-
-
-def test_no_knowledge_omits_knowledge_section() -> None:
-    prompt = build_system_prompt("x")
-
-    assert "Справочник:" not in prompt
-
-
 def test_prompt_is_deterministic_for_same_arguments() -> None:
     kwargs = {
         "preamble": "x",
         "locations": [{"id": "lab_demo", "aliases": [], "zone": "hall_1", "category": ""}],
         "tours": [{"id": "full_tour", "name": "Тур", "stops": ["lab_demo"]}],
-        "knowledge": "текст корпуса",
     }
     assert build_system_prompt(**kwargs) == build_system_prompt(**kwargs)
 
