@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from guide_robot_llm.tools.schema import allowed_tools, is_tool_allowed
+from guide_robot_llm.tools.schema import allowed_tools, is_tool_allowed, tool_spec
 
 from guide_robot_msgs.msg import MissionState
 
@@ -62,13 +62,37 @@ def test_tell_about_only_allowed_idle() -> None:
 
 
 def test_read_only_tools_allowed_in_every_state() -> None:
-    for name in ("list_locations", "list_tours", "estimate_route"):
+    for name in (
+        "list_locations",
+        "list_tours",
+        "estimate_route",
+        "lookup_content",
+        "search_content",
+        "resolve_location",
+    ):
         for state in range(9):
             assert is_tool_allowed(name, state)
 
 
 def test_unknown_tool_never_allowed() -> None:
     assert not is_tool_allowed("does_not_exist", _S.STATE_IDLE)
+
+
+def test_read_only_flag_set_for_catalog_and_content_tools() -> None:
+    for name in (
+        "lookup_content",
+        "search_content",
+        "resolve_location",
+        "list_locations",
+        "list_tours",
+        "estimate_route",
+    ):
+        assert tool_spec(name).read_only is True
+
+
+def test_read_only_flag_false_for_mutating_tools() -> None:
+    for name in ("start_tour", "guide_to", "tell_about", "noop", "say"):
+        assert tool_spec(name).read_only is False
 
 
 def test_allowed_tools_idle_matches_expected_set() -> None:
@@ -79,6 +103,9 @@ def test_allowed_tools_idle_matches_expected_set() -> None:
         "tell_about",
         "say",
         "noop",
+        "lookup_content",
+        "search_content",
+        "resolve_location",
         "list_locations",
         "list_tours",
         "estimate_route",
@@ -100,9 +127,23 @@ def test_llm_only_hides_say_and_read_only_catalog_tools() -> None:
     assert "start_tour" in visible
 
 
+def test_llm_only_shows_new_read_only_tools() -> None:
+    visible = set(allowed_tools(_S.STATE_IDLE, llm_only=True))
+    assert "lookup_content" in visible
+    assert "search_content" in visible
+    assert "resolve_location" in visible
+
+
 def test_llm_only_false_by_default_keeps_say() -> None:
     assert "say" in allowed_tools(_S.STATE_IDLE)
 
 
 def test_llm_only_still_gates_by_state() -> None:
-    assert allowed_tools(_S.STATE_NARRATING, llm_only=True) == ["stop_tour", "pause", "noop"]
+    assert allowed_tools(_S.STATE_NARRATING, llm_only=True) == [
+        "stop_tour",
+        "pause",
+        "noop",
+        "lookup_content",
+        "search_content",
+        "resolve_location",
+    ]

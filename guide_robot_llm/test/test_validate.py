@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from guide_robot_llm.tools.validate import ValidationError, validate_call
 
 
@@ -118,3 +117,45 @@ def test_say_non_empty_text_accepted() -> None:
 
 def test_list_locations_no_args_needed() -> None:
     validate_call("list_locations", {}, tools_allowed=["list_locations"])
+
+
+def test_lookup_content_missing_content_id_rejected() -> None:
+    with pytest.raises(ValidationError, match="content_id"):
+        validate_call("lookup_content", {}, tools_allowed=["lookup_content"])
+
+
+def test_lookup_content_bad_mode_rejected() -> None:
+    with pytest.raises(ValidationError, match="mode"):
+        validate_call(
+            "lookup_content",
+            {"content_id": "robo_guide", "mode": "long"},
+            tools_allowed=["lookup_content"],
+        )
+
+
+def test_lookup_content_valid_accepted() -> None:
+    validate_call(
+        "lookup_content", {"content_id": "robo_guide"}, tools_allowed=["lookup_content"]
+    )
+
+
+def test_search_content_empty_query_rejected() -> None:
+    with pytest.raises(ValidationError, match="query"):
+        validate_call("search_content", {"query": "  "}, tools_allowed=["search_content"])
+
+
+def test_search_content_valid_accepted() -> None:
+    validate_call(
+        "search_content", {"query": "сколько весит робот"}, tools_allowed=["search_content"]
+    )
+
+
+def test_resolve_location_empty_query_rejected() -> None:
+    with pytest.raises(ValidationError, match="query"):
+        validate_call("resolve_location", {}, tools_allowed=["resolve_location"])
+
+
+def test_resolve_location_valid_accepted() -> None:
+    validate_call(
+        "resolve_location", {"query": "лидар"}, tools_allowed=["resolve_location"]
+    )

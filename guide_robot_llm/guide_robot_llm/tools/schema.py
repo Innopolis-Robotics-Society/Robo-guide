@@ -60,12 +60,19 @@ class ToolSpec:
     `llm_visible=False` -- инструмент существует и гейтится как обычно, но
     не попадает в каталог, который видит ЛЛМ (`allowed_tools(..., llm_only=True)`):
     `tool_broker.call_tool()` по-прежнему его принимает от `dialog_agent`.
+
+    `read_only=True` -- вызов ничего не меняет в mission/навигации, только
+    читает `guide_robot_semantic_map` (CLAUDE_CODE_TASK_stage1_knowledge.md
+    п.6.6). `dialog/turn.py` рендерит итог такого вызова фазе реплики
+    полным текстом (`chunks`/`hits`), а не строкой `выполнено: name(...)` --
+    иначе посетитель не услышал бы найденные факты.
     """
 
     name: str
     description: str
     allowed_states: frozenset[int]
     llm_visible: bool = True
+    read_only: bool = False
 
 
 TOOLS: tuple[ToolSpec, ...] = (
@@ -111,9 +118,9 @@ TOOLS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         "tell_about",
-        "Рассказать про экспонат вне тура. exhibit_id = id локации "
-        "category=exhibit. «кто ты»/«расскажи о себе» → robo_guide. "
-        "Не noop, если спросили про конкретный экспонат.",
+        "Официальный полный рассказ про экспонат голосом робота (как во "
+        "время тура). Только вне тура и только по явной просьбе рассказать "
+        "целиком. Для ответа на вопрос — noop, ответь сам по справке.",
         frozenset({_S.STATE_IDLE}),
     ),
     ToolSpec(
@@ -122,19 +129,47 @@ TOOLS: tuple[ToolSpec, ...] = (
         ALL_STATES,
     ),
     ToolSpec(
+        "lookup_content",
+        "Получить полный выверенный текст про экспонат, площадку или город "
+        "по content_id из каталога, когда посетитель просит рассказать "
+        "подробнее. Не заменяет tell_about: результат ты пересказываешь сам.",
+        ALL_STATES,
+        read_only=True,
+    ),
+    ToolSpec(
+        "search_content",
+        "Найти факты по свободному вопросу, если в справке к реплике "
+        "нужного нет.",
+        ALL_STATES,
+        read_only=True,
+    ),
+    ToolSpec(
+        "resolve_location",
+        "Уточнить, какую локацию имеет в виду посетитель, если название не "
+        "совпадает с каталогом.",
+        ALL_STATES,
+        read_only=True,
+    ),
+    ToolSpec(
         "list_locations",
         "Список локаций (read-only, только публичные).",
         ALL_STATES,
         llm_visible=False,
+        read_only=True,
     ),
     ToolSpec(
-        "list_tours", "Список заранее заданных туров (read-only).", ALL_STATES, llm_visible=False
+        "list_tours",
+        "Список заранее заданных туров (read-only).",
+        ALL_STATES,
+        llm_visible=False,
+        read_only=True,
     ),
     ToolSpec(
         "estimate_route",
         "Оценить маршрут по списку локаций (read-only).",
         ALL_STATES,
         llm_visible=False,
+        read_only=True,
     ),
 )
 

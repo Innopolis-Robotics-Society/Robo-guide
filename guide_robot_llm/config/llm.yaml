@@ -12,6 +12,7 @@
     mission_fsm_ns: "/mission_fsm"
     location_server_ns: "/location_server"
     route_planner_ns: "/route_planner"
+    content_server_ns: "/content_server"
 
 # dialog_agent (DIALOG_REWORK_PLAN.md): двухфазный ход поверх llm_client + tool_broker.
 # llm.base_urls -- реальный адрес llm_server/ (см. llm_server/.env: LLM_PORT=18080).

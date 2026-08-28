@@ -35,7 +35,16 @@ from guide_robot_llm.lib.qos import QOS_ASR_TRANSCRIPT, QOS_MISSION_PRESENCE, QO
 from guide_robot_llm.tools import schema, validate
 from guide_robot_msgs.action import Narrate, RunTour, Say
 from guide_robot_msgs.msg import MissionState, Presence, Transcript
-from guide_robot_msgs.srv import CallTool, EstimateRoute, ListLocations, ListTours, SubmitAnswer
+from guide_robot_msgs.srv import (
+    CallTool,
+    EstimateRoute,
+    GetExhibitContent,
+    ListLocations,
+    ListTours,
+    ResolveLocation,
+    SearchContent,
+    SubmitAnswer,
+)
 
 __all__ = ["ToolBrokerNode", "ToolResult", "main"]
 
@@ -76,6 +85,7 @@ class ToolBrokerNode(LifecycleNode):
         self.declare_parameter("mission_fsm_ns", "/mission_fsm")
         self.declare_parameter("location_server_ns", "/location_server")
         self.declare_parameter("route_planner_ns", "/route_planner")
+        self.declare_parameter("content_server_ns", "/content_server")
 
         self._active = False
         self._state_lock = threading.Lock()
@@ -115,6 +125,7 @@ class ToolBrokerNode(LifecycleNode):
         mission_fsm_ns = str(self.get_parameter("mission_fsm_ns").value)
         location_server_ns = str(self.get_parameter("location_server_ns").value)
         route_planner_ns = str(self.get_parameter("route_planner_ns").value)
+        content_server_ns = str(self.get_parameter("content_server_ns").value)
 
         # -- действия: тур, речь, разовый рассказ вне тура --
         self._run_tour_client = ActionClient(
@@ -151,6 +162,21 @@ class ToolBrokerNode(LifecycleNode):
         self._estimate_route_client = self.create_client(
             EstimateRoute,
             f"{route_planner_ns}/estimate_route",
+            callback_group=self._cb_reentrant,
+        )
+        self._resolve_location_client = self.create_client(
+            ResolveLocation,
+            f"{location_server_ns}/resolve_location",
+            callback_group=self._cb_reentrant,
+        )
+        self._get_exhibit_content_client = self.create_client(
+            GetExhibitContent,
+            f"{content_server_ns}/get_exhibit_content",
+            callback_group=self._cb_reentrant,
+        )
+        self._search_content_client = self.create_client(
+            SearchContent,
+            f"{content_server_ns}/search_content",
             callback_group=self._cb_reentrant,
         )
 
@@ -525,6 +551,77 @@ class ToolBrokerNode(LifecycleNode):
             },
         )
 
+    def _tool_lookup_content(self, args: dict) -> ToolResult:
+        response = self._call_sync(
+            self._get_exhibit_content_client,
+            GetExhibitContent.Request(
+                exhibit_id=str(args["content_id"]),
+                mode=str(args.get("mode", "full")),
+                language=str(args.get("language", "")),
+            ),
+        )
+        if response is None:
+            return ToolResult(ok=False, message="content_server недоступен")
+        if not response.chunks:
+            return ToolResult(ok=False, message="контент не найден", data={"chunks": []})
+        return ToolResult(
+            ok=True,
+            data={
+                "chunks": list(response.chunks),
+                "title": response.title,
+                "kind": response.kind,
+                "version": response.version,
+            },
+        )
+
+    def _tool_search_content(self, args: dict) -> ToolResult:
+        mission = self.last_mission_state()
+        stop_id = mission.stop_id if mission is not None else ""
+        response = self._call_sync(
+            self._search_content_client,
+            SearchContent.Request(
+                query=str(args["query"]),
+                language=str(args.get("language", "")),
+                location_ids=[stop_id] if stop_id else [],
+                max_results=int(args.get("max_results", 5)),
+            ),
+        )
+        if response is None:
+            return ToolResult(ok=False, message="content_server недоступен")
+        hits = [
+            {
+                "content_id": hit.content_id,
+                "kind": hit.kind,
+                "title": hit.title,
+                "chunk_id": hit.chunk_id,
+                "text": hit.text,
+                "score": hit.score,
+                "version": hit.version,
+            }
+            for hit in response.hits
+        ]
+        return ToolResult(ok=True, data={"hits": hits})
+
+    def _tool_resolve_location(self, args: dict) -> ToolResult:
+        response = self._call_sync(
+            self._resolve_location_client,
+            ResolveLocation.Request(
+                query=str(args["query"]),
+                language=str(args.get("language", "")),
+                max_results=int(args.get("max_results", 3)),
+            ),
+        )
+        if response is None:
+            return ToolResult(ok=False, message="location_server недоступен")
+        return ToolResult(
+            ok=True,
+            data={
+                "candidates": [_serialize_location(loc) for loc in response.candidates],
+                "scores": list(response.scores),
+                "confident": bool(response.confident),
+            },
+        )
+
     _HANDLERS = {
         "start_tour": _tool_start_tour,
         "guide_to": _tool_guide_to,
@@ -540,6 +637,9 @@ class ToolBrokerNode(LifecycleNode):
         "list_locations": _tool_list_locations,
         "list_tours": _tool_list_tours,
         "estimate_route": _tool_estimate_route,
+        "lookup_content": _tool_lookup_content,
+        "search_content": _tool_search_content,
+        "resolve_location": _tool_resolve_location,
     }
 
     # -- whitelist для validate.py --------------------------------------------

@@ -84,6 +84,14 @@ def _validate_args(
     elif name in ("estimate_route",):
         if not (args.get("ids") or []):
             raise ValidationError("estimate_route: пустой список локаций")
+    elif name == "lookup_content":
+        if not str(args.get("content_id", "")).strip():
+            raise ValidationError("lookup_content: content_id обязателен")
+        if args.get("mode", "full") not in ("short", "full"):
+            raise ValidationError("lookup_content: mode должен быть short или full")
+    elif name in ("search_content", "resolve_location"):
+        if not str(args.get("query", "")).strip():
+            raise ValidationError(f"{name}: query обязателен")
 
 
 def _require_known(value: object, known: frozenset[str], kind: str) -> None:
