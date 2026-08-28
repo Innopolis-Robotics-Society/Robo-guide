@@ -92,7 +92,6 @@ class ToolBrokerNode(LifecycleNode):
         self._state_lock = threading.Lock()
         self._last_mission_state: MissionState | None = None
         self._last_presence: Presence | None = None
-        self._last_visitor_text = ""
 
         self._run_tour_lock = threading.Lock()
         self._run_tour_goal_handle: object | None = None
@@ -247,7 +246,6 @@ class ToolBrokerNode(LifecycleNode):
         with self._state_lock:
             self._last_mission_state = None
             self._last_presence = None
-            self._last_visitor_text = ""
         with self._run_tour_lock:
             self._run_tour_goal_handle = None
 
@@ -281,8 +279,6 @@ class ToolBrokerNode(LifecycleNode):
         """
         if not msg.is_final:
             return
-        with self._state_lock:
-            self._last_visitor_text = msg.text
         if not self._active:
             return
         mission = self.last_mission_state()
@@ -308,24 +304,38 @@ class ToolBrokerNode(LifecycleNode):
 
     # -- call_tool: единственная точка входа для скриптов/dialog_agent -----
 
-    def call_tool(self, name: str, args: dict | None = None) -> ToolResult:
-        """Провалидировать и выполнить один вызов инструмента (llm_plam.md §4)."""
+    def call_tool(
+        self, name: str, args: dict | None = None, *, confirmed: bool = False
+    ) -> ToolResult:
+        """Провалидировать и выполнить один вызов инструмента (llm_plam.md §4).
+
+        `confirmed` (stage2 D1, `CallTool.srv`) -- этот вызов уже прошёл
+        через `ask_visitor`: посетитель ответил «да», и `on_yes` теперь
+        исполняется по-настоящему. Единственный потребитель --
+        `dialog_agent_node._run_pending_answer_phase`. Без него моторный
+        инструмент во время тура получает REJECT ниже -- та защита, что
+        раньше держала `tools/validate.py`'s регулярка по подстроке
+        (убрана: резала и «да» самого подтверждения).
+        """
         args = args or {}
         if not self._active:
             return ToolResult(ok=False, message="tool_broker не активен")
 
         mission = self.last_mission_state()
         mission_state = mission.state if mission is not None else MissionState.STATE_IDLE
+        motion_during_tour = (
+            name in validate.MOTION_TOOLS
+            and not confirmed
+            and mission_state != MissionState.STATE_IDLE
+        )
+        if motion_during_tour:
+            return ToolResult(ok=False, message="сначала подтверди через ask_visitor")
         tools_allowed = schema.allowed_tools(mission_state)
 
         known_locations = (
             self._known_location_ids_cache if _needs_location_whitelist(name) else frozenset()
         )
         known_tours = self._known_tour_ids_cache if name == "start_tour" else frozenset()
-        user_text = None
-        if name in validate.MOTION_TOOLS:
-            with self._state_lock:
-                user_text = self._last_visitor_text or None
         try:
             validate.validate_call(
                 name,
@@ -333,7 +343,6 @@ class ToolBrokerNode(LifecycleNode):
                 tools_allowed=tools_allowed,
                 known_location_ids=known_locations,
                 known_tour_ids=known_tours,
-                user_text=user_text,
             )
         except validate.ValidationError as error:
             return ToolResult(ok=False, message=str(error))
@@ -360,7 +369,7 @@ class ToolBrokerNode(LifecycleNode):
             response.data_json = "{}"
             return response
 
-        result = self.call_tool(request.name, args)
+        result = self.call_tool(request.name, args, confirmed=bool(request.confirmed))
         response.ok = result.ok
         response.message = result.message
         response.data_json = json.dumps(result.data)

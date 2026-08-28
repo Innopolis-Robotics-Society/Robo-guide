@@ -9,6 +9,11 @@
 
 string name
 string args_json
+# true -- этот вызов уже подтверждён посетителем через ask_visitor.on_yes
+# (stage2 D1): tool_broker пропускает моторный инструмент во время тура
+# только с этим флагом, иначе -- REJECT("сначала подтверди через
+# ask_visitor"). Дефолт false -- обычный вызов фазы действия.
+bool confirmed
 ---
 bool ok
 string message

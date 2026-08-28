@@ -303,6 +303,63 @@ def test_ask_visitor_then_no_speaks_on_no_without_calling_llm_again() -> None:
         harness.shutdown()
 
 
+def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
+    """stage2 C2+D1 конец в конец: ask_visitor(on_yes=guide_to) во время тура,
+    "да" исполняет guide_to с confirmed=True -- тур прерывается редиректом,
+    а не отклоняется гейтом tool_broker'а, который блокирует НЕподтверждённые
+    моторные вызовы во время тура."""
+    harness = ToolBrokerTestHarness()
+    try:
+        wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
+        harness.fixtures.add_exhibit("lab105a", ["Раз.", "Два."], version="rev1")
+        harness.fixtures.add_location("lab105a", x=1.0, y=2.0)
+        harness.fixtures.add_exhibit("lidar_stand", ["Про лидар."], version="rev1")
+        harness.fixtures.add_location("lidar_stand", x=9.0, y=9.0)
+        harness.nav.duration_s = 5.0  # держим NAVIGATING достаточно долго для первого хода
+        harness.say.chars_per_sec = 50.0
+
+        harness.llm_server.chunks_no_grammar = ["Идём в лабораторию."]
+        harness.llm_server.chunks_with_grammar = [
+            json.dumps(
+                {
+                    "think": "явная просьба отвести в лабораторию",
+                    "tool": "guide_to",
+                    "args": {"location_id": "lab105a"},
+                }
+            )
+        ]
+        client = harness.make_client_node()
+        _publish_transcript(client, "отведи меня в лабораторию")
+        wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
+
+        harness.llm_server.chunks_no_grammar = ["Прервать экскурсию и пойти к лидару?"]
+        harness.llm_server.chunks_with_grammar = [
+            json.dumps(
+                {
+                    "think": "посетитель хочет к лидару, нужно подтверждение",
+                    "tool": "ask_visitor",
+                    "args": {
+                        "question": "Прервать экскурсию и пойти к лидару?",
+                        "on_yes": {"tool": "guide_to", "args": {"location_id": "lidar_stand"}},
+                        "on_no": "Хорошо, продолжаем.",
+                    },
+                }
+            )
+        ]
+        _publish_transcript(client, "робот, хочу посмотреть на лидар")
+        wait_until(lambda: harness.say.goals_received >= 2, timeout_s=5.0)
+
+        harness.nav.duration_s = 0.05
+        harness.llm_server.chunks_no_grammar = ["Идём смотреть на лидар."]
+        _publish_transcript(client, "да")
+
+        wait_until(
+            lambda: harness.broker.last_mission_state().stop_id == "lidar_stand", timeout_s=15.0
+        )
+    finally:
+        harness.shutdown()
+
+
 def test_start_tour_from_dialog_sends_greet_false_and_skips_greeting_state() -> None:
     """stage2 A2: реплика фазы 2 по итогу start_tour и есть приветствие -- заготовленный
     Say из GreetingState иначе звучит дублем следом. RunTour.Goal.greet=False, тур

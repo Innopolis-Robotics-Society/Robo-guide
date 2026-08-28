@@ -812,7 +812,10 @@ class DialogAgentNode(LifecycleNode):
             tool_args = dict(on_yes.get("args") or {})
             if check_aborted():
                 return TurnResult(messages=messages, stopped_reason="aborted")
-            tool_result = execute_tool(tool_name, tool_args)
+            # confirmed=True (stage2 D1): посетитель уже ответил «да» --
+            # tool_broker.call_tool() пропускает моторный инструмент во
+            # время тура только с этим флагом.
+            tool_result = execute_tool(tool_name, tool_args, confirmed=True)
             record = ToolCallRecord(
                 name=tool_name,
                 args=tool_args,
@@ -984,10 +987,12 @@ class DialogAgentNode(LifecycleNode):
                 finally:
                     stage_timings.append({"stage": "say", "ms": (time.monotonic() - start) * 1000})
 
-            def _execute_tool_timed(name: str, args: dict) -> _RemoteToolResult:
+            def _execute_tool_timed(
+                name: str, args: dict, *, confirmed: bool = False
+            ) -> _RemoteToolResult:
                 start = time.monotonic()
                 try:
-                    return self._execute_tool(name, args)
+                    return self._execute_tool(name, args, confirmed=confirmed)
                 finally:
                     stage_timings.append(
                         {
@@ -1136,7 +1141,12 @@ class DialogAgentNode(LifecycleNode):
             self._handle_transcript(pending_text, is_replay=True)
 
     def _execute_tool(
-        self, name: str, args: dict, *, timeout_s: float | None = None
+        self,
+        name: str,
+        args: dict,
+        *,
+        timeout_s: float | None = None,
+        confirmed: bool = False,
     ) -> _RemoteToolResult:
         timeout = timeout_s if timeout_s is not None else self._service_call_timeout_s
         client = getattr(self, "_call_tool_client", None)
@@ -1145,7 +1155,7 @@ class DialogAgentNode(LifecycleNode):
         try:
             if not client.wait_for_service(timeout_sec=timeout):
                 return _RemoteToolResult(ok=False, message="tool_broker недоступен", data={})
-            request = CallTool.Request(name=name, args_json=json.dumps(args))
+            request = CallTool.Request(name=name, args_json=json.dumps(args), confirmed=confirmed)
             future = client.call_async(request)
         except Exception as error:  # noqa: BLE001 -- InvalidHandle на гонке teardown
             # Демон-поток хода может пережить on_cleanup/on_shutdown: клиент

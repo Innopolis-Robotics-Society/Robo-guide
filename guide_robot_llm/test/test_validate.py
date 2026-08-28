@@ -30,40 +30,13 @@ def test_start_tour_known_tour_id_accepted() -> None:
     )
 
 
-def test_start_tour_from_povtori_rejected() -> None:
-    """Живой баг: «повтори» в IDLE стало start_tour lab_demo, робот поехал."""
-    with pytest.raises(ValidationError, match="явной просьбе"):
-        validate_call(
-            "start_tour",
-            {"tour_id": "lab_demo"},
-            tools_allowed=["start_tour"],
-            known_tour_ids=frozenset({"lab_demo"}),
-            user_text="повтори",
-        )
+def test_guide_to_valid_call_accepted() -> None:
+    """stage2 D1: гейт «только по явной просьбе» убран отсюда -- см. tool_broker_node.
 
-
-def test_start_tour_from_privet_rejected() -> None:
-    with pytest.raises(ValidationError, match="явной просьбе"):
-        validate_call(
-            "start_tour",
-            {"tour_id": "lab_demo"},
-            tools_allowed=["start_tour"],
-            user_text="привет",
-        )
-
-
-def test_start_tour_explicit_excursion_accepted() -> None:
-    validate_call(
-        "start_tour",
-        {"tour_id": "lab_demo"},
-        tools_allowed=["start_tour"],
-        known_tour_ids=frozenset({"lab_demo"}),
-        user_text="проведи экскурсию по лаборатории",
-    )
-
-
-def test_guide_to_without_user_text_stays_programmatic() -> None:
-    """Скрипт/тест без реплики -- гейт не трогает, моторы можно завести руками."""
+    Живой баг, который эта регулярка когда-то чинила («повтори» -> start_tour),
+    теперь закрыт на другом уровне: `tool_broker_node.call_tool()`'s
+    `confirmed`-гейт для моторных инструментов во время тура.
+    """
     validate_call("guide_to", {"location_id": "lab105a"}, tools_allowed=["guide_to"])
 
 
@@ -220,10 +193,10 @@ def test_ask_visitor_on_no_must_be_string() -> None:
         )
 
 
-def test_ask_visitor_on_yes_motion_intent_gate_not_applied_to_user_text() -> None:
-    """stage2 D2 golden case: «хочу посмотреть промобот» не содержит явной просьбы
-    ехать -- but on_yes=guide_to обязан пройти, подтверждение придёт отдельным
-    ходом («да»), а не из этой реплики (C1: user_text в рекурсию не идёт)."""
+def test_ask_visitor_on_yes_guide_to_accepted() -> None:
+    """stage2 D2 golden case: «хочу посмотреть промобот» -- ask_visitor(on_yes=guide_to)
+    валидируется по каталогу/whitelist, без текстового гейта на сам on_yes
+    (тот гейт стадии D1 живёт в tool_broker_node, не здесь -- см. модульный docstring)."""
     validate_call(
         "ask_visitor",
         {
@@ -233,7 +206,6 @@ def test_ask_visitor_on_yes_motion_intent_gate_not_applied_to_user_text() -> Non
         },
         tools_allowed=["ask_visitor", "guide_to"],
         known_location_ids=frozenset({"promobot_m13_artist"}),
-        user_text="хочу посмотреть промобот",
     )
 
 

@@ -38,8 +38,9 @@ def test_guide_to_single_stop_completes_via_broker_only() -> None:
 
 
 def test_start_tour_gate_rejects_second_call_while_active() -> None:
-    """`start_tour` остаётся гейтирован IDLE-only -- в отличие от `guide_to`,
-    который во время тура теперь маппится на `~/redirect` (stage2 B3), не отклоняется."""
+    """`start_tour` во время уже идущего тура -- REJECT (stage2 D1: тот же
+    "подтверди через ask_visitor" гейт, что и для guide_to/tour_by_points,
+    единое сообщение для всех трёх моторных инструментов)."""
     harness = ToolBrokerTestHarness()
     try:
         harness.fixtures.add_exhibit("lab105a", ["Раз.", "Два."], version="rev1")
@@ -53,14 +54,35 @@ def test_start_tour_gate_rejects_second_call_while_active() -> None:
 
         second = harness.broker.call_tool("start_tour", {"tour_id": "full"})
         assert not second.ok
-        assert "недоступен" in second.message
+        assert "ask_visitor" in second.message
     finally:
         harness.shutdown()
 
 
-def test_guide_to_during_tour_redirects_instead_of_rejecting() -> None:
-    """stage2 B3: `guide_to` во время тура прерывает его и едет к новой точке --
-    не REJECT, как раньше, когда инструмент был гейтирован только IDLE."""
+def test_guide_to_during_tour_rejected_without_confirmation() -> None:
+    """stage2 D1: моторный инструмент во время тура без confirmed=True --
+    REJECT "сначала подтверди через ask_visitor", не редирект и не молчаливый REJECT."""
+    harness = ToolBrokerTestHarness()
+    try:
+        harness.fixtures.add_exhibit("lab105a", ["Раз.", "Два."], version="rev1")
+        harness.fixtures.add_location("lab105a", x=1.0, y=2.0)
+        harness.fixtures.add_location("cafe", x=5.0, y=5.0)
+        harness.nav.duration_s = 5.0  # держим NAVIGATING достаточно долго
+
+        first = harness.broker.call_tool("guide_to", {"location_id": "lab105a"})
+        assert first.ok, first.message
+        wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
+
+        unconfirmed = harness.broker.call_tool("guide_to", {"location_id": "cafe"})
+        assert not unconfirmed.ok
+        assert "ask_visitor" in unconfirmed.message
+    finally:
+        harness.shutdown()
+
+
+def test_guide_to_during_tour_redirects_when_confirmed() -> None:
+    """stage2 B3+D1: `guide_to` во время тура С confirmed=True (эквивалент
+    исполнения ask_visitor.on_yes после "да") прерывает тур и едет к новой точке."""
     harness = ToolBrokerTestHarness()
     try:
         harness.fixtures.add_exhibit("lab105a", ["Раз.", "Два."], version="rev1")
@@ -73,7 +95,9 @@ def test_guide_to_during_tour_redirects_instead_of_rejecting() -> None:
         assert first.ok, first.message
         wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
 
-        redirected = harness.broker.call_tool("guide_to", {"location_id": "cafe"})
+        redirected = harness.broker.call_tool(
+            "guide_to", {"location_id": "cafe"}, confirmed=True
+        )
         assert redirected.ok, redirected.message
 
         harness.nav.duration_s = 0.05

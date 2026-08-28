@@ -10,10 +10,11 @@
 
 from __future__ import annotations
 
-from guide_robot_llm.matching import has_motion_intent
-
 __all__ = ["MOTION_TOOLS", "ValidationError", "validate_call"]
 
+# stage2 D1: используется не здесь -- у tool_broker_node.call_tool() для
+# гейта "во время тура моторный инструмент только confirmed=True" (см.
+# докстринг `validate_call`, регулярка/has_motion_intent отсюда убраны).
 MOTION_TOOLS = frozenset({"start_tour", "guide_to", "tour_by_points"})
 
 
@@ -28,23 +29,22 @@ def validate_call(
     tools_allowed: list[str],
     known_location_ids: frozenset[str] = frozenset(),
     known_tour_ids: frozenset[str] = frozenset(),
-    user_text: str | None = None,
 ) -> None:
     """Бросить `ValidationError`, если вызов нельзя отправлять в ROS.
 
-    `user_text` -- последняя реплика посетителя. Для start_tour/guide_to/
-    tour_by_points непустой текст без явной просьбы ехать режет вызов
-    (живой баг: «повтори» -> lab_demo). Пустой/None -- вызов скрипта,
-    гейт не трогает.
+    Гейт «моторный инструмент только по явной просьбе» (regex по подстроке
+    в user_text) убран отсюда (stage2 D1) -- живой баг: он резал ЛЮБОЙ
+    текст без ключевых слов, включая подтверждённый через `ask_visitor`
+    «да». Новая защита -- `tool_broker_node.call_tool()`'s `confirmed`
+    (`CallTool.srv`): вне тура моторный инструмент проходит как есть (цена
+    ошибки мала), во время тура -- только с `confirmed=True`, который
+    выставляет исключительно исполнение `ask_visitor.on_yes` после ответа
+    «да» посетителя. Здесь эта проверка не нужна -- `validate_call` не
+    знает о `MissionState`/turn-контексте, только о `tools_allowed`.
     """
     if name not in tools_allowed:
         available = ", ".join(tools_allowed) or "(ничего)"
         raise ValidationError(f"{name} сейчас недоступен, доступно: {available}")
-    if name in MOTION_TOOLS and user_text and not has_motion_intent(user_text):
-        raise ValidationError(
-            f"{name} только по явной просьбе начать экскурсию/тур или отвести "
-            f"к месту, а реплика {user_text!r} этого не содержит"
-        )
     if name == "ask_visitor":
         _validate_ask_visitor(
             args,
@@ -65,14 +65,9 @@ def _validate_ask_visitor(
     known_location_ids: frozenset[str],
     known_tour_ids: frozenset[str],
 ) -> None:
-    """`on_yes` гоняется через обычный `validate_call`.
+    """`on_yes` гоняется через обычный `validate_call` -- рекурсия глубиной 1.
 
-    Рекурсия глубиной 1 -- `on_yes.tool != "ask_visitor"` проверяется ДО
-    рекурсии (C1). `user_text` в рекурсивный вызов НЕ прокидывается: `on_yes` исполняется
-    позже, по ответу «да», а не по реплике, которая породила сам вопрос --
-    у MOTION_TOOLS гейта (has_motion_intent) здесь нет текста для проверки,
-    да и не должно быть -- подтверждённое через ask_visitor движение и есть
-    новый гейт вместо регулярки по подстроке (stage2 D1).
+    `on_yes.tool != "ask_visitor"` проверяется ДО рекурсии (C1).
     """
     if not str(args.get("question", "")).strip():
         raise ValidationError("ask_visitor: question обязателен")

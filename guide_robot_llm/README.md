@@ -114,7 +114,19 @@ completions`), не ROS-нода и не зависимость этого па�
 
 **Сервис**: `~/call_tool` (`CallTool.srv`, `guide_robot_msgs`) — `name`
 + `args_json` (JSON, не нативный ROS-тип: `.srv` не знает generic
-map/dict) → `ok`/`message`/`data_json`.
+map/dict) + `confirmed` (stage2 D1, по умолчанию `false`) →
+`ok`/`message`/`data_json`.
+
+**Моторный гейт во время тура** (stage2 D1, `call_tool()`): вне тура
+(`IDLE`) `start_tour`/`guide_to`/`tour_by_points` проходят как обычно; во
+время тура — REJECT("сначала подтверди через ask_visitor"), если только
+вызов не пришёл с `confirmed=True`. Этот флаг выставляет ИСКЛЮЧИТЕЛЬНО
+`dialog_agent`, исполняя `ask_visitor.on_yes` после ответа «да» —
+единственный путь к движению из тура. Раньше здесь стояла регулярка по
+подстроке в `tools/validate.py` (`_MOTION_INTENT_RE`/`has_motion_intent`);
+убрана — она резала любой текст без ключевых слов, включая само
+подтверждение «да». `has_motion_intent` не удалена совсем, осталась в
+`matching.py` как более мягкая эвристика допуска в IDLE без wake-слова.
 
 **Действия**: `RunTour` (не ждёт результата — только принятия goal-а:
 рассказ на 3 минуты не должен вешать ход), `Say`, `Narrate` (оба тоже
