@@ -139,7 +139,10 @@ def test_llm_only_false_by_default_keeps_say() -> None:
 
 
 def test_llm_only_still_gates_by_state() -> None:
+    # guide_to -- ALL_STATES с stage2 B3 (во время тура маппится на
+    # ~/redirect брокером, не отдельный гейт по состоянию).
     assert allowed_tools(_S.STATE_NARRATING, llm_only=True) == [
+        "guide_to",
         "stop_tour",
         "pause",
         "noop",

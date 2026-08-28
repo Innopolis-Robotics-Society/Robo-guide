@@ -302,7 +302,7 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | Инструмент | Реальный вызов | Гейт | `llm_visible` | `read_only` |
 |---|---|---|---|---|
 | `start_tour` | `RunTour(tour_id)` | `IDLE` | да | нет |
-| `guide_to` | `RunTour(location_ids=[id])` | `IDLE` | да | нет |
+| `guide_to` | `RunTour(location_ids=[id])` в `IDLE`, `~/redirect` вне (stage2 B3) | любое | да | нет |
 | `tour_by_points` | `EstimateRoute` → `RunTour(location_ids=ordered)` | `IDLE` | да | нет |
 | `stop_tour` | отмена активного `RunTour`-goal-а | любое, кроме `IDLE` | да | нет |
 | `pause` / `resume` | `~/request_pause` / `~/request_resume` | `NARRATING` / `PAUSED` | да | нет |
@@ -397,9 +397,11 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
   `dialog_agent` не подписан ни на одну публикацию текущей позы робота —
   посчитать «рядом» не из чего. Осознанный пробел этого захода, не
   тихий пропуск.
-- **Мид-тур переадресация не реализована.** `guide_to`/`tour_by_points`
-  по-прежнему разрешены только в `IDLE` — «проводи меня к X» во время
-  тура недостижимо без `stop_tour`. См. `DIALOG_REWORK_PLAN.md` §7.5/§11.
+- **Мид-тур переадресация реализована для `guide_to`, не для
+  `tour_by_points`** (stage2 B3): «отведи меня к X» во время тура
+  маппится на `guide_robot_mission_control`'s `~/redirect`, а не на
+  `RunTour`. `tour_by_points` по-прежнему только `IDLE` — составной
+  маршрут посреди тура не заявлен в спеке.
 - **Whitelist локаций/туров в `tool_broker` кэшируется один раз на
   `on_activate`.** Локация/тур, добавленные в `location_server` ПОСЛЕ
   активации `tool_broker`, не пройдут валидацию до следующей

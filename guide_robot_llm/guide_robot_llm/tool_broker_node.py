@@ -41,6 +41,7 @@ from guide_robot_msgs.srv import (
     GetExhibitContent,
     ListLocations,
     ListTours,
+    Redirect,
     ResolveLocation,
     SearchContent,
     SubmitAnswer,
@@ -148,6 +149,9 @@ class ToolBrokerNode(LifecycleNode):
         )
         self._answer_client = self.create_client(
             SubmitAnswer, f"{mission_fsm_ns}/submit_answer", callback_group=self._cb_reentrant
+        )
+        self._redirect_client = self.create_client(
+            Redirect, f"{mission_fsm_ns}/redirect", callback_group=self._cb_reentrant
         )
 
         # -- semantic_map: read-only справочники --
@@ -380,14 +384,33 @@ class ToolBrokerNode(LifecycleNode):
         return self._send_run_tour(goal)
 
     def _tool_guide_to(self, args: dict) -> ToolResult:
+        """Провести к локации: `RunTour` в IDLE, `~/redirect` во время тура (stage2 B3).
+
+        Модели показан один инструмент `guide_to` (`tools/schema.py`
+        разрешает его во ВСЕХ состояниях) -- различие IDLE/не-IDLE решает
+        только брокер, не модель. Второй `RunTour`-goal посреди тура и так
+        был бы REJECT (design §2.4: "один активный goal") -- редирект,
+        а не вложенный тур.
+        """
+        location_id = str(args["location_id"])
+        mission = self.last_mission_state()
+        if mission is not None and mission.state != MissionState.STATE_IDLE:
+            return self._tool_redirect(location_id)
         goal = RunTour.Goal(
-            location_ids=[str(args["location_id"])],
+            location_ids=[location_id],
             greet=bool(args.get("greet", False)),
             narrate=bool(args.get("narrate", True)),
             confirm_between_stops=bool(args.get("confirm_between_stops", False)),
             return_home=bool(args.get("return_home", False)),
         )
         return self._send_run_tour(goal)
+
+    def _tool_redirect(self, location_id: str) -> ToolResult:
+        request = Redirect.Request(location_id=location_id)
+        response = self._call_sync(self._redirect_client, request)
+        if response is None:
+            return ToolResult(ok=False, message="mission_fsm недоступен")
+        return ToolResult(ok=bool(response.accepted), message=response.message)
 
     def _tool_tour_by_points(self, args: dict) -> ToolResult:
         ids = [str(location_id) for location_id in args["location_ids"]]
