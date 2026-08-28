@@ -26,6 +26,7 @@ from guide_robot_semantic_map.lib.content_io import (
     pick_language,
     select_chunks,
 )
+from guide_robot_semantic_map.lib.locations_io import LocationsError, load_locations
 from guide_robot_semantic_map.lib.qos import QOS_SYSTEM_EVENT
 from guide_robot_semantic_map.service_guard import ServiceGuardMixin
 
@@ -39,6 +40,7 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
 
         self.declare_parameter("content_dir", "")
         self.declare_parameter("default_language", "ru")
+        self.declare_parameter("locations_file", "")
 
         self._content: dict[tuple[str, str], ExhibitContent] = {}
         self._active = False
@@ -78,12 +80,51 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
             GetExhibitContent, "~/get_exhibit_content", self._on_get_exhibit_content
         )
 
+        self._stage = "проверка location_ids"
+        self._warn_unknown_location_ids()
+
         self._stage = "готово"
         self.get_logger().info(
             f"content_server сконфигурирован: {len(self._content)} записей "
             f"контента из {content_dir}"
         )
         return TransitionCallbackReturn.SUCCESS
+
+    def _warn_unknown_location_ids(self) -> None:
+        """Предупредить о location_ids, которых нет в locations.yaml -- не отказ.
+
+        content_io.py умышленно не знает про локации (design.md §1.3: модуль
+        читает только content/); эта проверка -- WARN, не FAILURE: контент
+        про город/организацию вправе ссылаться на зону, которой нет среди
+        отдельных локаций. Если сам locations.yaml не загрузился, это забота
+        location_server -- content_server не должен отказывать активацию
+        из-за чужих данных, просто пропускает проверку.
+        """
+        locations_file = str(self.get_parameter("locations_file").value)
+        if not locations_file:
+            locations_file = (
+                f"{get_package_share_directory('guide_robot_semantic_map')}/config/locations.yaml"
+            )
+        try:
+            known_location_ids = set(load_locations(locations_file).locations)
+        except LocationsError as error:
+            self.get_logger().warning(f"locations.yaml не загружен, проверка пропущена: {error}")
+            return
+
+        for content in self._content.values():
+            unknown = [lid for lid in content.location_ids if lid not in known_location_ids]
+            if not unknown:
+                continue
+            detail = (
+                f"exhibit_id={content.exhibit_id} language={content.language} "
+                f"неизвестные location_ids={unknown}"
+            )
+            self.get_logger().warning(
+                f"content location_ids не найдены в locations.yaml: {detail}"
+            )
+            self._publish_system_event(
+                "semantic_map.content_unknown_location_id", SystemEvent.WARN, detail
+            )
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         """Начать отвечать на сервис."""
@@ -150,6 +191,8 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
 
         content = self._content[(request.exhibit_id, language)]
         response.chunks = select_chunks(content, mode)
+        response.title = content.title
+        response.kind = content.kind
         response.version = content.version
         return response
 

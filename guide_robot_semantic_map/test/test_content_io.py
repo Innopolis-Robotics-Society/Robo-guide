@@ -228,3 +228,60 @@ def test_pick_language_empty_requested_uses_default() -> None:
 
 def test_pick_language_nothing_available() -> None:
     assert pick_language({"de"}, "fr", default_language="ru") is None
+
+
+# -- kind / location_ids (design.md §1.3, CLAUDE_CODE_TASK_stage1_knowledge.md §1) ----
+
+
+def test_kind_defaults_to_exhibit(tmp_path: Path) -> None:
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", _content_doc())
+    content, _ = load_content_file(path)
+    assert content.kind == "exhibit"
+
+
+def test_kind_explicit_value_accepted(tmp_path: Path) -> None:
+    doc = _content_doc(kind="place")
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    assert content.kind == "place"
+
+
+def test_rejects_unknown_kind(tmp_path: Path) -> None:
+    doc = _content_doc(kind="painting")
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="kind"):
+        load_content_file(path)
+
+
+def test_location_ids_defaults_to_exhibit_id_for_exhibit_kind(tmp_path: Path) -> None:
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", _content_doc())
+    content, _ = load_content_file(path)
+    assert content.location_ids == ["kandinsky_viii"]
+
+
+def test_location_ids_defaults_to_empty_for_non_exhibit_kind(tmp_path: Path) -> None:
+    doc = _content_doc(kind="city")
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    assert content.location_ids == []
+
+
+def test_location_ids_explicit_value_accepted(tmp_path: Path) -> None:
+    doc = _content_doc(kind="place", location_ids=["entrance", "robo_guide"])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    assert content.location_ids == ["entrance", "robo_guide"]
+
+
+def test_rejects_non_string_location_ids(tmp_path: Path) -> None:
+    doc = _content_doc(location_ids=["entrance", 5])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="location_ids"):
+        load_content_file(path)
+
+
+def test_rejects_empty_string_location_id(tmp_path: Path) -> None:
+    doc = _content_doc(location_ids=["entrance", ""])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="location_ids"):
+        load_content_file(path)

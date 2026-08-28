@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,8 @@ __all__ = [
 ]
 
 VALID_LEVELS: frozenset[str] = frozenset(["short", "full"])
+VALID_KINDS: frozenset[str] = frozenset(["exhibit", "place", "city", "org", "transit"])
+_DEFAULT_KIND = "exhibit"
 _MAX_SENTENCES_SOFT = 3
 _SENTENCE_END = re.compile(r"[.!?…]+")
 
@@ -52,7 +54,17 @@ class Chunk:
 
 @dataclass(frozen=True)
 class ExhibitContent:
-    """Разобранный и провалидированный content/<exhibit_id>.<language>.yaml."""
+    """Разобранный и провалидированный content/<exhibit_id>.<language>.yaml.
+
+    `kind` различает, о чём текст: `exhibit` (по умолчанию) -- конкретный
+    экспонат, `place`/`city`/`org` -- площадка/город/организация,
+    `transit` -- зарезервировано под транзитный нарратив (design mission
+    §5.6, этап 2). `location_ids` -- локации, к которым привязан текст, для
+    буста поиска (`lib/search.py`) и автоподстановки "по месту"; по
+    умолчанию `[exhibit_id]` для `kind == exhibit` (текст экспоната всегда
+    привязан к его собственной локации), иначе пустой список -- контент про
+    город/организацию не обязан ссылаться ни на одну локацию.
+    """
 
     exhibit_id: str
     language: str
@@ -61,6 +73,8 @@ class ExhibitContent:
     chunks: list[Chunk]
     reviewed_by: str | None
     reviewed_at: str | None
+    kind: str = _DEFAULT_KIND
+    location_ids: list[str] = field(default_factory=list)
 
 
 def load_content_file(path: str | Path) -> tuple[ExhibitContent, list[str]]:
@@ -134,6 +148,8 @@ def _parse_content(document: dict[str, Any], *, source: str) -> ExhibitContent:
     title = _require_str(document, "title", source)
     reviewed_by = document.get("reviewed_by")
     reviewed_at = document.get("reviewed_at")
+    kind = _parse_kind(document, source)
+    location_ids = _parse_location_ids(document, source, exhibit_id=exhibit_id, kind=kind)
 
     raw_chunks = document.get("chunks")
     if not isinstance(raw_chunks, list) or not raw_chunks:
@@ -159,7 +175,27 @@ def _parse_content(document: dict[str, Any], *, source: str) -> ExhibitContent:
         chunks=chunks,
         reviewed_by=reviewed_by if isinstance(reviewed_by, str) else None,
         reviewed_at=reviewed_at if isinstance(reviewed_at, str) else None,
+        kind=kind,
+        location_ids=location_ids,
     )
+
+
+def _parse_kind(document: dict[str, Any], source: str) -> str:
+    kind = document.get("kind", _DEFAULT_KIND)
+    if kind not in VALID_KINDS:
+        raise ContentError(f"{source}: kind={kind!r} не входит в {sorted(VALID_KINDS)}")
+    return kind
+
+
+def _parse_location_ids(
+    document: dict[str, Any], source: str, *, exhibit_id: str, kind: str
+) -> list[str]:
+    raw = document.get("location_ids")
+    if raw is None:
+        return [exhibit_id] if kind == "exhibit" else []
+    if not isinstance(raw, list) or not all(isinstance(item, str) and item for item in raw):
+        raise ContentError(f"{source}: location_ids должен быть списком непустых строк")
+    return list(raw)
 
 
 def _parse_chunk(raw: Any, index: int, source: str) -> Chunk:
