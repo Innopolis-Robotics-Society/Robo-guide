@@ -96,7 +96,14 @@ def _run_one(
         start = time.monotonic()
         try:
             return complete_with_fallback(
-                [backend], messages, grammar=None, max_tokens=160, temperature=0.6
+                [backend],
+                messages,
+                grammar=None,
+                max_tokens=160,
+                temperature=0.6,
+                # stage5 п.3: тот же default, что llm.answer_frequency_penalty
+                # в config/llm.yaml -- иначе golden-прогон не проверяет фикс.
+                frequency_penalty=0.4,
             )
         finally:
             timings["llm_answer"] = (time.monotonic() - start) * 1000
@@ -121,6 +128,9 @@ def _run_one(
         tool_names=tools_allowed,
         action_instruction=action_instruction,
         answer_instruction=answer_instruction,
+        # stage5 п.2: без якоря golden-прогон не проверяет фикс "отвечает на
+        # позапрошлый вопрос" -- utterance обязана дойти до фазы реплики.
+        utterance=utterance,
     )
     overlap = max_shingle_overlap(result.answer_text, corpus_texts)
     return _Outcome(
@@ -131,6 +141,18 @@ def _run_one(
         llm_answer_ms=timings.get("llm_answer"),
         llm_action_ms=timings.get("llm_action"),
     )
+
+
+def _args_match(expected: dict, actual: dict | None) -> bool:
+    """`expected` -- подмножество `actual`, а не точное равенство: golden-запись
+    заявляет только то, что ей важно (например `outcome`), не весь набор args."""
+    if actual is None:
+        return False
+    return all(actual.get(key) == value for key, value in expected.items())
+
+
+def _answer_contains_any(answer_text: str, expected_substrings: list[str]) -> bool:
+    return any(substring in answer_text for substring in expected_substrings)
 
 
 def _percentile(values: list[float], pct: float) -> float:
@@ -155,6 +177,14 @@ def evaluate(
     `dump_jsonl` (stage3.5 §5) -- один JSON-объект на кейс golden-набора
     (utterance/mission_state/expected_tool/actual_tool/args/answer_text/
     pass), для приложения "до"/"после" правок промпта как двух файлов.
+
+    Опциональные поля golden-записи (stage5 п.5): `expected_args` (dict) --
+    сверяется как подмножество `args` реального вызова, ТОЛЬКО если
+    инструмент уже совпал (иначе двойной провал считается одной ошибкой
+    выбора инструмента, не двумя); `expected_answer_contains` (list[str]) --
+    `answer_text` обязан содержать хотя бы одну из подстрок (случай "четыре"
+    ИЛИ "4" для арифметики -- единственный кейс с проверкой текста, она
+    детерминирована достаточно, чтобы не флакать на свободном тексте).
     """
     records = _load_jsonl(golden_path)
     preamble = preamble_path.read_text(encoding="utf-8")
@@ -177,6 +207,7 @@ def evaluate(
 
     tool_correct = 0
     confusion: Counter[tuple[str, str, str]] = Counter()
+    content_failures: list[str] = []
     non_empty_answers = 0
     verbatim_flagged = 0
     answering_reply = 0
@@ -187,10 +218,28 @@ def evaluate(
 
     for outcome, record in zip(outcomes, records, strict=True):
         actual_tool = outcome.result.action.name if outcome.result.action is not None else None
-        passed = actual_tool == outcome.expected_tool
+        actual_args = outcome.result.action.args if outcome.result.action is not None else None
+        tool_ok = actual_tool == outcome.expected_tool
+        passed = tool_ok
+        if tool_ok:
+            expected_args = record.get("expected_args")
+            if expected_args and not _args_match(expected_args, actual_args):
+                passed = False
+                content_failures.append(
+                    f"{record['utterance']!r}: args {actual_args} != ожидали {expected_args}"
+                )
+            expected_answer_contains = record.get("expected_answer_contains")
+            if expected_answer_contains and not _answer_contains_any(
+                outcome.result.answer_text, expected_answer_contains
+            ):
+                passed = False
+                content_failures.append(
+                    f"{record['utterance']!r}: ответ {outcome.result.answer_text!r} "
+                    f"не содержит ни одной из {expected_answer_contains}"
+                )
         if passed:
             tool_correct += 1
-        else:
+        elif not tool_ok:
             confusion[(outcome.mission_state, str(outcome.expected_tool), str(actual_tool))] += 1
 
         if outcome.result.answer_text.strip():
@@ -214,7 +263,7 @@ def evaluate(
                 "mission_state": outcome.mission_state,
                 "expected_tool": outcome.expected_tool,
                 "actual_tool": actual_tool,
-                "args": outcome.result.action.args if outcome.result.action is not None else None,
+                "args": actual_args,
                 "answer_text": outcome.result.answer_text,
                 "pass": passed,
             }
@@ -226,6 +275,10 @@ def evaluate(
         print("ошибки (mission_state: ожидали -> получили): count")
         for (state, expected, actual), count in sorted(confusion.items(), key=lambda kv: -kv[1]):
             print(f"  {state}: {expected} -> {actual}: {count}")
+    if content_failures:
+        print("инструмент выбран верно, но args/текст ответа не совпали:")
+        for note in content_failures:
+            print(f"  {note}")
     print(
         f"доля ходов с непустым ответом фазы 1: "
         f"{non_empty_answers}/{total} = {non_empty_answers / total:.1%}"
