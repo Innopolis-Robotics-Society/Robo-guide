@@ -58,6 +58,16 @@ def test_finish_answer_only_allowed_answering() -> None:
     assert not is_tool_allowed("finish_answer", _S.STATE_AWAITING_CONFIRM)
 
 
+def test_finish_answer_description_directs_resume_intent_to_outcome_zero() -> None:
+    """stage5 п.4: живой пропуск, ход 8 -- "хорошо поезжай" в ANSWERING ушло в
+    reply, робот не поехал. Описание обязано явно называть outcome=0 (resume)
+    для намерения "продолжай"/"поезжай", сохраняя исходную формулировку."""
+    description = tool_spec("finish_answer").description
+    assert "Закрыть текущий вопрос посетителя" in description
+    assert "outcome=0" in description
+    assert "поезжай" in description
+
+
 def test_say_allowed_in_every_state() -> None:
     for state in range(9):
         assert is_tool_allowed("say", state)
