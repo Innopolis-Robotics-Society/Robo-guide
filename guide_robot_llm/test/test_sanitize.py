@@ -24,7 +24,7 @@ def test_tool_call_json_with_nested_args_becomes_empty() -> None:
 
 
 def test_tool_call_json_with_surrounding_whitespace_becomes_empty() -> None:
-    raw = '  \n {"tool": "noop", "args": {}} \n '
+    raw = '  \n {"tool": "reply", "args": {}} \n '
     assert sanitize_answer(raw) == ""
 
 
@@ -39,17 +39,17 @@ def test_ordinary_text_with_brace_like_words_is_untouched() -> None:
 
 
 def test_tool_call_json_glued_to_tail_of_text_is_cut() -> None:
-    raw = 'Я не знаю, что вы хотите. {"tool": "noop", "args": {}}'
+    raw = 'Я не знаю, что вы хотите. {"tool": "reply", "args": {}}'
     assert sanitize_answer(raw) == "Я не знаю, что вы хотите."
 
 
 def test_tool_call_json_at_start_with_trailing_text_is_cut_entirely() -> None:
-    raw = '{"tool": "noop", "args": {}} вот и всё.'
+    raw = '{"tool": "reply", "args": {}} вот и всё.'
     assert sanitize_answer(raw) == ""
 
 
 def test_tool_call_json_glued_to_middle_of_text_is_cut() -> None:
-    raw = 'Хорошо. {"tool": "noop", "args": {}} это лишнее.'
+    raw = 'Хорошо. {"tool": "reply", "args": {}} это лишнее.'
     assert sanitize_answer(raw) == "Хорошо."
 
 

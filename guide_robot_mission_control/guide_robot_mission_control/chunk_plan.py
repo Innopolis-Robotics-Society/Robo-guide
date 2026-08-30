@@ -16,7 +16,24 @@ from enum import IntEnum
 
 from guide_robot_mission_control.resume import ResumeToken
 
-__all__ = ["ChunkPlan", "ChunkState"]
+__all__ = ["ChunkPlan", "ChunkSpec", "ChunkState"]
+
+
+@dataclass(frozen=True)
+class ChunkSpec:
+    """Один чанк на входе `ChunkPlan` -- текст + атрибуты непрерываемой речи (stage4 §1/§2).
+
+    `ChunkPlan.__init__` также принимает голые `str` (эквивалент
+    `ChunkSpec(text)` -- interruptible=True, pause_after_s=0.0) ради
+    обратной совместимости: большинство сценариев (`test_chunk_plan.py`,
+    `test_narration_resume.py`) не касаются этих атрибутов вовсе, и
+    заставлять их оборачивать каждый чанк в ChunkSpec было бы лишним
+    переписыванием без выгоды.
+    """
+
+    text: str
+    interruptible: bool = True
+    pause_after_s: float = 0.0
 
 
 class ChunkState(IntEnum):
@@ -36,6 +53,8 @@ class ChunkState(IntEnum):
 @dataclass
 class _ChunkRecord:
     text: str
+    interruptible: bool = True
+    pause_after_s: float = 0.0
     state: ChunkState = ChunkState.PENDING
     spoken_chars: int = 0
 
@@ -43,11 +62,11 @@ class _ChunkRecord:
 class ChunkPlan:
     """Прогресс одного Narrate goal по элементам GetExhibitContent.chunks."""
 
-    def __init__(  # noqa: PLR0913 -- один конструктор значения, не команда с побочными эффектами
+    def __init__(  # noqa: PLR0913, PLR0917 -- конструктор значения, не команда с побочными эффектами
         self,
         exhibit_id: str,
         version: str,
-        chunks: list[str],
+        chunks: list[str | ChunkSpec],
         start_idx: int = 0,
         skipped: set[int] | frozenset[int] | None = None,
         lookahead: int = 1,
@@ -75,7 +94,13 @@ class ChunkPlan:
         self.exhibit_id = exhibit_id
         self.version = version
         self.lookahead = lookahead
-        self._records = [_ChunkRecord(text=text) for text in chunks]
+        specs = [chunk if isinstance(chunk, ChunkSpec) else ChunkSpec(chunk) for chunk in chunks]
+        self._records = [
+            _ChunkRecord(
+                text=spec.text, interruptible=spec.interruptible, pause_after_s=spec.pause_after_s
+            )
+            for spec in specs
+        ]
         for idx, record in enumerate(self._records[:start_idx]):
             if idx in skipped:
                 record.state = ChunkState.SKIPPED
@@ -92,13 +117,32 @@ class ChunkPlan:
         """Исходный текст чанка idx (для отправки в Say)."""
         return self._records[idx].text
 
+    def chunk_interruptible(self, idx: int) -> bool:
+        """`interruptible` чанка idx -- для `Say.Goal.interruptible` (stage4 §2)."""
+        return self._records[idx].interruptible
+
+    def chunk_pause_after_s(self, idx: int) -> float:
+        """`pause_after_s` чанка idx -- тишина после него до следующего (stage4 §2.4)."""
+        return self._records[idx].pause_after_s
+
     def state_of(self, idx: int) -> ChunkState:
         """Текущее состояние чанка idx."""
         return self._records[idx].state
 
     def next_to_send(self) -> int | None:
-        """Вернуть первый PENDING чанк, если в полёте (SENT+SPEAKING) <= lookahead, иначе None."""
+        """Вернуть первый PENDING чанк, если в полёте (SENT+SPEAKING) <= lookahead, иначе None.
+
+        stage4 §2.4: чанк в полёте с `pause_after_s > 0` -- локальный барьер
+        lookahead=0, независимо от параметра `lookahead` узла. Иначе
+        конвейер пред-отправил бы следующий чанк, пока этот ещё звучит, и
+        пауза после него осталась бы неслышной -- следующий уже играл бы
+        встык. Сама постpause-тишина (после DONE) гейтится вызывающим
+        кодом (`narration_server_node.py::_pause_active`), не здесь --
+        план не знает о времени.
+        """
         inflight_states = (ChunkState.SENT, ChunkState.SPEAKING)
+        if any(r.state in inflight_states and r.pause_after_s > 0.0 for r in self._records):
+            return None
         inflight = sum(1 for r in self._records if r.state in inflight_states)
         if inflight > self.lookahead:
             return None

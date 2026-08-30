@@ -60,6 +60,16 @@ class TourPlan:
         """True, если после текущей остановки в туре есть ещё хотя бы одна."""
         return self.index + 1 < len(self.stop_ids)
 
+    @property
+    def next_stop_id(self) -> str:
+        """location_id следующей остановки (stage3 C4) -- пусто, если текущая последняя."""
+        return self.stop_ids[self.index + 1] if self.has_next_stop else ""
+
+    @property
+    def next_exhibit_id(self) -> str:
+        """exhibit_id следующей остановки (stage3 C4) -- пусто, если текущая последняя."""
+        return self.exhibit_ids[self.index + 1] if self.has_next_stop else ""
+
 
 @dataclass
 class Blackboard:

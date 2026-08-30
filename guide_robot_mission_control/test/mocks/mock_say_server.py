@@ -80,6 +80,10 @@ class MockSayServer(Node):
         # stage2 блок E: тексты реально принятых Say-целей -- тест на
         # транзитный нарратив проверяет, что произнесён именно ожидаемый чанк.
         self.texts_received: list[str] = []
+        # stage4 §2.5: interruptible реально принятых целей, тем же порядком,
+        # что texts_received -- проверить, что narration_server больше не
+        # хардкодит True, а передаёт атрибут чанка.
+        self.interruptible_received: list[bool] = []
         self._active_goal_id: str | None = None
         self._queue: list[_QueuedGoal] = []
         self._preempted_goal_ids: set[str] = set()
@@ -136,6 +140,7 @@ class MockSayServer(Node):
         with self._lock:
             self.goals_received += 1
             self.texts_received.append(goal_request.text)
+            self.interruptible_received.append(bool(goal_request.interruptible))
         if not goal_request.text.strip():
             return GoalResponse.REJECT
         return GoalResponse.ACCEPT

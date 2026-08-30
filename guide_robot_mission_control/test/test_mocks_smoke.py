@@ -201,7 +201,7 @@ def test_semantic_map_services_serve_fixtures(harness: MissionTestHarness) -> No
     )
     wait_for_future(future)
     response = future.result()
-    assert list(response.chunks) == ["Первый чанк.", "Второй чанк."]
+    assert [c.text for c in response.chunks] == ["Первый чанк.", "Второй чанк."]
     assert response.version == "rev1"
 
     locations_client = client_node.create_client(ListLocations, "/location_server/list_locations")

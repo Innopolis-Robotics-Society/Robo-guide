@@ -141,7 +141,9 @@ def _percentile(values: list[float], pct: float) -> float:
     return ordered[index]
 
 
-def evaluate(golden_path: Path, preamble_path: Path, base_url: str) -> None:
+def evaluate(
+    golden_path: Path, preamble_path: Path, base_url: str, dump_jsonl: Path | None = None
+) -> None:
     """Прогнать `golden_path` через `base_url`, напечатать сводку метрик в stdout.
 
     Локальный корпус знаний убран (CLAUDE_CODE_TASK_stage1_knowledge.md
@@ -149,6 +151,10 @@ def evaluate(golden_path: Path, preamble_path: Path, base_url: str) -> None:
     корпуса, только `""` -- полная адаптация под справку из
     `guide_robot_semantic_map` (per-ход `references`) -- отдельная задача
     (п.9.1), не входит в этот скрипт-заготовку.
+
+    `dump_jsonl` (stage3.5 §5) -- один JSON-объект на кейс golden-набора
+    (utterance/mission_state/expected_tool/actual_tool/args/answer_text/
+    pass), для приложения "до"/"после" правок промпта как двух файлов.
     """
     records = _load_jsonl(golden_path)
     preamble = preamble_path.read_text(encoding="utf-8")
@@ -173,14 +179,16 @@ def evaluate(golden_path: Path, preamble_path: Path, base_url: str) -> None:
     confusion: Counter[tuple[str, str, str]] = Counter()
     non_empty_answers = 0
     verbatim_flagged = 0
-    answering_noop = 0
+    answering_reply = 0
     answering_total = 0
     answer_times: list[float] = []
     action_times: list[float] = []
+    dump_records: list[dict] = []
 
-    for outcome in outcomes:
+    for outcome, record in zip(outcomes, records, strict=True):
         actual_tool = outcome.result.action.name if outcome.result.action is not None else None
-        if actual_tool == outcome.expected_tool:
+        passed = actual_tool == outcome.expected_tool
+        if passed:
             tool_correct += 1
         else:
             confusion[(outcome.mission_state, str(outcome.expected_tool), str(actual_tool))] += 1
@@ -192,13 +200,25 @@ def evaluate(golden_path: Path, preamble_path: Path, base_url: str) -> None:
 
         if outcome.mission_state == "ANSWERING":
             answering_total += 1
-            if actual_tool == "noop":
-                answering_noop += 1
+            if actual_tool == "reply":
+                answering_reply += 1
 
         if outcome.llm_answer_ms is not None:
             answer_times.append(outcome.llm_answer_ms)
         if outcome.llm_action_ms is not None:
             action_times.append(outcome.llm_action_ms)
+
+        dump_records.append(
+            {
+                "utterance": record["utterance"],
+                "mission_state": outcome.mission_state,
+                "expected_tool": outcome.expected_tool,
+                "actual_tool": actual_tool,
+                "args": outcome.result.action.args if outcome.result.action is not None else None,
+                "answer_text": outcome.result.answer_text,
+                "pass": passed,
+            }
+        )
 
     print(f"ходов: {total}")
     print(f"accuracy выбора инструмента: {tool_correct}/{total} = {tool_correct / total:.1%}")
@@ -216,8 +236,8 @@ def evaluate(golden_path: Path, preamble_path: Path, base_url: str) -> None:
     )
     if answering_total:
         print(
-            f"доля noop в ANSWERING: "
-            f"{answering_noop}/{answering_total} = {answering_noop / answering_total:.1%}"
+            f"доля reply в ANSWERING: "
+            f"{answering_reply}/{answering_total} = {answering_reply / answering_total:.1%}"
         )
     if answer_times:
         print(
@@ -230,6 +250,12 @@ def evaluate(golden_path: Path, preamble_path: Path, base_url: str) -> None:
             f"p95={_percentile(action_times, 0.95):.0f}ms"
         )
 
+    if dump_jsonl is not None:
+        with dump_jsonl.open("w", encoding="utf-8") as f:
+            for dump_record in dump_records:
+                f.write(json.dumps(dump_record, ensure_ascii=False) + "\n")
+        print(f"дамп по кейсам: {dump_jsonl}")
+
 
 def main() -> None:
     """CLI-обвязка."""
@@ -237,8 +263,9 @@ def main() -> None:
     parser.add_argument("--golden", type=Path, default=_DEFAULT_GOLDEN)
     parser.add_argument("--preamble", type=Path, default=_DEFAULT_PREAMBLE)
     parser.add_argument("--base-url", default="http://127.0.0.1:18080/v1")
+    parser.add_argument("--dump-jsonl", type=Path, default=None)
     args = parser.parse_args()
-    evaluate(args.golden, args.preamble, args.base_url)
+    evaluate(args.golden, args.preamble, args.base_url, dump_jsonl=args.dump_jsonl)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ DIALOG_REWORK_PLAN.md §9.3: раньше `say` был доступен ЛЛМ �
 никогда не вызывая `finish_answer` -- кадр не закрывался, FSM висел до
 `answer_max_s`. Теперь `say` не входит в каталог, видимый модели
 (`schema.allowed_tools(state, llm_only=True)`), поэтому в `ANSWERING`
-единственные действия фазы 2 -- `finish_answer`/`stop_tour`/`noop`. Этот
+единственные действия фазы 2 -- `finish_answer`/`stop_tour`/`reply`. Этот
 тест фиксирует инвариант на уровне каталога и на уровне полного хода
 (`run_turn` на фейках), без ROS.
 """
@@ -33,10 +33,10 @@ def test_say_not_in_llm_visible_catalog_for_answering() -> None:
     visible = allowed_tools(MissionState.STATE_ANSWERING, llm_only=True)
     assert "say" not in visible
     assert "finish_answer" in visible
-    assert "noop" in visible
+    assert "reply" in visible
 
 
-def test_turn_in_answering_ends_via_finish_answer_or_noop_never_say() -> None:
+def test_turn_in_answering_ends_via_finish_answer_or_reply_never_say() -> None:
     tool_names = allowed_tools(MissionState.STATE_ANSWERING, llm_only=True)
 
     def complete_answer(messages: list[dict]) -> CompletionResult:
@@ -63,12 +63,12 @@ def test_turn_in_answering_ends_via_finish_answer_or_noop_never_say() -> None:
     )
 
     assert result.action is not None
-    assert result.action.name in ("finish_answer", "noop")
+    assert result.action.name in ("finish_answer", "reply")
     assert result.stopped_reason == "ok"
 
 
-def test_turn_in_answering_noop_still_closes_the_turn_not_the_frame() -> None:
-    """`noop` -- полноправное действие: ход заканчивается, даже если кадр `ANSWERING`
+def test_turn_in_answering_reply_still_closes_the_turn_not_the_frame() -> None:
+    """`reply` -- полноправное действие: ход заканчивается, даже если кадр `ANSWERING`
     не закрыт этим ходом -- закрытие кадра остаётся отдельным решением модели/FSM,
     не блокирующим завершение ХОДА диалога."""
     tool_names = allowed_tools(MissionState.STATE_ANSWERING, llm_only=True)
@@ -79,7 +79,7 @@ def test_turn_in_answering_noop_still_closes_the_turn_not_the_frame() -> None:
 
     def complete_action(messages: list[dict], grammar: str) -> CompletionResult:
         del messages, grammar
-        return CompletionResult(text=json.dumps({"tool": "noop", "args": {}}))
+        return CompletionResult(text=json.dumps({"tool": "reply", "args": {}}))
 
     result = run_turn(
         system_prompt="sys",
@@ -95,4 +95,4 @@ def test_turn_in_answering_noop_still_closes_the_turn_not_the_frame() -> None:
     )
 
     assert result.stopped_reason == "ok"
-    assert result.action.name == "noop"
+    assert result.action.name == "reply"

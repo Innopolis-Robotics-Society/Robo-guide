@@ -143,7 +143,7 @@ def test_action_instruction_mentions_json_form_with_think() -> None:
     instruction = build_action_instruction([_STOP])
     assert '{"think"' in instruction
     assert '"tool"' in instruction
-    assert "noop" in instruction
+    assert "reply" in instruction
 
 
 def test_action_instruction_targets_last_utterance() -> None:
@@ -184,6 +184,22 @@ def test_action_instruction_does_not_discourage_noop_as_a_delay_tactic() -> None
     assert "не способ отложить решение" not in instruction
 
 
+def test_action_instruction_frames_reply_as_default_for_small_talk() -> None:
+    """stage3.5 п.1.3: живой баг -- модель тянулась к туровым инструментам на
+    обычные реплики (эмоции, комментарии, вопросы) без явной просьбы действовать."""
+    instruction = build_action_instruction([_STOP])
+    assert "reply" in instruction
+    assert "НЕ команды" in instruction
+
+
+def test_action_instruction_motion_during_tour_names_greeting_and_free_states() -> None:
+    """stage3.5 п.4.1: ask_visitor нужен только во время движения/рассказа/начала
+    тура -- если робот стоит и свободен, guide_to выполняется сразу."""
+    instruction = build_action_instruction([_STOP])
+    assert "движения, рассказа или в самом начале тура" in instruction
+    assert "стоит и свободен" in instruction
+
+
 # -- build_answer_instruction: статичная инструкция фазы реплики --
 
 
@@ -208,3 +224,13 @@ def test_answer_instruction_demands_retelling_not_quoting() -> None:
     instruction = build_answer_instruction()
     assert "своими словами" in instruction
     assert "не цитируй" in instruction
+
+
+def test_answer_instruction_treats_motion_as_a_process_not_a_result() -> None:
+    """stage3.5 п.3: живые примеры лжи (ходы 6, 9, 12) -- "мы стоим перед
+    экспонатом" в момент старта движения. Робот только начал ехать."""
+    instruction = build_answer_instruction()
+    assert "guide_to" in instruction
+    assert "только НАЧАЛ ехать" in instruction
+    assert "мы стоим перед" in instruction
+    assert "мы на месте" in instruction

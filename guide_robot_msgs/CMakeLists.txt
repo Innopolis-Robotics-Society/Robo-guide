@@ -44,6 +44,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Presence.msg"
   "msg/InteractionEvent.msg"
   "msg/ContentHit.msg"
+  "msg/ExhibitChunk.msg"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs
 )
 

@@ -616,7 +616,7 @@ class MissionFsmNode(LifecycleNode):
         )
         if not _wait_future(future, self.context, self._params["service_call_timeout_s"]):
             return []
-        return list(future.result().chunks)
+        return [chunk.text for chunk in future.result().chunks]
 
     def _fetch_locations(self) -> dict[str, PoseStamped] | None:
         if not self._list_locations_client.wait_for_service(
@@ -805,6 +805,8 @@ class MissionFsmNode(LifecycleNode):
         msg.stop_total = len(blackboard.tour.stop_ids)
         msg.stop_id = blackboard.tour.current_stop_id
         msg.exhibit_id = blackboard.tour.current_exhibit_id
+        msg.next_stop_id = blackboard.tour.next_stop_id
+        msg.next_exhibit_id = blackboard.tour.next_exhibit_id
         msg.resume_token = blackboard.resume_token
         msg.resume_available = bool(blackboard.resume_token)
         # stage2 D3: hold_position -- единственный сейчас реальный источник
@@ -848,6 +850,8 @@ class MissionFsmNode(LifecycleNode):
             msg.stop_total = last.stop_total
             msg.stop_id = last.stop_id
             msg.exhibit_id = last.exhibit_id
+            msg.next_stop_id = last.next_stop_id
+            msg.next_exhibit_id = last.next_exhibit_id
             msg.resume_token = last.resume_token
             msg.resume_available = last.resume_available
             self._state_pub.publish(msg)

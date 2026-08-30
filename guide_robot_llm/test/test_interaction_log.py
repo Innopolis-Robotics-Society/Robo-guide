@@ -15,7 +15,7 @@ def _result(**overrides) -> TurnResult:
         "answer_text": "Привет!",
         "answer_raw_text": "Привет!",
         "answer_finish_reason": "stop",
-        "action_raw_text": '{"tool": "noop", "args": {}}',
+        "action_raw_text": '{"tool": "reply", "args": {}}',
         "action_finish_reason": "stop",
         "say_ok": True,
         "action": None,
@@ -79,12 +79,12 @@ def test_record_carries_raw_llm_input_and_output() -> None:
             {"role": "user", "content": "снимок"},
             {"role": "assistant", "content": "# Заголовок\nПривет!"},
             {"role": "user", "content": "PHASE2"},
-            {"role": "assistant", "content": '{"tool": "noop", "args": {}}'},
+            {"role": "assistant", "content": '{"tool": "reply", "args": {}}'},
         ],
         answer_text="Заголовок Привет!",
         answer_raw_text="# Заголовок\nПривет!",
         answer_finish_reason="stop",
-        action_raw_text='{"tool": "noop", "args": {}}',
+        action_raw_text='{"tool": "reply", "args": {}}',
         action_finish_reason="stop",
     )
     record = build_interaction_record(**_base_kwargs(result=result))
@@ -92,7 +92,7 @@ def test_record_carries_raw_llm_input_and_output() -> None:
     assert record["llm_messages"] == result.messages
     assert record["answer_raw_text"] == "# Заголовок\nПривет!"
     assert record["answer_finish_reason"] == "stop"
-    assert record["action_raw_text"] == '{"tool": "noop", "args": {}}'
+    assert record["action_raw_text"] == '{"tool": "reply", "args": {}}'
     assert record["action_finish_reason"] == "stop"
 
 
@@ -115,12 +115,12 @@ def test_action_none_when_turn_result_has_no_action() -> None:
 
 def test_action_serialized_with_content_version_none_when_absent() -> None:
     call = ToolCallRecord(
-        name="noop", args={}, result_ok=True, result_message="", result_data={}
+        name="reply", args={}, result_ok=True, result_message="", result_data={}
     )
     record = build_interaction_record(**_base_kwargs(result=_result(action=call)))
 
     assert record["action"] == {
-        "tool": "noop",
+        "tool": "reply",
         "args": {},
         "think": "",
         "ok": True,

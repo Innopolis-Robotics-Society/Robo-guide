@@ -13,6 +13,7 @@ from guide_robot_semantic_map.lib.content_io import (
     load_content_file,
     pick_language,
     select_chunk_ids,
+    select_chunk_objects,
     select_chunks,
 )
 
@@ -304,3 +305,116 @@ def test_rejects_empty_string_location_id(tmp_path: Path) -> None:
     path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
     with pytest.raises(ContentError, match="location_ids"):
         load_content_file(path)
+
+
+# -- interruptible / pause_after_s (stage4 §1.1) ------------------------------
+
+
+def test_chunk_interruptible_defaults_true(tmp_path: Path) -> None:
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", _content_doc())
+    content, _ = load_content_file(path)
+    assert all(c.interruptible is True for c in content.chunks)
+
+
+def test_chunk_pause_after_s_defaults_zero(tmp_path: Path) -> None:
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", _content_doc())
+    content, _ = load_content_file(path)
+    assert all(c.pause_after_s == 0.0 for c in content.chunks)
+
+
+def test_chunk_interruptible_and_pause_after_s_explicit_values(tmp_path: Path) -> None:
+    doc = _content_doc(
+        chunks=[
+            {
+                "id": "c1",
+                "level": "short",
+                "text": "Я добрый. Так написано в инструкции.",
+                "interruptible": False,
+                "pause_after_s": 1.2,
+            }
+        ]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    assert content.chunks[0].interruptible is False
+    assert content.chunks[0].pause_after_s == 1.2
+
+
+def test_rejects_non_bool_interruptible(tmp_path: Path) -> None:
+    doc = _content_doc(chunks=[{"id": "c1", "level": "short", "text": "Т.", "interruptible": 1}])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="interruptible"):
+        load_content_file(path)
+
+
+def test_rejects_non_numeric_pause_after_s(tmp_path: Path) -> None:
+    doc = _content_doc(
+        chunks=[{"id": "c1", "level": "short", "text": "Т.", "pause_after_s": "long"}]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="pause_after_s"):
+        load_content_file(path)
+
+
+def test_rejects_negative_pause_after_s(tmp_path: Path) -> None:
+    doc = _content_doc(chunks=[{"id": "c1", "level": "short", "text": "Т.", "pause_after_s": -1}])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="pause_after_s"):
+        load_content_file(path)
+
+
+def test_rejects_pause_after_s_above_max(tmp_path: Path) -> None:
+    doc = _content_doc(chunks=[{"id": "c1", "level": "short", "text": "Т.", "pause_after_s": 16}])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="pause_after_s"):
+        load_content_file(path)
+
+
+def test_accepts_pause_after_s_at_bounds(tmp_path: Path) -> None:
+    doc = _content_doc(
+        chunks=[
+            {"id": "c1", "level": "short", "text": "Т.", "pause_after_s": 0},
+            {"id": "c2", "level": "full", "text": "Т.", "pause_after_s": 15},
+        ]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    assert content.chunks[0].pause_after_s == 0.0
+    assert content.chunks[1].pause_after_s == 15.0
+
+
+# -- select_chunk_objects -- полные чанки, не только текст --------------------
+
+
+def test_select_chunk_objects_carries_interruptible_and_pause(tmp_path: Path) -> None:
+    doc = _content_doc(
+        chunks=[
+            {
+                "id": "c1",
+                "level": "short",
+                "text": "Раз.",
+                "interruptible": False,
+                "pause_after_s": 2.0,
+            },
+            {"id": "c2", "level": "full", "text": "Два."},
+        ]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    objects = select_chunk_objects(content, "full")
+    assert [o.text for o in objects] == ["Раз.", "Два."]
+    assert objects[0].interruptible is False
+    assert objects[0].pause_after_s == 2.0
+    assert objects[1].interruptible is True
+    assert objects[1].pause_after_s == 0.0
+
+
+def test_select_chunk_objects_short_mode_matches_select_chunks(tmp_path: Path) -> None:
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", _content_doc())
+    content, _ = load_content_file(path)
+    assert [o.text for o in select_chunk_objects(content, "short")] == select_chunks(
+        content, "short"
+    )
+    assert [o.id for o in select_chunk_objects(content, "full")] == select_chunk_ids(
+        content, "full"
+    )

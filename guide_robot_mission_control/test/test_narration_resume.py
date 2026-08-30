@@ -457,3 +457,124 @@ def test_resume_bridge_phrase_sent_before_resumed_chunks(harness: MissionTestHar
     assert second_result.outcome == Narrate.Result.OUTCOME_COMPLETED
     # Мостик + повторно отправленный (repeat_chunk) чанк 1 + чанк 2 -- 3 восходящих фронта.
     assert speaking_count_resume[0] == 3
+
+
+# -- stage4 §2: interruptible per-chunk + pause_after_s -----------------------
+
+
+def test_send_chunk_passes_real_chunk_interruptible_flag(harness: MissionTestHarness) -> None:
+    """stage4 §2.1: narration_server больше не хардкодит interruptible=True на Say.Goal."""
+    harness.fixtures.add_exhibit(
+        "lab105a", CHUNKS, version="rev1", interruptible=[False, True, True]
+    )
+    _make_node(harness, lookahead=1, resume_bridge_enabled=False)
+    harness.say.chars_per_sec = 50.0
+    _client_node, narrate_client, _control_client = _make_clients(harness)
+
+    goal_future = narrate_client.send_goal_async(Narrate.Goal(exhibit_id="lab105a"))
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    result_future = goal_handle.get_result_async()
+    _drain_to_completion(harness, result_future)
+    result: Narrate.Result = result_future.result().result
+
+    assert result.outcome == Narrate.Result.OUTCOME_COMPLETED
+    assert harness.say.interruptible_received == [False, True, True]
+
+
+def test_pause_after_s_blocks_lookahead_until_elapsed(harness: MissionTestHarness) -> None:
+    """stage4 §2.4: пауза после чанка -- честная тишина, а не "sleep пока N+1 уже играет".
+
+    lookahead=1 обычно пред-отправил бы чанк 1, пока чанк 0 ещё звучит --
+    с pause_after_s>0 на чанке 0 этого не происходит ни пока чанк 0 в
+    полёте, ни в течение самой паузы после его DONE.
+    """
+    harness.fixtures.add_exhibit("lab105a", CHUNKS, version="rev1", pause_after_s=[2.0, 0.0, 0.0])
+    _make_node(harness, lookahead=1, resume_bridge_enabled=False)
+    harness.say.chars_per_sec = 10.0
+    client_node, narrate_client, _control_client = _make_clients(harness)
+    speaking_count = _speaking_started_count(client_node)
+
+    goal_future = narrate_client.send_goal_async(Narrate.Goal(exhibit_id="lab105a"))
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    wait_until(lambda: speaking_count[0] >= 1, timeout_s=_WAIT_TIMEOUT_S)
+    # Чанк 0 (с паузой) в полёте -- lookahead не пред-отправляет чанк 1.
+    assert harness.say.goals_received == 1
+
+    harness.clock.advance(_chunk_duration_s(harness) + 0.05)
+    time.sleep(0.05)
+    # Чанк 0 закрылся DONE, но 2-секундная пауза после него ещё не истекла.
+    assert harness.say.goals_received == 1
+
+    harness.clock.advance(2.0 + 0.05)
+    wait_until(lambda: harness.say.goals_received >= 2, timeout_s=_WAIT_TIMEOUT_S)
+
+    result_future = goal_handle.get_result_async()
+    _drain_to_completion(harness, result_future)
+    result: Narrate.Result = result_future.result().result
+    assert result.outcome == Narrate.Result.OUTCOME_COMPLETED
+    assert result.spoken_text == " ".join(CHUNKS)
+
+
+def test_chunk_without_pause_still_prefetches_next_via_lookahead(
+    harness: MissionTestHarness,
+) -> None:
+    """Регресс: pause_after_s=0.0 (дефолт) не должен трогать существующий lookahead."""
+    harness.fixtures.add_exhibit("lab105a", CHUNKS, version="rev1")
+    _make_node(harness, lookahead=1, resume_bridge_enabled=False)
+    harness.say.chars_per_sec = 10.0
+    client_node, narrate_client, _control_client = _make_clients(harness)
+    speaking_count = _speaking_started_count(client_node)
+
+    goal_future = narrate_client.send_goal_async(Narrate.Goal(exhibit_id="lab105a"))
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    wait_until(lambda: speaking_count[0] >= 1, timeout_s=_WAIT_TIMEOUT_S)
+    # Чанк 0 без паузы -- чанк 1 пред-отправлен, пока чанк 0 ещё звучит.
+    wait_until(lambda: harness.say.goals_received >= 2, timeout_s=_WAIT_TIMEOUT_S)
+
+    result_future = goal_handle.get_result_async()
+    _drain_to_completion(harness, result_future)
+    result: Narrate.Result = result_future.result().result
+    assert result.outcome == Narrate.Result.OUTCOME_COMPLETED
+
+
+def test_hard_stop_during_pause_after_s_stops_immediately(harness: MissionTestHarness) -> None:
+    """stage4 §2.3/§2.4: барж-ин/стоп во время паузы -- немедленная отмена, не ждём дедлайн."""
+    harness.fixtures.add_exhibit("lab105a", CHUNKS, version="rev1", pause_after_s=[5.0, 0.0, 0.0])
+    _make_node(
+        harness, lookahead=1, resume_bridge_enabled=False, hard_stop_result_timeout_s=1.0
+    )
+    harness.say.chars_per_sec = 10.0
+    client_node, narrate_client, _control_client = _make_clients(harness)
+    cancel_all_pub = client_node.create_publisher(CancelAll, "/speech/cancel_all", 1)
+    speaking_count = _speaking_started_count(client_node)
+
+    goal_future = narrate_client.send_goal_async(Narrate.Goal(exhibit_id="lab105a"))
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    wait_until(lambda: speaking_count[0] >= 1, timeout_s=_WAIT_TIMEOUT_S)
+    harness.clock.advance(_chunk_duration_s(harness) + 0.05)
+    time.sleep(0.05)
+    # Теперь внутри 5-секундной паузы после чанка 0 -- barge-in обязан
+    # прервать НЕМЕДЛЕННО, не дожидаясь оставшихся секунд паузы.
+    cancel_all_pub.publish(
+        CancelAll(scope=CancelAll.SCOPE_NARRATION, reason=CancelAll.REASON_BARGE_IN)
+    )
+
+    result_future = goal_handle.get_result_async()
+    wait_for_future(result_future, timeout_s=_WAIT_TIMEOUT_S)
+    result: Narrate.Result = result_future.result().result
+    assert result.outcome == Narrate.Result.OUTCOME_INTERRUPTED
+    assert result.detail == "barge_in"
+    # Пауза не успела истечь (5с) -- второй чанк не мог быть отправлен.
+    assert harness.say.goals_received == 1

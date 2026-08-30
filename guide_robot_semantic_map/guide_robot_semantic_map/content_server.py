@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
-from guide_robot_msgs.msg import ContentHit, SystemEvent
+from guide_robot_msgs.msg import ContentHit, ExhibitChunk, SystemEvent
 from guide_robot_msgs.srv import GetExhibitContent, SearchContent
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
@@ -24,8 +24,7 @@ from guide_robot_semantic_map.lib.content_io import (
     ExhibitContent,
     load_content_dir,
     pick_language,
-    select_chunk_ids,
-    select_chunks,
+    select_chunk_objects,
 )
 from guide_robot_semantic_map.lib.locations_io import LocationsError, load_locations
 from guide_robot_semantic_map.lib.qos import QOS_SYSTEM_EVENT
@@ -210,8 +209,15 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
             )
 
         content = self._content[(request.exhibit_id, language)]
-        response.chunks = select_chunks(content, mode)
-        response.chunk_ids = select_chunk_ids(content, mode)
+        response.chunks = [
+            ExhibitChunk(
+                chunk_id=chunk.id,
+                text=chunk.text,
+                interruptible=chunk.interruptible,
+                pause_after_s=chunk.pause_after_s,
+            )
+            for chunk in select_chunk_objects(content, mode)
+        ]
         response.title = content.title
         response.kind = content.kind
         response.version = content.version

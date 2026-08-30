@@ -2,8 +2,10 @@ string exhibit_id
 string mode
 string language
 ---
-string[] chunks
-string[] chunk_ids     # параллельно chunks -- id каждого чанка (references)
+# stage4 §1.2: раньше chunks/chunk_ids были параллельными string[] --
+# chunk_id теперь внутри самого ExhibitChunk (одно поле, один источник
+# истины), отдельного chunk_ids больше нет.
+ExhibitChunk[] chunks
 string title
 string kind
 string version

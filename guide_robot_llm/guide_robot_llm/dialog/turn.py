@@ -47,7 +47,7 @@ class ToolResultLike(Protocol):
 
 @dataclass
 class ToolCallRecord:
-    """Действие, выбранное фазой действия, и его исход (включая `noop`)."""
+    """Действие, выбранное фазой действия, и его исход (включая `reply`)."""
 
     name: str
     args: dict
@@ -92,6 +92,10 @@ class TurnResult:
     action_raw_text: str = ""
     action_finish_reason: str = ""
     say_ok: bool = False
+    # stage3 C2: STATUS_PREEMPTED -- законный барж-ин, не сбой (say_ok
+    # остаётся True), но история/фаза реплики следующего хода обязаны
+    # знать, что реплику НЕ дослушали -- см. `dialog_agent_node._run_turn`.
+    say_preempted: bool = False
     action: ToolCallRecord | None = None
     repair_used: bool = False
     # "ok" | "answer_backend_error" | "action_backend_error"
@@ -112,8 +116,11 @@ def render_action_outcome(record: ToolCallRecord | None) -> str:
     она обязана совпадать побайтово в обоих местах -- в отличие от
     read_only, где история короче найденного текста (см. `_action_event_text`).
     """
-    if record is None or record.name == "noop":
-        return "noop (никакого действия не выполнялось)"
+    if record is None or record.name == "reply":
+        return (
+            "Действий не требуется — просто ответь посетителю на его "
+            "последнюю реплику, как живой собеседник."
+        )
     if record.name == "ask_visitor":
         # stage2 C2: фаза реплики обязана озвучить сам вопрос -- "выполнена"
         # для ask_visitor значит "вопрос принят", а не "уже что-то сделано".
@@ -175,8 +182,18 @@ def run_turn(
     check_aborted: Callable[[], bool] = lambda: False,
     answer_max_chars: int = 400,
     read_only_tools: frozenset[str] = frozenset(),
+    on_action_resolved: Callable[[ToolCallRecord], None] | None = None,
 ) -> TurnResult:
     """Прогнать один ход: действие (GBNF) -> исполнение -> реплика -> `speak()`.
+
+    `on_action_resolved` (если задан) зовётся с финальным `record` СРАЗУ
+    после исполнения действия, ДО фазы реплики и её `speak()` -- вызывающий
+    обязан успеть закоммитить следствия хода (слот `ask_visitor`,
+    грейс-таймер и т.п.) ДО того, как посетитель услышит первый звук.
+    Иначе окно между стартом озвучки и фиксацией состояния (миллисекунды)
+    позволяет барж-ин поверх ещё звучащей реплики попасть в состояние ДО
+    того, как оно обновилось -- то же семейство гонки, что и в
+    `_run_turn`'s истории/грейс-таймере.
 
     `complete_answer`/`complete_action` уже связаны вызывающим
     (`dialog_agent_node.py`) с конкретными бэкендами/`abort_event`/
@@ -253,7 +270,7 @@ def run_turn(
             )
         think, name, args = parsed
 
-        if name == "noop":
+        if name == "reply":
             record = ToolCallRecord(
                 name=name, args=args, result_ok=True, result_message="", result_data={},
                 think=think,
@@ -286,6 +303,9 @@ def run_turn(
         attempts_left -= 1
         repair_used = True
         messages = [*messages, {"role": "user", "content": result.message}]
+
+    if on_action_resolved is not None:
+        on_action_resolved(record)
 
     return run_answer_phase(
         messages=messages,
@@ -354,6 +374,7 @@ def run_answer_phase(
     messages = [*messages, {"role": "assistant", "content": answer_raw_text}]
 
     say_ok = False
+    say_preempted = False
     if answer_text:
         if check_aborted():
             return TurnResult(
@@ -367,7 +388,9 @@ def run_answer_phase(
                 repair_used=repair_used,
                 stopped_reason="aborted",
             )
-        say_ok = speak(answer_text).ok
+        say_result = speak(answer_text)
+        say_ok = say_result.ok
+        say_preempted = bool(say_result.data.get("preempted"))
 
     return TurnResult(
         messages=messages,
@@ -377,6 +400,7 @@ def run_answer_phase(
         action_raw_text=action_raw_text,
         action_finish_reason=action_finish_reason,
         say_ok=say_ok,
+        say_preempted=say_preempted,
         action=record,
         repair_used=repair_used,
         stopped_reason=action_stopped_reason,

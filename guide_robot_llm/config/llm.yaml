@@ -9,6 +9,7 @@
 /**/tool_broker:
   ros__parameters:
     service_call_timeout_s: 2.0
+    say_result_timeout_s: 15.0
     mission_fsm_ns: "/mission_fsm"
     location_server_ns: "/location_server"
     route_planner_ns: "/route_planner"
@@ -35,6 +36,10 @@
     system_prompt_path: "$(find-pkg-share guide_robot_llm)/config/system_prompt.txt"
     tool_broker_ns: "/tool_broker"
     service_call_timeout_s: 2.0
+    # tool_broker.say_result_timeout_s + запас на сам сетевой круговорот
+    # ~/call_tool -- иначе dialog_agent сдаётся раньше, чем tool_broker
+    # успевает ответить, и say_ok=False получается на пустом месте.
+    say_result_timeout_s: 16.0
     catalog_ns_timeout_s: 5.0
 
     history.max_entries: 16
@@ -42,7 +47,7 @@
     history.cap_visitor_chars: 200
     history.cap_robot_chars: 300
     history.cap_event_chars: 120
-    history.clear_after_absent_s: 90.0
+    history.clear_after_absent_s: 60.0
 
     answer.max_chars: 400
 

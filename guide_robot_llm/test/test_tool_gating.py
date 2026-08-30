@@ -117,6 +117,77 @@ def test_stop_tour_gated_rejected_when_idle() -> None:
         harness.shutdown()
 
 
+def test_stop_tour_during_tour_rejected_without_confirmation() -> None:
+    """stage3.5 п.2.1: stop_tour от ЛЛМ во время тура -- только через ask_visitor,
+    живой инцидент: "оно стало умным" -> stop_tour -> тур убит без единого вопроса."""
+    harness = ToolBrokerTestHarness()
+    try:
+        harness.fixtures.add_exhibit("lab105a", ["Раз.", "Два."], version="rev1")
+        harness.fixtures.add_location("lab105a", x=1.0, y=2.0)
+        harness.nav.duration_s = 5.0
+
+        started = harness.broker.call_tool("guide_to", {"location_id": "lab105a"})
+        assert started.ok, started.message
+        wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
+
+        unconfirmed = harness.broker.call_tool("stop_tour", {})
+        assert not unconfirmed.ok
+        assert "ask_visitor" in unconfirmed.message
+    finally:
+        harness.shutdown()
+
+
+def test_guide_to_during_answering_executes_without_confirmation() -> None:
+    """stage3.5 п.4.1: робот в ANSWERING стоит и ничем не занят -- guide_to
+    выполняется сразу (живой инцидент: ход 7->8, лишний ask_visitor из
+    ANSWERING на просьбу "веди к следующему")."""
+    harness = ToolBrokerTestHarness()
+    try:
+        harness.fixtures.add_exhibit("stop0", ["Раз.", "Два."], version="rev1")
+        harness.fixtures.add_location("stop0", x=1.0, y=0.0)
+        harness.fixtures.add_exhibit("lidar_stand", ["Про лидар."], version="rev1")
+        harness.fixtures.add_location("lidar_stand", x=9.0, y=9.0)
+        harness.nav.duration_s = 0.05
+        harness.say.chars_per_sec = 5.0
+
+        started = harness.broker.call_tool("guide_to", {"location_id": "stop0"})
+        assert started.ok, started.message
+        pump_clock(harness.clock, _mission_state_is(harness, _S.STATE_NARRATING), step=0.1)
+
+        client = harness.make_client_node()
+        cancel_pub = client.create_publisher(CancelAll, "/speech/cancel_all", 1)
+        cancel_pub.publish(
+            CancelAll(scope=CancelAll.SCOPE_NARRATION, reason=CancelAll.REASON_BARGE_IN)
+        )
+        wait_until(_mission_state_is(harness, _S.STATE_ANSWERING), timeout_s=5.0)
+
+        redirected = harness.broker.call_tool("guide_to", {"location_id": "lidar_stand"})
+        assert redirected.ok, redirected.message
+    finally:
+        harness.shutdown()
+
+
+def test_guide_to_during_greeting_rejected_without_confirmation() -> None:
+    """stage3.5 п.4.1: GREETING -- тур запущен секунды назад, движение оттуда
+    всё ещё требует подтверждения (то же "движение вот-вот", что NAVIGATING)."""
+    harness = ToolBrokerTestHarness()
+    try:
+        harness.fixtures.add_exhibit("stop0", ["Раз.", "Два."], version="rev1")
+        harness.fixtures.add_location("stop0", x=1.0, y=0.0)
+        harness.fixtures.add_location("cafe", x=5.0, y=5.0)
+        harness.fixtures.add_tour("full", "Полный тур", [("stop0", "stop0", 0, "short")])
+
+        started = harness.broker.call_tool("start_tour", {"tour_id": "full", "greet": True})
+        assert started.ok, started.message
+        wait_until(_mission_state_is(harness, _S.STATE_GREETING), timeout_s=5.0)
+
+        unconfirmed = harness.broker.call_tool("guide_to", {"location_id": "cafe"})
+        assert not unconfirmed.ok
+        assert "ask_visitor" in unconfirmed.message
+    finally:
+        harness.shutdown()
+
+
 def test_pause_resume_and_stop_tour_flow_via_broker() -> None:
     harness = ToolBrokerTestHarness()
     try:
@@ -139,7 +210,10 @@ def test_pause_resume_and_stop_tour_flow_via_broker() -> None:
         wait_until(_mission_state_is(harness, _S.STATE_NARRATING), timeout_s=5.0)
 
         harness.say.chars_per_sec = 100.0
-        stopped = harness.broker.call_tool("stop_tour", {})
+        # stage3.5 п.2.1: stop_tour во время тура тоже гейтится confirmed=True
+        # (эквивалент прохождения через ask_visitor), тем же механизмом, что
+        # и моторные инструменты.
+        stopped = harness.broker.call_tool("stop_tour", {}, confirmed=True)
         assert stopped.ok, stopped.message
         pump_clock(harness.clock, _mission_state_is(harness, _S.STATE_IDLE), step=0.2)
     finally:
@@ -205,11 +279,35 @@ def test_list_locations_hides_non_public_via_broker() -> None:
         harness.shutdown()
 
 
-def test_noop_always_succeeds_via_call_tool() -> None:
+def test_reply_always_succeeds_via_call_tool() -> None:
     harness = ToolBrokerTestHarness()
     try:
-        result = harness.broker.call_tool("noop", {})
+        result = harness.broker.call_tool("reply", {})
         assert result.ok
+    finally:
+        harness.shutdown()
+
+
+def test_lookup_content_renders_text_only_no_interruptible_or_pause_leak() -> None:
+    """stage4 §5: ExhibitChunk[] в ответе content_server, но в промпт идут
+    только text/chunk_id -- interruptible/pause_after_s не для диалога."""
+    harness = ToolBrokerTestHarness()
+    try:
+        harness.fixtures.add_exhibit(
+            "expo_meeting",
+            ["Здравствуйте, люди!", "Добро пожаловать в Иннополис."],
+            interruptible=[False, True],
+            pause_after_s=[1.0, 0.0],
+        )
+
+        result = harness.broker.call_tool("lookup_content", {"content_id": "expo_meeting"})
+
+        assert result.ok, result.message
+        assert result.data["chunks"] == ["Здравствуйте, люди!", "Добро пожаловать в Иннополис."]
+        assert result.data["chunk_ids"] == ["c0", "c1"]
+        assert "interruptible" not in result.data
+        assert "pause_after_s" not in result.data
+        assert all("interruptible" not in chunk_text for chunk_text in result.data["chunks"])
     finally:
         harness.shutdown()
 

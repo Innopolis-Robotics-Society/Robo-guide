@@ -149,13 +149,20 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("tool_broker_ns", "/tool_broker")
         self.declare_parameter("service_call_timeout_s", 2.0)
         self.declare_parameter("catalog_ns_timeout_s", 5.0)
+        # stage3 C2: say -- ЕДИНСТВЕННЫЙ вызов _execute_tool, который на
+        # стороне tool_broker может занять больше service_call_timeout_s
+        # (tool_broker_node.say_result_timeout_s, ждёт РЕАЛЬНОГО итога Say).
+        # Свой (более длинный) таймаут здесь -- иначе dialog_agent сдаётся
+        # раньше, чем tool_broker вообще успевает ответить, и say_ok=False
+        # получается на пустом месте, хотя реплика прозвучала штатно.
+        self.declare_parameter("say_result_timeout_s", 16.0)
 
         self.declare_parameter("history.max_entries", 16)
         self.declare_parameter("history.trim_to", 8)
         self.declare_parameter("history.cap_visitor_chars", 200)
         self.declare_parameter("history.cap_robot_chars", 300)
         self.declare_parameter("history.cap_event_chars", 120)
-        self.declare_parameter("history.clear_after_absent_s", 25.0)
+        self.declare_parameter("history.clear_after_absent_s", 60.0)
 
         self.declare_parameter("answer.max_chars", 400)
         self.declare_parameter("wake_grace_s", 30.0)
@@ -174,6 +181,14 @@ class DialogAgentNode(LifecycleNode):
         # не выбрасывается (живой баг «со второго раза»), а ждёт конца хода;
         # хранится только ПОСЛЕДНЯЯ реплика -- новое намерение побеждает.
         self._pending_text: str | None = None
+        # Слот отложенного да/нет-ответа на ask_visitor (тот же живой баг
+        # «со второго раза», но для fast-path пары da/net): в отличие от
+        # _pending_text слот `_pending_question` к этому моменту уже снят
+        # `_consume_pending_question()`, поэтому нужна отдельная связка
+        # (текст, on_yes/on_no) -- реплей через _handle_transcript потерял
+        # бы её. Мьютекс с _pending_text: последний голос побеждает,
+        # какого бы рода он ни был -- см. оба места записи ниже.
+        self._pending_answer_replay: tuple[str, dict] | None = None
 
         self._cb_reentrant = ReentrantCallbackGroup()
 
@@ -207,6 +222,7 @@ class DialogAgentNode(LifecycleNode):
         self._raw_llm = bool(self.get_parameter("llm.raw").value)
 
         self._service_call_timeout_s = float(self.get_parameter("service_call_timeout_s").value)
+        self._say_result_timeout_s = float(self.get_parameter("say_result_timeout_s").value)
         self._catalog_ns_timeout_s = float(self.get_parameter("catalog_ns_timeout_s").value)
         tool_broker_ns = str(self.get_parameter("tool_broker_ns").value)
 
@@ -397,6 +413,7 @@ class DialogAgentNode(LifecycleNode):
     def _teardown(self) -> None:
         with self._turn_lock:
             self._pending_text = None
+            self._pending_answer_replay = None
         with self._state_lock:
             self._last_mission_state = None
             self._last_presence = None
@@ -451,6 +468,13 @@ class DialogAgentNode(LifecycleNode):
             # баг -- тур остановлен, посетитель продолжает говорить про него,
             # а история уже стёрта. Очистка остаётся только по отсутствию
             # посетителя, см. `_maybe_clear_history_for_absence_locked`.
+            # stage3 C3: очистка по НАЧАЛУ нового тура рассматривалась и
+            # отклонена -- у старта тура нет своей семантики смены
+            # посетителя (только presence её несёт), а тот же самый
+            # посетитель, начавший второй тур без ухода, наступил бы на
+            # ровно тот же класс бага, из-за которого выше убрали
+            # tour-end-очистку. Не привязывать очистку к границам тура --
+            # дважды наступали.
 
     def _diff_events(self, old: MissionState, new: MissionState) -> list[str]:
         """События мимо диалога -- порождаются ТОЛЬКО на изменение поля (без дребезга)."""
@@ -472,7 +496,18 @@ class DialogAgentNode(LifecycleNode):
         if not old.tour_id and new.tour_id:
             tour_name = self._tour_name_by_id.get(new.tour_id, new.tour_id)
             events.append(f"начался тур «{tour_name}»")
-        elif old.tour_id and not new.tour_id:
+        elif old.tour_id and not new.tour_id and new.state == MissionState.STATE_IDLE:
+            # stage3.5 п.4.2: тот же tour_id->"" переход происходит и при
+            # редиректе (root_sm._apply_redirect заменяет blackboard.tour на
+            # одностоповый план с tour_id="" и сразу уходит в NAVIGATING) --
+            # там new.state == NAVIGATING, не IDLE, а мы ещё даже не
+            # доехали. "Тур завершён" тогда враньё (живой инцидент: слово
+            # "тур" в истории про редирект, которого посетитель не просил
+            # заканчивать). Настоящий конец тура публикуется ТОЛЬКО через
+            # `mission_fsm_node._publish_idle_state()` (state всегда IDLE) --
+            # только этот случай и озвучиваем как "тур завершён"; для
+            # редиректа уже есть отдельное "подошёл к остановке «X»" по
+            # stop_id-диффу выше.
             events.append("тур завершён")
         return events
 
@@ -653,7 +688,10 @@ class DialogAgentNode(LifecycleNode):
                 # Новая финальная реплика делает текущий ход устаревшим --
                 # та же семантика, что barge-in: прерываем и запоминаем
                 # реплику, ход по ней начнётся сразу после освобождения.
+                # Мьютекс с _pending_answer_replay -- последний голос
+                # побеждает, каким бы он ни был.
                 self._pending_text = text
+                self._pending_answer_replay = None
                 if self._abort_event is not None:
                     self._abort_event.set()
                 self.get_logger().info(
@@ -678,21 +716,35 @@ class DialogAgentNode(LifecycleNode):
         history_cleared: bool,
         utterance_ts: float,
         pending_answer: dict,
+        *,
+        is_replay: bool = False,
     ) -> None:
-        """Старт хода по да/нет на `ask_visitor` (stage2 C2) -- без defer-очереди.
+        """Старт хода по да/нет на `ask_visitor` (stage2 C2).
 
-        В отличие от обычного пути, занятый `_turn_in_flight` здесь просто
-        отбрасывает реплику, а не откладывает: слот `_pending_question` уже
-        снят `_consume_pending_question()`, повторный `_handle_transcript`
-        (`is_replay=True`) на отложенном тексте потерял бы связку
-        on_yes/on_no -- нормальный ход к этому моменту почти наверняка уже
-        завершился (слот выставляется ПОСЛЕ конца предыдущего хода), так
-        что практическая цена отброса пренебрежимо мала.
+        Живой сценарий, не краевой: посетитель отвечает, как только понял
+        вопрос -- почти всегда ДО того, как `Say` вопроса вообще
+        закончился (слот `_pending_question` выставляется ДО `speak()`,
+        см. `_on_action_resolved` в `_run_turn`, а не после конца хода).
+        Занятый `_turn_in_flight` поэтому обрабатывается так же, как в
+        `_handle_transcript`: barge-in текущего хода (он же и озвучивает
+        вопрос) плюс отложенная связка (текст, on_yes/on_no) в
+        `_pending_answer_replay` -- слот `_pending_question` уже снят
+        `_consume_pending_question()`, повторный `_handle_transcript` на
+        отложенном тексте потерял бы её.
         """
         with self._turn_lock:
             if self._turn_in_flight:
+                if is_replay:
+                    self.get_logger().info(
+                        "отложенный ответ на ask_visitor устарел -- уже идёт ход по более свежей"
+                    )
+                    return
+                self._pending_answer_replay = (text, pending_answer)
+                self._pending_text = None
+                if self._abort_event is not None:
+                    self._abort_event.set()
                 self.get_logger().info(
-                    "ход уже идёт -- ответ на ask_visitor отброшен, слот уже снят"
+                    "ход в полёте -- текущий прерван, ответ на ask_visitor отложен в слот"
                 )
                 return
             self._turn_in_flight = True
@@ -718,7 +770,7 @@ class DialogAgentNode(LifecycleNode):
         `tool_broker`, которое можно было бы задвоить (пустая команда
         отмены в IDLE не отображается ни в одно действие, гейтить нечего) --
         суппрессия здесь чисто локальная, против хода к ЛЛМ, который не мог
-        бы предложить ничего лучше `noop` и рисковал бы вместо этого
+        бы предложить ничего лучше `reply` и рисковал бы вместо этого
         нафантазировать ответ (живой баг: "робот стоп" в IDLE был принят за
         существительное).
         """
@@ -755,14 +807,18 @@ class DialogAgentNode(LifecycleNode):
         self.get_logger().info(f"Gemma: {completion.text!r}")
         answer_text = sanitize_answer(completion.text, max_chars=self._answer_max_chars)
         say_ok = False
+        say_preempted = False
         if answer_text and not abort_event.is_set():
-            say_ok = speak(answer_text).ok
+            say_result = speak(answer_text)
+            say_ok = say_result.ok
+            say_preempted = bool(say_result.data.get("preempted"))
         return TurnResult(
             messages=[*messages, {"role": "assistant", "content": completion.text}],
             answer_text=answer_text,
             answer_raw_text=completion.text,
             answer_finish_reason=completion.finish_reason,
             say_ok=say_ok,
+            say_preempted=say_preempted,
             stopped_reason="ok",
         )
 
@@ -787,7 +843,7 @@ class DialogAgentNode(LifecycleNode):
 
         «нет» с непустым `on_no` -- озвучивается ПРЯМО, без похода к ЛЛМ:
         ответ уже известен целиком, дальше нечего решать. «нет» с пустым
-        `on_no` -- noop-запись, реплика генерируется: отказ ("нет") уже
+        `on_no` -- reply-запись, реплика генерируется: отказ ("нет") уже
         попадёт в историю как реплика посетителя, модель откликается сама.
         """
         if pending_answer["kind"] == "no" and pending_answer["on_no"]:
@@ -795,8 +851,9 @@ class DialogAgentNode(LifecycleNode):
             return TurnResult(
                 answer_text=pending_answer["on_no"],
                 say_ok=say_result.ok,
+                say_preempted=bool(say_result.data.get("preempted")),
                 action=ToolCallRecord(
-                    name="noop", args={}, result_ok=True, result_message="", result_data={}
+                    name="reply", args={}, result_ok=True, result_message="", result_data={}
                 ),
                 stopped_reason="ok",
             )
@@ -826,7 +883,7 @@ class DialogAgentNode(LifecycleNode):
             )
         else:
             record = ToolCallRecord(
-                name="noop", args={}, result_ok=True, result_message="", result_data={}
+                name="reply", args={}, result_ok=True, result_message="", result_data={}
             )
 
         return run_answer_phase(
@@ -891,7 +948,9 @@ class DialogAgentNode(LifecycleNode):
                 if mission.exhibit_id:
                     lookup_start = time.monotonic()
                     lookup_result = self._execute_tool(
-                        "lookup_content", {"content_id": mission.exhibit_id, "mode": "full"}
+                        "lookup_content",
+                        {"content_id": mission.exhibit_id, "mode": "full"},
+                        mission_state=mission.state,
                     )
                     stage_timings.append(
                         {
@@ -905,7 +964,9 @@ class DialogAgentNode(LifecycleNode):
 
                 search_start = time.monotonic()
                 search_result = self._execute_tool(
-                    "search_content", {"query": text, "max_results": 5}
+                    "search_content",
+                    {"query": text, "max_results": 5},
+                    mission_state=mission.state,
                 )
                 stage_timings.append(
                     {
@@ -983,7 +1044,12 @@ class DialogAgentNode(LifecycleNode):
             def _speak(spoken_text: str) -> _RemoteToolResult:
                 start = time.monotonic()
                 try:
-                    return self._execute_tool("say", {"text": spoken_text})
+                    return self._execute_tool(
+                        "say",
+                        {"text": spoken_text},
+                        timeout_s=self._say_result_timeout_s,
+                        mission_state=mission.state,
+                    )
                 finally:
                     stage_timings.append({"stage": "say", "ms": (time.monotonic() - start) * 1000})
 
@@ -992,7 +1058,9 @@ class DialogAgentNode(LifecycleNode):
             ) -> _RemoteToolResult:
                 start = time.monotonic()
                 try:
-                    return self._execute_tool(name, args, confirmed=confirmed)
+                    return self._execute_tool(
+                        name, args, confirmed=confirmed, mission_state=mission.state
+                    )
                 finally:
                     stage_timings.append(
                         {
@@ -1001,6 +1069,25 @@ class DialogAgentNode(LifecycleNode):
                             "ms": (time.monotonic() - start) * 1000,
                         }
                     )
+
+            def _on_action_resolved(record: ToolCallRecord) -> None:
+                # Гонка (живой баг): `speak()` ниже по стеку доносит первый
+                # звук до посетителя раньше, чем этот ход успевал
+                # закоммитить свои следствия -- барж-ин/следующая реплика,
+                # пришедшие в то самое окно, видели ЕЩЁ старое состояние
+                # (слот `ask_visitor` не установлен, грейс-таймер не
+                # взведён). Коммитим здесь же, ДО `run_answer_phase()`/
+                # `speak()`, а не после `run_turn()` вернёт `result`.
+                if record.name == "ask_visitor" and record.result_ok:
+                    # stage2 C2: вопрос принят (фаза действия "выполнена" для
+                    # ask_visitor значит именно это) -- слот живёт до ответа,
+                    # ask_visitor_ttl_s, смены mission_state или presence=false.
+                    self._set_pending_question(
+                        question=str(record.args.get("question", "")),
+                        on_yes=dict(record.args.get("on_yes") or {}),
+                        on_no=str(record.args.get("on_no", "")),
+                    )
+                self._arm_wake_grace()
 
             if pending_answer is not None:
                 result = self._run_pending_answer_phase(
@@ -1033,6 +1120,7 @@ class DialogAgentNode(LifecycleNode):
                     check_aborted=abort_event.is_set,
                     answer_max_chars=self._answer_max_chars,
                     read_only_tools=self._read_only_tool_names,
+                    on_action_resolved=_on_action_resolved,
                 )
             if (
                 result.action is not None
@@ -1045,23 +1133,6 @@ class DialogAgentNode(LifecycleNode):
                 tool_refs, tool_texts = _references_from_tool_result(result.action)
                 references = [*references, *tool_refs]
                 corpus_texts = [*corpus_texts, *tool_texts]
-            if (
-                pending_answer is None
-                and result.action is not None
-                and result.action.name == "ask_visitor"
-                and result.action.result_ok
-            ):
-                # stage2 C2: вопрос принят (фаза действия "выполнена" для
-                # ask_visitor значит именно это) -- слот живёт до ответа,
-                # ask_visitor_ttl_s, смены mission_state или presence=false.
-                # pending_answer is None -- не переустанавливаем слот сразу
-                # после его же обработки, если on_yes САМ окажется ask_visitor
-                # (невозможно по validate.py, но не полагаемся на это здесь).
-                self._set_pending_question(
-                    question=str(result.action.args.get("question", "")),
-                    on_yes=dict(result.action.args.get("on_yes") or {}),
-                    on_no=str(result.action.args.get("on_no", "")),
-                )
             degraded = result.stopped_reason in _DEGRADED_REASONS
             degrade_reason = result.stopped_reason if degraded else None
             action_name = result.action.name if result.action is not None else None
@@ -1083,9 +1154,11 @@ class DialogAgentNode(LifecycleNode):
             with self._turn_lock:
                 pending_text = self._pending_text
                 self._pending_text = None
+                pending_answer_replay = self._pending_answer_replay
+                self._pending_answer_replay = None
                 self._turn_in_flight = False
                 self._abort_event = None
-            if pending_text is None:
+            if pending_text is None and pending_answer_replay is None:
                 self._disarm_listen()
             self._arm_wake_grace()
 
@@ -1093,7 +1166,15 @@ class DialogAgentNode(LifecycleNode):
             now = time.time()
             with self._state_lock:
                 self._history.add_visitor(text, ts=now)
-                truncated = abort_event.is_set() if abort_event is not None else False
+                # stage3 C2: abort_event -- ТОЛЬКО барж-ин новой репликой
+                # ПОСЕТИТЕЛЯ, отслеживаемый самим dialog_agent; say_preempted
+                # -- РЕАЛЬНЫЙ исход Say (say-узел мог прервать реплику и по
+                # другой причине, напр. более приоритетным Say, о которой
+                # dialog_agent никак не узнал бы иначе). Достаточно любого
+                # из двух, чтобы озвучка не прозвучала целиком.
+                truncated = (
+                    abort_event is not None and abort_event.is_set()
+                ) or result.say_preempted
                 # Пустую или несказанную реплику в историю не пишем (живой
                 # мусор: аборт хода оставлял пустое assistant-сообщение);
                 # оборванная НА озвучке реплика остаётся с пометкой truncated.
@@ -1135,10 +1216,26 @@ class DialogAgentNode(LifecycleNode):
         # Реплей ПОСЛЕ коммита истории: новый ход обязан увидеть предыдущий
         # (в т.ч. прерванный) ход в истории. Если за эти миллисекунды успел
         # стартовать ход по ещё более свежей реплике -- is_replay молча
-        # уступает ему.
+        # уступает ему. _pending_text/_pending_answer_replay -- мьютекс
+        # (последний голос побеждает), оба реплея сюда попасть не могут.
         if pending_text is not None:
             self.get_logger().info("стартую отложенную реплику из слота")
             self._handle_transcript(pending_text, is_replay=True)
+        elif pending_answer_replay is not None:
+            replay_text, replay_answer = pending_answer_replay
+            self.get_logger().info("стартую отложенный ответ на ask_visitor из слота")
+            replay_mission = self.last_mission_state()
+            if replay_mission is not None:
+                with self._state_lock:
+                    replay_history_cleared = self._maybe_clear_history_for_absence_locked()
+                self._start_pending_answer_turn(
+                    replay_mission,
+                    replay_text,
+                    replay_history_cleared,
+                    time.time(),
+                    replay_answer,
+                    is_replay=True,
+                )
 
     def _execute_tool(
         self,
@@ -1147,7 +1244,17 @@ class DialogAgentNode(LifecycleNode):
         *,
         timeout_s: float | None = None,
         confirmed: bool = False,
+        mission_state: int | None = None,
     ) -> _RemoteToolResult:
+        """Позвать `~/call_tool`. `mission_state` (stage3 C1) -- замороженный снимок хода.
+
+        Прокидывается в `CallTool.srv`, чтобы tool_broker гейтил ИСПОЛНЕНИЕ
+        по ТОМУ ЖЕ состоянию, по которому фаза 1 выбирала действие (см.
+        `_run_turn`'s `mission` параметр) -- не по своему живому
+        `/mission/state`, который мог уже смениться, пока LLM думал.
+        `None` -- вызовы вне диалогового хода (стартовые ListTours/
+        ListLocations), tool_broker гейтит по-старому, живым состоянием.
+        """
         timeout = timeout_s if timeout_s is not None else self._service_call_timeout_s
         client = getattr(self, "_call_tool_client", None)
         if client is None:
@@ -1155,7 +1262,13 @@ class DialogAgentNode(LifecycleNode):
         try:
             if not client.wait_for_service(timeout_sec=timeout):
                 return _RemoteToolResult(ok=False, message="tool_broker недоступен", data={})
-            request = CallTool.Request(name=name, args_json=json.dumps(args), confirmed=confirmed)
+            request = CallTool.Request(
+                name=name,
+                args_json=json.dumps(args),
+                confirmed=confirmed,
+                mission_state_valid=mission_state is not None,
+                mission_state=mission_state or 0,
+            )
             future = client.call_async(request)
         except Exception as error:  # noqa: BLE001 -- InvalidHandle на гонке teardown
             # Демон-поток хода может пережить on_cleanup/on_shutdown: клиент
@@ -1175,7 +1288,7 @@ class DialogAgentNode(LifecycleNode):
 def _action_event_text(action: ToolCallRecord | None) -> str | None:
     """Собрать итог действия как событие истории.
 
-    `noop` НЕ порождает событие -- "ничего не делать" не несёт информации,
+    `reply` НЕ порождает событие -- "ничего не делать" не несёт информации,
     которую стоило бы занести в историю. read_only-инструменты -- КОРОТКОЕ
     событие (`уточнил справку: <title>`, без текста), иначе история
     раздувается найденными фактами на каждый вопрос
@@ -1184,7 +1297,7 @@ def _action_event_text(action: ToolCallRecord | None) -> str | None:
     истории и промпту фазы реплики положено видеть побайтово одинаковый
     итог.
     """
-    if action is None or action.name == "noop":
+    if action is None or action.name == "reply":
         return None
     if action.read_only:
         return f"уточнил справку: {_read_only_result_title(action)}"

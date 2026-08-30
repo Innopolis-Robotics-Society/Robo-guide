@@ -59,7 +59,16 @@ class MockSayServer(Node):
     def __init__(self, node_name: str = "mock_say_server", **node_kwargs: object) -> None:
         """Поднять action-сервер `say`, подписку /speech/cancel_all и паблишер /voice/speaking."""
         super().__init__(node_name, **node_kwargs)
-        self.declare_parameter("chars_per_sec", 15.0)
+        # stage3 C2: дефолт -- МГНОВЕННОЕ завершение (<=0 -- сентинел), не
+        # пейсинг по SimClock. SimClock двигается только явным pump_clock()
+        # (harness.py), а _tool_say (tool_broker_node.py) теперь ждёт
+        # РЕАЛЬНОГО итога Say -- без этого дефолта любой тест, вызывающий
+        # speak(), висел бы до say_result_timeout_s, раз ничего его не
+        # пампит. Тестам, которым важна реальная длительность речи (напр.
+        # барж-ин ПОВЕРХ ещё звучащего вопроса), надо явно задать
+        # `harness.say.chars_per_sec = N` -- зависимость от времени тогда
+        # видна в тексте самого теста.
+        self.declare_parameter("chars_per_sec", 0.0)
         self.chars_per_sec = float(self.get_parameter("chars_per_sec").value)
 
         self.fail_on_text: set[str] = set()
@@ -211,9 +220,13 @@ class MockSayServer(Node):
         status = Say.Result.STATUS_COMPLETED
         message = ""
         spoken_chars = 0
+        instant = self.chars_per_sec <= 0.0
         while True:
-            elapsed = (self.get_clock().now() - start).nanoseconds / 1e9
-            spoken_chars = min(total_chars, int(elapsed * self.chars_per_sec))
+            if instant:
+                spoken_chars = total_chars
+            else:
+                elapsed = (self.get_clock().now() - start).nanoseconds / 1e9
+                spoken_chars = min(total_chars, int(elapsed * self.chars_per_sec))
             goal_handle.publish_feedback(  # type: ignore[attr-defined]
                 Say.Feedback(
                     clause_index=0,

@@ -15,7 +15,7 @@ from guide_robot_llm.dialog.turn import render_action_outcome, run_turn
 from guide_robot_llm.llm_client import CompletionResult
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendTimeout
 
-_TOOL_NAMES = ["guide_to", "noop"]
+_TOOL_NAMES = ["guide_to", "reply"]
 _ACTION_INSTRUCTION = "ACTION_INSTRUCTION_TEXT"
 _ANSWER_INSTRUCTION = "ANSWER_INSTRUCTION_TEXT"
 
@@ -45,8 +45,8 @@ def _actions(*responses: str):
     return _complete_action
 
 
-def _noop_call(think: str = "поболтать") -> str:
-    return json.dumps({"think": think, "tool": "noop", "args": {}})
+def _reply_call(think: str = "поболтать") -> str:
+    return json.dumps({"think": think, "tool": "reply", "args": {}})
 
 
 def _guide_call(location_id: object = "cafe", think: str = "просит отвести") -> str:
@@ -59,7 +59,7 @@ def _run(**overrides):
         "history_messages": [],
         "user_content": "user",
         "complete_answer": _answer("Привет!"),
-        "complete_action": _actions(_noop_call()),
+        "complete_action": _actions(_reply_call()),
         "speak": lambda text: _FakeResult(ok=True),
         "execute_tool": lambda name, args: _FakeResult(ok=True),
         "tool_names": _TOOL_NAMES,
@@ -112,10 +112,10 @@ def test_think_is_parsed_into_action_record() -> None:
 
 
 def test_missing_think_is_tolerated_as_empty() -> None:
-    legacy = json.dumps({"tool": "noop", "args": {}})
+    legacy = json.dumps({"tool": "reply", "args": {}})
     result = _run(complete_action=_actions(legacy))
     assert result.action is not None
-    assert result.action.name == "noop"
+    assert result.action.name == "reply"
     assert result.action.think == ""
 
 
@@ -189,7 +189,7 @@ def test_markdown_from_answer_does_not_reach_speak() -> None:
     assert result.answer_text != result.answer_raw_text
 
 
-def test_noop_does_not_call_execute_tool() -> None:
+def test_reply_does_not_call_execute_tool() -> None:
     executed: list[str] = []
 
     result = _run(
@@ -198,7 +198,7 @@ def test_noop_does_not_call_execute_tool() -> None:
 
     assert executed == []
     assert result.action is not None
-    assert result.action.name == "noop"
+    assert result.action.name == "reply"
     assert result.stopped_reason == "ok"
 
 
@@ -328,7 +328,7 @@ def test_finish_reason_propagates_from_both_phases() -> None:
 
     def complete_action(messages: list[dict], grammar: str) -> CompletionResult:
         del messages, grammar
-        return CompletionResult(text=_noop_call(), finish_reason="stop")
+        return CompletionResult(text=_reply_call(), finish_reason="stop")
 
     result = _run(complete_answer=complete_answer, complete_action=complete_action)
 
@@ -462,7 +462,7 @@ def test_check_aborted_not_called_before_speak_when_answer_is_empty() -> None:
 
     _run(complete_answer=_answer(""), check_aborted=check_aborted)
 
-    # noop не зовёт execute_tool, ответ пуст -- ни одной проверки не нужно.
+    # reply не зовёт execute_tool, ответ пуст -- ни одной проверки не нужно.
     assert checks == []
 
 
@@ -487,12 +487,18 @@ def test_messages_layout_action_first_then_answer() -> None:
     assert roles[6] == "assistant"  # сырая реплика
 
 
-def test_render_action_outcome_noop_and_failure() -> None:
+def test_render_action_outcome_reply_and_failure() -> None:
     from guide_robot_llm.dialog.turn import ToolCallRecord
 
-    assert render_action_outcome(None) == "noop (никакого действия не выполнялось)"
-    noop = ToolCallRecord(name="noop", args={}, result_ok=True, result_message="", result_data={})
-    assert render_action_outcome(noop) == "noop (никакого действия не выполнялось)"
+    _REPLY_TEXT = (
+        "Действий не требуется — просто ответь посетителю на его "
+        "последнюю реплику, как живой собеседник."
+    )
+    assert render_action_outcome(None) == _REPLY_TEXT
+    reply = ToolCallRecord(
+        name="reply", args={}, result_ok=True, result_message="", result_data={}
+    )
+    assert render_action_outcome(reply) == _REPLY_TEXT
     failed = ToolCallRecord(
         name="guide_to",
         args={"location_id": "cafe"},

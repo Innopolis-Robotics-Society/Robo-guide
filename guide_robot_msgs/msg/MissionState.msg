@@ -34,6 +34,13 @@ uint16 stop_total
 string stop_id                # = Location.id / TourStop.location_id
 
 string exhibit_id             # = TourStop.exhibit_id
+
+# stage3 C4: следующая остановка тура, populated только для наведения
+# search_content (boost, НЕ автосправка целиком -- не пересказывать вперёд
+# ещё не дойдённое). Пусто, если текущая остановка последняя.
+string next_stop_id
+string next_exhibit_id
+
 uint16 chunk_index
 uint16 chunk_total
 bool   resume_available

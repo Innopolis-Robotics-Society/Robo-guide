@@ -49,6 +49,12 @@ from guide_robot_msgs.srv import (
 
 __all__ = ["ToolBrokerNode", "ToolResult", "main"]
 
+# stage3.5 п.4.1: состояния, где движение во время тура требует ask_visitor
+# (см. докстринг call_tool() ниже).
+_MOTION_CONFIRM_STATES = frozenset(
+    {MissionState.STATE_GREETING, MissionState.STATE_NAVIGATING, MissionState.STATE_NARRATING}
+)
+
 
 @dataclass
 class ToolResult:
@@ -83,6 +89,10 @@ class ToolBrokerNode(LifecycleNode):
         super().__init__("tool_broker", **node_kwargs)
 
         self.declare_parameter("service_call_timeout_s", 2.0)
+        # stage3 C2: say -- не fire-and-forget, как run_tour/narrate (§4).
+        # Реплика короткая (секунды), тур/рассказ -- нет: их таймаут
+        # заведомо не подходит.
+        self.declare_parameter("say_result_timeout_s", 15.0)
         self.declare_parameter("mission_fsm_ns", "/mission_fsm")
         self.declare_parameter("location_server_ns", "/location_server")
         self.declare_parameter("route_planner_ns", "/route_planner")
@@ -122,6 +132,7 @@ class ToolBrokerNode(LifecycleNode):
 
     def _configure(self) -> TransitionCallbackReturn:
         self._service_call_timeout_s = float(self.get_parameter("service_call_timeout_s").value)
+        self._say_result_timeout_s = float(self.get_parameter("say_result_timeout_s").value)
         mission_fsm_ns = str(self.get_parameter("mission_fsm_ns").value)
         location_server_ns = str(self.get_parameter("location_server_ns").value)
         route_planner_ns = str(self.get_parameter("route_planner_ns").value)
@@ -305,7 +316,12 @@ class ToolBrokerNode(LifecycleNode):
     # -- call_tool: единственная точка входа для скриптов/dialog_agent -----
 
     def call_tool(
-        self, name: str, args: dict | None = None, *, confirmed: bool = False
+        self,
+        name: str,
+        args: dict | None = None,
+        *,
+        confirmed: bool = False,
+        mission_state_snapshot: int | None = None,
     ) -> ToolResult:
         """Провалидировать и выполнить один вызов инструмента (llm_plam.md §4).
 
@@ -316,20 +332,41 @@ class ToolBrokerNode(LifecycleNode):
         инструмент во время тура получает REJECT ниже -- та защита, что
         раньше держала `tools/validate.py`'s регулярка по подстроке
         (убрана: резала и «да» самого подтверждения).
+
+        `mission_state_snapshot` (stage3 C1, `CallTool.srv.mission_state`) --
+        замороженный снимок с начала диалогового хода, ЕСЛИ вызывающий его
+        дал (`_srv_call_tool`, cross-process). `None` -- как раньше, гейтим
+        по живому `last_mission_state()`: и прямые вызовы из тестов/CLI, и
+        вызовы вне диалогового хода (стартовые ListTours/ListLocations) не
+        обязаны знать про снимок.
         """
         args = args or {}
         if not self._active:
             return ToolResult(ok=False, message="tool_broker не активен")
 
-        mission = self.last_mission_state()
-        mission_state = mission.state if mission is not None else MissionState.STATE_IDLE
-        motion_during_tour = (
-            name in validate.MOTION_TOOLS
-            and not confirmed
-            and mission_state != MissionState.STATE_IDLE
-        )
-        if motion_during_tour:
-            return ToolResult(ok=False, message="сначала подтверди через ask_visitor")
+        if mission_state_snapshot is not None:
+            mission_state = mission_state_snapshot
+        else:
+            mission = self.last_mission_state()
+            mission_state = mission.state if mission is not None else MissionState.STATE_IDLE
+        if not confirmed:
+            # stage3.5 п.4.1: подтверждение нужно, только когда движение
+            # реально прервало бы что-то происходящее ПРЯМО СЕЙЧАС --
+            # рассказ/ход, либо самое начало тура (GREETING, тур запущен
+            # секунды назад). В ANSWERING/AWAITING_CONFIRM/PAUSED/HELD/
+            # RETURNING робот и так стоит и ничем не занят -- guide_to там
+            # выполняется сразу (живой баг: ход 7->8, "пропустим экспонат"
+            # из ANSWERING потребовал лишнего ask_visitor).
+            if name in validate.MOTION_TOOLS and mission_state in _MOTION_CONFIRM_STATES:
+                return ToolResult(ok=False, message="сначала подтверди через ask_visitor")
+            # stage3.5 п.2.1: stop_tour из ЛЛМ во время тура -- только через
+            # ask_visitor, тем же механизмом, что и guide_to/start_tour
+            # (живой инцидент: "оно стало умным" -> stop_tour -> тур убит).
+            if name == "stop_tour" and mission_state != MissionState.STATE_IDLE:
+                return ToolResult(
+                    ok=False,
+                    message="заверши через ask_visitor: спроси, точно ли закончить экскурсию",
+                )
         tools_allowed = schema.allowed_tools(mission_state)
 
         known_locations = (
@@ -369,7 +406,13 @@ class ToolBrokerNode(LifecycleNode):
             response.data_json = "{}"
             return response
 
-        result = self.call_tool(request.name, args, confirmed=bool(request.confirmed))
+        mission_state_snapshot = request.mission_state if request.mission_state_valid else None
+        result = self.call_tool(
+            request.name,
+            args,
+            confirmed=bool(request.confirmed),
+            mission_state_snapshot=mission_state_snapshot,
+        )
         response.ok = result.ok
         response.message = result.message
         response.data_json = json.dumps(result.data)
@@ -506,9 +549,19 @@ class ToolBrokerNode(LifecycleNode):
             data={"resume_token": response.resume_token},
         )
 
-    # -- речь: fire-and-forget, ждём только принятия goal-а ------------------
+    # -- речь: ждём РЕАЛЬНОГО итога, не только принятия goal-а (stage3 C2) ----
 
     def _tool_say(self, args: dict) -> ToolResult:
+        """Сказать реплику и дождаться её фактического исхода.
+
+        До этого фикса `ok=True` ставился на ПРИНЯТИИ goal-а -- dialog_agent
+        считал ход завершённым, пока Say ещё только начинал звучать, отсюда
+        и гонка с барж-ином/следующим ходом (см. `_on_action_resolved` в
+        `dialog_agent_node.py`). `STATUS_PREEMPTED` -- законный, не
+        ошибочный исход (посетитель перебил): `ok=True`, отдельная пометка
+        в `data`, чтобы история отличала "прервана" от обычного "сказано" и
+        от настоящего сбоя (`ok=False`).
+        """
         goal = Say.Goal(
             text=str(args["text"]),
             scope=Say.Goal.SCOPE_DIALOG,
@@ -521,7 +574,27 @@ class ToolBrokerNode(LifecycleNode):
         goal_handle = send_future.result()
         if not goal_handle.accepted:
             return ToolResult(ok=False, message="say отклонён")
-        return ToolResult(ok=True, message="реплика поставлена в очередь")
+
+        result_future = goal_handle.get_result_async()
+        if not _wait_future(result_future, self.context, self._say_result_timeout_s):
+            self.get_logger().warning(
+                f"say не завершился за {self._say_result_timeout_s}с (текст: {args['text']!r})"
+            )
+            return ToolResult(ok=False, message="say не завершился вовремя")
+        result: Say.Result = result_future.result().result  # type: ignore[attr-defined]
+
+        if result.status == Say.Result.STATUS_COMPLETED:
+            return ToolResult(ok=True, message="сказано", data={"spoken_text": result.spoken_text})
+        if result.status == Say.Result.STATUS_PREEMPTED:
+            return ToolResult(
+                ok=True,
+                message="прервана посетителем",
+                data={"preempted": True, "spoken_text": result.spoken_text},
+            )
+        self.get_logger().warning(
+            f"say не удался: status={result.status} message={result.message!r}"
+        )
+        return ToolResult(ok=False, message=f"say не удался: {result.message or result.status}")
 
     def _tool_tell_about(self, args: dict) -> ToolResult:
         goal = Narrate.Goal(exhibit_id=str(args["exhibit_id"]))
@@ -533,9 +606,9 @@ class ToolBrokerNode(LifecycleNode):
             return ToolResult(ok=False, message="narrate отклонён (занят/экспонат не найден)")
         return ToolResult(ok=True, message="рассказ начат")
 
-    # -- noop: полноправное "ничего не делать" (DIALOG_REWORK_PLAN.md §7.1) --
+    # -- reply: полноправное "ничего не делать" (DIALOG_REWORK_PLAN.md §7.1) --
 
-    def _tool_noop(self, args: dict) -> ToolResult:
+    def _tool_reply(self, args: dict) -> ToolResult:
         del args
         return ToolResult(ok=True, message="")
 
@@ -613,11 +686,14 @@ class ToolBrokerNode(LifecycleNode):
             return ToolResult(ok=False, message="content_server недоступен")
         if not response.chunks:
             return ToolResult(ok=False, message="контент не найден", data={"chunks": []})
+        # stage4 §1.2/§5: ExhibitChunk[] вместо параллельных chunks/chunk_ids --
+        # флаги interruptible/pause_after_s в промпт не идут (они для
+        # narration_server, не для диалога), поэтому здесь только text/chunk_id.
         return ToolResult(
             ok=True,
             data={
-                "chunks": list(response.chunks),
-                "chunk_ids": list(response.chunk_ids),
+                "chunks": [chunk.text for chunk in response.chunks],
+                "chunk_ids": [chunk.chunk_id for chunk in response.chunks],
                 "title": response.title,
                 "kind": response.kind,
                 "version": response.version,
@@ -626,13 +702,22 @@ class ToolBrokerNode(LifecycleNode):
 
     def _tool_search_content(self, args: dict) -> ToolResult:
         mission = self.last_mission_state()
-        stop_id = mission.stop_id if mission is not None else ""
+        # stage3 C4: буст, не фильтр -- content_server.lib.search уже
+        # рассчитан на [текущая, следующая] (score *= boost при
+        # пересечении, min_score нет), next_stop_id лишь чуть приподнимает
+        # релевантные чанки следующей остановки, не подменяет автосправку
+        # о ней целиком.
+        location_ids = (
+            [loc for loc in (mission.stop_id, mission.next_stop_id) if loc]
+            if mission is not None
+            else []
+        )
         response = self._call_sync(
             self._search_content_client,
             SearchContent.Request(
                 query=str(args["query"]),
                 language=str(args.get("language", "")),
-                location_ids=[stop_id] if stop_id else [],
+                location_ids=location_ids,
                 max_results=int(args.get("max_results", 5)),
             ),
         )
@@ -688,7 +773,7 @@ class ToolBrokerNode(LifecycleNode):
         "finish_answer": _tool_finish_answer,
         "say": _tool_say,
         "tell_about": _tool_tell_about,
-        "noop": _tool_noop,
+        "reply": _tool_reply,
         "ask_visitor": _tool_ask_visitor,
         "list_locations": _tool_list_locations,
         "list_tours": _tool_list_tours,

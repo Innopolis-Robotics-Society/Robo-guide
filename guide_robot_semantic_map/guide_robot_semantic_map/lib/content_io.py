@@ -30,6 +30,7 @@ __all__ = [
     "load_content_file",
     "pick_language",
     "select_chunk_ids",
+    "select_chunk_objects",
     "select_chunks",
 ]
 
@@ -38,6 +39,9 @@ VALID_KINDS: frozenset[str] = frozenset(["exhibit", "place", "city", "org", "tra
 _DEFAULT_KIND = "exhibit"
 _MAX_SENTENCES_SOFT = 3
 _SENTENCE_END = re.compile(r"[.!?…]+")
+# stage4 §1.1: длинная непрерываемая связка молчит дольше этого -- пауза
+# ощутимо длиннее уже не "пауза для реакции", а забытый Say/зависание.
+_MAX_PAUSE_AFTER_S = 15.0
 
 
 class ContentError(ValueError):
@@ -46,11 +50,25 @@ class ContentError(ValueError):
 
 @dataclass(frozen=True)
 class Chunk:
-    """Один фрагмент текста экспоната."""
+    """Один фрагмент текста экспоната.
+
+    `interruptible=False` (stage4 §1.1/§2) -- этот фрагмент нельзя рвать
+    автоматическим VAD-барж-ином: связка "сетап -> панч" теряет смысл,
+    если её оборвать посередине. Стоп-слово и e-stop им не гейтятся --
+    это защита только от непреднамеренного перебоя, не от команды "стоп"
+    (guide_robot_voice/vad_node.py, guide_robot_voice/lib/scheduler.py).
+
+    `pause_after_s` -- тишина после этого чанка до следующего (комедийная
+    пауза, окно для вопросов зала). Во время неё барж-ин РАЗРЕШЁН
+    независимо от `interruptible` следующего чанка -- пауза сама по себе
+    открытое окно (narration_server_node.py).
+    """
 
     id: str
     level: str
     text: str
+    interruptible: bool = True
+    pause_after_s: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -110,29 +128,34 @@ def load_content_dir(path: str | Path) -> tuple[dict[tuple[str, str], ExhibitCon
     return items, warnings
 
 
-def select_chunks(content: ExhibitContent, mode: str) -> list[str]:
-    """Отдать тексты чанков для запрошенного mode, в порядке файла (design.md §0.6).
+def select_chunk_objects(content: ExhibitContent, mode: str) -> list[Chunk]:
+    """Отдать чанки целиком (id/text/interruptible/pause_after_s) для mode, в порядке файла.
 
     mode=short -- подмножество уровня short; mode=full -- все чанки.
-    Не валидирует mode -- это делает узел на границе с ROS-сервисом,
-    где значение приходит из чужого запроса.
+    Не валидирует mode -- это делает узел на границе с ROS-сервисом, где
+    значение приходит из чужого запроса. `select_chunks`/`select_chunk_ids`
+    -- узкие проекции этой функции, оставлены как есть ради обратной
+    совместимости их собственных потребителей/тестов.
     """
     if mode == "full":
-        return [c.text for c in content.chunks]
-    return [c.text for c in content.chunks if c.level == "short"]
+        return list(content.chunks)
+    return [c for c in content.chunks if c.level == "short"]
+
+
+def select_chunks(content: ExhibitContent, mode: str) -> list[str]:
+    """Отдать тексты чанков для запрошенного mode, в порядке файла (design.md §0.6)."""
+    return [c.text for c in select_chunk_objects(content, mode)]
 
 
 def select_chunk_ids(content: ExhibitContent, mode: str) -> list[str]:
     """Отдать id чанков для того же mode и в том же порядке, что `select_chunks`.
 
-    Параллельный массив к `select_chunks` -- вызывающий код (`content_server`)
-    отдаёт оба в `GetExhibitContent.Response` (`chunks`/`chunk_ids`), чтобы
-    references могли ссылаться на конкретный чанк, а не на весь exhibit_id
-    (CLAUDE_CODE_TASK_stage1_knowledge.md п.7.3).
+    Параллельный массив к `select_chunks` -- нужен потребителям, которым
+    достаточно текста и id (references), но не остальных атрибутов чанка.
+    `content_server`'s `GetExhibitContent.Response.chunks` (stage4 §1.2)
+    несёт chunk_id уже внутри `ExhibitChunk`, этот хелпер ей не нужен.
     """
-    if mode == "full":
-        return [c.id for c in content.chunks]
-    return [c.id for c in content.chunks if c.level == "short"]
+    return [c.id for c in select_chunk_objects(content, mode)]
 
 
 def pick_language(available: set[str], requested: str, default_language: str) -> str | None:
@@ -222,7 +245,30 @@ def _parse_chunk(raw: Any, index: int, source: str) -> Chunk:
             f"{source}: chunks[{index}].level={level!r} не входит в {sorted(VALID_LEVELS)}"
         )
     text = _require_str(raw, "text", source, where=f"chunks[{index}]")
-    return Chunk(id=chunk_id, level=level, text=text)
+    interruptible = raw.get("interruptible", True)
+    if not isinstance(interruptible, bool):
+        raise ContentError(f"{source}: chunks[{index}].interruptible должен быть bool")
+    pause_after_s = _parse_pause_after_s(raw, index, source)
+    return Chunk(
+        id=chunk_id,
+        level=level,
+        text=text,
+        interruptible=interruptible,
+        pause_after_s=pause_after_s,
+    )
+
+
+def _parse_pause_after_s(raw: dict[str, Any], index: int, source: str) -> float:
+    value = raw.get("pause_after_s", 0.0)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ContentError(f"{source}: chunks[{index}].pause_after_s должен быть числом")
+    value = float(value)
+    if not 0.0 <= value <= _MAX_PAUSE_AFTER_S:
+        raise ContentError(
+            f"{source}: chunks[{index}].pause_after_s={value} вне диапазона "
+            f"[0, {_MAX_PAUSE_AFTER_S}]"
+        )
+    return value
 
 
 def _check_filename_consistency(path: Path, content: ExhibitContent) -> list[str]:

@@ -138,8 +138,8 @@ def test_ask_visitor_empty_question_rejected() -> None:
     with pytest.raises(ValidationError, match="question"):
         validate_call(
             "ask_visitor",
-            {"question": "  ", "on_yes": {"tool": "noop", "args": {}}, "on_no": ""},
-            tools_allowed=["ask_visitor", "noop"],
+            {"question": "  ", "on_yes": {"tool": "reply", "args": {}}, "on_no": ""},
+            tools_allowed=["ask_visitor", "reply"],
         )
 
 
@@ -186,10 +186,10 @@ def test_ask_visitor_on_no_must_be_string() -> None:
             "ask_visitor",
             {
                 "question": "Прервать экскурсию?",
-                "on_yes": {"tool": "noop", "args": {}},
+                "on_yes": {"tool": "reply", "args": {}},
                 "on_no": None,
             },
-            tools_allowed=["ask_visitor", "noop"],
+            tools_allowed=["ask_visitor", "reply"],
         )
 
 
@@ -214,8 +214,8 @@ def test_ask_visitor_valid_accepted() -> None:
         "ask_visitor",
         {
             "question": "Прервать экскурсию?",
-            "on_yes": {"tool": "noop", "args": {}},
+            "on_yes": {"tool": "reply", "args": {}},
             "on_no": "Хорошо, продолжаем.",
         },
-        tools_allowed=["ask_visitor", "noop"],
+        tools_allowed=["ask_visitor", "reply"],
     )

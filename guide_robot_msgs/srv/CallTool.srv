@@ -14,6 +14,17 @@ string args_json
 # только с этим флагом, иначе -- REJECT("сначала подтверди через
 # ask_visitor"). Дефолт false -- обычный вызов фазы действия.
 bool confirmed
+
+# stage3 C1: замороженный снимок MissionState.state с НАЧАЛА диалогового
+# хода (dialog_agent_node._run_turn's `mission` параметр) -- используется
+# tool_broker'ом для гейтинга ВМЕСТО своего живого /mission/state, чтобы
+# фаза 1 (выбор действия под tools_allowed этого снимка) и фаза исполнения
+# видели ОДНО и то же состояние, даже если mission_fsm успел перейти в
+# другое, пока LLM думал. mission_state_valid=false (вызовы вне диалогового
+# хода, напр. стартовые ListTours/ListLocations) -- tool_broker гейтит по
+# своему живому /mission/state, как раньше.
+bool mission_state_valid
+uint8 mission_state
 ---
 bool ok
 string message

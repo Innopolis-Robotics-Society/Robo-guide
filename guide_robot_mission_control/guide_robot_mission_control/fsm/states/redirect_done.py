@@ -50,6 +50,13 @@ class RedirectDoneState(InterruptibleState):
             return None
         self._goal_handle = self._send_future.result()  # type: ignore[attr-defined]
         if not self._goal_handle.accepted:  # type: ignore[attr-defined]
+            # stage3.5 п.4.3: живой инцидент -- после редиректа посетитель
+            # спросил "почему ты остановился" (похоже на молчаливое
+            # прибытие). Диалоговый лог (interaction_*.jsonl) не видит эту
+            # фразу вообще -- она уходит напрямую в voice, мимо dialog_agent.
+            # INFO здесь -- единственный способ на следующем живом прогоне
+            # отличить "отклонили goal" от "сказали, но перебили" по логам ноды.
+            self.ctx.log("redirect_done: прощальная фраза отклонена say-сервером")
             return outcomes.SUCCEEDED
         self._result_future = self._goal_handle.get_result_async()  # type: ignore[attr-defined]
         return None
@@ -57,6 +64,11 @@ class RedirectDoneState(InterruptibleState):
     def _poll_result(self) -> str | None:
         if not self._result_future.done():  # type: ignore[attr-defined]
             return None
+        result: Say.Result = self._result_future.result().result  # type: ignore[attr-defined]
+        self.ctx.log(
+            f"redirect_done: прощальная фраза status={result.status} "
+            f"spoken_chars={result.spoken_chars} message={result.message!r}"
+        )
         return outcomes.SUCCEEDED
 
     def cancel_active_work(self, blackboard: Blackboard, outcome: str) -> None:

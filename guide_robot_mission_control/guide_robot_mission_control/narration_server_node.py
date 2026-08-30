@@ -21,6 +21,16 @@ feedback сразу при входе в синтез первой клаузы,
 (v1|exhibit_id|version|chunk_idx|char_off) такого набора не несёт, поэтому
 `self._skipped_by_exhibit` держит его в памяти узла на время жизни сессии;
 это осознанное расширение контракта, не описанное в design буквально.
+
+stage4 §2/§2.4: `interruptible`/`pause_after_s` идут per-chunk из
+`ExhibitChunk` (`guide_robot_semantic_map/lib/content_io.py`) в
+`Say.Goal.interruptible` -- раньше он был захардкожен True. Пауза после
+чанка -- это ГЕЙТ на конвейере с lookahead (`ChunkPlan.next_to_send()`
+иначе пред-отправил бы следующий чанк, пока текущий ещё звучит, и пауза
+осталась бы неслышной): `_ActiveExecution.pause_until_ns` блокирует и
+`next_to_send()`, и досрочный `is_complete()`-выход из `_run_plan()`, пока
+дедлайн не истёк -- барж-ин же в это время проверяется как обычно, той же
+веткой `hard_event`/`soft_event` в начале итерации цикла.
 """
 
 from __future__ import annotations
@@ -41,7 +51,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.task import Future
 
-from guide_robot_mission_control.chunk_plan import ChunkPlan, ChunkState
+from guide_robot_mission_control.chunk_plan import ChunkPlan, ChunkSpec, ChunkState
 from guide_robot_mission_control.lib.qos import QOS_CANCEL_ALL
 from guide_robot_mission_control.resume import (
     ResumeOutcome,
@@ -98,6 +108,9 @@ class _ActiveExecution:
     hard_reason: str = ""
     soft_event: threading.Event = field(default_factory=threading.Event)
     finished_event: threading.Event = field(default_factory=threading.Event)
+    # stage4 §2.4: дедлайн (clock ns) окончания паузы после чанка с
+    # pause_after_s > 0. None -- сейчас не в паузе.
+    pause_until_ns: int | None = None
 
 
 class NarrationServerNode(LifecycleNode):
@@ -384,11 +397,18 @@ class NarrationServerNode(LifecycleNode):
             goal_handle.succeed()  # type: ignore[attr-defined]
         return result
 
-    def _resolve_content(self, goal: Narrate.Goal) -> tuple[list[str], str]:
-        """Взять готовый текст из goal.text, либо дёрнуть GetExhibitContent."""
+    def _resolve_content(self, goal: Narrate.Goal) -> tuple[list[ChunkSpec], str]:
+        """Взять готовый текст из goal.text, либо дёрнуть GetExhibitContent.
+
+        Ad-hoc текст (`goal.text`) не несёт interruptible/pause_after_s --
+        `ChunkSpec` берёт дефолты (True/0.0), то же поведение, что было до
+        stage4 (единственный потребитель этого пути -- вызовы Narrate с
+        готовым текстом в обход content_server, атрибутов непрерываемости
+        у них никогда не было).
+        """
         if goal.text.strip():
             version = hashlib.sha1(goal.text.encode("utf-8")).hexdigest()[:8]
-            return [goal.text], version
+            return [ChunkSpec(goal.text)], version
         if not self._content_client.wait_for_service(timeout_sec=self._service_call_timeout_s):
             return [], ""
         future = self._content_client.call_async(
@@ -401,7 +421,11 @@ class NarrationServerNode(LifecycleNode):
         if not _wait_future(future, self.context, self._service_call_timeout_s):
             return [], ""
         response = future.result()
-        return list(response.chunks), response.version
+        specs = [
+            ChunkSpec(chunk.text, chunk.interruptible, chunk.pause_after_s)
+            for chunk in response.chunks
+        ]
+        return specs, response.version
 
     def _speak_resume_bridge(self) -> None:
         """Короткая мостовая фраза перед возобновлением (design §3.2). Best-effort."""
@@ -434,6 +458,14 @@ class NarrationServerNode(LifecycleNode):
                 return self._do_hard_stop(ctx)
             if ctx.soft_event.is_set():
                 return self._do_soft_pause(ctx)
+            if self._pause_active(ctx):
+                # stage4 §2.4: пауза после чанка -- честная тишина, не
+                # "sleep пока следующий уже играет". Пока дедлайн не истёк,
+                # ни next_to_send() (лишний lookahead-предзапуск), ни
+                # is_complete()-выход (пауза на последнем чанке) не идут --
+                # барж-ин при этом проверяется как обычно, веткой выше.
+                time.sleep(_POLL_S)
+                continue
             with ctx.lock:
                 complete = ctx.plan.is_complete()
             if complete:
@@ -445,13 +477,26 @@ class NarrationServerNode(LifecycleNode):
             time.sleep(_POLL_S)
         return Narrate.Result.OUTCOME_ABORTED, "node_shutdown"
 
+    def _pause_active(self, ctx: _ActiveExecution) -> bool:
+        """Проверить, не истёк ли ещё pause_after_s предыдущего чанка (stage4 §2.4)."""
+        if ctx.pause_until_ns is None:
+            return False
+        if self.get_clock().now().nanoseconds >= ctx.pause_until_ns:
+            ctx.pause_until_ns = None
+            return False
+        return True
+
     def _send_chunk(self, ctx: _ActiveExecution, idx: int) -> None:
         with ctx.lock:
             text = ctx.plan.chunk_text(idx)
+            interruptible = ctx.plan.chunk_interruptible(idx)
             ctx.plan.mark(idx, ChunkState.SENT)
             ctx.pending[idx] = _PendingChunk()
         say_goal = Say.Goal(
-            text=text, priority=self._say_priority, scope=self._say_scope, interruptible=True
+            text=text,
+            priority=self._say_priority,
+            scope=self._say_scope,
+            interruptible=interruptible,
         )
         send_future = self._say_client.send_goal_async(
             say_goal, feedback_callback=functools.partial(self._on_say_feedback, ctx, idx)
@@ -493,6 +538,13 @@ class NarrationServerNode(LifecycleNode):
             del ctx.pending[idx]
             if result.status == Say.Result.STATUS_COMPLETED:
                 ctx.plan.mark(idx, ChunkState.DONE)
+                # stage4 §2.4: пауза начинается ТОЛЬКО после честного
+                # завершения чанка -- если его оборвали (CUT), hard_event/
+                # soft_event уже взведены кем-то другим и решают исход сами,
+                # выдумывать здесь ещё и паузу незачем.
+                pause_s = ctx.plan.chunk_pause_after_s(idx)
+                if pause_s > 0.0:
+                    ctx.pause_until_ns = self.get_clock().now().nanoseconds + int(pause_s * 1e9)
             else:
                 ctx.plan.mark(idx, ChunkState.CUT, spoken_chars=result.spoken_chars)
 

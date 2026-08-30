@@ -58,8 +58,8 @@ class InterruptibleState:
 
     def run(self, blackboard: Blackboard) -> str:
         """Прогнать состояние целиком: on_enter -> поллинг -> on_exit. Возвращает исход."""
-        self.ctx.on_state_changed(self.name, blackboard)
         self.on_enter(blackboard)
+        self.ctx.on_state_changed(self.name, blackboard)
         outcome = self._poll_loop(blackboard)
         self.on_exit(blackboard, outcome)
         return outcome

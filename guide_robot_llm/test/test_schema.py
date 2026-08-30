@@ -118,7 +118,7 @@ def test_read_only_flag_set_for_catalog_and_content_tools() -> None:
 
 
 def test_read_only_flag_false_for_mutating_tools() -> None:
-    for name in ("start_tour", "guide_to", "tell_about", "noop", "say", "ask_visitor"):
+    for name in ("start_tour", "guide_to", "tell_about", "reply", "say", "ask_visitor"):
         assert tool_spec(name).read_only is False
 
 
@@ -129,7 +129,7 @@ def test_allowed_tools_idle_matches_expected_set() -> None:
         "tour_by_points",
         "tell_about",
         "say",
-        "noop",
+        "reply",
         "ask_visitor",
         "lookup_content",
         "search_content",
@@ -140,9 +140,9 @@ def test_allowed_tools_idle_matches_expected_set() -> None:
     }
 
 
-def test_noop_allowed_in_every_state() -> None:
+def test_reply_allowed_in_every_state() -> None:
     for state in range(9):
-        assert is_tool_allowed("noop", state)
+        assert is_tool_allowed("reply", state)
 
 
 def test_llm_only_hides_say_and_read_only_catalog_tools() -> None:
@@ -151,7 +151,7 @@ def test_llm_only_hides_say_and_read_only_catalog_tools() -> None:
     assert "list_locations" not in visible
     assert "list_tours" not in visible
     assert "estimate_route" not in visible
-    assert "noop" in visible
+    assert "reply" in visible
     assert "start_tour" in visible
 
 
@@ -170,12 +170,12 @@ def test_llm_only_still_gates_by_state() -> None:
     # guide_to -- ALL_STATES с stage2 B3 (во время тура маппится на
     # ~/redirect брокером, не отдельный гейт по состоянию).
     assert allowed_tools(_S.STATE_NARRATING, llm_only=True) == [
-        "guide_to",
+        "reply",
         "stop_tour",
         "pause",
-        "noop",
         "ask_visitor",
         "lookup_content",
         "search_content",
         "resolve_location",
+        "guide_to",
     ]

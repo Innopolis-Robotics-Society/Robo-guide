@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from rclpy.node import Node
 
 from guide_robot_msgs.msg import ContentHit as ContentHitMsg
+from guide_robot_msgs.msg import ExhibitChunk as ExhibitChunkMsg
 from guide_robot_msgs.msg import Location as LocationMsg
 from guide_robot_msgs.msg import Tour as TourMsg
 from guide_robot_msgs.msg import TourStop as TourStopMsg
@@ -38,6 +39,8 @@ class _ExhibitFixture:
     title: str = ""
     kind: str = "exhibit"
     chunk_ids: list[str] | None = None
+    interruptible: list[bool] | None = None
+    pause_after_s: list[float] | None = None
 
 
 class SemanticMapFixtures:
@@ -67,11 +70,17 @@ class SemanticMapFixtures:
         title: str = "",
         kind: str = "exhibit",
         chunk_ids: list[str] | None = None,
+        interruptible: list[bool] | None = None,
+        pause_after_s: list[float] | None = None,
     ) -> None:
         """Положить фикстуру контента для GetExhibitContent(exhibit_id, language).
 
         `chunk_ids` по умолчанию -- "c0", "c1", ... по числу chunks (тот же
-        формат id, что реальный content_server отдаёт параллельно chunks).
+        формат id, что реальный content_server отдаёт внутри ExhibitChunk).
+        `interruptible`/`pause_after_s` по умолчанию -- True/0.0 на каждый
+        чанк (как ExhibitChunk.msg): guide_robot_llm тестов эти атрибуты не
+        касаются (stage4 §5 -- в промпт они не идут), но фикстура остаётся
+        полной, чтобы имитировать реальный content_server честно.
         """
         self._exhibits[(exhibit_id, language)] = _ExhibitFixture(
             chunks=list(chunks),
@@ -81,6 +90,8 @@ class SemanticMapFixtures:
             chunk_ids=list(chunk_ids) if chunk_ids is not None else [
                 f"c{i}" for i in range(len(chunks))
             ],
+            interruptible=list(interruptible) if interruptible is not None else None,
+            pause_after_s=list(pause_after_s) if pause_after_s is not None else None,
         )
 
     def set_search_hits(self, hits: list[dict]) -> None:
@@ -194,8 +205,15 @@ class MockContentServer(Node):
         fixture = self._fixtures.get_exhibit_content(request.exhibit_id, request.language)
         if fixture is None:
             return response
-        response.chunks = fixture.chunks
-        response.chunk_ids = fixture.chunk_ids or []
+        chunk_ids = fixture.chunk_ids or [f"c{i}" for i in range(len(fixture.chunks))]
+        interruptible = fixture.interruptible or [True] * len(fixture.chunks)
+        pause_after_s = fixture.pause_after_s or [0.0] * len(fixture.chunks)
+        response.chunks = [
+            ExhibitChunkMsg(chunk_id=cid, text=text, interruptible=interr, pause_after_s=pause)
+            for cid, text, interr, pause in zip(
+                chunk_ids, fixture.chunks, interruptible, pause_after_s, strict=True
+            )
+        ]
         response.title = fixture.title
         response.kind = fixture.kind
         response.version = fixture.version

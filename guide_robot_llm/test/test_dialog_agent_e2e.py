@@ -24,7 +24,7 @@ from test.mocks.harness import ToolBrokerTestHarness, pump_clock, wait_until
 from test.mocks.mock_llm_server import MockLlmServer
 
 _S = MissionState
-_NOOP = json.dumps({"tool": "noop", "args": {}})
+_NOOP = json.dumps({"tool": "reply", "args": {}})
 
 
 def _mission_state_is(harness: ToolBrokerTestHarness, target: int):
@@ -56,7 +56,6 @@ def _setup_two_stop_tour(harness: ToolBrokerTestHarness) -> None:
         harness.fixtures.add_exhibit(stop_id, [f"{stop_id} ч0.", f"{stop_id} ч1."], version="r1")
         harness.fixtures.add_location(stop_id, x=float(i), y=0.0)
     harness.nav.duration_s = 0.05
-    harness.say.chars_per_sec = 50.0
 
 
 def test_transcript_in_idle_drives_say_through_call_tool() -> None:
@@ -173,7 +172,6 @@ def test_action_reaches_tool_broker_then_answer_is_spoken() -> None:
         harness.fixtures.add_exhibit("lab105a", ["Раз.", "Два."], version="rev1")
         harness.fixtures.add_location("lab105a", x=1.0, y=2.0)
         harness.nav.duration_s = 0.05
-        harness.say.chars_per_sec = 50.0
 
         harness.llm_server.chunks_no_grammar = ["Идём в лабораторию."]
         harness.llm_server.chunks_with_grammar = [
@@ -253,7 +251,7 @@ def test_ask_visitor_speaks_the_question() -> None:
                     "tool": "ask_visitor",
                     "args": {
                         "question": "Прервать экскурсию и пойти к лидару?",
-                        "on_yes": {"tool": "noop", "args": {}},
+                        "on_yes": {"tool": "reply", "args": {}},
                         "on_no": "Хорошо, продолжаем.",
                     },
                 }
@@ -282,7 +280,7 @@ def test_ask_visitor_then_no_speaks_on_no_without_calling_llm_again() -> None:
                     "tool": "ask_visitor",
                     "args": {
                         "question": "Прервать экскурсию и пойти к лидару?",
-                        "on_yes": {"tool": "noop", "args": {}},
+                        "on_yes": {"tool": "reply", "args": {}},
                         "on_no": "Хорошо, продолжаем.",
                     },
                 }
@@ -303,6 +301,53 @@ def test_ask_visitor_then_no_speaks_on_no_without_calling_llm_again() -> None:
         harness.shutdown()
 
 
+def test_ask_visitor_ttl_expires_pending_slot() -> None:
+    """stage3 C5: слот ask_visitor не переживает ask_visitor_ttl_s.
+
+    После истечения TTL "да" уходит обычным ходом (к ЛЛМ), а не
+    fast-path'ом на устаревший вопрос -- симметрично `_consume_pending_
+    question`'s проверке deadline (`да`/`нет`-ветки уже покрыты
+    `test_ask_visitor_then_yes_redirects_mid_tour`/`test_ask_visitor_then_
+    no_speaks_on_no_without_calling_llm_again`, TTL-распад слота -- нет).
+    """
+    harness = ToolBrokerTestHarness(
+        dialog_agent_overrides=(Parameter("ask_visitor_ttl_s", value=0.2),)
+    )
+    try:
+        wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
+        harness.llm_server.chunks_no_grammar = ["Прервать экскурсию и пойти к лидару?"]
+        harness.llm_server.chunks_with_grammar = [
+            json.dumps(
+                {
+                    "think": "нужно подтверждение перед движением",
+                    "tool": "ask_visitor",
+                    "args": {
+                        "question": "Прервать экскурсию и пойти к лидару?",
+                        "on_yes": {"tool": "reply", "args": {}},
+                        "on_no": "Хорошо, продолжаем.",
+                    },
+                }
+            )
+        ]
+
+        client = harness.make_client_node()
+        _publish_transcript(client, "робот, хочу к лидару")
+        wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
+
+        time.sleep(0.5)  # пережить ask_visitor_ttl_s=0.2, ход 1 успевает закрыться
+
+        harness.llm_server.chunks_no_grammar = ["Хорошо."]
+        harness.llm_server.chunks_with_grammar = [_NOOP]
+        harness.llm_server.last_request_body = None
+        _publish_transcript(client, "робот, да")
+
+        # Слот протух -- "да" не могло быть fast-path-ответом на него,
+        # значит ход пошёл обычным путём и позвал ЛЛМ.
+        wait_until(lambda: harness.llm_server.last_request_body is not None, timeout_s=5.0)
+    finally:
+        harness.shutdown()
+
+
 def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
     """stage2 C2+D1 конец в конец: ask_visitor(on_yes=guide_to) во время тура,
     "да" исполняет guide_to с confirmed=True -- тур прерывается редиректом,
@@ -316,7 +361,6 @@ def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
         harness.fixtures.add_exhibit("lidar_stand", ["Про лидар."], version="rev1")
         harness.fixtures.add_location("lidar_stand", x=9.0, y=9.0)
         harness.nav.duration_s = 5.0  # держим NAVIGATING достаточно долго для первого хода
-        harness.say.chars_per_sec = 50.0
 
         harness.llm_server.chunks_no_grammar = ["Идём в лабораторию."]
         harness.llm_server.chunks_with_grammar = [
@@ -356,6 +400,17 @@ def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
         wait_until(
             lambda: harness.broker.last_mission_state().stop_id == "lidar_stand", timeout_s=15.0
         )
+        wait_until(
+            lambda: harness.dialog_agent.last_mission_state() is not None
+            and harness.dialog_agent.last_mission_state().stop_id == "lidar_stand",
+            timeout_s=5.0,
+        )
+
+        # stage3.5 п.4.2: редирект прервал реальный тур -- tour_id
+        # обнуляется тем же переходом, что и обычный конец тура, но это НЕ
+        # конец тура (посетитель никого не просил заканчивать экскурсию).
+        history_texts = [entry.text for entry in harness.dialog_agent._history._entries]
+        assert "тур завершён" not in history_texts
     finally:
         harness.shutdown()
 
@@ -371,7 +426,6 @@ def test_start_tour_from_dialog_sends_greet_false_and_skips_greeting_state() -> 
         harness.fixtures.add_location("stop0", x=1.0, y=0.0)
         harness.fixtures.add_tour("full", "Полный тур", [("stop0", "stop0", 0, "short")])
         harness.nav.duration_s = 0.05
-        harness.say.chars_per_sec = 50.0
 
         states_seen: list[int] = []
         client = harness.make_client_node()
@@ -415,7 +469,7 @@ def test_barge_in_aborts_in_flight_turn_before_tool_executes() -> None:
             "думаю",
             '"',
             ", ",
-            '"tool": "noop", "args": {}}',
+            '"tool": "reply", "args": {}}',
         ]
         harness.llm_server.chunks_no_grammar = ["ок"]
         harness.llm_server.chunk_delay_s = 0.3
@@ -452,7 +506,7 @@ def test_pending_transcript_replayed_after_turn() -> None:
             "долго",
             " думаю",
             '"',
-            ', "tool": "noop", "args": {}}',
+            ', "tool": "reply", "args": {}}',
         ]
         harness.llm_server.chunks_no_grammar = ["ок"]
         harness.llm_server.chunk_delay_s = 0.3
@@ -542,7 +596,6 @@ def test_tour_end_transition_does_not_clear_history() -> None:
     try:
         wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
         assert harness.dialog_agent.last_mission_state().state == _S.STATE_IDLE
-        harness.say.chars_per_sec = 50.0
 
         harness.llm_server.chunks_no_grammar = ["Первый ответ до начала тура."]
         harness.llm_server.chunks_with_grammar = [_NOOP]

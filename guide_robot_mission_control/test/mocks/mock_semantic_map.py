@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from guide_robot_msgs.msg import ExhibitChunk as ExhibitChunkMsg
 from guide_robot_msgs.msg import Location as LocationMsg
 from guide_robot_msgs.msg import Tour as TourMsg
 from guide_robot_msgs.msg import TourStop as TourStopMsg
@@ -37,6 +38,8 @@ __all__ = [
 class _ExhibitFixture:
     chunks: list[str]
     version: str
+    interruptible: list[bool] | None = None
+    pause_after_s: list[float] | None = None
 
 
 class SemanticMapFixtures:
@@ -53,12 +56,27 @@ class SemanticMapFixtures:
         self.route_duration_min = 2.0
         self.route_feasible = True
 
-    def add_exhibit(
-        self, exhibit_id: str, chunks: list[str], *, language: str = "ru", version: str = "v1"
+    def add_exhibit(  # noqa: PLR0913 -- фикстура значения, не команда с побочными эффектами
+        self,
+        exhibit_id: str,
+        chunks: list[str],
+        *,
+        language: str = "ru",
+        version: str = "v1",
+        interruptible: list[bool] | None = None,
+        pause_after_s: list[float] | None = None,
     ) -> None:
-        """Положить фикстуру контента для GetExhibitContent(exhibit_id, language)."""
+        """Положить фикстуру контента для GetExhibitContent(exhibit_id, language).
+
+        `interruptible`/`pause_after_s` -- по чанку, параллельно `chunks`;
+        по умолчанию True/0.0 на каждый (stage4 §2.5: narration_server
+        читает их через `ExhibitChunk`, не хардкодит interruptible=True).
+        """
         self._exhibits[(exhibit_id, language)] = _ExhibitFixture(
-            chunks=list(chunks), version=version
+            chunks=list(chunks),
+            version=version,
+            interruptible=list(interruptible) if interruptible is not None else None,
+            pause_after_s=list(pause_after_s) if pause_after_s is not None else None,
         )
 
     def change_rev_after_n_calls(
@@ -121,12 +139,12 @@ class SemanticMapFixtures:
 
     # -- обработчики, дёргаются нодами-обёртками ниже --------------------
 
-    def get_exhibit_content(self, exhibit_id: str, language: str) -> tuple[list[str], str]:
-        """Вернуть (chunks, version); ([], "") -- контента нет (design §1.3: не выдумывать)."""
+    def get_exhibit_content(self, exhibit_id: str, language: str) -> _ExhibitFixture | None:
+        """Вернуть фикстуру целиком; `None` -- контента нет (design §1.3: не выдумывать)."""
         key = (exhibit_id, language or "ru")
         fixture = self._exhibits.get(key)
         if fixture is None:
-            return [], ""
+            return None
         count = self._call_counts.get(key, 0) + 1
         self._call_counts[key] = count
         version = fixture.version
@@ -135,7 +153,12 @@ class SemanticMapFixtures:
             after, new_version = override
             if count > after:
                 version = new_version
-        return list(fixture.chunks), version
+        return _ExhibitFixture(
+            chunks=fixture.chunks,
+            version=version,
+            interruptible=fixture.interruptible,
+            pause_after_s=fixture.pause_after_s,
+        )
 
     def list_locations(self) -> list[LocationMsg]:
         """Все локации, положенные через add_location()."""
@@ -163,9 +186,18 @@ class MockContentServer(Node):
     def _handle(
         self, request: GetExhibitContent.Request, response: GetExhibitContent.Response
     ) -> GetExhibitContent.Response:
-        chunks, version = self._fixtures.get_exhibit_content(request.exhibit_id, request.language)
-        response.chunks = chunks
-        response.version = version
+        fixture = self._fixtures.get_exhibit_content(request.exhibit_id, request.language)
+        if fixture is None:
+            return response
+        interruptible = fixture.interruptible or [True] * len(fixture.chunks)
+        pause_after_s = fixture.pause_after_s or [0.0] * len(fixture.chunks)
+        response.chunks = [
+            ExhibitChunkMsg(chunk_id=f"c{i}", text=text, interruptible=interr, pause_after_s=pause)
+            for i, (text, interr, pause) in enumerate(
+                zip(fixture.chunks, interruptible, pause_after_s, strict=True)
+            )
+        ]
+        response.version = fixture.version
         return response
 
 
