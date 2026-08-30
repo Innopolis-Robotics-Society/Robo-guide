@@ -21,3 +21,10 @@ uint8 scope
 # Оценка момента окончания текущей речи. Сумма уже синтезированного,
 # но не проигранного, и оценки оставшегося синтеза. Не гарантия.
 builtin_interfaces/Time expected_end
+
+# stage4 §2.1: interruptible активной цели (Say.Goal.interruptible).
+# false -- vad_node не публикует автоматический barge-in, пока этот статус
+# свежий (см. staleness-проверку выше). Стоп-слово (wakeword_node) и
+# e-stop этим полем не гейтятся -- они публикуют CancelAll независимо от
+# vad_node, см. guide_robot_voice/lib/scheduler.py.
+bool interruptible true

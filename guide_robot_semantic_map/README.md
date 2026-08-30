@@ -52,7 +52,16 @@ graph.geojson ─────► │   route_server  │  чужой пакет 
 
 **Сервисы**:
 - `~/get_exhibit_content` (`GetExhibitContent`) —
-  `exhibit_id, mode, language` → `chunks[], title, kind, version`.
+  `exhibit_id, mode, language` → `chunks: ExhibitChunk[], title, kind, version`.
+  Каждый `ExhibitChunk` — `chunk_id, text, interruptible, pause_after_s`
+  (stage4 §1.2 — раньше `chunks`/`chunk_ids` были параллельными
+  `string[]`, теперь `chunk_id` внутри самого элемента). `interruptible`
+  (default `true`) гейтит автоматический VAD-барж-ин на этом чанке
+  (`guide_robot_voice/vad_node.py`, `SpeakingStatus.interruptible`) —
+  стоп-слово и e-stop им не гейтятся. `pause_after_s` (default `0.0`,
+  диапазон `[0, 15]`) — тишина после чанка до следующего, барж-ин во
+  время неё разрешён независимо от флага следующего чанка
+  (`narration_server_node.py`).
 - `~/search_content` (`SearchContent`) — `query, language, location_ids,
   kinds, max_results` → `hits: ContentHit[]`. BM25 (`lib/search.py`,
   перенесён из бывшего `guide_robot_llm/kb/retriever.py`) по одному индексу
@@ -184,7 +193,8 @@ config/
   tours.yaml          # предустановленные туры, стопы -> location_id + exhibit_id
   semantic_map.yaml   # ros-параметры трёх нод
 content/
-  <exhibit_id>.<lang>.yaml   # чанки текста, chunks[].level in {short, full}
+  <exhibit_id>.<lang>.yaml   # чанки текста, chunks[].level in {short, full},
+                             # chunks[].interruptible/pause_after_s (stage4 §1.1)
 ```
 
 `graph.geojson` — GeoJSON `FeatureCollection`: узлы — `Point`-фичи,
@@ -205,6 +215,16 @@ content/
 включая `intro` (остановка `entrance`), покрыты `content/*.yaml` —
 `content_server` по-прежнему ничего не выдумывает (см. выше), но текстов,
 которых раньше не было, больше нет ни для одной остановки этого тура.
+
+**`expo_one` (stage4) — сценическая экскурсия по `expo_one.md`, три
+остановки (`expo_meeting` → `expo_city_model` → `expo_handoff`), позы
+которых — тоже заглушки (скопированы с `entrance`/`robo_guide`/
+`promobot_m13_artist`, `# TODO(Mook)` в `locations.yaml`).
+`confirm_between_stops`/`greet`/`return_home` — не поля тура (в
+`tours.yaml` их нет), это аргументы `RunTour.Goal` у вызывающего; живой
+запуск шоу — `ros2 run guide_robot_mission_control cli tour --tour
+expo_one --no-greet --no-confirm` (`--no-return-home` НЕ передавать —
+финальный отъезд должен быть штатным `RETURNING`).**
 
 ## `lib/` — логика без rclpy
 

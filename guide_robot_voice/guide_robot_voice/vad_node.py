@@ -282,6 +282,17 @@ class VadNode(LifecycleNode):
         age = self.get_clock().now().nanoseconds / 1e9 - stamp
         return age <= _SPEAKING_STATUS_STALE_SEC
 
+    def _is_current_speech_interruptible(self) -> bool:
+        """`SpeakingStatus.interruptible` активной речи (stage4 §2.1/§2.2).
+
+        Вызывать только после `_is_tts_speaking()` -- та же проверка
+        свежести статуса уже сделана там, отдельного staleness-окна для
+        interruptible нет: это одно и то же сообщение `/voice/speaking`,
+        протухнет оно -- протухнет целиком, а не по отдельному полю.
+        """
+        status = self._latest_speaking
+        return status is not None and bool(status.interruptible)
+
     def _maybe_trigger_barge_in(self, window_timestamp: float, probability: float) -> None:
         """Независимое от гистерезиса подтверждение входа в речь для CancelAll."""
         enter_threshold = float(self.get_parameter("enter_threshold").value)
@@ -301,6 +312,14 @@ class VadNode(LifecycleNode):
             # значит подтверждения нет, значит barge-in не срабатывает.
             return
         if not self._is_tts_speaking():
+            return
+        if not self._is_current_speech_interruptible():
+            # stage4 §2.1/§2.2: непрерываемая связка ("сетап -> панч") --
+            # автоматический VAD-барж-ин подавляется целиком, CancelAll не
+            # публикуется вовсе. Стоп-слово (wakeword_node) и e-stop идут
+            # своим путём, независимо от этой ноды -- граница безопасности
+            # не сдвигается (guide_robot_voice/lib/scheduler.py: hard-путь
+            # per scope=SAFETY/reason=estop не завязан на interruptible).
             return
 
         self._barge_in_armed = False

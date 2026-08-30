@@ -36,9 +36,15 @@ jobs:                    # ← оба job ВНУТРИ jobs:
             path: src/Robo-guide
 
         - name: Upgrade pytest
+          # Safety net for a not-yet-rebuilt fabook/iros:x86-cpu: apt's
+          # python3-pytest 6.2.5 can't load anyio's pytest11 plugin (needs
+          # pytest>=7's _pytest.scope), and every `python3 -m pytest` in the
+          # image crashes on it. .docker/common/30-python-common.sh now pins
+          # the same version at image build time -- once that image is
+          # rebuilt and republished, this step is redundant and can go.
           shell: bash
           run: |
-            python3 -m pip install -U "pytest>=7.0.0,<8.0.0"
+            python3 -m pip install -U "pytest==8.4.2"
 
         - name: Build
           shell: bash

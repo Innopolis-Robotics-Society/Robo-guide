@@ -11,3 +11,18 @@ tours:
       - {location_id: sam3_autolabeling,    exhibit_id: sam3_autolabeling,     dwell_s: 60,  mode: full}
       - {location_id: nav2_course,          exhibit_id: nav2_course,           dwell_s: 60,  mode: full}
       - {location_id: livox_mid70,          exhibit_id: livox_mid70,           dwell_s: 60,  mode: full}
+
+  # stage4 §3.2: сценическая экскурсия -- монолог на ~10 минут (expo_one.md),
+  # confirm_between_stops=false ("идём дальше?" ломает темп шоу), greet=false
+  # (приветствие -- часть самого сценария, не заготовка GreetingState),
+  # return_home=true (финальный отъезд -- штатный RETURNING). Эти три флага
+  # -- аргументы RunTour.Goal у вызывающего, не поля тура: живой запуск --
+  # `ros2 run guide_robot_mission_control cli tour --tour expo_one
+  # --no-greet --no-confirm` (return_home остаётся дефолтным true).
+  - id: expo_one
+    name: {ru: "Знакомство с Иннополисом", en: "Meet Innopolis"}
+    default: false
+    stops:
+      - {location_id: expo_meeting,      exhibit_id: expo_meeting,      dwell_s: 180, mode: full}
+      - {location_id: expo_city_model,   exhibit_id: expo_city_model,   dwell_s: 180, mode: full}
+      - {location_id: expo_handoff,      exhibit_id: expo_handoff,      dwell_s: 60,  mode: full}

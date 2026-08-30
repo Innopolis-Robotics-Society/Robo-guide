@@ -70,6 +70,12 @@ Barge-in: независимый от базового гистерезиса с
 `CancelAll(scope=SCOPE_ALL, reason=REASON_BARGE_IN, stamp=<момент начала
 речи>, epoch=<now().nanoseconds>)`. `require_aec_for_barge_in=true` глушит
 barge-in целиком (AEC ещё не существует — нет подтверждения, нет и barge-in).
+`SpeakingStatus.interruptible=false` (stage4 §2.1/§2.2 — непрерываемая
+связка контента, `guide_robot_semantic_map/lib/content_io.py` Chunk) тоже
+глушит публикацию `CancelAll`, но только автоматический VAD-барж-ин: та же
+staleness-проверка (400 мс), что и у `speaking`, отдельного окна для
+`interruptible` нет. Стоп-слово (`wakeword_node`) и e-stop идут другим
+путём (не через vad_node) и этим флагом не гейтятся.
 
 **Публикует**: `/vad` (`VoiceActivity`, BEST_EFFORT d1, 31.25 Гц),
 `/speech/cancel_all` (`CancelAll`, только при barge-in), `/diagnostics`.
@@ -151,8 +157,9 @@ onnxruntime/GigaAM… не для TTS, но тот же класс пробле�
 `progress`, `current_clause`.
 
 **Публикует**: `/voice/speaking` (`SpeakingStatus`, RELIABLE+TRANSIENT_LOCAL
-d1, 5 Гц heartbeat + по изменению), `/diagnostics`, `/system_event`
-(barge-in latency).
+d1, 5 Гц heartbeat + по изменению — включая `interruptible` активного
+высказывания, stage4 §2.1), `/diagnostics`, `/system_event` (barge-in
+latency).
 
 **Подписан на**: `/speech/cancel_all`.
 
@@ -205,13 +212,20 @@ QoS-профили собраны в `guide_robot_voice/lib/qos.py` одним �
 
 ## Python-зависимости вне package.xml
 
-`piper-tts`, `sherpa-onnx` — пакеты моделей, ставятся только через pip,
-рosdep-ключа нет. `scipy` — мягкая зависимость (polyphase-ресемплинг и
-DC-blocker; без неё модули импортируются и работают, но с более грубым
-линейным ресемплингом/наивным Python-циклом). `sounddevice` уже объявлен
-в `package.xml` (`python3-sounddevice`). На момент написания в
-`.docker/Dockerfile*` присутствуют `sounddevice`/`scipy`, но **не**
-`piper-tts`/`sherpa-onnx` — решение добавлять их в образ за вами.
+`piper-tts`, `sherpa-onnx`, `soxr` — пакеты моделей/DSP, ставятся только
+через pip, рosdep-ключа нет. `scipy` — мягкая зависимость (polyphase-ресемплинг
+и DC-blocker; без неё модули импортируются и работают, но с более грубым
+линейным ресемплингом/наивным Python-циклом). `soxr` (`lib/resampler.py`)
+— стейтфул-полифазный `soxr.ResampleStream`, единственный путь, который
+корректно держит состояние фильтра НА ГРАНИЦЕ блоков (`resample_poly` этого
+не делает: независимая фильтрация каждого блока даёт ~19dB потерь SNR на
+стыках, даже если длина блоков посчитана точно); при отсутствии `soxr`
+падение на `scipy`/линейную интерполяцию сохраняется как и раньше.
+`sounddevice` уже объявлен в `package.xml` (`python3-sounddevice`).
+`.docker/common/30-python-common.sh`/`40-ml-*.sh` ставят все четыре
+(`piper-tts`/`sherpa-onnx`/`scipy`/`soxr`) для x86-cpu/x86-gpu/jetson;
+`40-ml-jetson-cpu.sh` — минимальный вариант без голосового стека вовсе,
+их там нет намеренно.
 
 ## Запуск
 

@@ -4,7 +4,11 @@
 #   pre-commit autoupdate   # обновить версии хуков
 # See https://github.com/pre-commit/pre-commit
 
-exclude: '\.(pgm|svg|stl|dae)$'   # карты, векторка, меши не трогаем
+exclude: '\.(pgm|svg|stl|dae)$|^guide_robot_face/web/'   # карты, векторка, меши,
+                                                          # руками написанный JS/CSS
+                                                          # лица (CLAUDE_CODE_TASK_face_stage1.md
+                                                          # §0.4 -- решение: явный exclude,
+                                                          # без JS-линтера в этом репо)
 
 repos:
   # --- Гигиена (структура и набор — от Nav2) ---

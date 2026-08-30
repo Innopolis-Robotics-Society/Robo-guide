@@ -72,6 +72,10 @@ class AudioFrontendNode(LifecycleNode):
         self.declare_parameter("hpf_hz", 40.0)
         self.declare_parameter("publish_raw", False)
         self.declare_parameter("frame_id", "mic_array")
+        # stage3 B5: настоящее измерение фактической частоты захвата --
+        # см. on_activate(). Окно и допуск настраиваемые, дефолты из задачи.
+        self.declare_parameter("rate_check_window_s", 2.0)
+        self.declare_parameter("rate_check_tolerance", 0.01)
         # Stage 2+, см. design §7. Пока только объявлены и залогированы,
         # логики AEC в этой ноде нет -- добавится вместе с AEC-бэкендом.
         self.declare_parameter("aec.enabled", False)
@@ -100,6 +104,13 @@ class AudioFrontendNode(LifecycleNode):
         )
         self._worker_stop = threading.Event()
         self._worker: threading.Thread | None = None
+        # stage3 B5: снимаются на воркере в _process_capture(), читаются
+        # из on_activate() после окна ожидания -- под одним и тем же
+        # локом, поток-производитель ровно один (_worker_loop).
+        self._activation_check_lock = threading.Lock()
+        self._activation_validating = False
+        self._activation_frames_seen = 0
+        self._activation_saw_nonzero = False
 
     # -- lifecycle ------------------------------------------------------
 
@@ -146,18 +157,13 @@ class AudioFrontendNode(LifecycleNode):
             callback=self._callback,
         )
 
-        self._stage = "проверка фактической частоты"
-        actual_rate = round(self._stream.samplerate)  # type: ignore[attr-defined]
-        if actual_rate != device_rate:
-            # PortAudio молча подставляет ресемплинг, если устройство не
-            # поддерживает запрошенную частоту напрямую -- на этом пути
-            # нет никакого контроля над фильтром, и тайминги перестают
-            # быть тем, что заявлено в design §3.1.
-            raise ValueError(
-                f"устройство приняло {actual_rate} Гц вместо запрошенных {device_rate} Гц: "
-                "похоже, PortAudio подставил скрытый ресемплинг. Проверьте, что hw: "
-                "открывается напрямую, а не через plughw:/pulse."
-            )
+        # Настоящая проверка фактической частоты -- в on_activate(), по
+        # живым сэмплам за первые rate_check_window_s секунд захвата
+        # (design §3.1). `self._stream.samplerate` здесь -- всего лишь эхо
+        # ЗАПРОШЕННОЙ частоты от PortAudio, не измерение: сравнивать
+        # запрошенное с самим собой тавтологично и ничего не ловит --
+        # именно так исторически прошёл мимо случай со скрытым
+        # ресемплингом plughw:/pulse.
 
         self._stage = "цепочка обработки"
         self._dc_blocker = DcBlocker(device_rate, cutoff_hz=hpf_hz)
@@ -191,22 +197,74 @@ class AudioFrontendNode(LifecycleNode):
 
         self._stage = "готово"
         self.get_logger().info(
-            f"audio_frontend сконфигурирован: устройство {actual_rate} Гц, "
+            f"audio_frontend сконфигурирован: запрошено {device_rate} Гц "
+            f"(фактическая частота проверяется на activate), "
             f"выход {out_rate} Гц, кадр {frame_ms} мс ({self._out_frame_samples} сэмплов)"
         )
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
-        """Запустить поток захвата."""
+        """Запустить поток захвата и проверить фактическую частоту (stage3 B5).
+
+        До этого момента `_stream.samplerate` -- лишь эхо запроса, не
+        измерение (см. `_configure()`). Настоящая проверка требует РЕАЛЬНЫХ
+        сэмплов: копим кол-во кадров и факт ненулевого сигнала на воркере
+        (`_process_capture()`) за `rate_check_window_s`, здесь просто ждём
+        окно и читаем накопленное. >tolerance расхождения с device_rate или
+        полная тишина (весь буфер -- нули, живой инцидент "фронтенд поднял
+        не тот оверлей и молчал") -- отказ активации, поток останавливается.
+        """
         try:
             assert self._stream is not None
             self._first_sample = 0
             self._raw_first_sample = 0
+            with self._activation_check_lock:
+                self._activation_validating = True
+                self._activation_frames_seen = 0
+                self._activation_saw_nonzero = False
             self._stream.start()  # type: ignore[attr-defined]
+            started_at = time.monotonic()
+            time.sleep(float(self.get_parameter("rate_check_window_s").value))
+            error_detail = self._check_actual_capture_rate(time.monotonic() - started_at)
+            if error_detail is not None:
+                self.get_logger().error(f"{error_detail} Активация отклонена.")
+                self._stream.stop()  # type: ignore[attr-defined]
+                return TransitionCallbackReturn.FAILURE
         except Exception as error:
             self.get_logger().error(f"activate не удался: {error}")
             return TransitionCallbackReturn.FAILURE
         return super().on_activate(state)
+
+    def _check_actual_capture_rate(self, elapsed_s: float) -> str | None:
+        """Сравнить измеренную частоту/тишину с ожидаемым. None -- всё в порядке."""
+        with self._activation_check_lock:
+            self._activation_validating = False
+            frames_seen = self._activation_frames_seen
+            saw_nonzero = self._activation_saw_nonzero
+
+        window_s = float(self.get_parameter("rate_check_window_s").value)
+        if not saw_nonzero:
+            return (
+                f"все сэмплы за первые {window_s:.1f}с активации -- тишина (нули): "
+                "устройство/оверлей, вероятно, не тот."
+            )
+
+        device_rate = int(self.get_parameter("device_rate").value)
+        actual_rate = frames_seen / elapsed_s if elapsed_s > 0 else 0.0
+        tolerance = float(self.get_parameter("rate_check_tolerance").value)
+        mismatch = abs(actual_rate - device_rate) / device_rate if device_rate else 1.0
+        if mismatch > tolerance:
+            return (
+                f"измеренная частота захвата {actual_rate:.0f} Гц расходится с заявленными "
+                f"{device_rate} Гц больше чем на {tolerance:.0%} ({mismatch:.1%}): "
+                "PortAudio, похоже, подставил скрытый ресемплинг."
+            )
+
+        self.get_logger().info(
+            f"фактическая частота захвата подтверждена: {actual_rate:.0f} Гц "
+            f"(заявлено {device_rate} Гц, окно {window_s:.1f}с)"
+        )
+        return None
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
         """Остановить поток. Устройство остаётся открытым (design §3.1)."""
@@ -258,6 +316,7 @@ class AudioFrontendNode(LifecycleNode):
 
     def _process_capture(self, capture_time: float, indata: np.ndarray, xrun: bool) -> None:
         """Downmix / HPF / ресемплинг. Живёт на воркере, не в ALSA и не на таймере."""
+        self._record_activation_check_sample(indata)
         if xrun:
             self._handle_xrun()
 
@@ -279,6 +338,15 @@ class AudioFrontendNode(LifecycleNode):
         if converted.size:
             self._ring.push(capture_time, converted)
         self._drain_ring()
+
+    def _record_activation_check_sample(self, indata: np.ndarray) -> None:
+        """Копить кадры/факт ненулевого сигнала для проверки в on_activate() (stage3 B5)."""
+        with self._activation_check_lock:
+            if not self._activation_validating:
+                return
+            self._activation_frames_seen += indata.shape[0]
+            if not self._activation_saw_nonzero and bool(np.any(indata != 0)):
+                self._activation_saw_nonzero = True
 
     def _downmix(self, indata: np.ndarray) -> np.ndarray:
         """Свести к моно. На Stage 1 тривиально -- один канал или среднее."""

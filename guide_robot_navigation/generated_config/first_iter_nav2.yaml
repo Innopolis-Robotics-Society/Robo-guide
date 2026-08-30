@@ -265,7 +265,7 @@ controller_server:
       acc_lim_x: 0.6
       acc_lim_theta: 2.0
       decel_lim_x: -0.67
-      decel_lim_theta: -4.0
+      decel_lim_theta: -2.0
       acc_lim_y: 0.0
       decel_lim_y: 0.0
       vx_samples: 20
@@ -543,7 +543,7 @@ velocity_smoother:
     max_velocity: [0.5, 0.0, 1.0472]
     min_velocity: [-0.5, 0.0, -1.0472]
     max_accel:    [0.6, 0.0, 2.0]
-    max_decel:    [-0.67, 0.0, -4.0]
+    max_decel:    [-0.67, 0.0, -2.0]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
@@ -599,7 +599,12 @@ collision_monitor:
       type: "polygon"
       action_type: "slowdown"
       slowdown_ratio: 0.4
-      points: [0.55, 0.42, 0.55, -0.42, -0.55, -0.42, -0.55, 0.42]
+      # 0.55 оставляло 12 см до SonarStopFront: передние сонары (x=0.14)
+      # включали slow только на дальности 0.41 м и сразу стоп на 0.29 м.
+      # На круизе 0.4 м/с монитор резал 0.4→0 без промежуточного 0.16,
+      # лимитер базы (min_acceleration -1.5) не успевал. 0.80 — зона slow
+      # 0.37 м, с запасом на цикл сонара ~0.25 с (ещё 0.10 м пути).
+      points: [0.80, 0.42, 0.80, -0.42, -0.55, -0.42, -0.55, 0.42]
       max_points: 1
       visualize: True
       polygon_pub_topic: "sonar_slow_polygon"

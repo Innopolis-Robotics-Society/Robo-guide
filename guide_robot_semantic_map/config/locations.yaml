@@ -71,3 +71,44 @@ locations:
     aliases:
       ru: ["лидар", "ливокс", "livox"]
       en: ["lidar", "livox mid-70"]
+
+  # stage4 §3.1: сценическая экскурсия expo_one -- позы точек скопированы
+  # с реальных точек лаборатории как заглушки (хореографии в этой версии
+  # нет, площадка ещё не размечена). graph_node -- тот же узел, что у
+  # копируемой точки: физически совпадающая позиция не создаёт нового
+  # узла в графе проходимости.
+  # TODO(Mook): реальная поза площадки (entrance -> точка встречи expo).
+  - id: expo_meeting
+    graph_node: 1
+    pose: {x: 4.5, y: 7.6, yaw: 0.0}
+    zone: expo
+    category: exhibit
+    is_public: true
+    exhibit_id: expo_meeting
+    aliases:
+      ru: ["точка встречи", "место встречи"]
+      en: ["meeting point"]
+
+  # TODO(Mook): реальная поза площадки (robo_guide -> макет города).
+  - id: expo_city_model
+    graph_node: 2
+    pose: {x: 4.6, y: 4.1, yaw: 0.0}
+    zone: expo
+    category: exhibit
+    is_public: true
+    exhibit_id: expo_city_model
+    aliases:
+      ru: ["макет города", "макет Иннополиса", "макет"]
+      en: ["city model"]
+
+  # TODO(Mook): реальная поза площадки (promobot_m13_artist -> точка передачи гиду).
+  - id: expo_handoff
+    graph_node: 3
+    pose: {x: 0.7, y: 3.6, yaw: 0.0}
+    zone: expo
+    category: exhibit
+    is_public: true
+    exhibit_id: expo_handoff
+    aliases:
+      ru: ["точка передачи", "передача гиду"]
+      en: ["handoff point"]

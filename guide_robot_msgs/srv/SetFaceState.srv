@@ -1,0 +1,11 @@
+# Отладочная точка входа для guide_robot_face на stage 1
+# (CLAUDE_CODE_TASK_face_stage1.md §3.4). Остаётся в системе как диагностика
+# и на stage 2 -- нормальным источником станет агрегатор, публикующий
+# /face/state напрямую.
+
+string  state
+float32 gaze_az
+uint32  seq
+---
+bool   accepted
+string reason

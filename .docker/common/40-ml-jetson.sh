@@ -32,6 +32,7 @@ python3 -m pip install --no-cache-dir \
     sherpa-onnx \
     sounddevice \
     scipy \
+    soxr \
     numpy \
     requests
 

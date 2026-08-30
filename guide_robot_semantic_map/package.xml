@@ -21,11 +21,6 @@
   <depend>guide_robot_msgs</depend>
   <depend>python3-yaml</depend>
   <depend>ament_index_python</depend>
-  <!-- rank_bm25/snowballstemmer (lib/search.py) have no rosdep key --
-       `rosdep resolve python3-rank-bm25`/`python3-snowballstemmer` both
-       fail with "no rosdep rule". Not declared here for the same reason
-       guide_robot_llm never declared them for kb/retriever.py: they come
-       from .docker/common/30-python-common.sh (pip install), not rosdep. -->
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

@@ -76,6 +76,7 @@ class TtsNode(LifecycleNode):
         self._active_goal_id = ""
         self._active_priority = 0
         self._active_scope = int(Scope.DIALOG)
+        self._active_interruptible = True
         self._speaking = False
         self._expected_end = 0.0
         self._stage = "инициализация"
@@ -363,11 +364,7 @@ class TtsNode(LifecycleNode):
         status = Say.Result.STATUS_COMPLETED
         message = ""
 
-        self._active_goal_id = utterance.goal_id
-        self._active_priority = utterance.priority
-        self._active_scope = int(utterance.scope)
-        self._speaking = True
-        self._expected_end = started + self._chunker.config.estimate_seconds(utterance.text)
+        self._mark_active(utterance, started)
         self._publish_status()
 
         for clause in clauses:
@@ -407,6 +404,9 @@ class TtsNode(LifecycleNode):
             # с пропуском куска текста.
             spoken_chars = clause.char_end
 
+        if status == Say.Result.STATUS_COMPLETED and not self._flush_resampler_tail(epoch):
+            status, message = Say.Result.STATUS_PREEMPTED, "epoch_bumped"
+
         if status == Say.Result.STATUS_COMPLETED and not self._sink.wait_idle(epoch):
             status, message = Say.Result.STATUS_PREEMPTED, "epoch_bumped"
 
@@ -426,6 +426,24 @@ class TtsNode(LifecycleNode):
             goal_handle.abort()  # type: ignore[attr-defined]
 
         return self._finish(utterance.goal_id, result)
+
+    def _flush_resampler_tail(self, epoch: int) -> bool:
+        """Слить хвост фильтра `soxr` на ЧИСТОМ конце реплики. False -- нас отменили.
+
+        stage3 B1: `soxr` держит хвост фильтра во внутреннем буфере между
+        вызовами `process()` -- без явного `flush()` здесь теряются
+        последние ~десятки мс речи (измерено: до ~33мс на 22050->48000).
+        Звать только на happy path -- ранний break (PREEMPTED/CANCELLED/
+        FAILED) уже сбросил буфер через `_resampler.reset()` внутри
+        `_push_clause()`, фраза оборвана и флешить остаток нечего и не
+        нужно.
+        """
+        assert self._resampler is not None
+        assert self._sink is not None
+        tail = self._resampler.flush()
+        if not tail.size:
+            return True
+        return self._sink.submit(epoch, tail)
 
     def _push_clause(self, text: str, voice: str, epoch: int) -> bool:
         """Синтезировать клаузу и подать в сток. False -- нас отменили.
@@ -479,6 +497,15 @@ class TtsNode(LifecycleNode):
         self._publish_status()
         return result
 
+    def _mark_active(self, utterance: Utterance, started: float) -> None:
+        """Записать поля активного высказывания -- вынесено из `_speak()` (PLR0915)."""
+        self._active_goal_id = utterance.goal_id
+        self._active_priority = utterance.priority
+        self._active_scope = int(utterance.scope)
+        self._active_interruptible = utterance.interruptible
+        self._speaking = True
+        self._expected_end = started + self._chunker.config.estimate_seconds(utterance.text)  # type: ignore[union-attr]
+
     # -- телеметрия -----------------------------------------------------
 
     def _publish_status(self) -> None:
@@ -493,6 +520,7 @@ class TtsNode(LifecycleNode):
         status.goal_id = self._active_goal_id
         status.priority = self._active_priority
         status.scope = self._active_scope
+        status.interruptible = self._active_interruptible
         status.expected_end = self._to_time_msg(self._expected_end)
         self._status_pub.publish(status)
 
