@@ -129,8 +129,9 @@ map/dict) + `confirmed` (stage2 D1, по умолчанию `false`) →
 `matching.py` как более мягкая эвристика допуска в IDLE без wake-слова.
 
 **Действия**: `RunTour` (не ждёт результата — только принятия goal-а:
-рассказ на 3 минуты не должен вешать ход), `Say`, `Narrate` (оба тоже
-fire-and-forget — см. «Известные пробелы» про `content_version`).
+рассказ на 3 минуты не должен вешать ход), `Narrate` (тоже fire-and-forget —
+см. «Известные пробелы» про `content_version`). `Say` — исключение: ждёт
+РЕАЛЬНЫЙ `Say.Result` (`say_result_timeout_s`), см. `_tool_say`.
 
 **Клиенты-сервисы**: `~/request_pause`, `~/request_resume`
 (`std_srvs/Trigger`), `~/submit_confirm` (`std_srvs/SetBool`),
@@ -302,9 +303,12 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
 
 `content_version` — версия из `result_data["version"]`, если read_only-вызов
 её вернул (`lookup_content`/`search_content` синхронны); `null` для
-остальных инструментов — `tool_broker._tool_tell_about`/`_tool_say` не
-ждут результата `Narrate`/`Say` (fire-and-forget), версия реально
-озвученного контента до `dialog_agent` не доходит.
+остальных инструментов. Для `tell_about`/`Narrate` — `tool_broker` не ждёт
+результата (fire-and-forget), версия реально озвученного контента до
+`dialog_agent` не доходит. Для `say` — `_tool_say` честно ждёт `Say.Result`
+(см. «Действия» выше), но само это сообщение не несёт `version`: реплика
+`say` — текст, сгенерированный моделью, а не дословная выдержка из
+`GetExhibitContent`, версии присваивать нечего.
 
 `references` — все чанки `guide_robot_semantic_map/content/`, что модель
 видела в ходу: автосправка перед фазой действия (`source: "auto"`,
@@ -414,10 +418,12 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
 ## Известные пробелы
 
 - **`content_version` в `interaction_log` -- `null` для `tell_about`/`say`.**
-  `tool_broker` не ждёт результата `Say`/`Narrate` (fire-and-forget по
-  дизайну), поэтому версия реально озвученного контента (`GetExhibitContent`)
-  никогда не доходит обратно до `dialog_agent`. Тот же корень, что у
-  `truncated` в истории — приближение через `CancelAll`, не точное значение.
+  Для `tell_about`/`Narrate` — `tool_broker` не ждёт результата
+  (fire-and-forget по дизайну), поэтому версия реально озвученного контента
+  (`GetExhibitContent`) никогда не доходит обратно до `dialog_agent`. Для
+  `say` причина другая: `_tool_say` честно ждёт `Say.Result`, но само
+  сообщение не несёт `version` — реплика `say` синтезируется моделью, а не
+  цитирует `GetExhibitContent` дословно, версии присваивать нечего.
   Для `lookup_content`/`search_content` (синхронные read_only-вызовы)
   версия заполняется реально, см. `dialog/interaction_log.py`.
 - **`nearby` в снимке не заполняется.** `snapshot.build_snapshot()`
@@ -450,11 +456,6 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
   `MockLlmServer` (голый `http.server`, различает фазы по наличию
   `grammar` в теле запроса). Живой прогон (`scripts/eval_turns.py`
   против настоящего `llama.cpp`) не выполнялся из этого контейнера.
-- **`say` ack'ается по ПРИНЯТИЮ цели, не по концу озвучки.** Ответ на
-  реплику N может звучать заметно позже конца хода N; отложенная реплика
-  из однослотовой очереди отыгрывается сразу после хода, не дожидаясь
-  конца звука. Completion-aware `say` (ожидание результата `Say` или
-  подписка на состояние голосового планировщика) — отдельный заход.
 - **Два независимых кэша `/mission/state`.** `dialog_agent` фиксирует
   состояние в момент транскрипта (по нему строится GBNF-каталог),
   `tool_broker` перегейтивает своим кэшем в момент исполнения — переход
