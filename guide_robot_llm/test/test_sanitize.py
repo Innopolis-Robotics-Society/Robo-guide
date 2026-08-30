@@ -126,6 +126,30 @@ def test_hard_cut_when_single_word_exceeds_limit() -> None:
     assert len(result) == 20
 
 
+# -- служебные строки снимка/событий, просочившиеся в реплику (stage5 п.1) --
+
+
+def test_strips_service_state_line_at_end() -> None:
+    """Живой баг, ход 1: реплика закончилась служебной строкой снимка."""
+    raw = "Привет, я робот-экскурсовод.\n\n[состояние: IDLE, посетитель рядом]"
+    assert sanitize_answer(raw) == "Привет, я робот-экскурсовод."
+
+
+def test_strips_service_event_line_in_middle() -> None:
+    raw = "Начинаю рассказ.\nСОБЫТИЕ: подошёл к остановке «lab_demo»\nЭто макет лаборатории."
+    assert sanitize_answer(raw) == "Начинаю рассказ. Это макет лаборатории."
+
+
+def test_reply_of_only_service_lines_becomes_empty() -> None:
+    raw = "[состояние: ANSWERING, посетитель рядом]\nСОБЫТИЕ: начался тур «Полный тур»"
+    assert sanitize_answer(raw) == ""
+
+
+def test_ordinary_brackets_are_not_mistaken_for_a_service_line() -> None:
+    text = "Экспонат [1] — макет кампуса."
+    assert sanitize_answer(text) == text
+
+
 def test_markdown_and_self_intro_and_truncation_combined() -> None:
     text = "Ответ: # Заголовок\n- пункт *важный*. " + "Ещё немного текста здесь. " * 5
     result = sanitize_answer(text, max_chars=60)

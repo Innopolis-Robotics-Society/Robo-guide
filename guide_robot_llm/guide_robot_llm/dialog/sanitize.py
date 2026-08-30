@@ -23,6 +23,11 @@ _DEFAULT_MAX_CHARS = 400
 _MAX_SELF_INTRO_STRIPS = 3
 
 _SELF_INTRO_RE = re.compile(r"^\s*(ответ|робот|ассистент)\s*:\s*", re.IGNORECASE)
+# stage5 п.1: живой баг -- реплика хода 1 закончилась на "\n\n[состояние:
+# IDLE, посетитель рядом]" и это ушло в TTS дословно. Служебные строки
+# снимка/событий не место в реплике посетителю ни в конце, ни в середине
+# (после случайного "\n\n" в генерации) -- MULTILINE ловит оба случая.
+_SERVICE_LINE_RE = re.compile(r"^[ \t]*(?:\[состояние:|СОБЫТИЕ:).*$", re.MULTILINE)
 _HEADING_RE = re.compile(r"^#{1,6}\s*", re.MULTILINE)
 _BULLET_RE = re.compile(r"^-\s+", re.MULTILINE)
 # Парные маркеры *emphasis*/_emphasis_ -- НЕ голое удаление символа: единичное
@@ -37,11 +42,13 @@ _SENTENCE_END_CHARS = (".", "!", "?", "…")
 def sanitize_answer(text: str, *, max_chars: int = _DEFAULT_MAX_CHARS) -> str:
     """Снять markdown/самопредставление, схлопнуть переносы, обрезать по границе предложения.
 
-    Порядок важен: markdown/self-intro снимаются ДО схлопывания переносов --
-    `_HEADING_RE`/`_BULLET_RE` матчат только в начале строки (`re.MULTILINE`),
-    после схлопывания в один пробел этой информации уже не будет.
+    Порядок важен: служебные строки/markdown/self-intro снимаются ДО
+    схлопывания переносов -- `_SERVICE_LINE_RE`/`_HEADING_RE`/`_BULLET_RE`
+    матчат только в начале строки (`re.MULTILINE`), после схлопывания в один
+    пробел этой информации уже не будет.
     """
-    without_intro = _strip_self_intro(text)
+    without_service_lines = _SERVICE_LINE_RE.sub("", text)
+    without_intro = _strip_self_intro(without_service_lines)
     without_markdown = _strip_markdown(without_intro)
     collapsed = _WHITESPACE_RE.sub(" ", without_markdown).strip()
     cut = _cut_tool_call_json(collapsed)
