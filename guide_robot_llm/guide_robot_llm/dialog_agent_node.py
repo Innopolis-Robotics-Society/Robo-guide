@@ -829,6 +829,7 @@ class DialogAgentNode(LifecycleNode):
         system_prompt: str,
         history_messages: list[dict],
         user_content: str,
+        utterance: str,
         complete_answer,
         speak,
         execute_tool,
@@ -894,6 +895,7 @@ class DialogAgentNode(LifecycleNode):
             speak=speak,
             check_aborted=check_aborted,
             answer_max_chars=self._answer_max_chars,
+            utterance=utterance,
         )
 
     def _run_turn(
@@ -1095,6 +1097,7 @@ class DialogAgentNode(LifecycleNode):
                     system_prompt=self._system_prompt,
                     history_messages=history_messages,
                     user_content=user_content,
+                    utterance=text,
                     complete_answer=_complete_answer,
                     speak=_speak,
                     execute_tool=_execute_tool_timed,
@@ -1121,6 +1124,7 @@ class DialogAgentNode(LifecycleNode):
                     answer_max_chars=self._answer_max_chars,
                     read_only_tools=self._read_only_tool_names,
                     on_action_resolved=_on_action_resolved,
+                    utterance=text,
                 )
             if (
                 result.action is not None

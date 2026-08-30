@@ -226,6 +226,15 @@ def test_answer_instruction_demands_retelling_not_quoting() -> None:
     assert "не цитируй" in instruction
 
 
+def test_answer_instruction_forbids_repeating_previous_replies() -> None:
+    """stage5 п.2.2: живой баг -- реплики ходов 1/2/4/5/8 почти дословно
+    повторяли друг друга, модель отвечала на свои прошлые ответы, не на
+    новую реплику посетителя."""
+    instruction = build_answer_instruction()
+    assert "Не повторяй свои предыдущие реплики" in instruction
+    assert "НОВУЮ фразу посетителя" in instruction
+
+
 def test_answer_instruction_treats_motion_as_a_process_not_a_result() -> None:
     """stage3.5 п.3: живые примеры лжи (ходы 6, 9, 12) -- "мы стоим перед
     экспонатом" в момент старта движения. Робот только начал ехать."""

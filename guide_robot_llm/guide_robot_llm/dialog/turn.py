@@ -183,6 +183,7 @@ def run_turn(
     answer_max_chars: int = 400,
     read_only_tools: frozenset[str] = frozenset(),
     on_action_resolved: Callable[[ToolCallRecord], None] | None = None,
+    utterance: str = "",
 ) -> TurnResult:
     """Прогнать один ход: действие (GBNF) -> исполнение -> реплика -> `speak()`.
 
@@ -223,6 +224,14 @@ def run_turn(
     (`tools.schema.ToolSpec.read_only`, CLAUDE_CODE_TASK_stage1_knowledge.md
     п.7.2). Пустой набор по умолчанию -- вызывающий код без каталога
     инструментов (тесты на голых фейках) не обязан его знать.
+
+    `utterance` (stage5 п.2) -- голый текст реплики посетителя (после ASR,
+    без обрезки, тот же, что ушёл в `user_content`), приклеивается фазе
+    реплики РЯДОМ с местом генерации, а не только в статусной строке фазы
+    1 -- живой баг: без этого якоря фаза 2 в `ANSWERING` видела только
+    «действий не требуется» и хвост собственных прошлых ответов, отвечала
+    на позапрошлый вопрос вместо последнего. Пусто по умолчанию -- фейковые
+    тесты без реального утторанса не обязаны его знать.
     """
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
@@ -318,6 +327,7 @@ def run_turn(
         action_raw_text=action_raw_text,
         action_finish_reason=action_finish_reason,
         repair_used=repair_used,
+        utterance=utterance,
     )
 
 
@@ -333,6 +343,7 @@ def run_answer_phase(
     action_raw_text: str = "",
     action_finish_reason: str = "",
     repair_used: bool = False,
+    utterance: str = "",
 ) -> TurnResult:
     """Фаза реплики целиком: рендер итога действия -> ЛЛМ -> `sanitize` -> `speak()`.
 
@@ -345,14 +356,22 @@ def run_answer_phase(
     (`system` + история + текущая реплика, при обычном ходе -- ещё и
     action_raw_text ассистента); статика (`answer_instruction`) ПЕРВОЙ,
     волатильный итог действия -- хвостом (правило кэша, см. `run_turn`).
+
+    `utterance` (stage5 п.2) -- реплика посетителя якорится ПОСЛЕ строки
+    «Итог действия: ...», в самом конце сообщения, ближе всего к месту
+    генерации: живой баг -- модель без этого якоря видела для `reply`
+    только «действий не требуется» и хвост собственных прошлых ответов, и
+    дважды подряд ответила на позапрошлый вопрос вместо последнего. Пусто
+    -- строка не добавляется (fast-path на `on_no` без похода к ЛЛМ и
+    голые тесты на фейках не обязаны знать реальный утторанс).
     """
     action_stopped_reason = "ok" if record.result_ok else "action_invalid"
 
     outcome_line = render_action_outcome(record)
-    messages = [
-        *messages,
-        {"role": "user", "content": f"{answer_instruction}\n\nИтог действия: {outcome_line}"},
-    ]
+    answer_message = f"{answer_instruction}\n\nИтог действия: {outcome_line}"
+    if utterance:
+        answer_message += f"\n\nРеплика посетителя: «{utterance}»\nОтветь именно на неё."
+    messages = [*messages, {"role": "user", "content": answer_message}]
 
     try:
         answer_completion = complete_answer(messages)

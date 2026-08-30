@@ -139,6 +139,40 @@ def test_answer_prompt_contains_action_outcome_after_static_instruction() -> Non
     assert "выполнено: guide_to(location_id='cafe')" in answer_prompt["content"]
 
 
+def test_answer_prompt_anchors_the_visitor_utterance_after_outcome() -> None:
+    """stage5 п.2: живой баг -- без якоря фаза 2 видела только «действий не
+    требуется» и хвост своих же прошлых ответов, отвечала не на последнюю
+    реплику. Якорь -- хвостом, ПОСЛЕ «Итог действия: ...» (правило кэша)."""
+    seen_messages: list[list[dict]] = []
+
+    def complete_answer(messages: list[dict]) -> CompletionResult:
+        seen_messages.append(messages)
+        return CompletionResult(text="Сейчас два плюс два будет четыре.")
+
+    _run(
+        complete_answer=complete_answer,
+        utterance="посчитай два плюс два",
+    )
+
+    answer_prompt = seen_messages[0][-1]["content"]
+    outcome_pos = answer_prompt.index("Итог действия: ")
+    utterance_pos = answer_prompt.index("Реплика посетителя: «посчитай два плюс два»")
+    assert utterance_pos > outcome_pos
+    assert "Ответь именно на неё." in answer_prompt
+
+
+def test_answer_prompt_omits_utterance_block_when_empty() -> None:
+    seen_messages: list[list[dict]] = []
+
+    def complete_answer(messages: list[dict]) -> CompletionResult:
+        seen_messages.append(messages)
+        return CompletionResult(text="Привет!")
+
+    _run(complete_answer=complete_answer)
+
+    assert "Реплика посетителя:" not in seen_messages[0][-1]["content"]
+
+
 def test_failed_action_outcome_reaches_answer_prompt() -> None:
     seen_messages: list[list[dict]] = []
 
