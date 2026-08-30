@@ -142,6 +142,8 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("llm.max_tokens_action", 192)
         self.declare_parameter("llm.temperature_answer", 0.6)
         self.declare_parameter("llm.temperature_action", 0.0)
+        # stage5 п.3: только фаза реплики -- см. `_complete_answer` ниже.
+        self.declare_parameter("llm.answer_frequency_penalty", 0.4)
         self.declare_parameter("llm.action_repair_attempts", 1)
         self.declare_parameter("llm.raw", False)
 
@@ -215,6 +217,9 @@ class DialogAgentNode(LifecycleNode):
         self._max_tokens_answer = int(self.get_parameter("llm.max_tokens_answer").value)
         self._max_tokens_action = int(self.get_parameter("llm.max_tokens_action").value)
         self._temperature_answer = float(self.get_parameter("llm.temperature_answer").value)
+        self._answer_frequency_penalty = float(
+            self.get_parameter("llm.answer_frequency_penalty").value
+        )
         self._temperature_action = float(self.get_parameter("llm.temperature_action").value)
         self._action_repair_attempts = int(
             self.get_parameter("llm.action_repair_attempts").value
@@ -1016,6 +1021,10 @@ class DialogAgentNode(LifecycleNode):
                         grammar=None,
                         max_tokens=self._max_tokens_answer,
                         temperature=self._temperature_answer,
+                        # stage5 п.3: только фаза реплики -- фаза действия
+                        # (_complete_action ниже) идёт под грамматикой,
+                        # temperature 0, штраф повторов там не нужен.
+                        frequency_penalty=self._answer_frequency_penalty,
                         abort_event=abort_event,
                         max_attempts_per_backend=self._max_attempts_per_backend,
                         backoff_s=self._backoff_s,

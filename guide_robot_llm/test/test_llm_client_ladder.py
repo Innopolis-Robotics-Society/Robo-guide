@@ -44,6 +44,14 @@ def test_first_backend_unavailable_falls_back_to_second(
     assert result.text == "ок"
 
 
+def test_frequency_penalty_threads_through_to_backend(live_server: MockLlmServer) -> None:
+    backend = Backend(BackendConfig(base_url=live_server.url, read_timeout_s=5.0))
+
+    complete_with_fallback([backend], _MESSAGES, frequency_penalty=0.4)
+
+    assert live_server.last_request_body["frequency_penalty"] == 0.4
+
+
 def test_all_backends_unavailable_raises(dead_backend: Backend) -> None:
     other_dead = MockLlmServer()
     other_dead_backend = Backend(

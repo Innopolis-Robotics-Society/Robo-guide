@@ -63,6 +63,7 @@ class Backend:
         grammar: str | None = None,
         max_tokens: int = 512,
         temperature: float = 0.2,
+        frequency_penalty: float | None = None,
         abort_event: threading.Event | None = None,
         on_delta: Callable[[str], None] | None = None,
     ) -> CompletionResult:
@@ -78,6 +79,12 @@ class Backend:
         `read_timeout_s` в `requests` -- таймаут между чтениями сокета, не на
         весь ответ целиком: пока сервер шлёт дельты с паузами короче
         `read_timeout_s`, многосекундная генерация не заденет его.
+
+        `frequency_penalty` (stage5 п.3) -- только для фазы реплики
+        (вызывающий не передаёт его для фазы действия: там грамматика и
+        temperature 0, штраф повторов там не нужен и не проверялся). `None`
+        -- ключ не идёт в payload вовсе, а не `0.0`: сервер, которому
+        параметр незнаком, не обязан отличать "выключено" от "не прислали".
         """
         payload: dict[str, object] = {
             "messages": messages,
@@ -87,6 +94,8 @@ class Backend:
         }
         if grammar:
             payload["grammar"] = grammar
+        if frequency_penalty is not None:
+            payload["frequency_penalty"] = frequency_penalty
 
         headers = {"Content-Type": "application/json"}
         if self._config.api_key:

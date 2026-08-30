@@ -29,6 +29,7 @@ def complete_with_fallback(
     grammar: str | None = None,
     max_tokens: int = 512,
     temperature: float = 0.2,
+    frequency_penalty: float | None = None,
     abort_event: threading.Event | None = None,
     on_delta: Callable[[str], None] | None = None,
     max_attempts_per_backend: int = 2,
@@ -57,6 +58,7 @@ def complete_with_fallback(
                     grammar=grammar,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    frequency_penalty=frequency_penalty,
                     abort_event=abort_event,
                     on_delta=on_delta,
                 )

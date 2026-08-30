@@ -225,7 +225,8 @@ turn.run_answer_phase`, без повторной фазы действия); «
 `llm.max_attempts_per_backend`(2), `llm.backoff_s`(0.5),
 `llm.max_tokens_answer`(160), `llm.max_tokens_action`(128),
 `llm.temperature_answer`(0.6), `llm.temperature_action`(0.0),
-`llm.action_repair_attempts`(1), `system_prompt_path`,
+`llm.answer_frequency_penalty`(0.4 -- только фаза реплики, см. «Известные
+пробелы»), `llm.action_repair_attempts`(1), `system_prompt_path`,
 `tool_broker_ns`(`/tool_broker`), `service_call_timeout_s`(2.0),
 `catalog_ns_timeout_s`(5.0), `history.max_entries`(16),
 `history.trim_to`(8), `history.cap_visitor_chars`(200),
@@ -465,6 +466,15 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
   `test_tool_gating` (гонки teardown DDS-графов между последовательными
   harness'ами: `Goal state not set`, invalid feedback publisher); в
   изоляции и в малых батчах — стабильно зелёные.
+- **`llm.answer_frequency_penalty` не проверен на живом сервере.**
+  `Backend.complete()` шлёт `frequency_penalty` в теле запроса
+  OpenAI-совместимого эндпоинта только для фазы реплики (stage5 п.3,
+  предпочтение спеки против `repeat_penalty`+`penalty_last_n`) — из этого
+  контейнера не поднят реальный `llm_server`/`llama-server`, чтобы
+  подтвердить, что параметр реально влияет на генерацию, а не молча
+  игнорируется. Если окажется, что сервер его не понимает — параметр
+  оставить как есть (заработает при смене сервера/версии llama.cpp), не
+  переключать на `repeat_penalty` без отдельной проверки.
 
 ## Тесты
 

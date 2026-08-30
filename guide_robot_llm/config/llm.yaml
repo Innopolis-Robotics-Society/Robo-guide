@@ -31,6 +31,11 @@
     llm.max_tokens_action: 192
     llm.temperature_answer: 0.6
     llm.temperature_action: 0.0
+    # stage5 п.3: только фаза реплики -- фаза действия идёт под грамматикой
+    # с temperature 0, штраф повторов там неуместен. Не проверено вживую
+    # из этого контейнера, приняли ли параметр llama-server -- см.
+    # ../llm_server/README.md.
+    llm.answer_frequency_penalty: 0.4
     llm.action_repair_attempts: 1
 
     system_prompt_path: "$(find-pkg-share guide_robot_llm)/config/system_prompt.txt"

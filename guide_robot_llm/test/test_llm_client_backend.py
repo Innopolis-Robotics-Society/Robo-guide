@@ -70,6 +70,28 @@ def test_on_delta_called_for_each_nonempty_chunk(mock_server: MockLlmServer) -> 
     assert seen == ["A", "B", "C"]
 
 
+# -- frequency_penalty (stage5 п.3): только когда вызывающий его просит --
+
+
+def test_frequency_penalty_reaches_request_body_when_given(mock_server: MockLlmServer) -> None:
+    backend = Backend(BackendConfig(base_url=mock_server.url, read_timeout_s=5.0))
+
+    backend.complete(_MESSAGES, frequency_penalty=0.4)
+
+    assert mock_server.last_request_body["frequency_penalty"] == 0.4
+
+
+def test_frequency_penalty_omitted_from_request_body_by_default(
+    mock_server: MockLlmServer,
+) -> None:
+    """Фаза действия не передаёт `frequency_penalty` -- ключ не должен идти в payload вовсе."""
+    backend = Backend(BackendConfig(base_url=mock_server.url, read_timeout_s=5.0))
+
+    backend.complete(_MESSAGES)
+
+    assert "frequency_penalty" not in mock_server.last_request_body
+
+
 def test_read_timeout_raises_backend_timeout(mock_server: MockLlmServer) -> None:
     mock_server.mode = MockLlmServer.MODE_HANG
     mock_server.hang_s = 5.0
