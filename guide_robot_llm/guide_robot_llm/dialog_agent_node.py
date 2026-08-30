@@ -56,6 +56,7 @@ from guide_robot_llm.dialog.turn import (
 from guide_robot_llm.lib.qos import (
     QOS_ASR_TRANSCRIPT,
     QOS_CANCEL_ALL,
+    QOS_DIALOG_PHASE,
     QOS_INTERACTION_EVENT,
     QOS_MISSION_PRESENCE,
     QOS_MISSION_STATE,
@@ -66,6 +67,7 @@ from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
 from guide_robot_llm.tools import schema
 from guide_robot_msgs.msg import (
     CancelAll,
+    DialogPhase,
     InteractionEvent,
     MissionState,
     Presence,
@@ -297,6 +299,13 @@ class DialogAgentNode(LifecycleNode):
         self._interaction_pub = self.create_publisher(
             InteractionEvent, "/dialog/interaction", QOS_INTERACTION_EVENT
         )
+        # stage2 face §1.4: face_aggregator -- единственный потребитель,
+        # публикуем ТОЛЬКО на смену (phase, presence), см. _publish_dialog_phase.
+        self._dialog_phase_pub = self.create_publisher(
+            DialogPhase, "/dialog/phase", QOS_DIALOG_PHASE
+        )
+        self._last_dialog_phase = DialogPhase.IDLE
+        self._last_dialog_presence = False
 
         self._mission_state_sub = self.create_subscription(
             MissionState,
@@ -429,6 +438,8 @@ class DialogAgentNode(LifecycleNode):
             self._listen_until = 0.0
             self._wake_grace_until = 0.0
             self._pending_question = None
+            self._last_dialog_phase = DialogPhase.IDLE
+            self._last_dialog_presence = False
         # ROS-сущности уничтожаем явно: cleanup -> configure иначе оставляет
         # ВТОРОЙ комплект живых подписок/паблишеров (живой баг: задвоенные
         # записи в interaction_log). Идемпотентно -- teardown зовётся и из
@@ -452,6 +463,10 @@ class DialogAgentNode(LifecycleNode):
         if pub is not None:
             self.destroy_publisher(pub)
             self._interaction_pub = None
+        phase_pub = getattr(self, "_dialog_phase_pub", None)
+        if phase_pub is not None:
+            self.destroy_publisher(phase_pub)
+            self._dialog_phase_pub = None
 
     # -- кэш /mission/state, /mission/presence (свой, не tool_broker'а) ------
 
@@ -526,6 +541,34 @@ class DialogAgentNode(LifecycleNode):
                 # stage2 C2: как и вопрос на паузе -- отвечать на ask_visitor
                 # уже некому.
                 self._pending_question = None
+            current_phase = self._last_dialog_phase
+        # face stage2 §1.4: presence -- часть DialogPhase, republish нужен и
+        # тогда, когда фаза не менялась (внутри лока не зовём -- та же
+        # блокировка, deadlock).
+        self._publish_dialog_phase(current_phase)
+
+    def _publish_dialog_phase(self, phase: int) -> None:
+        """Опубликовать DialogPhase, только если (phase, presence) изменились (§2.8).
+
+        `presence` зеркалит `self._last_presence.present` -- тот же флаг,
+        которым `_maybe_clear_history_for_absence_locked` управляет очисткой
+        истории (§1.4: "не считать второе, независимое понятие presence").
+        """
+        with self._state_lock:
+            present = bool(self._last_presence.present) if self._last_presence else False
+            if phase == self._last_dialog_phase and present == self._last_dialog_presence:
+                return
+            self._last_dialog_phase = phase
+            self._last_dialog_presence = present
+        pub = getattr(self, "_dialog_phase_pub", None)
+        if pub is not None:
+            try:
+                pub.publish(DialogPhase(phase=phase, presence=present))
+            except Exception as error:  # noqa: BLE001 -- InvalidHandle на гонке teardown
+                # Тот же живой класс гонки, что у _interaction_pub ниже:
+                # демон-поток хода может пережить on_cleanup/on_shutdown --
+                # паблишер уже уничтожен, публикация просто теряется.
+                self.get_logger().debug(f"публикация DialogPhase не удалась: {error}")
 
     def last_mission_state(self) -> MissionState | None:
         """Последнее полученное `/mission/state`, либо `None`, если ещё не пришло."""
@@ -924,6 +967,13 @@ class DialogAgentNode(LifecycleNode):
         degrade_reason: str | None = None
         told_ids: list[str] = []
         try:
+            # face stage2 §1.4: фаза 1 пропускается для ask_visitor
+            # fast-path'а и llm.raw -- сразу ANSWER, ни на один тик ACTION.
+            if pending_answer is not None or self._raw_llm:
+                self._publish_dialog_phase(DialogPhase.ANSWER)
+            else:
+                self._publish_dialog_phase(DialogPhase.ACTION)
+
             presence = self.last_presence() or _EmptyPresence()
             tools_allowed = schema.allowed_tools(mission.state, llm_only=True)
 
@@ -1082,6 +1132,13 @@ class DialogAgentNode(LifecycleNode):
                     )
 
             def _on_action_resolved(record: ToolCallRecord) -> None:
+                # face stage2 §1.4: ACTION -> ANSWER здесь, ДО фазы реплики
+                # (речь ещё не началась -- если ask_visitor, слот ниже
+                # взводится ДО того, как вопрос вообще озвучен). AWAITING,
+                # если он потребуется, публикуется по ВОЗВРАТУ фазы реплики
+                # (см. конец try ниже), не здесь -- иначе лицо покажет
+                # listening, пока робот ещё думает, что сказать.
+                self._publish_dialog_phase(DialogPhase.ANSWER)
                 # Гонка (живой баг): `speak()` ниже по стеку доносит первый
                 # звук до посетителя раньше, чем этот ход успевал
                 # закоммитить свои следствия -- барж-ин/следующая реплика,
@@ -1153,17 +1210,34 @@ class DialogAgentNode(LifecycleNode):
                 f"ход завершён: stopped_reason={result.stopped_reason} "
                 f"say_ok={result.say_ok} action={action_name}"
             )
+            # face stage2 §1.4: по возврату фазы реплики -- AWAITING, если
+            # ask_visitor успел взвести слот (см. _on_action_resolved), иначе
+            # IDLE. Проверяем ЗДЕСЬ, не в _on_action_resolved: слот может
+            # смениться/протухнуть ПОКА фаза реплики озвучивала вопрос.
+            with self._state_lock:
+                awaiting = self._pending_question is not None
+            self._publish_dialog_phase(DialogPhase.AWAITING if awaiting else DialogPhase.IDLE)
         except BackendAborted:
             self.get_logger().info("ход прерван barge-in -- частичный ответ отброшен")
             degraded = True
             degrade_reason = "aborted"
             result = TurnResult(stopped_reason="aborted")
+            # §1.4: ошибка/отмена -- ВСЕГДА IDLE, безусловно (не проверяя
+            # слот ask_visitor): лицо не имеет права застрять в thinking/
+            # listening из-за упавшего хода.
+            self._publish_dialog_phase(DialogPhase.IDLE)
         except BackendError as error:
             self.get_logger().warning(f"бэкенд недоступен: {error}")
             degraded = True
             degrade_reason = "backend_error"
             result = TurnResult(stopped_reason="backend_error")
+            self._publish_dialog_phase(DialogPhase.IDLE)
         finally:
+            if result is None:
+                # Ход упал необработанным исключением, шире BackendAborted/
+                # BackendError (не должно происходить штатно) -- лицо всё
+                # равно не имеет права застрять в ACTION/ANSWER (§1.4).
+                self._publish_dialog_phase(DialogPhase.IDLE)
             with self._turn_lock:
                 pending_text = self._pending_text
                 self._pending_text = None

@@ -14,6 +14,7 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 __all__ = [
     "QOS_ASR_TRANSCRIPT",
     "QOS_CANCEL_ALL",
+    "QOS_DIALOG_PHASE",
     "QOS_INTERACTION_EVENT",
     "QOS_MISSION_PRESENCE",
     "QOS_MISSION_STATE",
@@ -70,6 +71,16 @@ QOS_WAKEWORD = QoSProfile(
 )
 
 QOS_VOICE_SPEAKING = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+)
+
+# /dialog/phase -- CLAUDE_CODE_TASK_face_stage2.md §1.4: поздно поднявшийся
+# face_aggregator обязан сразу увидеть текущую фазу хода, не дожидаясь
+# следующей смены (то же рассуждение, что у QOS_MISSION_STATE).
+QOS_DIALOG_PHASE = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
     reliability=ReliabilityPolicy.RELIABLE,
