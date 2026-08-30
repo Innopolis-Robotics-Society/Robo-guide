@@ -47,6 +47,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ExhibitChunk.msg"
   "msg/FaceState.msg"
   "srv/SetFaceState.srv"
+  "msg/DialogPhase.msg"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs
 )
 
