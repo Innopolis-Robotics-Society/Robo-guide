@@ -13,24 +13,9 @@
    в накопитель высказывания подаётся снимок pre-roll (без него срезается
    первый слог -- design §3.4).
 3. Каждый новый кадр /audio/mic во время открытого высказывания
-<<<<<<< HEAD
-   добавляется в накопитель. Партиалы считает таймер (partial_rate_hz),
-   не колбэк микрофона: OfflineRecognizer на том же executor'е иначе
-   не забирает /audio/mic (depth KEEP_LAST) и VAD видит дыры first_sample.
-   Сам decode() (5с окно, десятки-сотни мс на CPU) всё ещё делил бы
-   executor с _on_audio, будь он на таймере/vad-колбэке напрямую --
-   вынесен в отдельный ThreadPoolExecutor(1) (stage3 B2), НЕ
-   MultiThreadedExecutor: один декодер, одна очередь, партиалы --
-   depth-1/drop-oldest (если предыдущий партиал ещё не готов, новый
-   тик таймера просто пропускается, а не копится в очереди), финалы --
-   всегда исполняются, снимок нужных полей высказывания берётся ДО
-   close_utterance(), чтобы асинхронный decode не зацепил уже
-   следующее высказывание.
-=======
    добавляется в накопитель. GigaAM крутится на отдельном потоке: таймер
    на том же executor'е, что и подписка KEEP_LAST, на сотни мс глушил
    /audio/mic, и фраза приезжала в декодер с дырами.
->>>>>>> c0eaca11ff8b7c772dc1a679493252b8ce915148
 4. Каждое /vad-сообщение во время открытого высказывания прогоняется
    через TurnPolicy.should_finalize(). Тишина берётся из state_duration
    самого /vad -- vad_node уже считает её точно, задваивать незачем.
@@ -46,12 +31,7 @@ import pathlib
 import queue
 import threading
 import time
-<<<<<<< HEAD
-from concurrent.futures import Future, ThreadPoolExecutor
-from typing import NamedTuple
-=======
 from dataclasses import dataclass
->>>>>>> c0eaca11ff8b7c772dc1a679493252b8ce915148
 
 import numpy as np
 import rclpy
@@ -75,15 +55,6 @@ _SPEAKING_STATUS_STALE_SEC = 0.4
 _TTS_ECHO_HOLD_S = 1.0
 
 
-<<<<<<< HEAD
-class _UtteranceSnapshot(NamedTuple):
-    """Поля высказывания, снятые ДО close_utterance() -- для decode() в фоновом потоке."""
-
-    utterance_id: int
-    timestamp: float
-    prefix_samples: int
-    utterance_samples: int
-=======
 @dataclass(frozen=True)
 class _DecodeJob:
     """Снимок высказывания для декода вне executor'а."""
@@ -95,7 +66,6 @@ class _DecodeJob:
     prefix_samples: int
     total_samples: int
     speech_ms: float
->>>>>>> c0eaca11ff8b7c772dc1a679493252b8ce915148
 
 
 class AsrNode(LifecycleNode):
@@ -126,8 +96,6 @@ class AsrNode(LifecycleNode):
         self._pre_roll: RingBuffer | None = None
         self._is_active = False
         self._lock = threading.Lock()
-        self._decode_executor: ThreadPoolExecutor | None = None
-        self._pending_partial: Future | None = None
 
         self._utterance_id = 0
         self._utterance_open = False
@@ -183,12 +151,6 @@ class AsrNode(LifecycleNode):
         )
         self._asr.load()
         self.get_logger().info(f"модель ASR загружена за {(time.monotonic() - started):.1f} с")
-
-        # stage3 B2: decode() -- в отдельном потоке, не на executor'е
-        # _on_audio/_on_vad/таймера. Один воркер: два decode() параллельно
-        # на одной модели не нужны и не быстрее (CPU-bound), а
-        # MultiThreadedExecutor здесь избыточен.
-        self._decode_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="asr-decode")
 
         self._turn_policy = TurnPolicy(
             TurnPolicyConfig(
@@ -247,16 +209,7 @@ class AsrNode(LifecycleNode):
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
         """Остановить воркер декода и освободить модель."""
         del state
-<<<<<<< HEAD
-        if self._decode_executor is not None:
-            # wait=True -- дождаться, чтобы decode() в полёте не обратился
-            # к self._asr после close() ниже.
-            self._decode_executor.shutdown(wait=True, cancel_futures=True)
-            self._decode_executor = None
-        self._pending_partial = None
-=======
         self._stop_decode_worker()
->>>>>>> c0eaca11ff8b7c772dc1a679493252b8ce915148
         if self._asr is not None:
             self._asr.close()
             self._asr = None
@@ -296,31 +249,8 @@ class AsrNode(LifecycleNode):
             assert self._pre_roll is not None
             self._pre_roll.push(timestamp, samples)
             if self._utterance_open:
-<<<<<<< HEAD
-                # stage3 B4: без AEC своя речь эхом попадает в ASR --
-                # gate_on_tts молча топит открытое высказывание, включая
-                # РЕАЛЬНУЮ речь посетителя, случайно совпавшую по времени
-                # с TTS (barge-in без резюме). Минимальный фикс -- WARN с
-                # последним известным партиалом (полного decode() здесь не
-                # делаем, чтобы не тащить обратно блокирующий вызов, от
-                # которого только что избавились в B2); буфер-и-повтор
-                # после TTS -- решение на потом, ждёт аппаратного AEC
-                # (XVF3800), который снимет gate_on_tts целиком.
-                self.get_logger().warning(
-                    f"gate_on_tts топит высказывание {self._utterance_id} "
-                    f"({self._utterance_speech_ms():.0f}мс речи, последний партиал "
-                    f"{self._last_partial_text!r})"
-                )
-                self._close_utterance()
-            return
-        if not self._utterance_open:
-            if msg.active:
-                self._open_utterance()
-            return
-=======
                 self._utterance_chunks.append(samples)
                 self._utterance_samples += samples.shape[0]
->>>>>>> c0eaca11ff8b7c772dc1a679493252b8ce915148
 
     def _on_partial_timer(self) -> None:
         """Поставить партиал в очередь воркера, не декодировать на executor'е."""
@@ -338,6 +268,11 @@ class AsrNode(LifecycleNode):
                 return
             if tts_blocks:
                 if self._utterance_open:
+                    self.get_logger().warning(
+                        f"gate_on_tts топит высказывание {self._utterance_id} "
+                        f"({self._utterance_speech_ms():.0f}мс речи, последний партиал "
+                        f"{self._last_partial_text!r})"
+                    )
                     self._close_utterance()
                 return
             if not self._utterance_open:
@@ -386,33 +321,12 @@ class AsrNode(LifecycleNode):
             return np.zeros(0, dtype=np.int16)
         return np.concatenate(self._utterance_chunks)
 
-<<<<<<< HEAD
-    def _snapshot(self) -> _UtteranceSnapshot:
-        return _UtteranceSnapshot(
-            self._utterance_id, self._utterance_timestamp, self._prefix_samples,
-            self._utterance_samples,
-        )
-
-    def _maybe_publish_partial(self) -> None:
-        assert self._asr is not None
-        assert self._decode_executor is not None
-        rate_hz = float(self.get_parameter("partial_rate_hz").value)
-        now = time.monotonic()
-        if now - self._last_partial_at < 1.0 / rate_hz:
-            return
-        if self._pending_partial is not None and not self._pending_partial.done():
-            # depth-1, drop-oldest: декодер уже занят предыдущим партиалом --
-            # новый тик таймера просто пропускаем, а не копим в очереди.
-            return
-        self._last_partial_at = now
-=======
     def _start_decode_worker(self) -> None:
         self._decode_stop.clear()
         self._decode_worker = threading.Thread(
             target=self._decode_loop, name="asr_decode", daemon=True
         )
         self._decode_worker.start()
->>>>>>> c0eaca11ff8b7c772dc1a679493252b8ce915148
 
     def _stop_decode_worker(self) -> None:
         self._decode_stop.set()
@@ -475,86 +389,6 @@ class AsrNode(LifecycleNode):
             self._publish_transcript(text, confidence, is_final=False, job=job)
             return
 
-<<<<<<< HEAD
-        snapshot = self._snapshot()
-        future = self._decode_executor.submit(self._asr.decode, windowed)
-        self._pending_partial = future
-        future.add_done_callback(lambda fut: self._on_partial_decoded(fut, snapshot))
-
-    def _on_partial_decoded(self, future: Future, snapshot: _UtteranceSnapshot) -> None:
-        """Колбэк decode(): выполняется на потоке ThreadPoolExecutor, не на executor'е ноды."""
-        try:
-            result = future.result()
-        except Exception as error:  # страховка воркера, а не пробрасывать в executor
-            self.get_logger().warning(f"декод партиала не удался: {error}")
-            return
-        if self._utterance_id != snapshot.utterance_id:
-            # Высказывание сменилось, пока декодировали -- партиал устарел,
-            # публиковать нечего (в отличие от финала, партиал не обязан
-            # пережить смену высказывания).
-            return
-        self._last_partial_text = result.text
-        self._publish_transcript(result.text, result.confidence, is_final=False, snapshot=snapshot)
-
-    def _finalize_utterance(self) -> None:
-        assert self._asr is not None
-        assert self._decode_executor is not None
-        pcm = self._utterance_pcm()
-        snapshot = self._snapshot()
-        speech_ms = self._utterance_speech_ms()
-        # Снимок выше уже скопировал всё нужное -- закрыть высказывание
-        # можно сразу, не дожидаясь decode(): следующее высказывание не
-        # обязано ждать фоновый декодер.
-        self._close_utterance()
-
-        if not pcm.size:
-            self._on_final_decoded(None, snapshot, speech_ms)
-            return
-        future = self._decode_executor.submit(self._asr.decode, pcm)
-        future.add_done_callback(lambda fut: self._on_final_decoded(fut, snapshot, speech_ms))
-
-    def _on_final_decoded(
-        self, future: Future | None, snapshot: _UtteranceSnapshot, speech_ms: float
-    ) -> None:
-        """Колбэк decode(): выполняется на потоке ThreadPoolExecutor, не на executor'е ноды.
-
-        В отличие от партиала -- публикуется ВСЕГДА, даже если новое
-        высказывание уже открылось за время decode(): финал уже
-        закончившейся речи должен дойти до диалогового слоя, а не
-        потеряться молча.
-        """
-        result = None
-        if future is not None:
-            try:
-                result = future.result()
-            except Exception as error:  # страховка воркера
-                self.get_logger().warning(f"декод финала не удался: {error}")
-        text = result.text.strip() if result is not None else ""
-        min_chars = int(self.get_parameter("min_final_chars").value)
-
-        if len(text) < min_chars:
-            self._finals_dropped_short += 1
-            self.get_logger().info(f"drop {text!r} {speech_ms:.0f}ms")
-            return
-
-        confidence = result.confidence if result is not None else -1.0
-        self.get_logger().info(f"final {text!r} {speech_ms:.0f}ms")
-        self._publish_transcript(text, confidence, is_final=True, snapshot=snapshot)
-        self._finals_published += 1
-
-    def _publish_transcript(
-        self, text: str, confidence: float, *, is_final: bool, snapshot: _UtteranceSnapshot
-    ) -> None:
-        msg = Transcript()
-        msg.header.stamp = self._seconds_to_time_msg(snapshot.timestamp)
-        msg.header.frame_id = str(self.get_parameter("frame_id").value)
-        msg.utterance_id = snapshot.utterance_id
-        msg.text = text
-        msg.is_final = is_final
-        msg.confidence = confidence
-        msg.speech_start = snapshot.prefix_samples / _SAMPLE_RATE
-        msg.speech_end = snapshot.utterance_samples / _SAMPLE_RATE
-=======
         min_chars = int(self.get_parameter("min_final_chars").value)
         if len(text) < min_chars:
             self._finals_dropped_short += 1
@@ -582,7 +416,6 @@ class AsrNode(LifecycleNode):
         msg.confidence = confidence
         msg.speech_start = job.prefix_samples / _SAMPLE_RATE
         msg.speech_end = job.total_samples / _SAMPLE_RATE
->>>>>>> c0eaca11ff8b7c772dc1a679493252b8ce915148
         msg.language = "ru"
         msg.azimuth = float("nan")
         (self._transcript_pub if is_final else self._partial_pub).publish(msg)
