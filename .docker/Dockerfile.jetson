@@ -66,6 +66,10 @@ RUN if [ "$WITH_ML" = "1" ]; then bash /tmp/common/40-ml-jetson.sh; fi
 
 COPY .docker/common/90-user-setup.sh /tmp/common/90-user-setup.sh
 RUN bash /tmp/common/90-user-setup.sh
+
+COPY .docker/common/91-python-apps.sh /tmp/common/91-python-apps.sh
+RUN bash /tmp/common/91-python-apps.sh
+
 RUN rm -rf /tmp/common
 
 USER ${USERNAME}

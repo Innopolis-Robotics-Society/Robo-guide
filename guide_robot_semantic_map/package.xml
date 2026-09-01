@@ -21,6 +21,7 @@
   <depend>guide_robot_msgs</depend>
   <depend>python3-yaml</depend>
   <depend>ament_index_python</depend>
+  <!-- rank_bm25: нет apt/rosdep-ключа. В образе: .docker/common/91-python-apps.sh -->
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

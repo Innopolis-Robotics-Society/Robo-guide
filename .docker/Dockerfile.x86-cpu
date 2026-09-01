@@ -30,6 +30,7 @@ RUN bash /tmp/common/35-sensor-tools.sh
 RUN bash /tmp/common/40-ml-x86-cpu.sh
 
 RUN bash /tmp/common/90-user-setup.sh
+RUN bash /tmp/common/91-python-apps.sh
 RUN rm -rf /tmp/common
 
 USER ${USERNAME}

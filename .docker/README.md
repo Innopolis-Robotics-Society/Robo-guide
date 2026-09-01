@@ -11,12 +11,13 @@ docker/
     10-ros2-repo.sh     # ROS2 apt repo (modern keyring) + ros-base + colcon/rosdep
     20-ros2-packages.sh # nav2, slam, image pipeline, control, gazebo (WITH_GAZEBO)
     25-can-utils.sh     # can-utils from source
-    30-python-common.sh # opencv, open3d, numpy<2, vosk, ... (NO torch)
+    30-python-common.sh # opencv, open3d, numpy<2, vosk, rank_bm25 (NO torch)
     40-ml-x86-gpu.sh    # torch cu124 + onnxruntime-gpu        (x86 GPU only)
     40-ml-x86-cpu.sh    # torch cpu  + onnxruntime             (x86 CPU only)
     40-ml-jetson.sh     # torch L4T wheels + onnxruntime-gpu   (Jetson only)
     40-ml-jetson-cpu.sh # onnxruntime CPU only                 (arm64 CPU only)
     90-user-setup.sh    # user, sudo, rosdep, .bashrc, workspace
+    91-python-apps.sh   # aiohttp, rank_bm25 — слой после 90, без пересборки torch
   Dockerfile.x86-gpu    # nvidia/cuda base       -> fabook/iros:x86-gpu
   Dockerfile.x86-cpu    # ubuntu:22.04 base      -> fabook/iros:x86-cpu   (lightweight)
   Dockerfile.jetson     # l4t-jetpack base       -> fabook/iros:jetson
@@ -80,6 +81,12 @@ docker run --runtime nvidia -it fabook/iros:jetson     # Jetson + GPU
 docker run -it fabook/iros:jetson-cpu                  # arm64 CPU
 ```
 
+`compose.yaml` монтирует `./build`, `./install`, `./log` в
+`/home/fabian/ros2_ws/{build,install,log}` и дописывает
+`source install/setup.bash` в bashrc. `docker compose run --rm jetson`
+не требует colcon с нуля: overlay живёт в репо (gitignored). Первый раз —
+один `colcon build --symlink-install`, дальше только пакеты, которые менял.
+
 ## Per-device knobs (build args)
 
 - `JETSON_PIP_INDEX` — match to your JetPack (jp6/cu126, jp5/cu114, ...).
@@ -91,6 +98,13 @@ docker run -it fabook/iros:jetson-cpu                  # arm64 CPU
 
 ## Adding a dependency
 
-- Needed everywhere -> edit the matching `common/*.sh` (one place, all images).
-- GPU/CPU/Jetson-specific -> edit that platform's `40-ml-*.sh`.
+- Needed everywhere (heavy: open3d/cv/vosk) -> `common/30-python-common.sh`.
+- Workspace pip that is not in Ubuntu/rosdep (aiohttp, rank_bm25) ->
+  `common/91-python-apps.sh`. Jetson copies this script in its own layer
+  after 90 so bumping it does **not** rebuild torch.
+- GPU/CPU/Jetson-specific -> that platform's `40-ml-*.sh`.
 - Don't add torch to `30-python-common.sh` — it's platform-specific on purpose.
+
+The image does **not** `rosdep install` the mounted workspace. A
+`<depend>python3-aiohttp</depend>` in package.xml does nothing until the
+package is listed in `91-python-apps.sh` (or 30).

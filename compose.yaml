@@ -4,6 +4,11 @@ x-common: &common-setup
   volumes:
     - ${HOME}/.Xauthority:/home/fabian/.Xauthority:rw
     - .:/home/fabian/ros2_ws/src:rw
+    # colcon пишет сюда, не в образ. Иначе `compose run --rm` каждый раз
+    # пустой install и нужна полная пересборка. Уже в .gitignore.
+    - ./build:/home/fabian/ros2_ws/build:rw
+    - ./install:/home/fabian/ros2_ws/install:rw
+    - ./log:/home/fabian/ros2_ws/log:rw
     - /tmp/.X11-unix:/tmp/.X11-unix:rw
     - /dev/dri:/dev/dri:rw
     - /dev:/dev:rw
@@ -26,7 +31,8 @@ x-common: &common-setup
     - "audio"
   command: [
     "/bin/bash","-lc","
-    sudo chown -R $(whoami):$(whoami) /home/fabian/ros2_ws 2>/dev/null || true &&
+    sudo chown $(whoami):$(whoami) /home/fabian/ros2_ws /home/fabian/ros2_ws/build /home/fabian/ros2_ws/install /home/fabian/ros2_ws/log 2>/dev/null || true &&
+    grep -q ros2_ws/install/setup.bash ~/.bashrc || echo '[ -f /home/fabian/ros2_ws/install/setup.bash ] && source /home/fabian/ros2_ws/install/setup.bash' >> ~/.bashrc &&
     exec bash"
     ]
 
@@ -48,6 +54,9 @@ services:
     volumes:
       - ${HOME}/.Xauthority:/home/fabian/.Xauthority:rw
       - .:/home/fabian/ros2_ws/src:rw
+      - ./build:/home/fabian/ros2_ws/build:rw
+      - ./install:/home/fabian/ros2_ws/install:rw
+      - ./log:/home/fabian/ros2_ws/log:rw
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /dev:/dev:rw   # Important for lidars (ttyUSB*) and motors (ttyACM*)
       # PulseAudio. This local `volumes:` key overrides the whole list from
