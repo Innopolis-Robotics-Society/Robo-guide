@@ -96,11 +96,11 @@ def generate_launch_description():
     )
     # tooling
     declare_launch_foxglove = DeclareLaunchArgument(
-        "launch_foxglove", default_value="true", description="Launch Foxglove Bridge"
+        "launch_foxglove", default_value="false", description="Launch Foxglove Bridge"
     )
     declare_launch_rviz = DeclareLaunchArgument(
         "launch_rviz",
-        default_value="true",
+        default_value="false",
         description="Launch RViz (requires a display; keep off on the headless robot)",
     )
 
