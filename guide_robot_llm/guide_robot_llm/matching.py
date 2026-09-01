@@ -109,9 +109,8 @@ _LEADING_WAKE_RE = re.compile(r"^\s*(?:робот\b[\s,.!?—–-]*)+", re.IGNOR
 # Похоже на просьбу поехать/провести куда-то -- подстроки, не NLP.
 # «повтори»/«привет» сюда не входят намеренно (изначальный живой баг,
 # из-за которого регулярка появилась: модель сожгла «повтори» в
-# start_tour lab_demo, и робот поехал). Используется ТОЛЬКО как эвристика
-# допуска в IDLE (`idle_turn_allowed`, has_motion_intent) -- не как гейт
-# безопасности с stage2 D1, см. докстринг `has_motion_intent`.
+# start_tour lab_demo, и робот поехал). Не допуск в ЛЛМ.
+# Не гейт безопасности, см. докстринг `has_motion_intent`.
 _MOTION_INTENT_RE = re.compile(
     r"экскурс|excursion|\btour\b|\bтур(?:а|у|ом|е|ы|ов)?\b|провед|проводи|отвед"
 )
@@ -137,18 +136,14 @@ def has_leading_wake_word(text: str) -> bool:
 
 
 def idle_turn_allowed(raw: str, *, listen_armed: bool) -> bool:
-    """IDLE: ход только после wake-слова, окна слушания или явного «проведи/тур».
+    """Ход к ЛЛМ только после «робот» в фразе или окна после /speech/wakeword.
 
-    Голое chit-chat без «робот» -- мусор ASR, не диалог. «проведи экскурсию»
-    без wake-слова по-прежнему проходит (has_motion_intent). Стоп-фразы
-    сюда не входят: это стоп, не активация.
+    «проведи экскурсию» без wake-слова -- нет. Стоп-фразы сюда не входят.
     """
     text = strip_wake_word(raw)
     if not text:
         return False
-    if listen_armed or has_leading_wake_word(raw) or has_motion_intent(text):
-        return True
-    return False
+    return listen_armed or has_leading_wake_word(raw)
 
 
 def strip_wake_word(text: str) -> str:
@@ -199,15 +194,13 @@ def match_stop_phrase(text: str) -> bool:
 def has_motion_intent(text: str) -> bool:
     """Проверить, что фраза похожа на просьбу об экскурсии, туре или «отвести к месту».
 
-    ТОЛЬКО эвристика допуска транскрипта в IDLE без wake-слова
-    (`idle_turn_allowed`) -- не гейт безопасности (stage2 D1): раньше это
+    Эвристика «похоже на тур/отвести», не допуск в ЛЛМ. Не гейт
+    безопасности (stage2 D1): раньше это
     же имя защищало моторные инструменты от chit-chat в `tools/validate.py`
     («повтори» -> start_tour), но правило по подстроке резало и
     подтверждённое через `ask_visitor` «да» посетителя. Эта защита теперь
     у `tool_broker_node.call_tool()`'s `confirmed` (`CallTool.srv`), не
-    здесь. Цена ложного срабатывания ЗДЕСЬ -- лишний ход диалога к ЛЛМ, не
-    незапрошенное движение, поэтому регулярку не убирали целиком, только
-    её роль. Пустая строка -- не намерение.
+    здесь. Пустая строка -- не намерение.
     """
     # ponytail: несколько подстрок, словарь если появятся ложные отказы.
     folded = unicodedata.normalize("NFC", text).lower().replace("ё", "е")

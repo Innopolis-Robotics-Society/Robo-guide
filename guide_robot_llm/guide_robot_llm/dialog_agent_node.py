@@ -169,7 +169,7 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("history.clear_after_absent_s", 60.0)
 
         self.declare_parameter("answer.max_chars", 400)
-        self.declare_parameter("wake_grace_s", 30.0)
+        self.declare_parameter("wake_grace_s", 0.0)
         self.declare_parameter("ask_visitor_ttl_s", 30.0)
 
         self._active = False
@@ -223,9 +223,7 @@ class DialogAgentNode(LifecycleNode):
             self.get_parameter("llm.answer_frequency_penalty").value
         )
         self._temperature_action = float(self.get_parameter("llm.temperature_action").value)
-        self._action_repair_attempts = int(
-            self.get_parameter("llm.action_repair_attempts").value
-        )
+        self._action_repair_attempts = int(self.get_parameter("llm.action_repair_attempts").value)
         self._raw_llm = bool(self.get_parameter("llm.raw").value)
 
         self._service_call_timeout_s = float(self.get_parameter("service_call_timeout_s").value)
@@ -245,9 +243,8 @@ class DialogAgentNode(LifecycleNode):
         )
         self._told_ids: set[str] = set()
         self._listen_until = 0.0
-        # stage2 A5: грейс-период без wakeword сразу после конца хода --
-        # живой баг: "расскажи про себя" через 1с после stop_tour ушло в
-        # "IDLE без wakeword, игнор", хотя разговор только что был.
+        # wake_grace_s оставлен в yaml как no-op: ход к ЛЛМ только после
+        # «робот» / окна wakeword, не после конца предыдущей реплики.
         self._wake_grace_s = float(self.get_parameter("wake_grace_s").value)
         self._wake_grace_until = 0.0
         # stage2 C2: {question, on_yes, on_no, deadline} -- живёт до ответа,
@@ -626,11 +623,10 @@ class DialogAgentNode(LifecycleNode):
         mission = self.last_mission_state()
         if mission is None:
             return
-        if mission.state == MissionState.STATE_IDLE and not matching.idle_turn_allowed(
-            msg.text, listen_armed=self._listen_armed() or self._wake_grace_active()
-        ):
-            self.get_logger().info(f"IDLE без wakeword, игнор: {text!r}")
-            return
+        if not matching.idle_turn_allowed(msg.text, listen_armed=self._listen_armed()):
+            if not self._pending_confirm_ready(text):
+                self.get_logger().info(f"без wakeword, игнор: {text!r}")
+                return
         self._handle_transcript(text)
 
     def _on_wakeword(self, msg: Wakeword) -> None:
@@ -662,6 +658,14 @@ class DialogAgentNode(LifecycleNode):
     def _listen_armed(self) -> bool:
         with self._state_lock:
             return time.monotonic() < self._listen_until
+
+    def _pending_confirm_ready(self, text: str) -> bool:
+        """да/нет на живой ask_visitor -- не ход к ЛЛМ, «робот» не нужен."""
+        with self._state_lock:
+            pending = self._pending_question
+            if pending is None or time.monotonic() >= pending["deadline"]:
+                return False
+        return matching.match_confirm(text) is not None
 
     def _set_pending_question(self, question: str, on_yes: dict, on_no: str) -> None:
         with self._state_lock:
@@ -1192,11 +1196,7 @@ class DialogAgentNode(LifecycleNode):
                     on_action_resolved=_on_action_resolved,
                     utterance=text,
                 )
-            if (
-                result.action is not None
-                and result.action.read_only
-                and result.action.result_ok
-            ):
+            if result.action is not None and result.action.read_only and result.action.result_ok:
                 # Явный read_only-вызов модели (фаза 1) -- те же чанки, что
                 # видела фаза реплики, идут в references/corpus_texts с
                 # source="tool", отдельно от source="auto" выше (п.7.3).

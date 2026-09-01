@@ -228,9 +228,9 @@ def test_idle_turn_accepts_armed_listen_window() -> None:
     assert idle_turn_allowed("привет", listen_armed=True) is True
 
 
-def test_idle_turn_accepts_motion_intent_without_wake() -> None:
-    assert idle_turn_allowed("проведи экскурсию", listen_armed=False) is True
-    assert idle_turn_allowed("отведи меня в лабораторию", listen_armed=False) is True
+def test_idle_turn_rejects_motion_intent_without_wake() -> None:
+    assert idle_turn_allowed("проведи экскурсию", listen_armed=False) is False
+    assert idle_turn_allowed("отведи меня в лабораторию", listen_armed=False) is False
 
 
 def test_idle_turn_bare_wake_word_is_not_a_turn() -> None:

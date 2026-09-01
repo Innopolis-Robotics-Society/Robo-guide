@@ -16,9 +16,9 @@ from __future__ import annotations
 import json
 import time
 
-from guide_robot_llm.lib.qos import QOS_MISSION_STATE
 from rclpy.parameter import Parameter
 
+from guide_robot_llm.lib.qos import QOS_MISSION_STATE
 from guide_robot_msgs.msg import CancelAll, MissionState, Transcript
 from test.mocks.harness import ToolBrokerTestHarness, pump_clock, wait_until
 from test.mocks.mock_llm_server import MockLlmServer
@@ -185,7 +185,7 @@ def test_action_reaches_tool_broker_then_answer_is_spoken() -> None:
         ]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "отведи меня в лабораторию")
+        _publish_transcript(client, "робот, отведи меня в лабораторию")
 
         wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
@@ -193,10 +193,8 @@ def test_action_reaches_tool_broker_then_answer_is_spoken() -> None:
         harness.shutdown()
 
 
-def test_wake_grace_allows_wakeword_free_turn_right_after_previous_one() -> None:
-    """stage2 A5: живой баг -- «расскажи про себя» через 1с после конца хода
-    уходило в «IDLE без wakeword, игнор». В пределах wake_grace_s ход стартует
-    без «робот»."""
+def test_followup_without_wakeword_does_not_start_a_turn() -> None:
+    """После хода следующая фраза без «робот» в ЛЛМ не идёт (wake_grace выключен)."""
     harness = ToolBrokerTestHarness(dialog_agent_overrides=(Parameter("wake_grace_s", value=5.0),))
     try:
         wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
@@ -207,28 +205,6 @@ def test_wake_grace_allows_wakeword_free_turn_right_after_previous_one() -> None
         _publish_transcript(client, "робот, привет")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
 
-        harness.llm_server.chunks_no_grammar = ["Меня зовут робот-гид."]
-        harness.llm_server.chunks_with_grammar = [_NOOP]
-        _publish_transcript(client, "расскажи про себя")  # без "робот"
-
-        wait_until(lambda: harness.say.goals_received >= 2, timeout_s=5.0)
-    finally:
-        harness.shutdown()
-
-
-def test_wake_grace_expires_after_wake_grace_s() -> None:
-    """После истечения wake_grace_s транскрипт без wakeword снова игнорируется."""
-    harness = ToolBrokerTestHarness(dialog_agent_overrides=(Parameter("wake_grace_s", value=0.2),))
-    try:
-        wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
-        harness.llm_server.chunks_no_grammar = ["Привет!"]
-        harness.llm_server.chunks_with_grammar = [_NOOP]
-
-        client = harness.make_client_node()
-        _publish_transcript(client, "робот, привет")
-        wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
-
-        time.sleep(0.4)  # пережить wake_grace_s=0.2
         harness.llm_server.last_request_body = None
         _publish_transcript(client, "расскажи про себя")
         time.sleep(0.3)
@@ -373,7 +349,7 @@ def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
             )
         ]
         client = harness.make_client_node()
-        _publish_transcript(client, "отведи меня в лабораторию")
+        _publish_transcript(client, "робот, отведи меня в лабораторию")
         wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
 
         harness.llm_server.chunks_no_grammar = ["Прервать экскурсию и пойти к лидару?"]
@@ -447,7 +423,7 @@ def test_start_tour_from_dialog_sends_greet_false_and_skips_greeting_state() -> 
             )
         ]
 
-        _publish_transcript(client, "проведи экскурсию")
+        _publish_transcript(client, "робот, проведи экскурсию")
 
         wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
         assert _S.STATE_GREETING not in states_seen
@@ -659,7 +635,7 @@ def test_mission_state_transition_appends_history_event() -> None:
         harness.llm_server.chunks_with_grammar = [_NOOP]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "а что тут интересного вообще")
+        _publish_transcript(client, "робот, а что тут интересного вообще")
 
         def _sent_history_mentions_transition() -> bool:
             body = harness.llm_server.last_request_body

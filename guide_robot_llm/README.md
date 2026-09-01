@@ -126,7 +126,7 @@ map/dict) + `confirmed` (stage2 D1, по умолчанию `false`) →
 подстроке в `tools/validate.py` (`_MOTION_INTENT_RE`/`has_motion_intent`);
 убрана — она резала любой текст без ключевых слов, включая само
 подтверждение «да». `has_motion_intent` не удалена совсем, осталась в
-`matching.py` как более мягкая эвристика допуска в IDLE без wake-слова.
+`matching.py` (не гейт в ЛЛМ: ход только после «робот»).
 
 **Действия**: `RunTour` (не ждёт результата — только принятия goal-а:
 рассказ на 3 минуты не должен вешать ход), `Narrate` (тоже fire-and-forget —
@@ -235,9 +235,9 @@ turn.run_answer_phase`, без повторной фазы действия); «
 `history.clear_after_absent_s`(90.0 в `config/llm.yaml`, 25.0 если
 параметр не задан — `presence_monitor` выводит присутствие из речевой
 активности, короткая пауза в разговоре не должна читаться как уход
-посетителя), `answer.max_chars`(400), `wake_grace_s`(30.0 — окно после
-конца хода, в течение которого транскрипты в `IDLE` принимаются без
-wake-слова; сбрасывается каждым ходом, обнуляется по `presence=false`),
+посетителя), `answer.max_chars`(400), `wake_grace_s`(0 — не открывает
+ход без «робот»; окно слушания только `_LISTEN_WINDOW_S` после
+`/speech/wakeword`),
 `ask_visitor_ttl_s`(30.0 — окно, в течение которого да/нет на `ask_visitor`
 разбирается fast-path'ом, `matching.match_confirm`).
 
