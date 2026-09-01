@@ -1,0 +1,41 @@
+/* Контраст и размер фиксированы дистанцией просмотра 1-3 м (§4.5):
+   near-white глаз на near-black фоне, никаких фильтров/блюра/градиентов. */
+
+:root {
+  --eye-color: #eaf6ff;
+  --bg-color: #05070a;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-color);
+}
+
+#face {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+#bg {
+  fill: var(--bg-color);
+}
+
+.eye .halo {
+  fill: var(--eye-color);
+  fill-opacity: 0.16;
+}
+
+.eye .body {
+  fill: var(--eye-color);
+}
+
+.eye .lid-bottom,
+.eye .lid-top {
+  fill: var(--bg-color);
+}

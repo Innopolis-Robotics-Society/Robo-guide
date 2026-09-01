@@ -35,6 +35,7 @@ import math
 import queue
 import threading
 import time
+from array import array
 
 import numpy as np
 import rclpy
@@ -276,10 +277,8 @@ class AudioFrontendNode(LifecycleNode):
         """Закрыть устройство."""
         del state
         if self._stream is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._stream.stop()  # type: ignore[attr-defined]
-            except Exception:
-                pass
         self._stop_worker()
         if self._stream is not None:
             self._stream.close()  # type: ignore[attr-defined]
@@ -298,8 +297,9 @@ class AudioFrontendNode(LifecycleNode):
         """Колбэк PortAudio. Только memcpy в очередь -- обработка на воркере."""
         del time_info
         try:
-            now = self.get_clock().now().nanoseconds / 1e9
-            capture_time = now - frames / float(self._stream.samplerate)  # type: ignore[attr-defined]
+            # time.time(), не ROS-часы: get_clock() из RT-потока берёт GIL+mutex
+            # и сам провоцирует следующий xrun.
+            capture_time = time.time() - frames / float(self._stream.samplerate)  # type: ignore[attr-defined]
             xrun = bool(getattr(status, "input_overflow", False)) or bool(
                 getattr(status, "input_underflow", False)
             )
@@ -435,7 +435,7 @@ class AudioFrontendNode(LifecycleNode):
         msg.header.frame_id = str(self.get_parameter("frame_id").value)
         msg.sample_rate = int(self.get_parameter("out_rate").value)
         msg.channels = 1
-        msg.data = frame.tolist()
+        msg.data = _pcm_msg_data(frame)
         msg.first_sample = self._first_sample
         self._mic_pub.publish(msg)
         self._first_sample += frame.shape[0]
@@ -450,7 +450,7 @@ class AudioFrontendNode(LifecycleNode):
         msg.header.frame_id = str(self.get_parameter("frame_id").value)
         msg.sample_rate = int(self.get_parameter("device_rate").value)
         msg.channels = 1
-        msg.data = mono.tolist()
+        msg.data = _pcm_msg_data(mono)
         msg.first_sample = self._raw_first_sample
         self._raw_pub.publish(msg)
         self._raw_first_sample += mono.shape[0]
@@ -496,6 +496,13 @@ class AudioFrontendNode(LifecycleNode):
         )
         diag.status.append(entry)
         self._diag_pub.publish(diag)
+
+
+def _pcm_msg_data(pcm: np.ndarray) -> array:
+    """int16[] через array.array -- buffer protocol, без list из 256 PyLong."""
+    buf = array("h")
+    buf.frombytes(np.ascontiguousarray(pcm, dtype=np.int16).tobytes())
+    return buf
 
 
 def main(args: list[str] | None = None) -> None:

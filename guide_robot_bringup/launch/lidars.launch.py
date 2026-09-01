@@ -11,15 +11,6 @@ RPLIDAR C1 specs:
   range     : up to 12 m
   scan_mode : leave empty to use C1 default
 
-Each lidar sees its own mount / the other lidar's mount at a fixed bearing in
-its own frame on every scan (self-hit, not a real obstacle). laser_sector_blanker
-blanks that bearing out of /scan_left and /scan_right before they reach the
-merger — dual_laser_merger's own angle_min/angle_max only clip the *merged*
-output's ends, they can't mask a wedge inside one lidar's field of view.
-left/right_blind_sectors_deg are hardcoded below (not launch args) — a one-time
-per-robot fit found with laser_blind_sector_finder (run it against /scan_left
-and /scan_right separately, see that node's docstring for usage).
-
 Merger output:
   /scan      — merged LaserScan in base_footprint frame (fed to Nav2 / SLAM)
 
@@ -78,30 +69,10 @@ def generate_launch_description():
     merge_frame = LaunchConfiguration("merge_frame")
     lidar_delay = LaunchConfiguration("lidar_start_delay")
 
-    # Own-frame bearings (degrees, raw /scan_left, /scan_right angle
-    # convention) where each lidar sees its own mount bracket / the other
-    # lidar's mount. laser_blind_sector_finder's auto-detected sub-clusters
-    # (movement-confirmed real self-hits) matched this range almost exactly
-    # but were full of small gaps at the noisy, grazing-angle edges of the
-    # bracket - one clean contiguous sector covers the whole physical
-    # obstruction instead of leaking points through those gaps.
-    #
-    # Raw angle 0 in these topics points robot-*backward*, not forward (the
-    # upside-down + front-to-back mount flip - see laser_joint_left/right in
-    # guide_robot.urdf.xacro): raw = forward_relative_angle + 180 (mod 360).
-    # So "the mount sits ~78-172 deg left of forward" (as measured directly
-    # on the robot) becomes this raw range.
-    #
-    # hardcoded here rather than exposed as launch args because, like the
-    # merger's laser_*_offset calibration below, this is a one-time
-    # per-robot fit, not something you'd want to override at launch time.
-    left_blind_sectors_deg = "-105.0,-8.0"
-    # right is the mirror image (mount ~78-172 deg right of forward), and
-    # already extends to 103.89 instead of 102 to also cover the confirmed
-    # 0.516m (= 2x lidar_y_offset) sighting of the LEFT lidar's mount across
-    # the bar - that measured extra reach is wider than the near-edge bump
-    # below, so nothing to widen here.
-    right_blind_sectors_deg = "8.0,105.0"
+    # Live 2026-08-30 after 90 deg twist: angle 0 hits the body (~0.12 m).
+    # Left body -76..+39, right -54..+76. Pad ~8 deg.
+    left_blind_sectors_deg = "-85.0,45.0"
+    right_blind_sectors_deg = "-60.0,85.0"
 
     def sllidar(name, port, frame_id, scan_topic):
         # inverted=False matches the real mount: sllidar_node.cpp reverses
@@ -130,7 +101,6 @@ def generate_launch_description():
         actions=[sllidar("sllidar_right", right_port, "laser_frame_right", "/scan_right")],
     )
 
-    # Blank out each lidar's self-hit sector(s) before they reach the merger.
     left_blanker_node = Node(
         package="guide_robot_bringup",
         executable="laser_sector_blanker",

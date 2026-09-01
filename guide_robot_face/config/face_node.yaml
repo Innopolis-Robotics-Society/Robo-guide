@@ -1,0 +1,10 @@
+# Параметры face_node (CLAUDE_CODE_TASK_face_stage1.md §5, порт -- §0.5,
+# предложен 8090, конфликт с сервисами на Jetson не подтверждён -- сверить
+# перед вводом в эксплуатацию).
+
+/**/face_node:
+  ros__parameters:
+    http_host: "0.0.0.0"
+    http_port: 8090
+    web_root: "$(find-pkg-share guide_robot_face)/web"
+    states_yaml: "$(find-pkg-share guide_robot_face)/config/face_states.yaml"

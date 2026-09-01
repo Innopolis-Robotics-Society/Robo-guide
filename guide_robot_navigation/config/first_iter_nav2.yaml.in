@@ -22,7 +22,7 @@ amcl:
     laser_max_range: ${sensors.lidar_range_max}
     laser_min_range: -1.0
     laser_model_type: "likelihood_field"
-    max_beams: 60
+    max_beams: 90
     max_particles: 2000
     min_particles: 500
     odom_frame_id: "odom"
@@ -33,6 +33,7 @@ amcl:
     resample_interval: 1
     robot_model_type: "nav2_amcl::DifferentialMotionModel"
     save_pose_rate: 0.5
+    # Сток 0.2. 0.1 резал вес частиц, когда предсказание на повороте уже мимо.
     sigma_hit: 0.2
     tf_broadcast: true
     transform_tolerance: 1.0
@@ -254,9 +255,11 @@ controller_server:
       # так, чтобы ЛЮБАЯ сэмплированная пара влезала: 0.40 + 0.6*0.178 =
       # 0.507 < 0.53 (значения — limits.nav_* в robot_params.yaml). Лимитер
       # базы (0.5 / 1.0472) остаётся последним рубежом, а не круизом.
-      min_vel_x: 0.0
+      # Только задний ход: +X = экран (стрелка цели = куда смотрит экран),
+      # едем −X. Финальный yaw по-прежнему RotateToGoal.
+      min_vel_x: -${limits.nav_linear_velocity}
       min_vel_y: 0.0
-      max_vel_x: ${limits.nav_linear_velocity}
+      max_vel_x: 0.0
       max_vel_y: 0.0
       max_vel_theta: ${limits.nav_angular_velocity}
       min_speed_xy: 0.0
@@ -303,9 +306,9 @@ controller_server:
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
+      PathAlign.forward_point_distance: -0.1
       GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
+      GoalAlign.forward_point_distance: -0.1
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
       RotateToGoal.scale: 32.0
@@ -540,7 +543,7 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [${limits.max_linear_velocity}, 0.0, ${limits.max_angular_velocity}]
+    max_velocity: [0.0, 0.0, ${limits.max_angular_velocity}]
     min_velocity: [-${limits.max_linear_velocity}, 0.0, -${limits.max_angular_velocity}]
     max_accel:    [${limits.max_linear_accel}, 0.0, ${limits.max_angular_accel}]
     max_decel:    [-${limits.max_linear_decel}, 0.0, -${limits.max_angular_decel}]
@@ -574,7 +577,7 @@ collision_monitor:
     base_shift_correction: True
     stop_pub_timeout: 2.0
 
-    polygons: ["FootprintApproach", "SonarStopFront", "SonarSlow"]
+    polygons: ["FootprintApproach", "SonarStopFront", "SonarStopRear", "SonarSlow"]
 
     FootprintApproach:
       type: "polygon"
@@ -595,6 +598,15 @@ collision_monitor:
       polygon_pub_topic: "sonar_stop_polygon"
       enabled: True
 
+    SonarStopRear:
+      type: "polygon"
+      action_type: "stop"
+      points: [-0.43, 0.30, -0.43, -0.30, -0.22, -0.30, -0.22, 0.30]
+      max_points: 3
+      visualize: True
+      polygon_pub_topic: "sonar_stop_rear_polygon"
+      enabled: True
+
     SonarSlow:
       type: "polygon"
       action_type: "slowdown"
@@ -604,7 +616,7 @@ collision_monitor:
       # На круизе 0.4 м/с монитор резал 0.4→0 без промежуточного 0.16,
       # лимитер базы (min_acceleration -1.5) не успевал. 0.80 — зона slow
       # 0.37 м, с запасом на цикл сонара ~0.25 с (ещё 0.10 м пути).
-      points: [0.80, 0.42, 0.80, -0.42, -0.55, -0.42, -0.55, 0.42]
+      points: [0.80, 0.42, 0.80, -0.42, -0.80, -0.42, -0.80, 0.42]
       max_points: 1
       visualize: True
       polygon_pub_topic: "sonar_slow_polygon"
