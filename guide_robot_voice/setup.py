@@ -17,7 +17,10 @@ setup(
         (f"share/{PACKAGE_NAME}/config", glob("config/*.yaml")),
         (
             f"share/{PACKAGE_NAME}/models",
-            glob("models/*.onnx") + glob("models/*.onnx.json") + glob("models/*_tokens.txt"),
+            glob("models/*.onnx")
+            + glob("models/*.onnx.json")
+            + glob("models/*_tokens.txt")
+            + glob("models/*.pt"),
         ),
     ],
     install_requires=["setuptools"],

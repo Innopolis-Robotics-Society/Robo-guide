@@ -1,4 +1,4 @@
-"""Синтезатор речи (Piper) за интерфейсом, тестируемым без модели.
+"""Синтезаторы речи (Silero / Piper) за интерфейсом, тестируемым без модели.
 
 Абстракция нужна по двум причинам.
 
@@ -13,9 +13,9 @@
    прогоняет ленивую инициализацию ONNX-графа, иначе первая реальная
    реплика экскурсии стабильно приходит с лишней задержкой.
 
-Голос зафиксирован дизайном -- Piper ru_RU-irina-medium (design §3.5).
-Импорт piper отложен внутрь load(): модуль обязан импортироваться в CI,
-где ни модели, ни самого piper-tts может не быть.
+Голос по умолчанию -- Silero TTS v5 `xenia` (v5_ru.pt). Piper оставлен
+как запасной бэкенд. Импорт torch/piper отложен внутрь load(): модуль
+обязан импортироваться в CI без моделей.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ import numpy as np
 
 _logger = logging.getLogger(__name__)
 
-__all__ = ["NullBackend", "PiperBackend", "TtsBackend", "make_backend"]
+__all__ = ["NullBackend", "PiperBackend", "SileroBackend", "TtsBackend", "make_backend"]
 
 
 class TtsBackend(Protocol):
@@ -172,7 +172,10 @@ class PiperBackend:
                 else:
                     self._voice = PiperVoice.load(self._model_path, use_cuda=True)
             except Exception as cuda_error:
-                _logger.warning("не удалось запустить PiperVoice с use_cuda=True (%s), использую CPU", cuda_error)
+                _logger.warning(
+                    "не удалось запустить PiperVoice с use_cuda=True (%s), использую CPU",
+                    cuda_error,
+                )
                 if self._config_path:
                     self._voice = PiperVoice.load(self._model_path, config_path=self._config_path)
                 else:
@@ -294,9 +297,72 @@ class PiperBackend:
         self._voice = None
 
 
+class SileroBackend:
+    """Silero TTS v5 через torch.package (v5_ru.pt, спикер xenia).
+
+    apply_tts отдаёт всю фразу целиком -- режем на block_ms, чтобы
+    tts_node мог проверить epoch между кадрами. Импорт torch только в
+    load(): CI без CUDA/torch не должен падать на import backends.
+    """
+
+    def __init__(
+        self,
+        model_path: str,
+        speaker: str = "xenia",
+        sample_rate: int = 48000,
+        block_ms: int = 20,
+    ) -> None:
+        """Запомнить параметры. Модель загружается в load()."""
+        self._model_path = model_path
+        self._speaker = speaker
+        self.sample_rate = sample_rate
+        self._block = max(1, int(sample_rate * block_ms / 1000))
+        self._model: object | None = None
+
+    def load(self) -> None:
+        """Загрузить torch.package и перенести на CUDA, если она есть."""
+        path = pathlib.Path(self._model_path)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"не найден Silero TTS: {path}. Ожидается models/v5_ru.pt (git-lfs)."
+            )
+        import torch
+
+        self._model = torch.package.PackageImporter(str(path)).load_pickle("tts_models", "model")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._model.to(device)  # type: ignore[union-attr]
+        _logger.info("Silero TTS v5 на %s, спикер %s", device, self._speaker)
+
+    def synthesize(self, text: str, voice: str = "") -> Iterator[np.ndarray]:
+        """Синтезировать фразу и отдать PCM int16 кадрами по block_ms."""
+        if self._model is None:
+            raise RuntimeError("SileroBackend.load() не вызван")
+        speaker = voice if voice and not voice.lstrip("-").isdigit() else self._speaker
+        audio = self._model.apply_tts(  # type: ignore[union-attr]
+            text=text, speaker=speaker, sample_rate=self.sample_rate
+        )
+        pcm = _silero_to_int16(audio)
+        offset = 0
+        while offset < pcm.size:
+            yield pcm[offset : offset + self._block]
+            offset += self._block
+
+    def close(self) -> None:
+        """Отпустить модель."""
+        self._model = None
+
+
+def _silero_to_int16(audio: object) -> np.ndarray:
+    """Тензор/массив Silero [-1, 1] -> int16 моно."""
+    if hasattr(audio, "detach"):
+        audio = audio.detach().cpu().numpy()  # type: ignore[union-attr]
+    pcm = np.asarray(audio, dtype=np.float32).reshape(-1)
+    return np.clip(np.round(pcm * 32767.0), -32768, 32767).astype(np.int16)
+
+
 def make_backend(kind: str, **kwargs: object) -> TtsBackend:
     """Собрать бэкенд по имени из параметров ноды."""
-    factories = {"null": NullBackend, "piper": PiperBackend}
+    factories = {"null": NullBackend, "piper": PiperBackend, "silero": SileroBackend}
     if kind not in factories:
         raise ValueError(
             f"неизвестный бэкенд TTS: {kind!r}, ожидается один из {sorted(factories)}"

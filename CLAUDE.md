@@ -110,7 +110,7 @@ Two rules that structure the code:
 
 `epoch` is `clock.now().nanoseconds` from a shared clock, not a per-publisher counter (multiple nodes publish `CancelAll`; per-publisher counters would let a receiver holding `max(epoch)` drop a legitimate cancel). `EpochFencedSink` guarantees at most one already-queued chunk reaches the device after `bump()`; barge-in budget is < 200 ms end to end.
 
-Voice models (`silero_vad.onnx`, `ru_RU-irina-medium.onnx`) live in `models/` under LFS — no separate download step. PulseAudio holds USB audio adapters; suspend the single device (`pactl suspend-source <name> 1`) rather than using `pasuspender`. The production Orin image has no PulseAudio at all, nodes open `hw:` directly.
+Voice models (`silero_vad.onnx`, `v5_ru.pt`, `ru_RU-irina-medium.onnx`) live in `models/` under LFS — no separate download step. PulseAudio holds USB audio adapters; suspend the single device (`pactl suspend-source <name> 1`) rather than using `pasuspender`. The production Orin image has no PulseAudio at all, nodes open `hw:` directly.
 
 ### Interfaces
 

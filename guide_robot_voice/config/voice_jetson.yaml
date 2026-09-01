@@ -58,8 +58,9 @@
 
 /**/tts_node:
   ros__parameters:
-    backend: piper
-    model_path: "$(find-pkg-share guide_robot_voice)/models/ru_RU-irina-medium.onnx"
+    backend: silero
+    model_path: "$(find-pkg-share guide_robot_voice)/models/v5_ru.pt"
+    speaker: xenia
     speaker_id: 0
     length_scale: 1.0
     device: "pulse"

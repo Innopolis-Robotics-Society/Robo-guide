@@ -45,9 +45,10 @@ class TtsNode(LifecycleNode):
         """Объявить параметры. Ресурсы захватываются в on_configure."""
         super().__init__("tts_node")
 
-        self.declare_parameter("backend", "piper")
+        self.declare_parameter("backend", "silero")
         self.declare_parameter("model_path", "")
         self.declare_parameter("config_path", "")
+        self.declare_parameter("speaker", "xenia")
         self.declare_parameter("speaker_id", 0)
         self.declare_parameter("length_scale", 1.0)
         self.declare_parameter("device", "")
@@ -567,9 +568,8 @@ class TtsNode(LifecycleNode):
     def _build_backend(self) -> TtsBackend:
         """Собрать бэкенд по параметрам.
 
-        backend по умолчанию -- piper (design §3.5). "null" -- отладочный
-        путь без модели и звуковой карты: тон вместо речи, для CI и для
-        измерения t_stop без вопросов к качеству синтеза.
+        backend по умолчанию -- silero (v5 xenia). "piper" -- запасной
+        ONNX-голос. "null" -- тон без модели, для CI и измерения t_stop.
         """
         kind = str(self.get_parameter("backend").value)
         if kind == "null":
@@ -582,7 +582,16 @@ class TtsNode(LifecycleNode):
                 speaker_id=int(self.get_parameter("speaker_id").value),
                 length_scale=float(self.get_parameter("length_scale").value),
             )
-        raise ValueError(f"неизвестный бэкенд: {kind!r}, ожидается 'piper' или 'null'")
+        if kind == "silero":
+            device_rate = int(self.get_parameter("device_rate").value)
+            return make_backend(
+                "silero",
+                model_path=str(self.get_parameter("model_path").value),
+                speaker=str(self.get_parameter("speaker").value),
+                sample_rate=device_rate or 48000,
+                block_ms=int(self.get_parameter("block_ms").value),
+            )
+        raise ValueError(f"неизвестный бэкенд: {kind!r}, ожидается 'silero', 'piper' или 'null'")
 
 
 def main(args: list[str] | None = None) -> None:

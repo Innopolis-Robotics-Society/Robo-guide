@@ -138,7 +138,7 @@ mission). `backend=oww` объявлен, но при выборе бросае�
 
 ### `tts_node`
 
-Piper (`ru_RU-irina-medium`) → `TextChunker` (клаузы) → `Scheduler`
+Silero TTS v5 (`v5_ru.pt`, спикер `xenia`) → `TextChunker` (клаузы) → `Scheduler`
 (приоритет/scope/interruptible) → `Resampler` → `EpochFencedSink`
 (callback-режим PortAudio, epoch-fencing на отмене) → ALSA. Единственный
 издатель `/voice/speaking`. `/speech/cancel_all` — критический путь,
@@ -163,9 +163,9 @@ latency).
 
 **Подписан на**: `/speech/cancel_all`.
 
-**Параметры**: `backend="piper"` (`piper`|`null` — `null` синтезирует тон,
-режим измерений без модели), `model_path`, `config_path`, `speaker_id=0`,
-`length_scale=1.0`, `device`, `device_rate=0` (0 → частота бэкенда),
+**Параметры**: `backend="silero"` (`silero`|`piper`|`null` — `null` синтезирует тон,
+режим измерений без модели), `model_path`, `speaker=xenia`, `config_path`, `speaker_id=0`
+(для piper), `length_scale=1.0`, `device`, `device_rate=0` (0 → частота бэкенда),
 `block_ms=20`, `periods=3`, `channels=2`, `allow_shared=false`,
 `max_queue_ms=600`, `min_chars=40`, `max_clause_chars=180`,
 `chars_per_second=14.0`, `heartbeat_hz=5.0`, `max_queue=8`,
@@ -201,7 +201,8 @@ QoS-профили собраны в `guide_robot_voice/lib/qos.py` одним �
 | Файл | Кто использует | Источник |
 |---|---|---|
 | `silero_vad.onnx` | vad_node | `snakers4/silero-vad` |
-| `ru_RU-irina-medium.onnx(.json)` | tts_node | Piper voices (HuggingFace) |
+| `v5_ru.pt` | tts_node | Silero TTS v5 (`xenia`) |
+| `ru_RU-irina-medium.onnx(.json)` | tts_node (backend=piper) | Piper voices (HuggingFace) |
 | `gigaam_v3_ctc_int8.onnx` + `gigaam_v3_ctc_tokens.txt` | asr_node | `Smirnov75/GigaAM-v3-sherpa-onnx` (HuggingFace) |
 
 Пути в `config/voice.yaml` — через `$(find-pkg-share guide_robot_voice)`,

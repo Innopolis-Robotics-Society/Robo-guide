@@ -63,10 +63,11 @@
 
 /**/tts_node:
   ros__parameters:
-    backend: piper                # piper | null (null -> тон, режим измерений)
+    backend: silero               # silero | piper | null (null -> тон, режим измерений)
     # Модель лежит в репозитории (models/, git-lfs) -- путь одинаков на любой
     # машине, ничего не нужно скачивать отдельно.
-    model_path: "$(find-pkg-share guide_robot_voice)/models/ru_RU-irina-medium.onnx"
+    model_path: "$(find-pkg-share guide_robot_voice)/models/v5_ru.pt"
+    speaker: xenia
     speaker_id: 0
     length_scale: 1.0
     device: ""                    # пусто -> устройство по умолчанию

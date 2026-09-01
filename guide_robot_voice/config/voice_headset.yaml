@@ -22,9 +22,10 @@
 
 /**/tts_node:
   ros__parameters:
-    backend: piper
+    backend: silero
     # Модель лежит в репозитории (models/, git-lfs), путь одинаков везде.
-    model_path: "$(find-pkg-share guide_robot_voice)/models/ru_RU-irina-medium.onnx"
+    model_path: "$(find-pkg-share guide_robot_voice)/models/v5_ru.pt"
+    speaker: xenia
     device: "hw:1,0"    # аналоговый выход ноутбука -- ЗАМЕНИТЬ под своё железо
     device_rate: 48000
     block_ms: 20
