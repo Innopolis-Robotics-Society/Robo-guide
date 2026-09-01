@@ -4,6 +4,6 @@
 # предыдущее выражение держится) -- в браузер не должна попадать
 # невалидированная строка.
 
-string state       # одно из: idle, listening, thinking, speaking, driving, sleep, error
+string state       # idle, listening, thinking, speaking, driving, sleep, error, happy, surprised, curious, sad, focused, shy
 float32 gaze_az     # градусы, -90..90, 0 = прямо вперёд
 uint32 seq

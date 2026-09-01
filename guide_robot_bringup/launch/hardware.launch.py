@@ -8,7 +8,7 @@
 #  Всё остальное вынесено:
 #    perception.launch.py       — лидары, бланкеры, мерджер, соноры
 #    nav_stack.launch.py        — SLAM/AMCL + Nav2 + collision_monitor + супервизор
-#    high_level_stack.launch.py — стек экскурсий: voice + semantic_map + mission_control
+#    high_level_stack.launch.py — стек экскурсий: voice + semantic_map + mission_control + face
 # =========================================================================
 
 import os
@@ -86,7 +86,12 @@ def generate_launch_description():
     declare_launch_high_level = DeclareLaunchArgument(
         "launch_high_level",
         default_value="true",
-        description="Launch the tour stack (voice + semantic_map + mission_control)",
+        description="Launch the tour stack (voice + semantic_map + mission_control + face)",
+    )
+    declare_launch_face = DeclareLaunchArgument(
+        "launch_face",
+        default_value="true",
+        description="Launch guide_robot_face (passed through to high_level_stack)",
     )
     pkg_voice = get_package_share_directory("guide_robot_voice")
     declare_voice_params_file = DeclareLaunchArgument(
@@ -116,6 +121,7 @@ def generate_launch_description():
     autostart_nav = LaunchConfiguration("autostart_nav")
     autostart_supervisor = LaunchConfiguration("autostart_supervisor")
     launch_high_level = LaunchConfiguration("launch_high_level")
+    launch_face = LaunchConfiguration("launch_face")
     launch_foxglove = LaunchConfiguration("launch_foxglove")
     launch_rviz = LaunchConfiguration("launch_rviz")
 
@@ -205,6 +211,7 @@ def generate_launch_description():
         launch_arguments={
             "use_sim_time": use_sim_time,
             "voice_params_file": LaunchConfiguration("voice_params_file"),
+            "launch_face": launch_face,
         }.items(),
     )
 
@@ -249,6 +256,7 @@ def generate_launch_description():
             declare_autostart_nav,
             declare_autostart_supervisor,
             declare_launch_high_level,
+            declare_launch_face,
             declare_voice_params_file,
             declare_launch_foxglove,
             declare_launch_rviz,

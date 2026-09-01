@@ -1,0 +1,134 @@
+{
+  "global": {
+    "view_w": 1024,
+    "view_h": 768,
+    "eye_cx_left": 300,
+    "eye_cx_right": 724,
+    "cy": 384,
+    "rotate_deg": 180,
+    "eye_color": "#eaf6ff",
+    "bg_color": "#05070a",
+    "blink_interval_min_s": 2.5,
+    "blink_interval_max_s": 6.0,
+    "blink_duration_ms": 280
+  },
+  "states": {
+    "idle": {
+      "w": 210,
+      "h": 270,
+      "rr": 64,
+      "rot": 0,
+      "curve": 0.0,
+      "gx": 0,
+      "gy": 0
+    },
+    "listening": {
+      "w": 248,
+      "h": 318,
+      "rr": 80,
+      "rot": 0,
+      "curve": 0.0,
+      "gx": 0,
+      "gy": -12
+    },
+    "thinking": {
+      "w": 180,
+      "h": 300,
+      "rr": 56,
+      "rot": 0,
+      "curve": 0.0,
+      "gx": 0,
+      "gy": -18
+    },
+    "speaking": {
+      "w": 242,
+      "h": 322,
+      "rr": 78,
+      "rot": 0,
+      "curve": 0.0,
+      "gx": 0,
+      "gy": -10
+    },
+    "driving": {
+      "w": 200,
+      "h": 230,
+      "rr": 52,
+      "rot": 0,
+      "curve": 0.18,
+      "gx": 0,
+      "gy": 14
+    },
+    "sleep": {
+      "w": 210,
+      "h": 52,
+      "rr": 26,
+      "rot": 0,
+      "curve": 0.9,
+      "gx": 0,
+      "gy": 0
+    },
+    "error": {
+      "w": 185,
+      "h": 240,
+      "rr": 28,
+      "rot": -12,
+      "curve": 0.25,
+      "gx": 0,
+      "gy": 0
+    },
+    "happy": {
+      "w": 210,
+      "h": 150,
+      "rr": 70,
+      "rot": 0,
+      "curve": 0.72,
+      "gx": 0,
+      "gy": 4
+    },
+    "surprised": {
+      "w": 250,
+      "h": 250,
+      "rr": 125,
+      "rot": 0,
+      "curve": 0.0,
+      "gx": 0,
+      "gy": -8
+    },
+    "curious": {
+      "w": 190,
+      "h": 235,
+      "rr": 58,
+      "rot": 4,
+      "curve": 0.08,
+      "gx": 8,
+      "gy": -22
+    },
+    "sad": {
+      "w": 168,
+      "h": 138,
+      "rr": 34,
+      "rot": 10,
+      "curve": 0.16,
+      "gx": 0,
+      "gy": 10
+    },
+    "focused": {
+      "w": 150,
+      "h": 280,
+      "rr": 40,
+      "rot": 0,
+      "curve": 0.05,
+      "gx": 0,
+      "gy": 0
+    },
+    "shy": {
+      "w": 160,
+      "h": 185,
+      "rr": 52,
+      "rot": 5,
+      "curve": 0.28,
+      "gx": 22,
+      "gy": 20
+    }
+  }
+}

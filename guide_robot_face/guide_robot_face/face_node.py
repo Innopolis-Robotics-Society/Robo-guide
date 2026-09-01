@@ -17,21 +17,11 @@ import rclpy
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from guide_robot_face.face_server import FaceServer
+from guide_robot_face.lib.qos import QOS_FACE_STATE
 from guide_robot_msgs.msg import FaceState
 from guide_robot_msgs.srv import SetFaceState
-
-# /face/state -- TRANSIENT_LOCAL: поздно поднявшийся подписчик обязан
-# сразу увидеть текущее выражение, не дожидаясь следующего перехода (§3.2,
-# то же рассуждение что у /mission/state).
-QOS_FACE_STATE = QoSProfile(
-    history=HistoryPolicy.KEEP_LAST,
-    depth=1,
-    reliability=ReliabilityPolicy.RELIABLE,
-    durability=DurabilityPolicy.TRANSIENT_LOCAL,
-)
 
 _SERVER_START_TIMEOUT_S = 10.0
 _SERVER_STOP_TIMEOUT_S = 5.0

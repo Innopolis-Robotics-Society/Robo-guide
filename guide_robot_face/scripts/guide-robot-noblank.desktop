@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Guide Robot no blank
+Comment=Выключить X screensaver/DPMS на DP-панели
+Exec=sh -c "xset s off; xset s noblank; xset -dpms"
+X-GNOME-Autostart-enabled=true

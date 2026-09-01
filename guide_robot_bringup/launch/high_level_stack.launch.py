@@ -5,6 +5,7 @@
 #    guide_robot_voice          — микрофон/динамик, ASR/VAD/wakeword, TTS
 #    guide_robot_semantic_map   — route_server + content/location/route_planner
 #    guide_robot_mission_control — mission_fsm + narration_server + presence_monitor
+#    guide_robot_face           — HTTP+SVG лицо на DP-панели (не lifecycle)
 #
 #  Отдельно от nav_stack.launch.py (там только safety/localization/
 #  navigation/супервизор) -- собирается по образцу того же файла, но
@@ -20,6 +21,7 @@
 #  Usage:
 #    ros2 launch guide_robot_bringup high_level_stack.launch.py
 #    ros2 launch guide_robot_bringup high_level_stack.launch.py launch_voice:=false
+#    ros2 launch guide_robot_bringup high_level_stack.launch.py launch_face:=false
 #    # standalone-тест без супервизора (каждый пакет сам себя поднимает):
 #    ros2 launch guide_robot_bringup high_level_stack.launch.py autostart:=true
 #
@@ -53,10 +55,11 @@ from launch.substitutions import LaunchConfiguration
 
 
 def generate_launch_description():
-    """Launch the tour stack (voice + semantic_map + mission_control)."""
+    """Launch the tour stack (voice + semantic_map + mission_control + face)."""
     pkg_voice = get_package_share_directory("guide_robot_voice")
     pkg_semantic_map = get_package_share_directory("guide_robot_semantic_map")
     pkg_mission_control = get_package_share_directory("guide_robot_mission_control")
+    pkg_face = get_package_share_directory("guide_robot_face")
 
     # ── Launch arguments ──────────────────────────────────────────────────────
     declare_use_sim_time = DeclareLaunchArgument(
@@ -70,6 +73,9 @@ def generate_launch_description():
     )
     declare_launch_mission = DeclareLaunchArgument(
         "launch_mission", default_value="true", description="Launch guide_robot_mission_control"
+    )
+    declare_launch_face = DeclareLaunchArgument(
+        "launch_face", default_value="true", description="Launch guide_robot_face (HTTP+SVG kiosk)"
     )
     declare_autostart = DeclareLaunchArgument(
         "autostart",
@@ -87,6 +93,7 @@ def generate_launch_description():
     launch_voice = LaunchConfiguration("launch_voice")
     launch_semantic_map = LaunchConfiguration("launch_semantic_map")
     launch_mission = LaunchConfiguration("launch_mission")
+    launch_face = LaunchConfiguration("launch_face")
     autostart = LaunchConfiguration("autostart")
     voice_params_file = LaunchConfiguration("voice_params_file")
 
@@ -148,16 +155,30 @@ def generate_launch_description():
         ],
     )
 
+    # ── лицо ─────────────────────────────────────────────────────────────────
+    # Не lifecycle: HTTP-сервер + SVG, супервизор его не трогает. Kiosk
+    # (Firefox на хосте Jetson) смотрит в http://127.0.0.1:8090.
+    face = GroupAction(
+        actions=[
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(os.path.join(pkg_face, "launch", "face.launch.py")),
+                condition=IfCondition(launch_face),
+            ),
+        ],
+    )
+
     return LaunchDescription(
         [
             declare_use_sim_time,
             declare_launch_voice,
             declare_launch_semantic_map,
             declare_launch_mission,
+            declare_launch_face,
             declare_autostart,
             declare_voice_params_file,
             voice,
             semantic_map,
             mission,
+            face,
         ]
     )

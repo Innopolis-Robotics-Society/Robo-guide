@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Guide Robot Face
+Comment=Kiosk лица на DP-панели
+Exec=face_kiosk.sh
+X-GNOME-Autostart-enabled=true

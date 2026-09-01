@@ -10,6 +10,7 @@
   <depend>rclpy</depend>
   <depend>ament_index_python</depend>
   <depend>guide_robot_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>python3-aiohttp</depend>
 
   <exec_depend>launch</exec_depend>

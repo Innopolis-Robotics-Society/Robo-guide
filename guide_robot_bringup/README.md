@@ -4,7 +4,8 @@
 собирает воедино `ros2_control` (диффдрайв), два лидара RPLIDAR C1 со
 слиянием сканов (`dual_laser_merger`), сонары, Foxglove Bridge,
 стек Nav2 (AMCL или SLAM Toolbox), слой экскурсий (`guide_robot_voice` +
-`guide_robot_semantic_map` + `guide_robot_mission_control`), супервизор
+`guide_robot_semantic_map` + `guide_robot_mission_control` +
+`guide_robot_face`), супервизор
 lifecycle-нод (`guide_robot_supervisor`) и RViz. Сам пакет не содержит
 "бизнес-логики" робота — только launch-файлы, rviz-конфиги и три
 вспомогательные Python-ноды для лидаров.
@@ -20,7 +21,7 @@ lifecycle-нод (`guide_robot_supervisor`) и RViz. Сам пакет не со
 - `nav_stack.launch.py` — safety/localization/navigation + супервизор,
   общий для железа и симуляции;
 - `high_level_stack.launch.py` — слой экскурсий (voice + semantic_map +
-  mission_control), общий для железа и симуляции, подключается ОТДЕЛЬНО
+  mission_control + face), общий для железа и симуляции, подключается ОТДЕЛЬНО
   от `nav_stack.launch.py` (nav-стек обязан подниматься и без него,
   например для чистого картирования);
 - `perception.launch.py` / `lidars.launch.py` и `view_robot.launch.py` —
@@ -52,14 +53,14 @@ precondition'ам (TF, частота скана/сонаров и т.д.) и з
 опционально `perception.launch.py`, сонар (`guide_robot_sonar`,
 `sonar_node_mult.py`), Foxglove Bridge - `nav_stack.launch.py`
 (safety/localization/navigation + супервизор) - `high_level_stack.launch.py`
-(voice + semantic_map + mission_control) - опционально RViz2 с
+(voice + semantic_map + mission_control + face) - опционально RViz2 с
 `rviz/hardware.rviz`.
 
 Аргументы: `use_sim_time` (false), `use_mock_hardware` (false),
 `launch_sensors` (true), `launch_sonar` (true), `launch_foxglove` (true),
 `slam` (false), `slam_params_file`, `map`, `nav` (true), `nav_params_file`,
 `launch_rviz` (true), `autostart_supervisor` (true), `autostart_nav` (false),
-`launch_high_level` (true).
+`launch_high_level` (true), `launch_face` (true).
 
 `autostart_supervisor:=false` оставляет супервизор в `INIT` — стек
 поднимается только по вызову сервиса `/supervisor/bringup`; политики
@@ -67,7 +68,8 @@ watchdog'ов до этого не действуют. `autostart_nav` уход�
 `nav2_lifecycle_manager` и должен оставаться `false`, пока группами
 управляет супервизор (см. `guide_robot_supervisor/config/supervisor.yaml`).
 `launch_high_level:=false` поднимает только nav-стек, без слоя экскурсий
-(например, для чистого картирования/локализации).
+(например, для чистого картирования/локализации). `launch_face:=false`
+оставляет голос/карту/миссию, но не поднимает HTTP-лицо.
 
 ### `launch/lidars.launch.py`
 
@@ -130,12 +132,13 @@ RViz с `rviz/sim.rviz`. Аргументы: `slam` (false), `map`, `rviz` (true
 Слой экскурсий, общий для железа и симуляции: `guide_robot_voice`
 (микрофон/динамик, ASR/VAD/wakeword, TTS) + `guide_robot_semantic_map`
 (route_server + контент/локации/маршруты) + `guide_robot_mission_control`
-(mission_fsm + narration_server + presence_monitor). Каждый подпакет
-поднимается со своим `autostart:=false` — bring-up делает супервизор
+(mission_fsm + narration_server + presence_monitor) + `guide_robot_face`
+(HTTP+SVG лицо на DP-панели, не lifecycle). Voice/semantic_map/mission
+поднимаются со своим `autostart:=false` — bring-up делает супервизор
 (группы `voice`/`semantic_map`/`mission`,
 `guide_robot_supervisor/config/supervisor.yaml`). Аргументы:
 `use_sim_time` (false), `launch_voice`/`launch_semantic_map`/
-`launch_mission` (все true).
+`launch_mission`/`launch_face` (все true).
 
 **Грабля (воспроизведено вживую):** `voice`/`semantic_map`/`mission`
 каждый сам объявляет launch-аргумент `params_file` со своим дефолтом,
@@ -203,7 +206,8 @@ ros2 launch guide_robot_bringup desk.launch.py
 `slam_toolbox`, `guide_robot_navigation`, `rviz2`, `controller_manager`,
 `joint_state_publisher_gui`, `guide_robot_supervisor`,
 `guide_robot_simulation`, `guide_robot_mission_control`,
-`guide_robot_voice`, `guide_robot_semantic_map`. `test_depend`:
+`guide_robot_voice`, `guide_robot_semantic_map`, `guide_robot_face`.
+`test_depend`:
 `ament_copyright`, `python3-pytest`.
 
 Из `setup.py`: `entry_points.console_scripts` = `laser_sector_blanker`,

@@ -16,6 +16,7 @@ setup(
         (f"share/{PACKAGE_NAME}/launch", glob("launch/*.launch.py")),
         (f"share/{PACKAGE_NAME}/config", glob("config/*.yaml")),
         (f"share/{PACKAGE_NAME}/web", glob("web/*")),
+        (f"share/{PACKAGE_NAME}/scripts", glob("scripts/*")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -26,6 +27,7 @@ setup(
     entry_points={
         "console_scripts": [
             f"face_node = {PACKAGE_NAME}.face_node:main",
+            f"face_aggregator = {PACKAGE_NAME}.aggregator_node:main",
         ],
     },
 )

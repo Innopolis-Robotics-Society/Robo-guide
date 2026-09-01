@@ -1,10 +1,9 @@
-r"""Запуск face_node -- отдаёт web/, websocket на /face/state, /face/set_state.
+r"""Запуск face_node + face_aggregator.
 
-Проверка (stage 1, §5):
+Проверка:
   ros2 launch guide_robot_face face.launch.py
-  # браузер: http://<jetson>:8090
-  ros2 service call /face/set_state guide_robot_msgs/srv/SetFaceState \
-      "{state: 'thinking', gaze_az: 0.0, seq: 1}"
+  # браузер: http://<host>:8090
+  ros2 topic echo /face/state --once
 """
 
 from launch import LaunchDescription
@@ -41,5 +40,12 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[ParameterFile(params, allow_substs=True)],
         arguments=["--ros-args", "--log-level", log_level],
     )
+    aggregator = Node(
+        package="guide_robot_face",
+        executable="face_aggregator",
+        name="face_aggregator",
+        output="screen",
+        arguments=["--ros-args", "--log-level", log_level],
+    )
 
-    return LaunchDescription([*arguments, face_node])
+    return LaunchDescription([*arguments, face_node, aggregator])
