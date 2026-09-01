@@ -6,10 +6,10 @@
 модель стоит VRAM, которой на Jetson нет (см. `DIALOG_REWORK_PLAN.md §11`).
 
 Нормализация запроса и корпуса -- тот же пайплайн NFC/lower/ё->е/схлопывание
-пунктуации, что `matching.py`, плюс русский Snowball-стеммер и список
+пунктуации, что `matching.py`, плюс грубый стрип русских окончаний и список
 стоп-слов: без стемминга «экскурсии» в вопросе не находит «экскурсия» в
 корпусе, а частотные служебные слова иначе доминируют в скоринге коротких
-пассажей.
+пассажей. BM25 -- `kb/bm25.py`, без pip.
 """
 
 from __future__ import annotations
@@ -20,9 +20,7 @@ import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-import snowballstemmer
-from rank_bm25 import BM25Okapi
-
+from guide_robot_llm.kb.bm25 import BM25Okapi
 from guide_robot_llm.kb.chunker import Passage
 
 __all__ = ["BM25Retriever"]
@@ -48,15 +46,65 @@ _STOPWORDS = frozenset(
     """.split()
 )
 
-_stemmer = snowballstemmer.stemmer("russian")
+# Длинные сначала: «лаборатории» -> лаборатор, «лаборатория» -> лаборатор.
+_SUFFIXES = (
+    "иями",
+    "ями",
+    "ами",
+    "ией",
+    "иям",
+    "иях",
+    "ого",
+    "ему",
+    "ыми",
+    "ими",
+    "ием",
+    "ии",
+    "ия",
+    "ья",
+    "ию",
+    "ью",
+    "ов",
+    "ев",
+    "ах",
+    "ях",
+    "ам",
+    "ям",
+    "ом",
+    "ем",
+    "ой",
+    "ый",
+    "ий",
+    "ая",
+    "ое",
+    "ее",
+    "ые",
+    "ие",
+    "ую",
+    "а",
+    "я",
+    "у",
+    "ю",
+    "е",
+    "о",
+    "и",
+    "ы",
+    "ь",
+)
+
+
+def _stem(word: str) -> str:
+    for suffix in _SUFFIXES:
+        if len(word) - len(suffix) >= 4 and word.endswith(suffix):
+            return word[: -len(suffix)]
+    return word
 
 
 def _normalize(text: str) -> list[str]:
     folded = unicodedata.normalize("NFC", text).lower().replace("ё", "е")
     stripped = _NON_WORD.sub(" ", folded)
     normalized = _WHITESPACE.sub(" ", stripped).strip()
-    words = [word for word in normalized.split() if word not in _STOPWORDS]
-    return _stemmer.stemWords(words) if words else []
+    return [_stem(word) for word in normalized.split() if word not in _STOPWORDS]
 
 
 @dataclass(frozen=True)

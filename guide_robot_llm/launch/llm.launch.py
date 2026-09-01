@@ -44,9 +44,15 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("autostart", default_value="false"),
         DeclareLaunchArgument("log_level", default_value="info"),
+        DeclareLaunchArgument(
+            "raw",
+            default_value="false",
+            description="true — голый чат с моделью, без system prompt / GBNF / инструментов",
+        ),
     ]
 
     node_params = [ParameterFile(params, allow_substs=True), {"use_sim_time": use_sim_time}]
+    dialog_params = [*node_params, {"llm.raw": LaunchConfiguration("raw")}]
 
     tool_broker = Node(
         package="guide_robot_llm",
@@ -62,7 +68,7 @@ def generate_launch_description() -> LaunchDescription:
         executable="dialog_agent",
         name="dialog_agent",
         output="screen",
-        parameters=node_params,
+        parameters=dialog_params,
         arguments=["--ros-args", "--log-level", log_level],
     )
 

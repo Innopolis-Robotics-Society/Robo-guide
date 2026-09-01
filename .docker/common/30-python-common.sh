@@ -20,6 +20,4 @@ python3 -m pip install --no-cache-dir \
     rapidfuzz \
     sounddevice \
     pyaudio \
-    vosk \
-    rank_bm25 \
-    snowballstemmer
+    vosk
