@@ -198,7 +198,11 @@ states/paused.py`). Фраза «стоп» из fast-path стоп-слов с�
 `scope` полей `Narrate.Goal` `narration_server` сегодня НЕ читает вовсе
 (свои `say_priority`/`say_scope` узла) — отсутствие резюме гарантирует не
 `CONTINUITY_DROPPABLE`, а то, что `resume_token` результата просто
-никогда не переиспользуется. Fire-and-forget — FSM не ждёт результата.
+никогда не переиспользуется. Fire-and-forget на ходу — FSM не ждёт
+результата и не гейтит навигацию, но на выходе из `NavigatingState`
+снимает ещё звучащий транзитный `Narrate` (`cancel_goal_async`), иначе
+слот `narration_server` остаётся занят и рассказ на остановке получает
+`OUTCOME_REJECTED("busy")`.
 
 **Стек прерываний глубины 1** (`interrupt_stack.py`, design §5.4) — не
 структура «стек» в общем смысле, ровно один слот; второй одновременный
@@ -307,6 +311,14 @@ ros2 service call /supervisor/bringup std_srvs/srv/Trigger   # если autostar
   как `/mission_container`, `lifecycle_manager_mission` вечно ждал
   `narration_server/get_state`, которого не существовало (воспроизведено
   вживую). Исправлено — `name=` на этом `Node`-экшне убран.
+- **Транзитный `Narrate` обязан быть снят до входа в `NARRATING`.**
+  `NavigatingState` шлёт fire-and-forget `Narrate(transit, DROPPABLE)`
+  после `transit_after_s`. `narration_server` один слот, preempt нет
+  (design §2.2): прибытие, пока транзит ещё говорит, давало
+  `OUTCOME_REJECTED("busy")`, и `_skip_stop` молча вёл к следующей
+  точке (воспроизведено вживую: Q&A → `lab_demo` → объезд без рассказа).
+  Исправлено — `on_exit` отменяет транзитный goal и ждёт результат, как
+  `NarratingState.cancel_active_work` при `PAUSED`.
 - **`PAUSED` обязан сам останавливать активный `Narrate`.** `HELD`/
   `CANCELED` детектятся базой (`fsm/base.py`) и сама база вызывает
   `cancel_active_work()`; `PAUSED` производится `NarratingState.poll()`

@@ -21,7 +21,15 @@
 `say_priority`/`say_scope`, по умолчанию как раз `PRIORITY_NARRATION`/
 `SCOPE_NARRATION`) -- отсутствие резюме гарантирует не поле `continuity`,
 а то, что этот `resume_token` просто никогда никем не переиспользуется.
-Fire-and-forget: FSM не ждёт результата, не гейтит на нём навигацию.
+Fire-and-forget на ходу: FSM не ждёт результата и не гейтит на нём
+навигацию. На выходе из состояния (прибытие / skip / cancel) активный
+транзитный `Narrate` обязан быть снят -- иначе `narration_server`
+(`_active_execution`) остаётся занят DROPPABLE-goal-ом, а
+`NarratingState` на остановке получает `OUTCOME_REJECTED("busy")` и
+через `_skip_stop` молча едет дальше (воспроизведено вживую: Q&A →
+`lab_demo` → тихий объезд точек). Design §5.6 хочет `MODE_SOFT` на
+прибытии; FSM `NarrationControl` не вызывает (см. README), поэтому
+здесь тот же `cancel_goal_async`, что и у `NarratingState`.
 
 `hold_position` (stage2 D3): `FsmContext.take_pause_request()` (тот же
 примитив, что и у `NarratingState`) отменяет активный `NavigateToPose` и
@@ -33,6 +41,8 @@ NAVIGATING нет фрейма стека) просто заново шлёт `N
 """
 
 from __future__ import annotations
+
+import time
 
 from action_msgs.msg import GoalStatus
 from guide_robot_msgs.action import Narrate, Say
@@ -60,6 +70,9 @@ class NavigatingState(InterruptibleState):
         self._result_future: object | None = None
         self._start_ns = self.ctx.now_ns()
         self._transit_fired = False
+        self._transit_send_future: object | None = None
+        self._transit_handle: object | None = None
+        self._transit_result_future: object | None = None
 
     def poll(self, blackboard: Blackboard, now_ns: int) -> str | None:
         """Дождаться принятия goal-а, затем результата, следя за nav_stop_timeout_s."""
@@ -71,6 +84,7 @@ class NavigatingState(InterruptibleState):
             self.cancel_active_work(blackboard, outcomes.PAUSED)
             return outcomes.PAUSED
         self._maybe_fire_transit(blackboard, now_ns)
+        self._bind_transit()
         if self._goal_handle is None:
             return self._poll_send(blackboard)
         elapsed_s = (now_ns - self._start_ns) / 1e9
@@ -112,7 +126,46 @@ class NavigatingState(InterruptibleState):
             scope=Say.Goal.SCOPE_NARRATION,
             continuity=Narrate.Goal.CONTINUITY_DROPPABLE,
         )
-        self.ctx.narrate_client.send_goal_async(goal)
+        self._transit_send_future = self.ctx.narrate_client.send_goal_async(goal)
+
+    def _bind_transit(self) -> None:
+        """Забрать handle транзитного Narrate, как только send_goal ответит."""
+        if self._transit_handle is not None or self._transit_send_future is None:
+            return
+        if not self._transit_send_future.done():  # type: ignore[attr-defined]
+            return
+        handle = self._transit_send_future.result()  # type: ignore[attr-defined]
+        if handle is None or not handle.accepted:  # type: ignore[attr-defined]
+            return
+        self._transit_handle = handle
+        self._transit_result_future = handle.get_result_async()  # type: ignore[attr-defined]
+
+    def _stop_transit(self) -> None:
+        """Снять транзитный Narrate, чтобы слот narration_server освободился.
+
+        `cancel_goal_async()` только запускает отмену -- без ожидания
+        результата `_active_execution` ещё занят, и следующий
+        `NarratingState.on_enter()` ловит busy. Ждём ограниченно
+        `hard_stop_result_timeout_s`, как `NarratingState.cancel_active_work`.
+        """
+        if self._transit_send_future is None:
+            return
+        deadline = self.ctx.now_ns() + int(self.ctx.hard_stop_result_timeout_s * 1e9)
+        while self.ctx.now_ns() < deadline:
+            if self._transit_send_future.done():  # type: ignore[attr-defined]
+                break
+            time.sleep(self.ctx.poll_period_s)
+        self._bind_transit()
+        if self._transit_handle is None or self._transit_result_future is None:
+            return
+        if self._transit_result_future.done():  # type: ignore[attr-defined]
+            return
+        self._transit_handle.cancel_goal_async()  # type: ignore[attr-defined]
+        deadline = self.ctx.now_ns() + int(self.ctx.hard_stop_result_timeout_s * 1e9)
+        while self.ctx.now_ns() < deadline:
+            if self._transit_result_future.done():  # type: ignore[attr-defined]
+                return
+            time.sleep(self.ctx.poll_period_s)
 
     def _poll_send(self, blackboard: Blackboard) -> str | None:
         if not self._send_future.done():  # type: ignore[attr-defined]
@@ -142,7 +195,12 @@ class NavigatingState(InterruptibleState):
         return outcomes.NAV_FAILED
 
     def cancel_active_work(self, blackboard: Blackboard, outcome: str) -> None:
-        """CANCELED/HELD -- отменить активный NavigateToPose."""
+        """CANCELED/HELD -- отменить активный NavigateToPose (транзит снимет on_exit)."""
         del blackboard, outcome
         if self._goal_handle is not None and self._result_future is not None:
             self._goal_handle.cancel_goal_async()  # type: ignore[attr-defined]
+
+    def on_exit(self, blackboard: Blackboard, outcome: str) -> None:
+        """Освободить слот Narrate до входа в NARRATING/PAUSED/HELD."""
+        del blackboard, outcome
+        self._stop_transit()

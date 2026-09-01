@@ -471,9 +471,7 @@ def test_transit_narration_fires_once_per_leg_without_repeats(
     state = state_listener(client_node)
 
     goal_future = run_tour_client.send_goal_async(
-        RunTour.Goal(
-            tour_id="lab_demo", greet=False, narrate=True, confirm_between_stops=False
-        )
+        RunTour.Goal(tour_id="lab_demo", greet=False, narrate=True, confirm_between_stops=False)
     )
     wait_for_future(goal_future)
     goal_handle = goal_future.result()
@@ -488,6 +486,50 @@ def test_transit_narration_fires_once_per_leg_without_repeats(
     transit_spoken = [t for t in harness.say.texts_received if t.startswith("Транзит")]
     assert transit_spoken == ["Транзит раз.", "Транзит два."], transit_spoken
     del client_node, fsm_node, state
+
+
+def test_transit_still_speaking_does_not_skip_stop(harness: MissionTestHarness) -> None:
+    """Прибытие посреди транзитного Narrate не пропускает остановку.
+
+    Раньше fire-and-forget транзит держал `_active_execution`; Narrate
+    остановки получал OUTCOME_REJECTED("busy") и `_skip_stop` вёл дальше
+    без рассказа (воспроизведено вживую на lab_demo).
+    """
+    stop_ids = _setup_three_stop_tour(harness)
+    harness.fixtures.add_tour(
+        "lab_demo",
+        "Тестовая экскурсия",
+        [(sid, sid, 0, "short") for sid in stop_ids],
+        transit_content_id="transit_lab",
+    )
+    long_transit = "Транзит " + ("слово " * 40)
+    harness.fixtures.add_exhibit("transit_lab", [long_transit], version="rev1")
+    harness.nav.duration_s = 0.4
+    harness.say.chars_per_sec = 8.0
+
+    make_narration_node(harness, lookahead=0)
+    fsm_node = make_fsm_node(
+        harness, nav_stop_timeout_s=5.0, confirm_timeout_s=3.0, transit_after_s=0.05
+    )
+    client_node, run_tour_client = make_run_tour_client(harness)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(tour_id="lab_demo", greet=False, narrate=True, confirm_between_stops=False)
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.05, max_iterations=400)
+    wait_for_future(result_future, timeout_s=15.0)
+    result: RunTour.Result = result_future.result().result
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    assert result.stops_skipped == 0
+    assert result.stops_completed == 3
+    spoken = harness.say.texts_received
+    assert any(t.startswith("stop0") for t in spoken), spoken
+    del client_node, fsm_node
 
 
 def test_redirect_rejected_when_no_tour_active(harness: MissionTestHarness) -> None:
@@ -548,9 +590,7 @@ def test_redirect_mid_tour_skips_home_and_ends_in_place(harness: MissionTestHarn
     accepted, message = fsm_node.redirect("lidar_stand")
     assert accepted, message
 
-    pump_clock(
-        harness, state_is(state, MissionState.STATE_NARRATING), step=_NAV_DURATION_S + 0.02
-    )
+    pump_clock(harness, state_is(state, MissionState.STATE_NARRATING), step=_NAV_DURATION_S + 0.02)
     assert state["latest"].stop_id == "lidar_stand"
     assert state["latest"].exhibit_id == "lidar_stand"
 
