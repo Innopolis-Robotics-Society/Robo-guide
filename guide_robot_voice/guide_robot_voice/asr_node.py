@@ -13,9 +13,9 @@
    в накопитель высказывания подаётся снимок pre-roll (без него срезается
    первый слог -- design §3.4).
 3. Каждый новый кадр /audio/mic во время открытого высказывания
-   добавляется в накопитель. Партиалы считает таймер (partial_rate_hz),
-   не колбэк микрофона: OfflineRecognizer на том же executor'е иначе
-   не забирает /audio/mic (depth KEEP_LAST) и VAD видит дыры first_sample.
+   добавляется в накопитель. GigaAM крутится на отдельном потоке: таймер
+   на том же executor'е, что и подписка KEEP_LAST, на сотни мс глушил
+   /audio/mic, и фраза приезжала в декодер с дырами.
 4. Каждое /vad-сообщение во время открытого высказывания прогоняется
    через TurnPolicy.should_finalize(). Тишина берётся из state_duration
    самого /vad -- vad_node уже считает её точно, задваивать незачем.
@@ -28,8 +28,10 @@
 from __future__ import annotations
 
 import pathlib
+import queue
 import threading
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import rclpy
@@ -51,6 +53,19 @@ from guide_robot_voice.lib.turn_policy import TurnPolicy, TurnPolicyConfig
 _SAMPLE_RATE = 16000
 _SPEAKING_STATUS_STALE_SEC = 0.4
 _TTS_ECHO_HOLD_S = 1.0
+
+
+@dataclass(frozen=True)
+class _DecodeJob:
+    """Снимок высказывания для декода вне executor'а."""
+
+    kind: str
+    pcm: np.ndarray
+    utterance_id: int
+    timestamp: float
+    prefix_samples: int
+    total_samples: int
+    speech_ms: float
 
 
 class AsrNode(LifecycleNode):
@@ -90,7 +105,6 @@ class AsrNode(LifecycleNode):
         """Длина pre-roll внутри накопителя -- utterance_ms считается без неё."""
         self._utterance_timestamp = 0.0
         self._last_partial_text = ""
-        self._last_partial_at = 0.0
 
         self._latest_speaking: SpeakingStatus | None = None
         self._tts_hold_until = 0.0
@@ -98,6 +112,10 @@ class AsrNode(LifecycleNode):
         self._utterances_total = 0
         self._finals_published = 0
         self._finals_dropped_short = 0
+
+        self._decode_jobs: queue.Queue[_DecodeJob | None] = queue.Queue()
+        self._decode_stop = threading.Event()
+        self._decode_worker: threading.Thread | None = None
 
     # -- lifecycle ------------------------------------------------------
 
@@ -165,6 +183,7 @@ class AsrNode(LifecycleNode):
         self._diag_timer = self.create_timer(1.0, self._publish_diagnostics)
         partial_hz = float(self.get_parameter("partial_rate_hz").value)
         self._partial_timer = self.create_timer(1.0 / max(partial_hz, 0.1), self._on_partial_timer)
+        self._start_decode_worker()
 
         self.get_logger().info("asr_node сконфигурирован")
         return TransitionCallbackReturn.SUCCESS
@@ -188,8 +207,9 @@ class AsrNode(LifecycleNode):
         return super().on_deactivate(state)
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
-        """Освободить модель."""
+        """Остановить воркер декода и освободить модель."""
         del state
+        self._stop_decode_worker()
         if self._asr is not None:
             self._asr.close()
             self._asr = None
@@ -221,50 +241,45 @@ class AsrNode(LifecycleNode):
         return time.monotonic() < self._tts_hold_until
 
     def _on_audio(self, msg: AudioChunk) -> None:
-        with self._lock:
-            if not self._is_active:
-                return
-
         timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
         samples = np.array(msg.data, dtype=np.int16)
-        assert self._pre_roll is not None
-        self._pre_roll.push(timestamp, samples)
-
-        if not self._utterance_open:
-            return
-
-        self._utterance_chunks.append(samples)
-        self._utterance_samples += samples.shape[0]
-
-    def _on_partial_timer(self) -> None:
-        """Декод партиала вне колбэка /audio/mic: иначе GigaAM держит читателя."""
-        with self._lock:
-            if not self._is_active or not self._utterance_open:
-                return
-        if bool(self.get_parameter("gate_on_tts").value) and self._tts_blocks_listen():
-            return
-        self._maybe_publish_partial()
-
-    def _on_vad(self, msg: VoiceActivity) -> None:
         with self._lock:
             if not self._is_active:
                 return
-        assert self._turn_policy is not None
-
-        gate_on_tts = bool(self.get_parameter("gate_on_tts").value)
-        if gate_on_tts and self._tts_blocks_listen():
+            assert self._pre_roll is not None
+            self._pre_roll.push(timestamp, samples)
             if self._utterance_open:
-                self._close_utterance()
-            return
-        if not self._utterance_open:
-            if msg.active:
-                self._open_utterance()
-            return
+                self._utterance_chunks.append(samples)
+                self._utterance_samples += samples.shape[0]
 
-        silence_ms = 0.0 if msg.active else msg.state_duration * 1000.0
-        utterance_ms = self._utterance_speech_ms()
-        if self._turn_policy.should_finalize(self._last_partial_text, silence_ms, utterance_ms):
-            self._finalize_utterance()
+    def _on_partial_timer(self) -> None:
+        """Поставить партиал в очередь воркера, не декодировать на executor'е."""
+        if bool(self.get_parameter("gate_on_tts").value) and self._tts_blocks_listen():
+            return
+        self._submit_decode("partial")
+
+    def _on_vad(self, msg: VoiceActivity) -> None:
+        assert self._turn_policy is not None
+        gate_on_tts = bool(self.get_parameter("gate_on_tts").value)
+        tts_blocks = gate_on_tts and self._tts_blocks_listen()
+
+        with self._lock:
+            if not self._is_active:
+                return
+            if tts_blocks:
+                if self._utterance_open:
+                    self._close_utterance()
+                return
+            if not self._utterance_open:
+                if msg.active:
+                    self._open_utterance()
+                return
+            silence_ms = 0.0 if msg.active else msg.state_duration * 1000.0
+            utterance_ms = self._utterance_speech_ms()
+            last_partial = self._last_partial_text
+            should = self._turn_policy.should_finalize(last_partial, silence_ms, utterance_ms)
+        if should:
+            self._submit_decode("final")
 
     # -- высказывание ---------------------------------------------------
 
@@ -283,7 +298,6 @@ class AsrNode(LifecycleNode):
         self._prefix_samples = int(prefix.shape[0])
         self._utterance_timestamp = prefix_timestamp
         self._last_partial_text = ""
-        self._last_partial_at = 0.0
         self._utterances_total += 1
 
     def _close_utterance(self) -> None:
@@ -292,7 +306,6 @@ class AsrNode(LifecycleNode):
         self._utterance_samples = 0
         self._prefix_samples = 0
         self._last_partial_text = ""
-        self._last_partial_at = 0.0
 
     def _utterance_speech_ms(self) -> float:
         spoken_samples = max(0, self._utterance_samples - self._prefix_samples)
@@ -303,55 +316,101 @@ class AsrNode(LifecycleNode):
             return np.zeros(0, dtype=np.int16)
         return np.concatenate(self._utterance_chunks)
 
-    def _maybe_publish_partial(self) -> None:
-        assert self._asr is not None
-        rate_hz = float(self.get_parameter("partial_rate_hz").value)
-        now = time.monotonic()
-        if now - self._last_partial_at < 1.0 / rate_hz:
-            return
-        self._last_partial_at = now
+    def _start_decode_worker(self) -> None:
+        self._decode_stop.clear()
+        self._decode_worker = threading.Thread(
+            target=self._decode_loop, name="asr_decode", daemon=True
+        )
+        self._decode_worker.start()
 
+    def _stop_decode_worker(self) -> None:
+        self._decode_stop.set()
+        self._decode_jobs.put(None)
+        if self._decode_worker is not None:
+            self._decode_worker.join(timeout=5.0)
+            self._decode_worker = None
+
+    def _submit_decode(self, kind: str) -> None:
+        """Снимок PCM под замком, декод на воркере. Партиал не копится, если воркер занят."""
+        if kind == "partial" and self._decode_jobs.qsize() > 0:
+            return
         window_s = float(self.get_parameter("partial_window_s").value)
-        window_samples = int(window_s * _SAMPLE_RATE)
-        pcm = self._utterance_pcm()
-        windowed = pcm[-window_samples:] if pcm.shape[0] > window_samples else pcm
-        if windowed.size == 0:
+        with self._lock:
+            if not self._is_active or not self._utterance_open:
+                return
+            pcm = self._utterance_pcm()
+            if kind == "partial":
+                window_samples = int(window_s * _SAMPLE_RATE)
+                pcm = pcm[-window_samples:] if pcm.shape[0] > window_samples else pcm
+                if pcm.size == 0:
+                    return
+            job = _DecodeJob(
+                kind,
+                pcm,
+                self._utterance_id,
+                self._utterance_timestamp,
+                self._prefix_samples,
+                self._utterance_samples,
+                self._utterance_speech_ms(),
+            )
+            if kind == "final":
+                self._close_utterance()
+        self._decode_jobs.put(job)
+
+    def _decode_loop(self) -> None:
+        while not self._decode_stop.is_set():
+            try:
+                job = self._decode_jobs.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if job is None:
+                return
+            try:
+                self._run_decode(job)
+            except Exception as error:
+                self.get_logger().error(f"сбой декода ASR: {error}")
+
+    def _run_decode(self, job: _DecodeJob) -> None:
+        assert self._asr is not None
+        result = self._asr.decode(job.pcm) if job.pcm.size else None
+        text = result.text.strip() if result is not None else ""
+        confidence = result.confidence if result is not None else -1.0
+
+        if job.kind == "partial":
+            with self._lock:
+                if not self._utterance_open or job.utterance_id != self._utterance_id:
+                    return
+                self._last_partial_text = text
+            self._publish_transcript(text, confidence, is_final=False, job=job)
             return
 
-        result = self._asr.decode(windowed)
-        self._last_partial_text = result.text
-        self._publish_transcript(result.text, result.confidence, is_final=False)
-
-    def _finalize_utterance(self) -> None:
-        assert self._asr is not None
-        pcm = self._utterance_pcm()
         min_chars = int(self.get_parameter("min_final_chars").value)
-
-        result = self._asr.decode(pcm) if pcm.size else None
-        text = result.text.strip() if result is not None else ""
-
         if len(text) < min_chars:
             self._finals_dropped_short += 1
-            self.get_logger().info(f"drop {text!r} {self._utterance_speech_ms():.0f}ms")
-            self._close_utterance()
+            self.get_logger().info(f"drop {text!r} {job.speech_ms:.0f}ms")
             return
 
-        confidence = result.confidence if result is not None else -1.0
-        self.get_logger().info(f"final {text!r} {self._utterance_speech_ms():.0f}ms")
-        self._publish_transcript(text, confidence, is_final=True)
+        self.get_logger().info(f"final {text!r} {job.speech_ms:.0f}ms")
+        self._publish_transcript(text, confidence, is_final=True, job=job)
         self._finals_published += 1
-        self._close_utterance()
 
-    def _publish_transcript(self, text: str, confidence: float, *, is_final: bool) -> None:
+    def _publish_transcript(
+        self,
+        text: str,
+        confidence: float,
+        *,
+        is_final: bool,
+        job: _DecodeJob,
+    ) -> None:
         msg = Transcript()
-        msg.header.stamp = self._seconds_to_time_msg(self._utterance_timestamp)
+        msg.header.stamp = self._seconds_to_time_msg(job.timestamp)
         msg.header.frame_id = str(self.get_parameter("frame_id").value)
-        msg.utterance_id = self._utterance_id
+        msg.utterance_id = job.utterance_id
         msg.text = text
         msg.is_final = is_final
         msg.confidence = confidence
-        msg.speech_start = self._prefix_samples / _SAMPLE_RATE
-        msg.speech_end = self._utterance_samples / _SAMPLE_RATE
+        msg.speech_start = job.prefix_samples / _SAMPLE_RATE
+        msg.speech_end = job.total_samples / _SAMPLE_RATE
         msg.language = "ru"
         msg.azimuth = float("nan")
         (self._transcript_pub if is_final else self._partial_pub).publish(msg)
