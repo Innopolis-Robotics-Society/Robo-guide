@@ -224,8 +224,19 @@ class AudioFrontendNode(LifecycleNode):
                 self._activation_frames_seen = 0
                 self._activation_saw_nonzero = False
             self._stream.start()  # type: ignore[attr-defined]
+            window_s = float(self.get_parameter("rate_check_window_s").value)
+            # USB/ALSA отдаёт первый колбэк с задержкой (~80 мс на CM108).
+            # Окно от start() тогда систематически занижает частоту на ~4%
+            # и 1% допуск принимает это за скрытый ресемплинг.
+            if not self._wait_first_capture_sample(window_s):
+                self.get_logger().error(
+                    f"за {window_s:.1f}с после start() не пришло ни одного кадра. "
+                    "Активация отклонена."
+                )
+                self._stream.stop()  # type: ignore[attr-defined]
+                return TransitionCallbackReturn.FAILURE
             started_at = time.monotonic()
-            time.sleep(float(self.get_parameter("rate_check_window_s").value))
+            time.sleep(window_s)
             error_detail = self._check_actual_capture_rate(time.monotonic() - started_at)
             if error_detail is not None:
                 self.get_logger().error(f"{error_detail} Активация отклонена.")
@@ -235,6 +246,18 @@ class AudioFrontendNode(LifecycleNode):
             self.get_logger().error(f"activate не удался: {error}")
             return TransitionCallbackReturn.FAILURE
         return super().on_activate(state)
+
+    def _wait_first_capture_sample(self, timeout_s: float) -> bool:
+        """Дождаться первого колбэка и обнулить счётчик окна проверки частоты."""
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            with self._activation_check_lock:
+                if self._activation_frames_seen > 0:
+                    self._activation_frames_seen = 0
+                    self._activation_saw_nonzero = False
+                    return True
+            time.sleep(0.01)
+        return False
 
     def _check_actual_capture_rate(self, elapsed_s: float) -> str | None:
         """Сравнить измеренную частоту/тишину с ожидаемым. None -- всё в порядке."""
@@ -296,6 +319,9 @@ class AudioFrontendNode(LifecycleNode):
     ) -> None:
         """Колбэк PortAudio. Только memcpy в очередь -- обработка на воркере."""
         del time_info
+        # Частоту мерим здесь, не на воркере: overflow очереди иначе
+        # выглядит как «скрытый ресемплинг».
+        self._record_activation_check_sample(indata)
         try:
             # time.time(), не ROS-часы: get_clock() из RT-потока берёт GIL+mutex
             # и сам провоцирует следующий xrun.
@@ -316,7 +342,6 @@ class AudioFrontendNode(LifecycleNode):
 
     def _process_capture(self, capture_time: float, indata: np.ndarray, xrun: bool) -> None:
         """Downmix / HPF / ресемплинг. Живёт на воркере, не в ALSA и не на таймере."""
-        self._record_activation_check_sample(indata)
         if xrun:
             self._handle_xrun()
 
