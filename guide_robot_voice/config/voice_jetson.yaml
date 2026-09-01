@@ -1,18 +1,18 @@
-# Оверлей железа: USB Razer Seiren X на захват, Bluetooth колонка через Pulse.
+# Оверлей железа: USB Fifine (ALSA "USB PnP Audio Device") + JBL Go 2 через Pulse.
 #
-# jetson_audio.sh держит BT как default sink; Razer в Pulse = off
-# (иначе output-профиль ворует колонку). Захват -- имя карты, не pulse.
+# jetson_audio.sh держит BT как default sink; мик в Pulse = off,
+# иначе Pulse держит hw: и ROS не откроет карту. Захват -- имя карты, не pulse.
 # gate_on_tts: без AEC иначе робот слышит себя и рвёт фразу на одно слово.
 
 /**/audio_frontend:
   ros__parameters:
-    device: "Razer Seiren X"
-    device_rate: 16000
+    device: "USB PnP Audio Device"
+    device_rate: 48000             # этот CM108/JMTek отдаёт только 48 kHz
     out_rate: 16000
     frame_ms: 16
-    channels_in: 2                 # Seiren X: ALSA hw только stereo, downmix в ноде
+    channels_in: 1                 # Pulse/ALSA: mono-fallback
     periods: 16                    # больше буфер ALSA: overflow важнее, чем +100 мс к ASR
-    gain_db: 9.0
+    gain_db: 0.0                   # у Fifine свой крутилёк громкости
     hpf_hz: 40.0
     publish_raw: false
     aec:

@@ -1,5 +1,5 @@
 [Unit]
-Description=Guide-Robot Pulse: keep Bluetooth speaker as default sink
+Description=Guide-Robot Pulse: JBL Go 2 default sink, Fifine mic off
 After=pulseaudio.service bluetooth.target
 Wants=pulseaudio.service
 
