@@ -29,11 +29,12 @@ def test_priority_order() -> None:
         presence=True,
     )
     assert decide(full) == "error"
-    assert (
-        decide(FaceInputs(speaking=True, dialog_phase=PHASE_ACTION, presence=True)) == "speaking"
+    assert decide(FaceInputs(speaking=True, dialog_phase=PHASE_ACTION, presence=True)) == (
+        "speaking"
     )
+    assert decide(FaceInputs(speaking=True, navigating=True, presence=True)) == "driving"
     assert decide(FaceInputs(dialog_phase=PHASE_ANSWER, navigating=True, presence=True)) == (
-        "thinking"
+        "driving"
     )
     assert decide(FaceInputs(navigating=True, vad_active=True, presence=True)) == "driving"
     assert decide(FaceInputs(vad_active=True, presence=True)) == "listening"

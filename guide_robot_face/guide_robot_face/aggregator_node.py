@@ -13,7 +13,12 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from guide_robot_face.lib.aggregator import MISSION_NAVIGATING, FaceInputs, decide
+from guide_robot_face.lib.aggregator import (
+    MISSION_NAVIGATING,
+    MISSION_RETURNING,
+    FaceInputs,
+    decide,
+)
 from guide_robot_face.lib.qos import (
     QOS_DIALOG_PHASE,
     QOS_FACE_STATE,
@@ -81,7 +86,8 @@ class FaceAggregatorNode(Node):
         self._publish_if_changed()
 
     def _on_mission(self, msg: MissionState) -> None:
-        self._inp = replace(self._inp, navigating=int(msg.state) == MISSION_NAVIGATING)
+        moving = int(msg.state) in (MISSION_NAVIGATING, MISSION_RETURNING)
+        self._inp = replace(self._inp, navigating=moving)
         self._publish_if_changed()
 
     def _on_presence(self, msg: Presence) -> None:

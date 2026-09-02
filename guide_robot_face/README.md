@@ -35,7 +35,9 @@ ros2 service call /face/set_state guide_robot_msgs/srv/SetFaceState \
 ```
 
 `face_aggregator` выбирает pipeline-состояние (не LLM-affect):
-`error` > `speaking` > `thinking` > `driving` > `listening` > `idle`/`sleep`.
+`error` > `driving` > `speaking` > `thinking` > `listening` > `idle`/`sleep`.
+`driving` -- `NAVIGATING` и `RETURNING`. Без этого старт тура (thinking)
+и транзитный TTS (speaking) перекрывали езду.
 Affect (`happy`/…) в этом пакете по-прежнему только через `/face/set_state`.
 
 Из `hardware.launch.py` (по умолчанию включено, проброс `launch_face`):

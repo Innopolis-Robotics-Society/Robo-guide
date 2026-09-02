@@ -14,10 +14,11 @@ PHASE_ACTION = 1
 PHASE_ANSWER = 2
 PHASE_AWAITING = 3
 
-# MissionState.STATE_NAVIGATING
+# MissionState.STATE_NAVIGATING / STATE_RETURNING -- оба «едем».
 MISSION_NAVIGATING = 2
+MISSION_RETURNING = 8
 
-_PRIORITY = ("error", "speaking", "thinking", "driving", "listening")
+_PRIORITY = ("error", "driving", "speaking", "thinking", "listening")
 
 
 @dataclass
@@ -36,7 +37,9 @@ class FaceInputs:
 def decide(inp: FaceInputs) -> str:
     """Выбрать pipeline-состояние по жёсткому приоритету.
 
-    error > speaking > thinking > driving > listening > idle|sleep.
+    error > driving > speaking > thinking > listening > idle|sleep.
+    Езда бьёт thinking/speaking: иначе ACTION старта тура и транзитный
+    TTS держат «думаю»/«говорю» всю дорогу до остановки.
     """
     listening = inp.vad_active or inp.wakeword_hold or inp.dialog_phase == PHASE_AWAITING
     flags = {
