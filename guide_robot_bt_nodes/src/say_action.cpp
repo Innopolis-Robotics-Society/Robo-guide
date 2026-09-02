@@ -62,10 +62,16 @@ public:
 }  // namespace guide_robot_bt_nodes
 
 // ── Регистрация плагина ───────────────────────────────────────────────────────
-// bt_navigator загружает .so и вызывает эту функцию.
-// "SayAction" — имя которое пишем в XML.
-#include "behaviortree_cpp/bt_factory.h"
-BT_REGISTER_NODES(factory)
+// bt_navigator загружает .so через BehaviorTreeFactory::registerFromPlugin()
+// и ищет именно этот символ. Пишем extern "C" явно вместо макроса
+// BT_REGISTER_NODES, потому что в Humble (BT.CPP v3) макрос не всегда
+// генерирует символ с visibility("default") корректно.
+//
+// bt_factory.h нужен здесь для типа BT::BehaviorTreeFactory —
+// nav2_behavior_tree/bt_action_node.hpp включает его НЕ транзитивно.
+#include "behaviortree_cpp_v3/bt_factory.h"
+extern "C" void __attribute__((visibility("default"))) BT_RegisterNodesFromPlugin(
+  BT::BehaviorTreeFactory & factory)
 {
   factory.registerNodeType<guide_robot_bt_nodes::SayAction>("SayAction");
 }

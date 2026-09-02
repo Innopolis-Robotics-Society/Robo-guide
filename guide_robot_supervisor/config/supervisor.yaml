@@ -15,20 +15,22 @@ supervisor:
       preconditions: [tf_odom]
       startup_timeout: 30.0
 
-    - name: navigation
-      manager: /lifecycle_manager_navigation
-      requires: [localization]
-      preconditions: [tf_map]
-      startup_timeout: 45.0
-
-    # Аудио и высокоуровневый служебный слой поверх нав-стека (voice/
-    # semantic_map/mission). Все три -- optional: true, отказ любой из них
-    # не должен переводить весь supervisor в FAULT и блокировать уже
-    # поднятый safety/localization/navigation.
+    # voice поднимается ДО navigation: bt_navigator загружает BT XML при
+    # активации и немедленно проверяет доступность /say action server
+    # (tts_node из guide_robot_voice). Без voice активного -- bt_navigator
+    # падает с "Action server say not available" и supervisor уходит в FAULT.
     - name: voice
       manager: /lifecycle_manager_voice
       startup_timeout: 30.0
       optional: true
+
+    - name: navigation
+      manager: /lifecycle_manager_navigation
+      # requires: voice -- ждём, пока tts_node активен, прежде чем
+      # активировать bt_navigator (см. комментарий выше).
+      requires: [localization, voice]
+      preconditions: [tf_map]
+      startup_timeout: 45.0
 
     - name: semantic_map
       manager: /lifecycle_manager_semantic_map
