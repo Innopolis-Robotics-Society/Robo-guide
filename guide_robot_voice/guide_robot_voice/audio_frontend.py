@@ -211,9 +211,11 @@ class AudioFrontendNode(LifecycleNode):
         измерение (см. `_configure()`). Настоящая проверка требует РЕАЛЬНЫХ
         сэмплов: копим кол-во кадров и факт ненулевого сигнала на воркере
         (`_process_capture()`) за `rate_check_window_s`, здесь просто ждём
-        окно и читаем накопленное. >tolerance расхождения с device_rate или
-        полная тишина (весь буфер -- нули, живой инцидент "фронтенд поднял
-        не тот оверлей и молчал") -- отказ активации, поток останавливается.
+        окно и читаем накопленное. Полная тишина (нули) -- отказ
+        активации. Расхождение частоты с device_rate -- только warning:
+        после reboot USB/Pulse часто даёт 2-4% (sleep окна короче 2 с,
+        кристалл CM108), а цепочка и так ресемплит в out_rate. Валить
+        voice-стек из-за этого нельзя.
         """
         try:
             assert self._stream is not None
@@ -278,11 +280,15 @@ class AudioFrontendNode(LifecycleNode):
         tolerance = float(self.get_parameter("rate_check_tolerance").value)
         mismatch = abs(actual_rate - device_rate) / device_rate if device_rate else 1.0
         if mismatch > tolerance:
-            return (
+            # Не FAILURE: на холодном старте Orin sleep(window) + USB часто
+            # даёт ~3% (живой лог: 49454 vs 48000) и supervisor хоронит voice.
+            self.get_logger().warning(
                 f"измеренная частота захвата {actual_rate:.0f} Гц расходится с заявленными "
                 f"{device_rate} Гц больше чем на {tolerance:.0%} ({mismatch:.1%}): "
-                "PortAudio, похоже, подставил скрытый ресемплинг."
+                "возможный скрытый ресемплинг Pulse/PortAudio; продолжаю, выход всё равно "
+                f"ресемплится в {int(self.get_parameter('out_rate').value)} Гц"
             )
+            return None
 
         self.get_logger().info(
             f"фактическая частота захвата подтверждена: {actual_rate:.0f} Гц "
