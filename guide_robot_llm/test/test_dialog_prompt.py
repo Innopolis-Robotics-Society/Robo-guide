@@ -139,9 +139,10 @@ def test_action_instruction_is_deterministic_for_same_arguments() -> None:
     assert build_action_instruction(tool_specs) == build_action_instruction(tool_specs)
 
 
-def test_action_instruction_mentions_json_form_with_think() -> None:
+def test_action_instruction_mentions_json_form_with_tool_and_args() -> None:
     instruction = build_action_instruction([_STOP])
-    assert '{"think"' in instruction
+    assert '{"tool"' in instruction
+    assert '"think"' not in instruction
     assert '"tool"' in instruction
     assert "reply" in instruction
 

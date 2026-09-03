@@ -130,6 +130,15 @@ def test_estop_reason_cancels_non_interruptible_outside_safety_scope() -> None:
     assert dropped_active.goal_id == "warning"
 
 
+def test_wakeword_reason_cancels_non_interruptible() -> None:
+    """«робот» / «стоп» (REASON_WAKEWORD) гасят punchline с interruptible=False."""
+    scheduler = Scheduler()
+    scheduler.submit(make("punch", 50, 0, interruptible=False, scope=Scope.NARRATION))
+    dropped_active, _ = scheduler.cancel(Scope.ALL, reason="wakeword")
+    assert dropped_active is not None
+    assert dropped_active.goal_id == "punch"
+
+
 def test_non_interruptible_in_queue_survives_soft_cancel() -> None:
     """Барьер interruptible действует и на очередь, не только на активную цель."""
     scheduler = Scheduler()

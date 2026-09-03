@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass, field
 
 import pytest
+
 from guide_robot_llm.dialog.turn import render_action_outcome, run_turn
 from guide_robot_llm.llm_client import CompletionResult
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendTimeout
@@ -38,7 +39,7 @@ def _answer(text: str):
 def _actions(*responses: str):
     calls = list(responses)
 
-    def _complete_action(messages: list[dict], grammar: str) -> CompletionResult:
+    def _complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
         del messages, grammar
         return CompletionResult(text=calls.pop(0))
 
@@ -73,7 +74,7 @@ def _run(**overrides):
 def test_action_selected_and_executed_before_answer_is_generated() -> None:
     order: list[str] = []
 
-    def complete_action(messages: list[dict], grammar: str) -> CompletionResult:
+    def complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
         del messages, grammar
         order.append("action")
         return CompletionResult(text=_guide_call())
@@ -189,8 +190,9 @@ def test_failed_action_outcome_reaches_answer_prompt() -> None:
 
     assert result.stopped_reason == "action_invalid"
     assert result.say_ok is True  # реплика генерируется и при провале действия
-    assert "не удалось: guide_to(location_id='cafe') — нет такой локации" in (
-        seen_messages[0][-1]["content"]
+    assert (
+        "не удалось: guide_to(location_id='cafe') — нет такой локации"
+        in (seen_messages[0][-1]["content"])
     )
 
 
@@ -360,7 +362,7 @@ def test_finish_reason_propagates_from_both_phases() -> None:
         del messages
         return CompletionResult(text="иду", finish_reason="stop")
 
-    def complete_action(messages: list[dict], grammar: str) -> CompletionResult:
+    def complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
         del messages, grammar
         return CompletionResult(text=_reply_call(), finish_reason="stop")
 
@@ -416,7 +418,7 @@ def test_action_backend_error_means_nothing_happened() -> None:
     spoken: list[str] = []
     executed: list[str] = []
 
-    def complete_action(messages: list[dict], grammar: str) -> CompletionResult:
+    def complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
         del messages, grammar
         raise BackendTimeout("timed out")
 
@@ -433,7 +435,7 @@ def test_action_backend_error_means_nothing_happened() -> None:
 
 
 def test_backend_aborted_in_action_phase_propagates() -> None:
-    def complete_action(messages: list[dict], grammar: str) -> CompletionResult:
+    def complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
         del messages, grammar
         raise BackendAborted("barge-in")
 
@@ -645,7 +647,7 @@ def test_render_action_outcome_read_only_failure_keeps_short_form() -> None:
 
 
 def test_run_turn_passes_read_only_tools_to_render_action_outcome() -> None:
-    def complete_action(messages: list[dict], grammar: str) -> CompletionResult:
+    def complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
         del messages, grammar
         call = {"think": "ищет факт", "tool": "search_content", "args": {"query": "x"}}
         return CompletionResult(text=json.dumps(call))
@@ -673,3 +675,95 @@ def test_run_turn_passes_read_only_tools_to_render_action_outcome() -> None:
     answer_prompt = seen_messages[0][-1]["content"]
     assert "[exhibit: T] текст факта" in answer_prompt
     assert "выполнено: search_content" not in answer_prompt
+
+
+def test_answer_spoken_as_single_utterance() -> None:
+    """Один speak на весь ответ -- без разрыва между предложениями."""
+    spoken: list[str] = []
+
+    def complete_answer(messages: list[dict], *, on_delta=None) -> CompletionResult:
+        del messages, on_delta
+        return CompletionResult(text="Первое предложение. Второе.")
+
+    def speak(text: str) -> _FakeResult:
+        spoken.append(text)
+        return _FakeResult(ok=True)
+
+    result = _run(complete_answer=complete_answer, speak=speak)
+    assert result.say_ok is True
+    assert spoken == ["Первое предложение. Второе."]
+
+
+def test_action_stream_stops_as_soon_as_reply_tool_seen() -> None:
+    """Не ждём полный JSON: stop_when на tool=reply, синтетический call."""
+    seen_stop = []
+
+    def complete_action(messages, grammar, *, stop_when=None):
+        del messages, grammar
+        assert stop_when is not None
+        partial = '{"tool":"reply","args":'
+        assert stop_when(partial) is True
+        seen_stop.append(partial)
+        return CompletionResult(text=partial, finish_reason="stop_when")
+
+    result = _run(complete_action=complete_action)
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action_raw_text == '{"tool":"reply","args":{}}'
+    assert seen_stop
+
+
+def test_action_stream_stops_on_complete_non_reply_json() -> None:
+    def complete_action(messages, grammar, *, stop_when=None):
+        del messages, grammar
+        assert stop_when is not None
+        text = '{"tool":"guide_to","args":{"location_id":"cafe"}}'
+        assert stop_when(text) is True
+        assert stop_when('{"tool":"guide_to","args":{') is False
+        return CompletionResult(text=text, finish_reason="stop_when")
+
+    result = _run(complete_action=complete_action)
+    assert result.action is not None
+    assert result.action.name == "guide_to"
+
+
+def test_chit_chat_overrides_guide_to_to_reply() -> None:
+    """«привет» + guide_to от модели -- не исполняем моторы, уходим в reply."""
+    executed: list[str] = []
+
+    def execute_tool(name: str, args: dict) -> _FakeResult:
+        executed.append(name)
+        return _FakeResult(ok=True)
+
+    result = _run(
+        complete_action=_actions(
+            json.dumps({"tool": "guide_to", "args": {"location_id": "cafe"}})
+        ),
+        execute_tool=execute_tool,
+        utterance="привет",
+        complete_answer=_answer("Привет!"),
+    )
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+
+
+def test_start_tour_phrase_overrides_reply() -> None:
+    """Живой баг: «начни экскурсию» ушло в reply, тур не стартовал."""
+    executed: list[tuple[str, dict]] = []
+
+    def execute_tool(name: str, args: dict) -> _FakeResult:
+        executed.append((name, args))
+        return _FakeResult(ok=True)
+
+    result = _run(
+        complete_action=_actions(_reply_call()),
+        execute_tool=execute_tool,
+        tool_names=["reply", "start_tour"],
+        utterance="начни экскурсию",
+        default_tour_id="lab_demo",
+        complete_answer=_answer("Начинаем экскурсию."),
+    )
+    assert executed == [("start_tour", {"tour_id": "lab_demo"})]
+    assert result.action is not None
+    assert result.action.name == "start_tour"

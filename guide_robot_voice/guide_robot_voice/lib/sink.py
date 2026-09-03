@@ -33,6 +33,10 @@
   В _pull(). В устройстве остаётся не более одного уже заполненного
   периода, который снимает abort().
 
+  Исключение -- мягкая отмена с fade_out_ms > 0: в новый epoch кладётся
+  укороченный хвост с огибающей 1→0, abort() не зовётся (иначе клик).
+  Estop / deactivate / ошибка синтеза -- по-прежнему hard abort.
+
 Отсюда параметр block_ms эмиттера: длительность периода -- верхняя граница
 остатка. 20 мс укладывается в бюджет t_stop, 200 мс -- нет.
 
@@ -68,6 +72,9 @@ __all__ = [
 
 PullCallable = Callable[[int], np.ndarray]
 """Запрос N кадров моно int16. Обязан вернуть ровно N, добивая нулями."""
+
+# reason, при которых fade запрещён: клик лучше, чем доигрывание.
+_HARD_BUMP_REASONS = frozenset({"estop", "deactivate", "synthesis_error"})
 
 
 class SinkFailureError(RuntimeError):
@@ -297,7 +304,7 @@ class SoundDeviceEmitter:
         """Заявленная задержка вывода, сек."""
         stream = self._stream
         value = getattr(stream, "latency", self._latency)
-        return float(value) if isinstance(value, (int, float)) else self._latency
+        return float(value) if isinstance(value, int | float) else self._latency
 
     def info(self) -> dict[str, object]:
         """Фактические параметры открытого потока.
@@ -326,11 +333,13 @@ class EpochFencedSink:
         emitter: Emitter,
         sample_rate: int,
         max_queue_ms: int = 600,
+        fade_out_ms: int = 0,
     ) -> None:
         """Создать сток. Устройство открывается методом start()."""
         self._emitter = emitter
         self._sample_rate = sample_rate
         self._max_queue_frames = int(sample_rate * max_queue_ms / 1000)
+        self._fade_out_frames = max(0, int(sample_rate * fade_out_ms / 1000))
         self._state = _State()
         self._lock = threading.Lock()
         self._cv = threading.Condition(self._lock)
@@ -439,10 +448,19 @@ class EpochFencedSink:
 
         Порядок существенен. Сначала под локом инкрементируется epoch
         и чистится очередь -- с этого момента колбэк физически не может
-        выдать устаревший сэмпл. Только потом рвётся буфер устройства.
+        выдать устаревший сэмпл. Soft-cancel (fade_out_ms, не hard reason)
+        кладёт в новый epoch укороченный хвост с огибающей и не зовёт
+        abort() -- иначе Pa_AbortStream даёт щелчок. Hard-путь -- как
+        раньше: abort() сразу после очистки.
         """
         requested_at = time.monotonic()
+        hard = reason in _HARD_BUMP_REASONS or self._fade_out_frames == 0
         with self._cv:
+            fade_pcm = (
+                np.zeros(0, dtype=np.int16)
+                if hard
+                else self._faded_tail_locked(self._fade_out_frames)
+            )
             dropped_chunks = len(self._state.chunks)
             dropped_frames = self._state.queued_frames
             self._state.epoch += 1
@@ -451,10 +469,17 @@ class EpochFencedSink:
             self._state.queued_frames = 0
             self._state.cursor = 0
             self._state.played_frames = 0
+            if fade_pcm.size:
+                self._state.chunks.append(_Chunk(epoch=new_epoch, pcm=fade_pcm))
+                self._state.queued_frames = int(fade_pcm.shape[0])
             self._cv.notify_all()
 
-        self._emitter.abort()
-        aborted_at = time.monotonic()
+        if fade_pcm.size:
+            self._emitter.resume()
+            aborted_at = time.monotonic()
+        else:
+            self._emitter.abort()
+            aborted_at = time.monotonic()
 
         with self._lock:
             self._metrics = StopMetrics(
@@ -466,6 +491,34 @@ class EpochFencedSink:
                 dropped_frames=dropped_frames,
             )
         return new_epoch
+
+    def _faded_tail_locked(self, frames: int) -> np.ndarray:
+        """Скопировать ближайшие frames из очереди и наложить огибающую 1→0."""
+        if frames <= 0 or not self._state.chunks:
+            return np.zeros(0, dtype=np.int16)
+        out = np.empty(frames, dtype=np.int16)
+        filled = 0
+        cursor = self._state.cursor
+        epoch = self._state.epoch
+        for chunk in self._state.chunks:
+            if chunk.epoch != epoch:
+                cursor = 0
+                continue
+            available = int(chunk.pcm.shape[0]) - cursor
+            take = min(available, frames - filled)
+            if take > 0:
+                out[filled : filled + take] = chunk.pcm[cursor : cursor + take]
+                filled += take
+            cursor = 0
+            if filled >= frames:
+                break
+        if filled == 0:
+            return np.zeros(0, dtype=np.int16)
+        tail = out[:filled].astype(np.float32)
+        # Косинусная огибающая чуть мягче линейной на слух.
+        t = np.linspace(0.0, 1.0, filled, endpoint=True, dtype=np.float32)
+        gain = 0.5 * (1.0 + np.cos(np.pi * t))
+        return (tail * gain).astype(np.int16)
 
     # -- завершение ---------------------------------------------------------
 

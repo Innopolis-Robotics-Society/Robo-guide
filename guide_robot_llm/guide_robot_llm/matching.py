@@ -31,8 +31,11 @@ __all__ = [
     "has_leading_wake_word",
     "has_motion_intent",
     "idle_turn_allowed",
+    "looks_like_chit_chat",
     "match_confirm",
+    "match_end_tour",
     "match_idle_dismiss",
+    "match_start_tour",
     "match_stop_phrase",
     "strip_wake_word",
 ]
@@ -115,6 +118,56 @@ _MOTION_INTENT_RE = re.compile(
     r"экскурс|excursion|\btour\b|\bтур(?:а|у|ом|е|ы|ов)?\b|провед|проводи|отвед"
 )
 
+# «вернись домой» / «едем на базу» -- конец тура, не resume.
+_GO_HOME_RE = re.compile(
+    r"верн\w*\s+дом|ид(?:и|ти)\s+дом|едь\s+дом|поеха\w*\s+дом|"
+    r"\bдомой\b|на базу|на старт|return home"
+)
+
+# «начни экскурсию» / «проведи тур» -- не просто «экскурсия» в вопросе.
+_START_TOUR_RE = re.compile(
+    r"(?:начн\w*|начать|start)\w*\s+\w*\s*(?:экскурс|\bтур(?:а|у|ом|е|ы)?\b|\btour\b)"
+    r"|(?:экскурс|\bтур(?:а|у|ом|е|ы)?\b|\btour\b)\w*\s+\w*\s*(?:начн|start)"
+    r"|провед\w*\s+\w*\s*экскурс"
+)
+
+# Токены светской болтовни / приветствия: если ВСЕ слова реплики отсюда --
+# моторный tool от модели (guide_to на «привет» без think) не исполняем.
+_CHIT_CHAT_TOKENS = frozenset(
+    {
+        "привет",
+        "здравствуй",
+        "здравствуйте",
+        "добрый",
+        "день",
+        "вечер",
+        "утро",
+        "хай",
+        "хелло",
+        "hello",
+        "hi",
+        "как",
+        "дела",
+        "тебя",
+        "зовут",
+        "имя",
+        "спасибо",
+        "пожалуйста",
+        "пока",
+        "хорошо",
+        "отлично",
+        "круто",
+        "супер",
+        "ладно",
+        "понятно",
+        "ясно",
+        "ок",
+        "окей",
+        "угу",
+        "ага",
+    }
+)
+
 
 def _tokens(text: str) -> set[str]:
     folded = unicodedata.normalize("NFC", text).lower().replace("ё", "е")
@@ -185,10 +238,38 @@ def match_confirm(text: str) -> bool | None:
 
 def match_stop_phrase(text: str) -> bool:
     """Проверить, значит ли фраза уверенно «хватит, дальше» (ANSWERING -> SKIP_STOP)."""
+    if match_end_tour(text):
+        return False
     tokens = _tokens(text)
     if not _confident_gate(tokens):
         return False
     return bool(tokens & _STOP_WORDS)
+
+
+def match_end_tour(text: str) -> bool:
+    """«Стоп экскурсия» / «вернись домой» -- END_TOUR, не пропуск остановки.
+
+    `match_stop_phrase` ловит голое «стоп» как SKIP_STOP. Живой баг: «робот
+    стоп экскурсия» уезжало на следующую точку; «вернись домой» в ANSWERING
+    ушло в finish_answer(outcome=0) и продолжило тур, хотя TTS сказал «домой».
+    """
+    folded = unicodedata.normalize("NFC", text).lower().replace("ё", "е")
+    if _GO_HOME_RE.search(folded):
+        return True
+    if not _MOTION_INTENT_RE.search(folded):
+        return False
+    tokens = _tokens(text)
+    if tokens & _STOP_WORDS:
+        return True
+    return bool(re.search(r"останов|закончи|отмен", folded))
+
+
+def match_start_tour(text: str) -> bool:
+    """Явная просьба начать экскурсию -- не «что за экскурсия» и не конец тура."""
+    if match_end_tour(text):
+        return False
+    folded = unicodedata.normalize("NFC", text).lower().replace("ё", "е")
+    return bool(_START_TOUR_RE.search(folded))
 
 
 def has_motion_intent(text: str) -> bool:
@@ -205,6 +286,18 @@ def has_motion_intent(text: str) -> bool:
     # ponytail: несколько подстрок, словарь если появятся ложные отказы.
     folded = unicodedata.normalize("NFC", text).lower().replace("ё", "е")
     return bool(text.strip()) and bool(_MOTION_INTENT_RE.search(folded))
+
+
+def looks_like_chit_chat(text: str) -> bool:
+    """Все токены -- приветствие/светская болтовня (без просьбы что-то сделать).
+
+    Уже гейт в `dialog/turn.py`: моторный tool на такой реплике не
+    исполняется (живой баг -- guide_to на «привет» после урезки think).
+    Не пересекается с «да» на ask_visitor: тот путь не идёт через
+    execute_tool свежего guide_to из фазы действия.
+    """
+    tokens = _tokens(text)
+    return bool(tokens) and tokens <= _CHIT_CHAT_TOKENS
 
 
 def match_idle_dismiss(text: str) -> bool:

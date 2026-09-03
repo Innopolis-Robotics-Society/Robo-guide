@@ -6,8 +6,11 @@ from guide_robot_llm.matching import (
     has_leading_wake_word,
     has_motion_intent,
     idle_turn_allowed,
+    looks_like_chit_chat,
     match_confirm,
+    match_end_tour,
     match_idle_dismiss,
+    match_start_tour,
     match_stop_phrase,
     strip_wake_word,
 )
@@ -110,6 +113,33 @@ def test_confirm_trap_question_word_alone() -> None:
 def test_stop_phrase_short_confident_still_matches() -> None:
     assert match_stop_phrase("стоп") is True
     assert match_stop_phrase("закончили") is True
+
+
+def test_end_tour_stop_ekskursiya() -> None:
+    """Живой баг: «стоп экскурсия» уходило в SKIP_STOP и ехало на следующую точку."""
+    assert match_end_tour("стоп экскурсия") is True
+    assert match_end_tour("робот стоп экскурсия") is True
+    assert match_end_tour("стоп останови экскурсию") is True
+    assert match_stop_phrase("стоп экскурсия") is False
+
+
+def test_start_tour_phrase() -> None:
+    assert match_start_tour("начни экскурсию") is True
+    assert match_start_tour("робот начни экскурсию") is True
+    assert match_start_tour("проведи экскурсию") is True
+    assert match_start_tour("начать тур") is True
+    assert match_start_tour("что такое экскурсия") is False
+    assert match_start_tour("стоп экскурсия") is False
+    assert match_start_tour("вернись домой") is False
+    assert match_start_tour("привет") is False
+    assert match_end_tour("вернись домой") is True
+    assert match_end_tour("робот вернись домой") is True
+    assert match_end_tour("едем домой") is True
+    assert match_stop_phrase("вернись домой") is False
+    assert match_end_tour("сколько будет семь") is False
+    assert match_end_tour("хватит, дальше") is False
+    assert match_stop_phrase("хватит, дальше") is True
+    assert match_end_tour("стоп") is False
 
 
 # -- match_idle_dismiss: IDLE-версия, живой баг "робот стоп" в IDLE --
@@ -245,3 +275,10 @@ def test_has_leading_wake_word() -> None:
     assert has_leading_wake_word("робот, привет") is True
     assert has_leading_wake_word("привет") is False
     assert has_leading_wake_word("что такое робот") is False
+
+
+def test_looks_like_chit_chat_greetings() -> None:
+    assert looks_like_chit_chat("привет") is True
+    assert looks_like_chit_chat("как дела") is True
+    assert looks_like_chit_chat("проведи к кафе") is False
+    assert looks_like_chit_chat("отведи в лабораторию") is False

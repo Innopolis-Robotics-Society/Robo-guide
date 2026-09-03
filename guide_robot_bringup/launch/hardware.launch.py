@@ -9,13 +9,15 @@
 #    perception.launch.py       — лидары, бланкеры, мерджер, соноры
 #    nav_stack.launch.py        — SLAM/AMCL + Nav2 + collision_monitor + супервизор
 #    high_level_stack.launch.py — стек экскурсий: voice + semantic_map + mission_control + face
+#    llm.launch.py              — dialog_agent / tool_broker (иначе история переживает
+#                                 рестарт hardware, если LLM держали в другом терминале)
 # =========================================================================
 
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
@@ -34,6 +36,8 @@ def generate_launch_description():
     pkg_bringup = get_package_share_directory("guide_robot_bringup")
     pkg_navigation = get_package_share_directory("guide_robot_navigation")
     pkg_description = get_package_share_directory("guide_robot_description")
+    pkg_llm = get_package_share_directory("guide_robot_llm")
+    pkg_voice = get_package_share_directory("guide_robot_voice")
 
     # ── Launch arguments ──────────────────────────────────────────────────────
     declare_use_sim_time = DeclareLaunchArgument(
@@ -93,7 +97,12 @@ def generate_launch_description():
         default_value="true",
         description="Launch guide_robot_face (passed through to high_level_stack)",
     )
-    pkg_voice = get_package_share_directory("guide_robot_voice")
+    declare_launch_llm = DeclareLaunchArgument(
+        "launch_llm",
+        default_value="true",
+        description="Launch guide_robot_llm (dialog_agent). autostart:=false -- "
+        "bring-up делает supervisor после semantic_map (location_server).",
+    )
     declare_voice_params_file = DeclareLaunchArgument(
         "voice_params_file",
         default_value=os.path.join(pkg_voice, "config", "voice_jetson.yaml"),
@@ -122,6 +131,7 @@ def generate_launch_description():
     autostart_supervisor = LaunchConfiguration("autostart_supervisor")
     launch_high_level = LaunchConfiguration("launch_high_level")
     launch_face = LaunchConfiguration("launch_face")
+    launch_llm = LaunchConfiguration("launch_llm")
     launch_foxglove = LaunchConfiguration("launch_foxglove")
     launch_rviz = LaunchConfiguration("launch_rviz")
 
@@ -215,6 +225,24 @@ def generate_launch_description():
         }.items(),
     )
 
+    # LLM: процессы поднимаются здесь, activate -- supervisor (группа llm
+    # после semantic_map). autostart:=true ломалось: dialog_agent на activate
+    # зовёт location_server, которого ещё нет. params_file ЯВНО. Не запускай
+    # параллельно отдельный llm.launch.py.
+    llm_stack = GroupAction(
+        actions=[
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(os.path.join(pkg_llm, "launch", "llm.launch.py")),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "autostart": "false",
+                    "params_file": os.path.join(pkg_llm, "config", "llm.yaml"),
+                }.items(),
+            )
+        ],
+        condition=IfCondition(launch_llm),
+    )
+
     # ── Tooling ──────────────────────────────────────────────────────────────
     foxglove_bridge_node = Node(
         package="foxglove_bridge",
@@ -257,6 +285,7 @@ def generate_launch_description():
             declare_autostart_supervisor,
             declare_launch_high_level,
             declare_launch_face,
+            declare_launch_llm,
             declare_voice_params_file,
             declare_launch_foxglove,
             declare_launch_rviz,
@@ -267,6 +296,7 @@ def generate_launch_description():
             perception,
             nav_stack,
             high_level_stack,
+            llm_stack,
             foxglove_bridge_node,
             rviz_node,
         ]

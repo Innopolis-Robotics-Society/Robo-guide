@@ -32,6 +32,7 @@ def complete_with_fallback(
     frequency_penalty: float | None = None,
     abort_event: threading.Event | None = None,
     on_delta: Callable[[str], None] | None = None,
+    stop_when: Callable[[str], bool] | None = None,
     max_attempts_per_backend: int = 2,
     backoff_s: float = 0.5,
 ) -> CompletionResult:
@@ -61,6 +62,7 @@ def complete_with_fallback(
                     frequency_penalty=frequency_penalty,
                     abort_event=abort_event,
                     on_delta=on_delta,
+                    stop_when=stop_when,
                 )
             except BackendAborted:
                 raise

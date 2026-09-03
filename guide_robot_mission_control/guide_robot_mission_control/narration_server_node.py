@@ -153,7 +153,7 @@ class NarrationServerNode(LifecycleNode):
         self._cb_sub = MutuallyExclusiveCallbackGroup()
 
     def _ok(self) -> bool:
-        """rclpy.ok() для СВОЕГО контекста -- см. test/mocks/mock_say_server.py:_ok()."""
+        """Проверить, жив ли rclpy-контекст этой ноды (не глобальный)."""
         return rclpy.ok(context=self.context)
 
     # -- lifecycle ----------------------------------------------------------
@@ -629,11 +629,12 @@ class NarrationServerNode(LifecycleNode):
         """Барж-ин слушаем сами, не через FSM (design §4.2, реконсиляция §0.5)."""
         if not self._active:
             return
-        if msg.reason != CancelAll.REASON_BARGE_IN:
+        if msg.reason not in (CancelAll.REASON_BARGE_IN, CancelAll.REASON_WAKEWORD):
             return
         if msg.scope not in (CancelAll.SCOPE_ALL, self._say_scope):
             return
-        self._request_hard_stop("barge_in")
+        reason = "barge_in" if msg.reason == CancelAll.REASON_BARGE_IN else "wakeword"
+        self._request_hard_stop(reason)
 
     def _handle_control(
         self, request: NarrationControl.Request, response: NarrationControl.Response

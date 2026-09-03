@@ -86,8 +86,8 @@ locations:
     is_public: true
     exhibit_id: expo_meeting
     aliases:
-      ru: ["точка встречи", "место встречи"]
-      en: ["meeting point"]
+      ru: ["точка встречи", "место встречи", "знакомство с иннополисом", "иннополис", "анополис"]
+      en: ["meeting point", "innopolis intro"]
 
   # TODO(Mook): реальная поза площадки (robo_guide -> макет города).
   - id: expo_city_model

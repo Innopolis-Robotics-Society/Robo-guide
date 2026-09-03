@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -26,6 +27,8 @@ from typing import Protocol
 from guide_robot_llm.dialog.sanitize import sanitize_answer
 from guide_robot_llm.llm_client import CompletionResult, build_tool_call_grammar
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
+from guide_robot_llm.matching import looks_like_chit_chat, match_start_tour
+from guide_robot_llm.tools.validate import MOTION_TOOLS
 
 __all__ = [
     "ToolCallRecord",
@@ -35,6 +38,10 @@ __all__ = [
     "run_answer_phase",
     "run_turn",
 ]
+
+# GBNF уже зафиксировал tool=reply -- args для reply пустые, ждать `}` незачем.
+_REPLY_TOOL_RE = re.compile(r'"tool"\s*:\s*"reply"')
+_SYNTH_REPLY_JSON = '{"tool":"reply","args":{}}'
 
 
 class ToolResultLike(Protocol):
@@ -171,8 +178,8 @@ def run_turn(
     system_prompt: str,
     history_messages: list[dict],
     user_content: str,
-    complete_answer: Callable[[list[dict]], CompletionResult],
-    complete_action: Callable[[list[dict], str], CompletionResult],
+    complete_answer: Callable[..., CompletionResult],
+    complete_action: Callable[..., CompletionResult],
     speak: Callable[[str], ToolResultLike],
     execute_tool: Callable[[str, dict], ToolResultLike],
     tool_names: Sequence[str],
@@ -184,6 +191,7 @@ def run_turn(
     read_only_tools: frozenset[str] = frozenset(),
     on_action_resolved: Callable[[ToolCallRecord], None] | None = None,
     utterance: str = "",
+    default_tour_id: str = "",
 ) -> TurnResult:
     """Прогнать один ход: действие (GBNF) -> исполнение -> реплика -> `speak()`.
 
@@ -249,7 +257,7 @@ def run_turn(
 
     while True:
         try:
-            action_completion = complete_action(messages, grammar)
+            action_completion = complete_action(messages, grammar, stop_when=_action_stop_when)
         except BackendAborted:
             raise
         except BackendError:
@@ -266,6 +274,10 @@ def run_turn(
         # Сырой текст попадает в messages ДО проверки парсинга -- иначе
         # `action_parse_error` (модель прислала не ту форму) теряет
         # единственную улику, что она вообще ответила, и чем именно.
+        # Ранний stop на tool=reply мог оборвать JSON до `}` -- подставляем
+        # канонический reply-call, чтобы история и парсер сходились.
+        if _parse_tool_call(action_raw_text) is None and _REPLY_TOOL_RE.search(action_raw_text):
+            action_raw_text = _SYNTH_REPLY_JSON
         messages = [*messages, {"role": "assistant", "content": action_raw_text}]
 
         parsed = _parse_tool_call(action_raw_text)
@@ -279,10 +291,36 @@ def run_turn(
             )
         think, name, args = parsed
 
+        if (
+            name == "reply"
+            and utterance
+            and match_start_tour(utterance)
+            and "start_tour" in tool_names
+            and default_tour_id
+        ):
+            name = "start_tour"
+            args = {"tour_id": default_tour_id}
+
         if name == "reply":
             record = ToolCallRecord(
-                name=name, args=args, result_ok=True, result_message="", result_data={},
+                name=name,
+                args=args,
+                result_ok=True,
+                result_message="",
+                result_data={},
                 think=think,
+            )
+            break
+
+        # Без think модель иногда жмёт guide_to на «привет». Не гоняем моторы.
+        if name in MOTION_TOOLS and utterance and looks_like_chit_chat(utterance):
+            record = ToolCallRecord(
+                name="reply",
+                args={},
+                result_ok=True,
+                result_message="",
+                result_data={},
+                think=think or f"override:{name}->reply",
             )
             break
 
@@ -336,7 +374,7 @@ def run_answer_phase(
     messages: list[dict],
     record: ToolCallRecord,
     answer_instruction: str,
-    complete_answer: Callable[[list[dict]], CompletionResult],
+    complete_answer: Callable[..., CompletionResult],
     speak: Callable[[str], ToolResultLike],
     check_aborted: Callable[[], bool] = lambda: False,
     answer_max_chars: int = 400,
@@ -345,25 +383,10 @@ def run_answer_phase(
     repair_used: bool = False,
     utterance: str = "",
 ) -> TurnResult:
-    """Фаза реплики целиком: рендер итога действия -> ЛЛМ -> `sanitize` -> `speak()`.
+    """Фаза реплики: итог действия -> ЛЛМ -> `sanitize` -> один `speak()`.
 
-    Вынесена из `run_turn()`, чтобы её можно было прогнать САМОСТОЯТЕЛЬНО,
-    поверх уже готового `record` -- без фазы действия перед ней
-    (`dialog_agent_node.py`: fast-path «да» на `ask_visitor.on_yes`,
-    CLAUDE_CODE_TASK_stage2_redirect_dialog.md блок C -- исполненный
-    `on_yes` не проходит заново через GBNF-выбор, только через эту фазу).
-    `messages` -- всё, что должно предшествовать инструкции реплики
-    (`system` + история + текущая реплика, при обычном ходе -- ещё и
-    action_raw_text ассистента); статика (`answer_instruction`) ПЕРВОЙ,
-    волатильный итог действия -- хвостом (правило кэша, см. `run_turn`).
-
-    `utterance` (stage5 п.2) -- реплика посетителя якорится ПОСЛЕ строки
-    «Итог действия: ...», в самом конце сообщения, ближе всего к месту
-    генерации: живой баг -- модель без этого якоря видела для `reply`
-    только «действий не требуется» и хвост собственных прошлых ответов, и
-    дважды подряд ответила на позапрошлый вопрос вместо последнего. Пусто
-    -- строка не добавляется (fast-path на `on_no` без похода к ЛЛМ и
-    голые тесты на фейках не обязаны знать реальный утторанс).
+    Один Say на весь ответ (ранний TTS первого предложения давал разрыв
+    между двумя goal).
     """
     action_stopped_reason = "ok" if record.result_ok else "action_invalid"
 
@@ -424,6 +447,13 @@ def run_answer_phase(
         repair_used=repair_used,
         stopped_reason=action_stopped_reason,
     )
+
+
+def _action_stop_when(text: str) -> bool:
+    """Рвать стрим, как только JSON действия валиден или tool уже reply."""
+    if _parse_tool_call(text) is not None:
+        return True
+    return _REPLY_TOOL_RE.search(text) is not None
 
 
 def _parse_tool_call(raw_text: str) -> tuple[str, str, dict] | None:

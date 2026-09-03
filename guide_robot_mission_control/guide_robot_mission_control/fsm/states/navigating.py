@@ -83,6 +83,11 @@ class NavigatingState(InterruptibleState):
             blackboard.pause_reason = "user"
             self.cancel_active_work(blackboard, outcomes.PAUSED)
             return outcomes.PAUSED
+        if self.ctx.consume_barge_in():
+            # «робот» в пути -- остановить NavigateToPose, уйти в ANSWERING,
+            # RESUME_BASE вернёт на ту же остановку.
+            self.cancel_active_work(blackboard, outcomes.INTERRUPTED)
+            return outcomes.INTERRUPTED
         self._maybe_fire_transit(blackboard, now_ns)
         self._bind_transit()
         if self._goal_handle is None:

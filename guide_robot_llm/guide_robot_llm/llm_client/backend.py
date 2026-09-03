@@ -66,6 +66,7 @@ class Backend:
         frequency_penalty: float | None = None,
         abort_event: threading.Event | None = None,
         on_delta: Callable[[str], None] | None = None,
+        stop_when: Callable[[str], bool] | None = None,
     ) -> CompletionResult:
         """POST `.../chat/completions` со `stream=true`, разобрать SSE, собрать полный текст.
 
@@ -75,6 +76,10 @@ class Backend:
         ответа") обязан реально закрывать соединение, не имитацией. Между
         чанками -- единственная точка, где можно проверить `abort_event` и
         оборвать генерацию на сервере, не дожидаясь остатка.
+
+        `stop_when(text)` -- ранняя остановка без `BackendAborted`: как только
+        накопленный текст удовлетворяет предикату (валидный tool-call JSON),
+        стрим рвётся и возвращается то, что уже есть. Не путать с barge-in.
 
         `read_timeout_s` в `requests` -- таймаут между чтениями сокета, не на
         весь ответ целиком: пока сервер шлёт дельты с паузами короче
@@ -118,7 +123,9 @@ class Backend:
             response.close()
             raise BackendHTTPError(response.status_code, body)
 
-        return self._consume_stream(response, abort_event=abort_event, on_delta=on_delta)
+        return self._consume_stream(
+            response, abort_event=abort_event, on_delta=on_delta, stop_when=stop_when
+        )
 
     def _consume_stream(
         self,
@@ -126,6 +133,7 @@ class Backend:
         *,
         abort_event: threading.Event | None,
         on_delta: Callable[[str], None] | None,
+        stop_when: Callable[[str], bool] | None = None,
     ) -> CompletionResult:
         chunks: list[str] = []
         finish_reason = ""
@@ -168,6 +176,9 @@ class Backend:
                     chunks.append(delta)
                     if on_delta is not None:
                         on_delta(delta)
+                    if stop_when is not None and stop_when("".join(chunks)):
+                        finish_reason = finish_reason or "stop_when"
+                        break
                 reason = choice.get("finish_reason")
                 if reason:
                     finish_reason = reason

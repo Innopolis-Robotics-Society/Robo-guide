@@ -58,6 +58,7 @@ class TtsNode(LifecycleNode):
         self.declare_parameter("channels", 2)
         self.declare_parameter("allow_shared", False)
         self.declare_parameter("max_queue_ms", 600)
+        self.declare_parameter("fade_out_ms", 80)
         self.declare_parameter("min_chars", 40)
         self.declare_parameter("max_clause_chars", 180)
         self.declare_parameter("chars_per_second", 14.0)
@@ -150,6 +151,7 @@ class TtsNode(LifecycleNode):
             emitter,
             sample_rate=device_rate,
             max_queue_ms=int(self.get_parameter("max_queue_ms").value),
+            fade_out_ms=int(self.get_parameter("fade_out_ms").value),
         )
 
         self._stage = "интерфейсы ROS"

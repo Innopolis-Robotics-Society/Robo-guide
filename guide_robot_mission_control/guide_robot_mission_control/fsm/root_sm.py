@@ -76,14 +76,11 @@ _TRANSITIONS: dict[str, dict[str, str | None]] = {
         **_UNIVERSAL,
     },
     "navigating": {
-        # NavigatingState сам решает NAV_FAILED vs TOUR_FINISHED (§5.5:
-        # "пропустить" -- продвигает tour.index сама, сюда попадает уже
-        # обновлённый индекс следующей остановки). Без транзитного
-        # нарратива (§5.6, отложен) во время движения ничего не звучит --
-        # barge-in здесь не отслеживается (нечего прерывать), поэтому
-        # исхода INTERRUPTED у NAVIGATING в шаге 7 нет.
+        # «робот» в пути -- NavigateToPose отменяется, ANSWERING, потом
+        # RESUME_BASE на ту же остановку.
         outcomes.ARRIVED: "narrating",
         outcomes.NAV_FAILED: "navigating",
+        outcomes.INTERRUPTED: "answering",
         outcomes.TOUR_FINISHED: TOUR_FINISHED_PSEUDO,
         # hold_position (stage2 D3) -- тот же PAUSED, что и NarratingState.
         outcomes.PAUSED: "paused",

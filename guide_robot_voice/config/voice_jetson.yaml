@@ -26,11 +26,16 @@
     enter_threshold: 0.50
     exit_threshold: 0.20
     enter_windows: 1
-    hangover_ms: 700.0
+    # 600/600: компромисс после замера latency (decode/LLM доминируют, не
+    # endpoint). 400/400 экономило ~0.5 с, но резало паузы; 700/600 -- старое.
+    hangover_ms: 600.0
     min_speech_ms: 120.0
     barge_in_enabled: true
     barge_in_min_windows: 2
-    require_aec_for_barge_in: true   # нет AEC -- иначе TTS с колонки рвёт сам себя
+    # true: без AEC колонка в мик = VAD CancelAll, робот рвёт сам себя.
+    # Interrupt голосом во время TTS -- только «робот»/«стоп» (wakeword);
+    # VAD barge-in после AEC.
+    require_aec_for_barge_in: true
 
 /**/asr_node:
   ros__parameters:
@@ -46,6 +51,9 @@
     short_path_max_ms: 0.0
     min_final_chars: 2
     gate_on_tts: true
+    # Партиалы во время TTS → wakeword («робот»/«стоп»), без финалов в диалог.
+    # VAD barge-in выключен (require_aec); иначе колонка рвёт речь сама.
+    wakeword_listen_during_tts: true
 
 /**/wakeword_node:
   ros__parameters:
@@ -68,6 +76,7 @@
     allow_shared: true
     block_ms: 20
     periods: 8
+    fade_out_ms: 80              # мягкое затухание при «робот»/стоп; estop -- сразу
     max_clause_chars: 180
     max_queue: 8
     heartbeat_hz: 5.0

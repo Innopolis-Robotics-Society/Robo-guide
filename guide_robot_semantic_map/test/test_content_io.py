@@ -12,6 +12,7 @@ from guide_robot_semantic_map.lib.content_io import (
     load_content_dir,
     load_content_file,
     pick_language,
+    resolve_exhibit_id,
     select_chunk_ids,
     select_chunk_objects,
     select_chunks,
@@ -418,3 +419,16 @@ def test_select_chunk_objects_short_mode_matches_select_chunks(tmp_path: Path) -
     assert [o.id for o in select_chunk_objects(content, "full")] == select_chunk_ids(
         content, "full"
     )
+
+
+def test_resolve_exhibit_id_by_title(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        "expo_meeting.ru.yaml",
+        _content_doc(exhibit_id="expo_meeting", title="Знакомство и приглашение в Иннополис"),
+    )
+    content, _ = load_content_file(path)
+    catalog = {(content.exhibit_id, content.language): content}
+    assert resolve_exhibit_id("expo_meeting", catalog) == "expo_meeting"
+    assert resolve_exhibit_id("Знакомство и приглашение в Иннополис", catalog) == "expo_meeting"
+    assert resolve_exhibit_id("нет такого", catalog) is None

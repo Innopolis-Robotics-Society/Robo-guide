@@ -90,7 +90,7 @@ _STATE_NAMES = {
     MissionState.STATE_RETURNING: "RETURNING",
 }
 _DEGRADED_REASONS = frozenset({"answer_backend_error", "action_backend_error", "aborted"})
-_LISTEN_WINDOW_S = 8.0
+_LISTEN_WINDOW_S = 20.0
 _ACTIVATION_KEYWORDS = frozenset({"робот", "слушай робот"})
 
 
@@ -141,7 +141,7 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("llm.max_attempts_per_backend", 2)
         self.declare_parameter("llm.backoff_s", 0.5)
         self.declare_parameter("llm.max_tokens_answer", 160)
-        self.declare_parameter("llm.max_tokens_action", 192)
+        self.declare_parameter("llm.max_tokens_action", 64)
         self.declare_parameter("llm.temperature_answer", 0.6)
         self.declare_parameter("llm.temperature_action", 0.0)
         # stage5 п.3: только фаза реплики -- см. `_complete_answer` ниже.
@@ -401,6 +401,14 @@ class DialogAgentNode(LifecycleNode):
             spec.name for spec in schema.TOOLS if spec.read_only
         )
 
+        # Новая сессия activate = чистый контекст (история/told_ids не
+        # переживают рестарт lifecycle; раньше жили до cleanup/shutdown и
+        # путали следующий тур после deactivate/activate).
+        with self._state_lock:
+            self._history.clear()
+            self._told_ids.clear()
+            self._pending_question = None
+
         self._active = True
         return TransitionCallbackReturn.SUCCESS
 
@@ -599,13 +607,24 @@ class DialogAgentNode(LifecycleNode):
     # -- barge-in: abort хода в полёте, не более -----------------------------
 
     def _on_cancel_all(self, msg: CancelAll) -> None:
-        if msg.reason != CancelAll.REASON_BARGE_IN:
+        if msg.reason not in (CancelAll.REASON_BARGE_IN, CancelAll.REASON_WAKEWORD):
             return
         with self._turn_lock:
             abort_event = self._abort_event
         if abort_event is not None:
             self.get_logger().info("barge-in получен -- прерываю текущий ход")
             abort_event.set()
+
+    def _on_wakeword(self, msg: Wakeword) -> None:
+        """Открыть окно слушания на активацию.
+
+        tts_active не гейтит: «робот» во время рассказа -- штатный interrupt;
+        эхо колонки режется exact-match в wakeword_node.
+        """
+        keyword = (msg.keyword or "").strip().lower()
+        if keyword not in _ACTIVATION_KEYWORDS:
+            return
+        self._arm_listen()
 
     # -- ASR: свои вопросы, мимо fast-path'а tool_broker ----------------------
 
@@ -627,16 +646,10 @@ class DialogAgentNode(LifecycleNode):
             if not self._pending_confirm_ready(text):
                 self.get_logger().info(f"без wakeword, игнор: {text!r}")
                 return
+        # Окно после «робот» — на эту реплику. Иначе болтовня рядом
+        # прерывает ход в полёте (`ход в полёте -- текущий прерван`).
+        self._disarm_listen()
         self._handle_transcript(text)
-
-    def _on_wakeword(self, msg: Wakeword) -> None:
-        """Открыть окно слушания только на активацию, не на стоп и не на эхо TTS."""
-        if msg.tts_active:
-            return
-        keyword = (msg.keyword or "").strip().lower()
-        if keyword not in _ACTIVATION_KEYWORDS:
-            return
-        self._arm_listen()
 
     def _arm_listen(self) -> None:
         with self._state_lock:
@@ -829,7 +842,7 @@ class DialogAgentNode(LifecycleNode):
         if mission_state == MissionState.STATE_AWAITING_CONFIRM:
             return matching.match_confirm(text) is not None
         if mission_state == MissionState.STATE_ANSWERING:
-            return matching.match_stop_phrase(text)
+            return matching.match_end_tour(text) or matching.match_stop_phrase(text)
         if mission_state == MissionState.STATE_IDLE:
             return matching.match_idle_dismiss(text)
         return False
@@ -845,6 +858,8 @@ class DialogAgentNode(LifecycleNode):
             return f"ответ обработан напрямую: подтверждение — {'да' if is_yes else 'нет'}"
         if mission_state == MissionState.STATE_IDLE:
             return "ответ обработан напрямую: команда отмены без содержания, ничего не делаю"
+        if matching.match_end_tour(text):
+            return "ответ обработан напрямую: конец экскурсии"
         return "ответ обработан напрямую: стоп-слово"
 
     def _run_raw_chat(self, text, *, complete_answer, speak, abort_event) -> TurnResult:
@@ -1088,7 +1103,7 @@ class DialogAgentNode(LifecycleNode):
                         {"stage": "llm_answer", "ms": (time.monotonic() - start) * 1000}
                     )
 
-            def _complete_action(messages: list[dict], grammar: str):
+            def _complete_action(messages: list[dict], grammar: str, *, stop_when=None):
                 start = time.monotonic()
                 try:
                     return complete_with_fallback(
@@ -1098,6 +1113,7 @@ class DialogAgentNode(LifecycleNode):
                         max_tokens=self._max_tokens_action,
                         temperature=self._temperature_action,
                         abort_event=abort_event,
+                        stop_when=stop_when,
                         max_attempts_per_backend=self._max_attempts_per_backend,
                         backoff_s=self._backoff_s,
                     )
@@ -1195,6 +1211,7 @@ class DialogAgentNode(LifecycleNode):
                     read_only_tools=self._read_only_tool_names,
                     on_action_resolved=_on_action_resolved,
                     utterance=text,
+                    default_tour_id=next(iter(self._tour_name_by_id), ""),
                 )
             if result.action is not None and result.action.read_only and result.action.result_ok:
                 # Явный read_only-вызов модели (фаза 1) -- те же чанки, что

@@ -74,6 +74,7 @@
     device_rate: 48000
     block_ms: 20                  # верхняя граница остатка при отмене
     periods: 3                    # 60 мс буфера воспроизведения, ИЗМЕРИТЬ
+    fade_out_ms: 80               # мягкое затухание при перебивании
     max_clause_chars: 180
     max_queue: 8
     heartbeat_hz: 5.0

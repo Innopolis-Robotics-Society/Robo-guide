@@ -89,6 +89,9 @@ class AsrNode(LifecycleNode):
         self.declare_parameter("short_path_max_ms", 2500.0)
         self.declare_parameter("min_final_chars", 2)
         self.declare_parameter("gate_on_tts", False)
+        # При gate_on_tts: всё равно копить окно и слать /asr/partial во время
+        # TTS (для wakeword «робот»/«стоп»), финалы в диалог не открывать.
+        self.declare_parameter("wakeword_listen_during_tts", False)
         self.declare_parameter("frame_id", "mic_array")
 
         self._asr: GigaAmCtc | None = None
@@ -226,6 +229,10 @@ class AsrNode(LifecycleNode):
         self._latest_speaking = msg
         if prev is not None and prev.speaking and not msg.speaking:
             self._tts_hold_until = time.monotonic() + _TTS_ECHO_HOLD_S
+            # Хвост shadow-слушания под TTS не должен стать финалом в диалог.
+            with self._lock:
+                if self._utterance_open:
+                    self._close_utterance()
 
     def _is_tts_speaking(self) -> bool:
         status = self._latest_speaking
@@ -239,6 +246,9 @@ class AsrNode(LifecycleNode):
         if self._is_tts_speaking():
             return True
         return time.monotonic() < self._tts_hold_until
+
+    def _wakeword_listen_during_tts(self) -> bool:
+        return bool(self.get_parameter("wakeword_listen_during_tts").value)
 
     def _on_audio(self, msg: AudioChunk) -> None:
         timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
@@ -254,7 +264,8 @@ class AsrNode(LifecycleNode):
 
     def _on_partial_timer(self) -> None:
         """Поставить партиал в очередь воркера, не декодировать на executor'е."""
-        if bool(self.get_parameter("gate_on_tts").value) and self._tts_blocks_listen():
+        gate_on_tts = bool(self.get_parameter("gate_on_tts").value)
+        if gate_on_tts and self._tts_blocks_listen() and not self._wakeword_listen_during_tts():
             return
         self._submit_decode("partial")
 
@@ -262,11 +273,12 @@ class AsrNode(LifecycleNode):
         assert self._turn_policy is not None
         gate_on_tts = bool(self.get_parameter("gate_on_tts").value)
         tts_blocks = gate_on_tts and self._tts_blocks_listen()
+        wakeword_shadow = tts_blocks and self._wakeword_listen_during_tts()
 
         with self._lock:
             if not self._is_active:
                 return
-            if tts_blocks:
+            if tts_blocks and not wakeword_shadow:
                 if self._utterance_open:
                     self.get_logger().warning(
                         f"gate_on_tts топит высказывание {self._utterance_id} "
@@ -274,6 +286,14 @@ class AsrNode(LifecycleNode):
                         f"{self._last_partial_text!r})"
                     )
                     self._close_utterance()
+                return
+            if wakeword_shadow:
+                # Только окно для /asr/partial → wakeword; финалов нет.
+                if not self._utterance_open:
+                    if msg.active:
+                        self._open_utterance()
+                    return
+                self._trim_utterance_to_partial_window_locked()
                 return
             if not self._utterance_open:
                 if msg.active:
@@ -311,6 +331,15 @@ class AsrNode(LifecycleNode):
         self._utterance_samples = 0
         self._prefix_samples = 0
         self._last_partial_text = ""
+
+    def _trim_utterance_to_partial_window_locked(self) -> None:
+        """Держать только хвост partial_window_s (shadow-listen под TTS)."""
+        window_samples = int(float(self.get_parameter("partial_window_s").value) * _SAMPLE_RATE)
+        while self._utterance_samples > window_samples and self._utterance_chunks:
+            dropped = self._utterance_chunks.pop(0)
+            n = int(dropped.shape[0])
+            self._utterance_samples -= n
+            self._prefix_samples = max(0, self._prefix_samples - n)
 
     def _utterance_speech_ms(self) -> float:
         spoken_samples = max(0, self._utterance_samples - self._prefix_samples)

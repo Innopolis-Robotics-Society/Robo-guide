@@ -53,14 +53,15 @@ precondition'ам (TF, частота скана/сонаров и т.д.) и з
 опционально `perception.launch.py`, сонар (`guide_robot_sonar`,
 `sonar_node_mult.py`), Foxglove Bridge - `nav_stack.launch.py`
 (safety/localization/navigation + супервизор) - `high_level_stack.launch.py`
-(voice + semantic_map + mission_control + face) - опционально RViz2 с
+(voice + semantic_map + mission_control + face) - `llm.launch.py`
+(dialog_agent / tool_broker, `autostart:=true`) - опционально RViz2 с
 `rviz/hardware.rviz`.
 
 Аргументы: `use_sim_time` (false), `use_mock_hardware` (false),
 `launch_sensors` (true), `launch_sonar` (true), `launch_foxglove` (true),
 `slam` (false), `slam_params_file`, `map`, `nav` (true), `nav_params_file`,
 `launch_rviz` (true), `autostart_supervisor` (true), `autostart_nav` (false),
-`launch_high_level` (true), `launch_face` (true).
+`launch_high_level` (true), `launch_face` (true), `launch_llm` (true).
 
 `autostart_supervisor:=false` оставляет супервизор в `INIT` — стек
 поднимается только по вызову сервиса `/supervisor/bringup`; политики
@@ -70,6 +71,9 @@ watchdog'ов до этого не действуют. `autostart_nav` уход�
 `launch_high_level:=false` поднимает только nav-стек, без слоя экскурсий
 (например, для чистого картирования/локализации). `launch_face:=false`
 оставляет голос/карту/миссию, но не поднимает HTTP-лицо.
+`launch_llm:=false` — без dialog_agent; по умолчанию LLM в hardware с
+`autostart:=false`, activate делает supervisor (группа `llm` после
+`semantic_map`), чтобы location_server уже был доступен.
 
 ### `launch/lidars.launch.py`
 

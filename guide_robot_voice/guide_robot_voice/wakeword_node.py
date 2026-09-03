@@ -12,8 +12,13 @@
 
 Стоп-слова -- L1-путь, как и barge-in в vad_node: нода сама публикует
 CancelAll(scope=SCOPE_ALL, reason=REASON_WAKEWORD), не дожидаясь mission.
-Активационные фразы CancelAll не публикуют -- это не аварийная отмена,
-а просто сигнал "посетитель обращается к роботу".
+Активационные фразы («робот») тоже CancelAll -- иначе прерывание рассказа
+только стоп-словом. Вне TTS CancelAll на пустом стоке -- no-op.
+
+Во время TTS партиалы всё ещё обрабатываются (asr: wakeword_listen_during_tts):
+без этого gate_on_tts глушит ASR и «робот» не слышен. Под TTS требуем
+почти точное совпадение (confidence ≥ 0.99) и совпадение с НАЧАЛА фразы:
+иначе эхо «я робот-экскурсовод» даёт CancelAll с confidence=1.0.
 
 tts_active берётся из последнего /voice/speaking. В отличие от vad_node
 и asr_node, протухший статус здесь не просто тихо считается false --
@@ -187,28 +192,29 @@ class WakewordNode(LifecycleNode):
         with self._lock:
             if not self._is_active:
                 return
-        # Без AEC TTS с колонки попадает в ASR. Активация и стоп во время
-        # собственной речи -- ложные: «робот-экскурсовод» / «стоп» в тексте.
-        if self._speaking_now():
-            return
         assert self._activation_spotter is not None
         assert self._stop_spotter is not None
 
+        speaking = self._speaking_now()
         min_confidence = float(self.get_parameter("min_confidence").value)
+        # Под TTS эхо колонки в ASR -- только точное совпадение и только с
+        # начала фразы: иначе «привет, я робот-экскурсовод» рвёт сам себя.
+        if speaking:
+            min_confidence = max(min_confidence, 0.99)
 
-        stop_match = self._stop_spotter.find(msg.text)
+        stop_match = self._stop_spotter.find(msg.text, leading=speaking)
         if stop_match is not None and stop_match.confidence >= min_confidence:
             if self._trigger(stop_match.phrase, msg.utterance_id):
                 self._on_stop_phrase(stop_match.phrase, stop_match.confidence)
             return
 
-        activation_match = self._activation_spotter.find(msg.text)
+        activation_match = self._activation_spotter.find(msg.text, leading=speaking)
         if (
             activation_match is not None
             and activation_match.confidence >= min_confidence
             and self._trigger(activation_match.phrase, msg.utterance_id)
         ):
-            self._publish_wakeword(activation_match.phrase, activation_match.confidence)
+            self._on_activation_phrase(activation_match.phrase, activation_match.confidence)
 
     def _trigger(self, phrase: str, utterance_id: int) -> bool:
         """Одно срабатывание на utterance_id, плюс refractory_ms между разными."""
@@ -226,15 +232,23 @@ class WakewordNode(LifecycleNode):
     # -- срабатывание -----------------------------------------------------
 
     def _on_stop_phrase(self, phrase: str, confidence: float) -> None:
-        """Стоп-слово -- L1: публикуем CancelAll сами, не дожидаясь mission."""
+        """Стоп-слово -- L1: CancelAll + wakeword."""
         self._publish_wakeword(phrase, confidence)
+        self._publish_cancel_all(phrase)
+
+    def _on_activation_phrase(self, phrase: str, confidence: float) -> None:
+        """Активация («робот») -- wakeword; CancelAll чтобы прервать рассказ/реплику."""
+        self._publish_wakeword(phrase, confidence)
+        self._publish_cancel_all(phrase)
+
+    def _publish_cancel_all(self, phrase: str) -> None:
         cancel = CancelAll()
         cancel.stamp = self.get_clock().now().to_msg()
         cancel.epoch = self.get_clock().now().nanoseconds
         cancel.scope = CancelAll.SCOPE_ALL
         cancel.reason = CancelAll.REASON_WAKEWORD
         self._cancel_pub.publish(cancel)
-        self.get_logger().info(f"стоп-слово {phrase!r}: публикую CancelAll")
+        self.get_logger().info(f"wakeword {phrase!r}: публикую CancelAll")
 
     def _publish_wakeword(self, phrase: str, confidence: float) -> None:
         self._triggers_total += 1

@@ -24,6 +24,7 @@ from guide_robot_semantic_map.lib.content_io import (
     ExhibitContent,
     load_content_dir,
     pick_language,
+    resolve_exhibit_id,
     select_chunk_objects,
 )
 from guide_robot_semantic_map.lib.locations_io import LocationsError, load_locations
@@ -181,17 +182,28 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
             )
 
         default_language = str(self.get_parameter("default_language").value)
+        resolved_id = resolve_exhibit_id(request.exhibit_id, self._content)
+        if resolved_id is None:
+            self.get_logger().warning(
+                f"get_exhibit_content: нет контента для exhibit_id={request.exhibit_id!r} "
+                f"(запрошен язык {request.language!r}, default {default_language!r})"
+            )
+            return response
+        if resolved_id != request.exhibit_id.strip():
+            self.get_logger().info(
+                f"get_exhibit_content: {request.exhibit_id!r} → exhibit_id={resolved_id!r} "
+                "(совпадение по title)"
+            )
+
         available = {
-            language
-            for (exhibit_id, language) in self._content
-            if exhibit_id == request.exhibit_id
+            language for (exhibit_id, language) in self._content if exhibit_id == resolved_id
         }
         language = pick_language(available, request.language, default_language)
 
         if language is None:
             self.get_logger().warning(
-                f"get_exhibit_content: нет контента для exhibit_id={request.exhibit_id!r} "
-                f"(запрошен язык {request.language!r}, default {default_language!r})"
+                f"get_exhibit_content: нет языка для exhibit_id={resolved_id!r} "
+                f"(запрошен {request.language!r}, default {default_language!r})"
             )
             return response
 
@@ -200,7 +212,7 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
             # молча: если бы отдали ru вместо запрошенного en без следа,
             # узнать об этом можно было бы только на слух у посетителя.
             detail = (
-                f"exhibit_id={request.exhibit_id} requested_language={request.language!r} "
+                f"exhibit_id={resolved_id} requested_language={request.language!r} "
                 f"used_language={language!r}"
             )
             self.get_logger().warning(f"get_exhibit_content: языковой фолбэк -- {detail}")
@@ -208,7 +220,7 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
                 "semantic_map.content_language_fallback", SystemEvent.WARN, detail
             )
 
-        content = self._content[(request.exhibit_id, language)]
+        content = self._content[(resolved_id, language)]
         response.chunks = [
             ExhibitChunk(
                 chunk_id=chunk.id,

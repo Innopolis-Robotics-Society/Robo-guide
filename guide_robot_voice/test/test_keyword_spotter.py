@@ -35,6 +35,15 @@ def test_levenshtein_against_empty() -> None:
     assert levenshtein_distance("", "стоп") == 4
 
 
+def test_leading_ignores_wakeword_in_the_middle() -> None:
+    """Эхо TTS «я робот-гид» не должно совпасть, если ищем только с начала."""
+    spotter = KeywordSpotter(["робот"], max_distance=1)
+    assert spotter.find("привет я робот экскурсовод", leading=True) is None
+    match = spotter.find("робот привет", leading=True)
+    assert match is not None
+    assert match.distance == 0
+
+
 def test_exact_match_found() -> None:
     """Точное совпадение находится с расстоянием 0."""
     spotter = KeywordSpotter(["робот"], max_distance=1)

@@ -28,7 +28,9 @@ __all__ = [
     "ExhibitContent",
     "load_content_dir",
     "load_content_file",
+    "normalize_exhibit_key",
     "pick_language",
+    "resolve_exhibit_id",
     "select_chunk_ids",
     "select_chunk_objects",
     "select_chunks",
@@ -94,6 +96,31 @@ class ExhibitContent:
     reviewed_at: str | None
     kind: str = _DEFAULT_KIND
     location_ids: list[str] = field(default_factory=list)
+
+
+def normalize_exhibit_key(text: str) -> str:
+    """Ключ сравнения id/title: lower, ё→е, схлопнутые пробелы."""
+    return " ".join(text.lower().replace("ё", "е").split())
+
+
+def resolve_exhibit_id(
+    requested: str, content: dict[tuple[str, str], ExhibitContent]
+) -> str | None:
+    """Найти exhibit_id по точному id или по title (модель часто путает).
+
+    None -- ни id, ни title не совпали ни с одной записью каталога.
+    """
+    key = requested.strip()
+    if not key:
+        return None
+    known_ids = {exhibit_id for exhibit_id, _language in content}
+    if key in known_ids:
+        return key
+    needle = normalize_exhibit_key(key)
+    for (exhibit_id, _language), item in content.items():
+        if normalize_exhibit_key(item.title) == needle:
+            return exhibit_id
+    return None
 
 
 def load_content_file(path: str | Path) -> tuple[ExhibitContent, list[str]]:
@@ -260,7 +287,7 @@ def _parse_chunk(raw: Any, index: int, source: str) -> Chunk:
 
 def _parse_pause_after_s(raw: dict[str, Any], index: int, source: str) -> float:
     value = raw.get("pause_after_s", 0.0)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         raise ContentError(f"{source}: chunks[{index}].pause_after_s должен быть числом")
     value = float(value)
     if not 0.0 <= value <= _MAX_PAUSE_AFTER_S:

@@ -134,6 +134,51 @@ def test_software_stop_latency_is_bounded() -> None:
         sink.close()
 
 
+def test_fade_out_ramps_toward_silence() -> None:
+    """Мягкий bump кладёт затухающий хвост и не зовёт abort()."""
+    emitter = MemoryEmitter(block=BLOCK, interval=0.001)
+    sink = EpochFencedSink(emitter, SAMPLE_RATE, max_queue_ms=10_000, fade_out_ms=40)
+    sink.start()
+    try:
+        epoch = sink.bump("prime")
+        level = 20_000
+        sink.submit(epoch, np.full(SAMPLE_RATE, level, dtype=np.int16))
+        time.sleep(0.02)
+        aborts_before = len(emitter.abort_marks)
+        before = len(emitter.writes)
+        new_epoch = sink.bump("wakeword")
+        assert len(emitter.abort_marks) == aborts_before
+        assert sink.wait_idle(new_epoch, timeout=1.0)
+        pcm = (
+            np.concatenate(emitter.writes[before:])
+            if len(emitter.writes) > before
+            else np.zeros(0, dtype=np.int16)
+        )
+        assert pcm.size >= BLOCK
+        peaks = [int(np.max(np.abs(pcm[i : i + BLOCK]))) for i in range(0, pcm.size, BLOCK)]
+        assert peaks[0] > 0
+        assert peaks[-1] <= peaks[0] // 10
+        assert peaks[0] > peaks[min(1, len(peaks) - 1)]
+    finally:
+        sink.close()
+
+
+def test_estop_still_hard_aborts_with_fade_configured() -> None:
+    """estop игнорирует fade_out_ms -- сразу abort()."""
+    emitter = MemoryEmitter(block=BLOCK, interval=0.001)
+    sink = EpochFencedSink(emitter, SAMPLE_RATE, max_queue_ms=10_000, fade_out_ms=80)
+    sink.start()
+    try:
+        epoch = sink.bump("prime")
+        sink.submit(epoch, np.full(SAMPLE_RATE, 10_000, dtype=np.int16))
+        time.sleep(0.01)
+        aborts_before = len(emitter.abort_marks)
+        sink.bump("estop")
+        assert len(emitter.abort_marks) == aborts_before + 1
+    finally:
+        sink.close()
+
+
 def test_underflow_is_counted() -> None:
     """Нехватка данных считается, а не маскируется тишиной молча."""
     emitter = MemoryEmitter(block=BLOCK, interval=0.001)

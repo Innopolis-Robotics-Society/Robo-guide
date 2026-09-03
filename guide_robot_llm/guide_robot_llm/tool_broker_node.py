@@ -309,6 +309,13 @@ class ToolBrokerNode(LifecycleNode):
             self.get_logger().info(f"confirm: локально распознано -- {'да' if is_yes else 'нет'}")
             self._call_sync(self._confirm_client, SetBool.Request(data=is_yes))
         elif mission.state == MissionState.STATE_ANSWERING:
+            if matching.match_end_tour(msg.text):
+                self.get_logger().info("answering: локально распознано -- END_TOUR")
+                self._call_sync(
+                    self._answer_client,
+                    SubmitAnswer.Request(outcome=SubmitAnswer.Request.OUTCOME_END_TOUR),
+                )
+                return
             if not matching.match_stop_phrase(msg.text):
                 self.get_logger().info(f"answering: неуверенно ({msg.text!r}), жду ЛЛМ")
                 return

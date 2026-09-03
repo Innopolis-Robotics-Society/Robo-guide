@@ -71,8 +71,12 @@ class KeywordSpotter:
         self._phrases = [normalize_text(p) for p in phrases if p.strip()]
         self._max_distance = max_distance
 
-    def find(self, text: str) -> KeywordMatch | None:
-        """Лучшее совпадение по всему тексту, или None, если ничего не прошло порог."""
+    def find(self, text: str, *, leading: bool = False) -> KeywordMatch | None:
+        """Лучшее совпадение по всему тексту, или None, если ничего не прошло порог.
+
+        `leading=True` -- только с начала фразы. Под TTS иначе эхо «я робот-гид»
+        даёт CancelAll с confidence=1.0 на слове в середине.
+        """
         words = normalize_text(text).split()
         best: KeywordMatch | None = None
         for phrase in self._phrases:
@@ -80,7 +84,8 @@ class KeywordSpotter:
             n = len(phrase_words)
             if n == 0 or n > len(words):
                 continue
-            for start in range(len(words) - n + 1):
+            starts = (0,) if leading else range(len(words) - n + 1)
+            for start in starts:
                 window = " ".join(words[start : start + n])
                 distance = levenshtein_distance(window, phrase)
                 if distance > self._max_distance:

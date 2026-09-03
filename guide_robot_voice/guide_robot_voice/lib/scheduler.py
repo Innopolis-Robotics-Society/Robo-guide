@@ -21,11 +21,11 @@
 
   * снимаются цели, чей scope совпадает с scope отмены, либо scope
     отмены -- SCOPE_ALL;
-  * interruptible=False защищает цель от такой отмены -- аварийное
-    "отойдите, робот поворачивается" не должно гаситься barge-in'ом
-    посетителя;
-  * ЗА ИСКЛЮЧЕНИЕМ scope=SCOPE_SAFETY или reason=REASON_ESTOP: это путь
-    e-stop, и защиты interruptible на нём не существует.
+  * interruptible=False защищает цель от мягкой отмены (barge-in) --
+    аварийное "отойдите" / punchline не гасятся голосом посетителя;
+  * hard-путь: scope=SCOPE_SAFETY, reason=REASON_ESTOP или
+    reason=REASON_WAKEWORD («стоп» / «робот») -- барьер interruptible
+    не действует.
 
 Модуль без зависимостей от rclpy: тестируется в CI как обычный класс.
 """
@@ -42,6 +42,7 @@ __all__ = ["Action", "Decision", "Scheduler", "Scope", "Utterance"]
 # намеренное -- см. docstring модуля про независимость lib/ от rclpy
 # и от пакета сообщений.
 REASON_ESTOP = "estop"
+REASON_WAKEWORD = "wakeword"
 
 
 class Scope(int, Enum):
@@ -164,12 +165,11 @@ class Scheduler:
         """Снять всё, что попадает под scope.
 
         Возвращает (вытесненное активное или None, снятые из очереди).
-        Высказывания с interruptible=False переживают отмену, если это
-        не e-stop (scope=SAFETY либо reason=REASON_ESTOP): аварийное
-        предупреждение не должно гаситься barge-in'ом от посетителя, но
-        обязано гаситься остановкой робота.
+        Высказывания с interruptible=False переживают мягкую отмену
+        (barge-in). Hard: scope=SAFETY, reason=estop или reason=wakeword
+        («стоп» / активация «робот»).
         """
-        hard = int(scope) == Scope.SAFETY or reason == REASON_ESTOP
+        hard = int(scope) == Scope.SAFETY or reason in (REASON_ESTOP, REASON_WAKEWORD)
 
         dropped_active: Utterance | None = None
         if (

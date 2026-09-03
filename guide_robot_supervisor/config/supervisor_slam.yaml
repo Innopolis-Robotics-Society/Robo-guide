@@ -29,6 +29,12 @@ supervisor:
       startup_timeout: 30.0
       optional: true
 
+    - name: llm
+      manager: /lifecycle_manager_llm
+      requires: [semantic_map]
+      startup_timeout: 45.0
+      optional: true
+
   watchdogs:
     - name: sonar_rate
       class: guide_robot_supervisor.watchdogs.topic_rate.TopicRateWatchdog

@@ -12,9 +12,10 @@ lifecycle и НЕ поднимаются автоматически по умо�
 гейтится (fire-and-forget подписчик `dialog_agent`, llm_plam.md §6), но
 естественно идёт последним по порядку чтения потока событий.
 
-Этот пакет пока не зарегистрирован в guide_robot_supervisor -- регистрация
-там (по образцу mission/voice/semantic_map) откладывается до ручной
-проверки живого стека -- отдельная задача после этого шага.
+Этот пакет зарегистрирован в guide_robot_supervisor (группа `llm`,
+`requires: [semantic_map]`): dialog_agent на activate тянет каталог у
+location_server. В hardware.launch -- `autostart:=false`, bring-up делает
+супервизор. desk.launch по-прежнему с `autostart:=true` (без супервизора).
 """
 
 from launch import LaunchDescription

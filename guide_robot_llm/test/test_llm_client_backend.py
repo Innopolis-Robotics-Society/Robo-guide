@@ -6,6 +6,7 @@ import threading
 import time
 
 import pytest
+
 from guide_robot_llm.llm_client.backend import Backend, BackendConfig
 from guide_robot_llm.llm_client.errors import (
     BackendAborted,
@@ -13,7 +14,6 @@ from guide_robot_llm.llm_client.errors import (
     BackendHTTPError,
     BackendTimeout,
 )
-
 from test.mocks.mock_llm_server import MockLlmServer
 
 _MESSAGES = [{"role": "user", "content": "привет"}]
@@ -147,3 +147,17 @@ def test_abort_event_stops_slow_stream_quickly(mock_server: MockLlmServer) -> No
     assert not thread.is_alive(), "поток не завершился -- abort не сработал"
     assert isinstance(result.get("error"), BackendAborted)
     assert elapsed < 1.0, f"abort занял {elapsed:.2f}с -- дольше одного chunk_delay_s"
+
+
+def test_stop_when_ends_stream_without_abort(mock_server: MockLlmServer) -> None:
+    mock_server.chunks = ['{"tool":"', "reply", '","args":{}}', "SHOULD_NOT"]
+    backend = Backend(BackendConfig(base_url=mock_server.url, read_timeout_s=5.0))
+
+    result = backend.complete(
+        _MESSAGES,
+        stop_when=lambda text: '"tool":"reply"' in text,
+    )
+
+    assert "SHOULD_NOT" not in result.text
+    assert '"tool":"reply"' in result.text
+    assert result.finish_reason == "stop_when"

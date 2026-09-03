@@ -22,9 +22,7 @@ supervisor:
       startup_timeout: 45.0
 
     # Аудио и высокоуровневый служебный слой поверх нав-стека (voice/
-    # semantic_map/mission). Все три -- optional: true, отказ любой из них
-    # не должен переводить весь supervisor в FAULT и блокировать уже
-    # поднятый safety/localization/navigation.
+    # semantic_map/mission/llm). optional: true -- отказ не валит nav.
     - name: voice
       manager: /lifecycle_manager_voice
       startup_timeout: 30.0
@@ -41,6 +39,15 @@ supervisor:
       # ~/get_exhibit_content (semantic_map) -- должны быть подняты раньше.
       requires: [navigation, voice, semantic_map]
       startup_timeout: 30.0
+      optional: true
+
+    # dialog_agent на activate тянет каталог через location_server --
+    # раньше semantic_map нельзя (живой баг: autostart LLM в hardware
+    # падал с «location_server недоступен», пока supervisor ещё крутил nav).
+    - name: llm
+      manager: /lifecycle_manager_llm
+      requires: [semantic_map]
+      startup_timeout: 45.0
       optional: true
 
   # ------------------------------------------------------------- watchdogs --

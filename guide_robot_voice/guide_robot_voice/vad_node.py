@@ -314,12 +314,8 @@ class VadNode(LifecycleNode):
         if not self._is_tts_speaking():
             return
         if not self._is_current_speech_interruptible():
-            # stage4 §2.1/§2.2: непрерываемая связка ("сетап -> панч") --
-            # автоматический VAD-барж-ин подавляется целиком, CancelAll не
-            # публикуется вовсе. Стоп-слово (wakeword_node) и e-stop идут
-            # своим путём, независимо от этой ноды -- граница безопасности
-            # не сдвигается (guide_robot_voice/lib/scheduler.py: hard-путь
-            # per scope=SAFETY/reason=estop не завязан на interruptible).
+            # Непрерываемая связка ("сетап -> панч"): VAD CancelAll не шлём.
+            # «стоп»/«робот» (wakeword) и e-stop -- свой hard-путь в scheduler.
             return
 
         self._barge_in_armed = False

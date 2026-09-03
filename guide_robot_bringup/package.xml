@@ -34,6 +34,7 @@
   <exec_depend>guide_robot_voice</exec_depend>
   <exec_depend>guide_robot_semantic_map</exec_depend>
   <exec_depend>guide_robot_face</exec_depend>
+  <exec_depend>guide_robot_llm</exec_depend>
 
 
   <export>

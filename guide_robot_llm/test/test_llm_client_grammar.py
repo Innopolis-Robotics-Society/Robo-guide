@@ -61,20 +61,15 @@ def test_empty_tool_list_still_produces_syntactically_plausible_grammar() -> Non
     assert "tool-name ::=" in grammar
 
 
-def test_grammar_root_has_think_field_before_tool() -> None:
-    """`think` -- обязательное ПЕРВОЕ поле: рассуждение генерируется до выбора
-    имени инструмента (ReAct-Thought)."""
+def test_grammar_root_has_tool_then_args_without_think() -> None:
+    """tool первым: имя инструмента фиксируется до args, без ReAct-think."""
     grammar = build_tool_call_grammar(["say"])
     root_rule = next(line for line in grammar.splitlines() if line.startswith("root ::="))
 
-    assert '\\"think\\"' in root_rule
-    assert root_rule.index("think") < root_rule.index("tool")
+    assert '\\"think\\"' not in root_rule
     assert root_rule.index("tool") < root_rule.index("args")
 
 
-def test_grammar_think_is_generic_string_rule() -> None:
+def test_grammar_has_no_think_field() -> None:
     grammar = build_tool_call_grammar(["say"])
-    root_rule = next(line for line in grammar.splitlines() if line.startswith("root ::="))
-
-    # think типизирован общим string-правилом -- содержимое не ограничивается.
-    assert '"\\"think\\"" ws ":" ws string' in root_rule
+    assert "think" not in grammar
