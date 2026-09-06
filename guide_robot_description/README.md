@@ -41,18 +41,16 @@ launch-файл его оттуда не запускает (см. «Извес�
 Меши подключены только там, где это дёшево для costmap; корпус и колёса —
 примитивы.
 
-- **base_footprint → base_link** (`urdf.xacro:50-78`): `base_footprint` без
-  геометрии, `base_link` — цилиндр (`body_radius`/`body_height`), соединён
-  фиксированным joint'ом со смещением по Z на `wheel_radius` (0.1026 м). Визуал
-  и коллизия у `base_link` смещены на X=-0.12 (капот/спина корпуса относительно
-  оси колёс) — **это число захардкожено** трижды (см. ниже), хотя в
-  `robot_params.yaml:12` для него заведён параметр `body_x_offset`.
+- **base_footprint → base_link** (`urdf.xacro:50-82`): `base_footprint` без
+  геометрии, joint yaw **π** — +X footprint = ролики (ход), экран сзади.
+  `base_link` — цилиндр, визуал/коллизия смещены на `body_x_offset` (−0.12,
+  капот относительно оси колёс в осях корпуса).
 - **Колёса** (`urdf.xacro:81-111`): макрос `wheel`, два continuous joint'а
   (`left_wheel_joint`, `right_wheel_joint`) вокруг оси Y, радиус/ширина из
   `geometry.wheel_radius`/`wheel_width`. Эти же имена joint'ов используются в
   `guide_robot.ros2_control.xacro`, `guide_robot.gazebo.xacro` и в
   `guide_robot_hardware` (протокол опроса энкодеров/скоростей).
-- **Задние каретки-опоры** (`urdf.xacro:119-149`): реальная часть шасси,
+- **Каретки-опоры** (`urdf.xacro:119-149`): по ходу впереди (+X footprint),
   смоделированы сферами радиуса `wheel_radius` на фиксированных joint'ах,
   в Gazebo — нулевое трение (`gazebo.xacro:140-153`), чтобы не искажали
   одометрию diff-drive.

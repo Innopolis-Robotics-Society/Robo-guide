@@ -56,15 +56,17 @@ amcl:
     # тогда стек поднимается локализованным без ручного вмешательства.
     # (0, 0) проверено по lab_map.pgm 2026-07-27: пиксель (col 120, row 223)
     # и вся его окрестность = 254, свободно. То есть поза валидна геометрически.
-    # ЧТО ЭТО НЕ ЗНАЧИТ: что робот физически стартует именно там и именно с
-    # yaw 0. Если парковка в другом месте — вписать реальные координаты, иначе
-    # AMCL стартует уверенно неправильно, а это хуже, чем стартовать неуверенно.
+    # ЧТО ЭТО НЕ ЗНАЧИТ: что робот физически стартует именно там.
+    # URDF yaw π: +X footprint = ролики. Старый yaw 0 был «экран = +X».
+    # Тот же док (экран как раньше) теперь yaw π. recovery_alpha_* = 0 —
+    # без ручного Pose Estimate AMCL на 180° не вылезет и повезёт задом
+    # по траектории наоборот.
     set_initial_pose: true
     initial_pose:
       x: 0.0
       y: 0.0
       z: 0.0
-      yaw: 0.0
+      yaw: 3.141592653589793
 
 amcl_map_client:
   ros__parameters:
@@ -255,11 +257,15 @@ controller_server:
       # так, чтобы ЛЮБАЯ сэмплированная пара влезала: 0.40 + 0.6*0.178 =
       # 0.507 < 0.53 (значения — limits.nav_* в robot_params.yaml). Лимитер
       # базы (0.5 / 1.0472) остаётся последним рубежом, а не круизом.
-      # Только задний ход: +X = экран (стрелка цели = куда смотрит экран),
-      # едем −X. Финальный yaw по-прежнему RotateToGoal.
-      min_vel_x: -${limits.nav_linear_velocity}
+      # +X = ролики (круиз «задом»). −0.1 к экрану — только если +X упёрся
+      # (парковка). Navfn путь к точке сзади — прямая; GoalDist за sim_time
+      # иначе берёт −vx как шорткат (цель «под 180» к заду). PreferForward
+      # это и закрывает: штраф > выигрыша GoalDist за 0.2 м (4 клетки×24).
+      # theta_scale 0 — не штрафовать разворот на месте. strafe_* 0 — не
+      # штрафовать медленный +vx у цели. Финальный yaw — RotateToGoal.
+      min_vel_x: -0.1
       min_vel_y: 0.0
-      max_vel_x: 0.0
+      max_vel_x: ${limits.nav_linear_velocity}
       max_vel_y: 0.0
       max_vel_theta: ${limits.nav_angular_velocity}
       min_speed_xy: 0.0
@@ -303,12 +309,17 @@ controller_server:
       trans_stopped_velocity: 0.05
       short_circuit_trajectory_evaluation: True
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PreferForward", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.02
+      PreferForward.scale: 200.0
+      PreferForward.penalty: 1.0
+      PreferForward.theta_scale: 0.0
+      PreferForward.strafe_x: 0.0
+      PreferForward.strafe_theta: 0.0
       PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: -0.1
+      PathAlign.forward_point_distance: 0.1
       GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: -0.1
+      GoalAlign.forward_point_distance: 0.1
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
       RotateToGoal.scale: 32.0
@@ -543,7 +554,7 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.0, 0.0, ${limits.max_angular_velocity}]
+    max_velocity: [${limits.max_linear_velocity}, 0.0, ${limits.max_angular_velocity}]
     min_velocity: [-${limits.max_linear_velocity}, 0.0, -${limits.max_angular_velocity}]
     max_accel:    [${limits.max_linear_accel}, 0.0, ${limits.max_angular_accel}]
     max_decel:    [-${limits.max_linear_decel}, 0.0, -${limits.max_angular_decel}]
@@ -577,7 +588,7 @@ collision_monitor:
     base_shift_correction: True
     stop_pub_timeout: 2.0
 
-    polygons: ["FootprintApproach", "SonarStopFront", "SonarStopRear", "SonarSlow"]
+    polygons: ["FootprintApproach", "SonarStopFront", "SonarSlow"]
 
     FootprintApproach:
       type: "polygon"
@@ -589,6 +600,8 @@ collision_monitor:
       visualize: False
       enabled: True
 
+    # Стоп только спереди хода (+X = ролики). Корма/экран (−X) без стопа:
+    # туда DWB почти не едет (PreferForward), max −0.1 м/с.
     SonarStopFront:
       type: "polygon"
       action_type: "stop"
@@ -598,25 +611,14 @@ collision_monitor:
       polygon_pub_topic: "sonar_stop_polygon"
       enabled: True
 
-    SonarStopRear:
-      type: "polygon"
-      action_type: "stop"
-      points: [-0.43, 0.30, -0.43, -0.30, -0.22, -0.30, -0.22, 0.30]
-      max_points: 3
-      visualize: True
-      polygon_pub_topic: "sonar_stop_rear_polygon"
-      enabled: True
-
     SonarSlow:
       type: "polygon"
       action_type: "slowdown"
       slowdown_ratio: 0.4
-      # 0.55 оставляло 12 см до SonarStopFront: передние сонары (x=0.14)
-      # включали slow только на дальности 0.41 м и сразу стоп на 0.29 м.
-      # На круизе 0.4 м/с монитор резал 0.4→0 без промежуточного 0.16,
-      # лимитер базы (min_acceleration -1.5) не успевал. 0.80 — зона slow
-      # 0.37 м, с запасом на цикл сонара ~0.25 с (ещё 0.10 м пути).
-      points: [0.80, 0.42, 0.80, -0.42, -0.80, -0.42, -0.80, 0.42]
+      # +0.80 к роликам: 0.37 м до стопа, цикл сонара ~0.25 с.
+      # −0.22 к экрану: кромка цилиндра в footprint ≈ −0.19 (центр +0.12,
+      # r=0.31) плюс 3 см. Раньше ±0.80 — ложные slow от людей у лица.
+      points: [0.80, 0.42, 0.80, -0.42, -0.22, -0.42, -0.22, 0.42]
       max_points: 1
       visualize: True
       polygon_pub_topic: "sonar_slow_polygon"

@@ -99,9 +99,11 @@ drive:
   left_wheel_id: 46                # 0x2E
   right_wheel_id: 47               # 0x2F
   ticks_per_rev: 131072            # 512 * 4 (квадратура x4, не x8) * 64
-  left_sign: 1
-  right_sign: -1                   # правое колесо перевёрнуто физически
-  swap_drives: 1
+  # Пара к URDF yaw pi (footprint +X = ролики). Инверсия обоих знаков
+  # разворачивает vx; swap_drives 0 возвращает wz (иначе едет и крутит наоборот).
+  left_sign: -1
+  right_sign: 1
+  swap_drives: 0
   # АВТОТЕСТ 2026-08-11 без teleop/SSH: старое units=v/0.0001706 давало
   # 0.0935/0.1498/0.2231 м/с на командах 0.10/0.20/0.35. Характеристика не
   # проходит через ноль: |v| = offset + coefficient*|units|, R^2=0.997.

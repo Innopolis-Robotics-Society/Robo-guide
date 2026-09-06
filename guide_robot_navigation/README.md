@@ -148,10 +148,10 @@ lifecycle-менеджером `lifecycle_manager_safety` (`:62-73`), чтобы
 - `FootprintApproach` — динамический, по предсказанной траектории робота
   (`footprint_topic`, `time_before_collision: 1.5 с`) — единственный
   полигон, который реально учитывает текущую скорость.
-- `SonarStopFront` — статичный прямоугольник 0.4×0.56 м спереди,
-  `action_type: stop`.
-- `SonarSlow` — статичный прямоугольник 0.65×0.68 м, `action_type:
-  slowdown`, `slowdown_ratio: 0.4`.
+- `SonarStopFront` — статичный прямоугольник спереди хода (+X = ролики,
+  URDF yaw π), `action_type: stop`. Сзади (экран) отдельного стопа нет.
+- `SonarSlow` — +0.80 м к роликам, −0.22 м к экрану (кромка корпуса),
+  `action_type: slowdown`, `slowdown_ratio: 0.4`.
 
 `cmd_vel_out_topic` смотрит прямо в
 `/diff_drive_controller/cmd_vel_unstamped` — collision_monitor стоит
@@ -234,8 +234,8 @@ BT-дерево `Smooth`-экшен вообще не вызывает — но 
    одного дока), либо возврат на ручной "2D Pose Estimate" через RViz для
    публичных прогонов, либо детекция дока.
 2. **Полигоны сонара в `collision_monitor` не масштабируются по скорости.**
-   `SonarStopFront`/`SonarSlow` (`:572-589`) — статичные прямоугольники
-   (0.35 м / 0.55 м вперёд по x), не зависящие от текущей скорости, при
+   `SonarStopFront`/`SonarSlow` — статичные прямоугольники
+   (стоп ~0.43 м только спереди хода, slow +0.80/−0.22 м), при
    максимальной `max_linear_velocity: 0.6 м/с`
    (`guide_robot_description/config/robot_params.yaml`, отрендерено в
    `velocity_smoother.max_velocity`, `:526`). Только лидарный

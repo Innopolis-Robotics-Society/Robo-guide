@@ -78,7 +78,10 @@
   <joint name="base_footprint_joint" type="fixed">
     <parent link="base_footprint"/>
     <child  link="base_link"/>
-    <origin xyz="0 0 ${base_z}" rpy="0 0 0"/>
+    <!-- +X footprint = casters (travel). base_link (screen, old +X) is yaw pi
+         so Nav2 uses +vx. Hardware: both signs flipped and swap_drives 0,
+         otherwise wz reverses with vx. -->
+    <origin xyz="0 0 ${base_z}" rpy="0 0 ${pi}"/>
   </joint>
 
   <!-- ===================== Wheel macro ================================== -->
