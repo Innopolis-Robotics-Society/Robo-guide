@@ -18,6 +18,7 @@ __all__ = [
     "ARRIVED",
     "CANCELED",
     "CLEARED",
+    "END_TOUR",
     "HELD",
     "HOLD_TIMEOUT",
     "INTERRUPTED",
@@ -27,6 +28,7 @@ __all__ = [
     "PAUSED",
     "RESUMED",
     "SHUTDOWN",
+    "SKIP_STOP",
     "SUCCEEDED",
     "TIMEOUT",
     "TIMEOUT_NO_VISITOR",
@@ -38,6 +40,11 @@ SUCCEEDED = "succeeded"
 ABORTED = "aborted"
 INTERRUPTED = "interrupted"
 ANSWERED = "answered"
+# SubmitAnswer.OUTCOME_SKIP_STOP/OUTCOME_END_TOUR (guide_robot_llm/llm_plam.md
+# §1.1) -- ANSWERED и так означало "вернуться в прерванное состояние", эти
+# два делят исход ANSWERING на явные альтернативы вместо одного значения.
+SKIP_STOP = "skip_stop"
+END_TOUR = "end_tour"
 TIMEOUT = "timeout"
 SHUTDOWN = "shutdown"
 

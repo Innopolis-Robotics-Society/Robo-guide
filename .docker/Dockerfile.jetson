@@ -26,7 +26,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ENV USERNAME=${USERNAME} USER_UID=${USER_UID} USER_GID=${USER_GID}
 
 # Match the pip index to the base image's JetPack/CUDA (see 40-ml-jetson.sh).
-ARG JETSON_PIP_INDEX=https://pypi.jetson-ai-lab.dev/jp6/cu126
+ARG JETSON_PIP_INDEX=https://pypi.jetson-ai-lab.io/jp6/cu126
 ENV JETSON_PIP_INDEX=${JETSON_PIP_INDEX}
 
 # Gazebo often skipped on-device (headless robot); flip to 1 if you need sim.

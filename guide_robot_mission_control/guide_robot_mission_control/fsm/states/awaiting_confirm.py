@@ -33,8 +33,20 @@ class AwaitingConfirmState(InterruptibleState):
     name = "awaiting_confirm"
 
     def on_enter(self, blackboard: Blackboard) -> None:
-        """Задать вопрос первый раз."""
+        """Задать вопрос первый раз -- либо продолжить с уже открытого фрейма.
+
+        Единственное состояние, чей фрейм резюмируется В НЕГО ЖЕ САМОГО:
+        `base_state=self.name` (см. `_ask`). Правило 5 (HELD не трогает
+        confirm-фрейм) значит, что RESUME_BASE после HELD посреди
+        AWAITING_CONFIRM возвращает сюда с фреймом, который САМ ещё не
+        снят -- повторный `push_confirm()` в этом случае падает в
+        `StackBusyError` на пустом месте. `_ask()` (заново) нужен только
+        когда фрейма ещё нет.
+        """
         self._repeat_count = 0
+        frame = blackboard.stack.frame
+        if frame is not None and frame.kind == "confirm" and frame.base_state == self.name:
+            return
         self._ask(blackboard)
 
     def _ask(self, blackboard: Blackboard) -> None:

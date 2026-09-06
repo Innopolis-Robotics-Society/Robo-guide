@@ -132,7 +132,7 @@ class SonarNode(Node):
         self.declare_parameter("port", "/dev/tty_sonar")
         self.declare_parameter("baudrate", 9600)
         self.declare_parameter("update_rate", 20.0)
-        self.declare_parameter("min_range", 0.1)
+        self.declare_parameter("min_range", 0.14)
         self.declare_parameter("max_range", 2.0)
         self.declare_parameter("fov", 1.13)  # 65 deg (from robot XML config)
         self.declare_parameter("topic_prefix", "sonar/range")

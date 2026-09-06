@@ -1,0 +1,15 @@
+# Итог ответа посетителя на прерывание ANSWERING (guide_robot_llm/llm_plam.md §1.1).
+#
+# Не SetBool -- исходов три: вернуться в прерванное состояние, закончить
+# текущую остановку и ехать дальше, закончить тур целиком. Не позвали
+# вовсе -- FSM сама резюмирует по answer_max_s (mission_fsm answer_max_s),
+# дефолт ниже совпадает с этим авто-resume.
+
+uint8 OUTCOME_RESUME_BASE = 0   # вернуться в прерванное состояние
+uint8 OUTCOME_SKIP_STOP   = 1   # «хватит, дальше»
+uint8 OUTCOME_END_TOUR    = 2
+uint8 outcome
+---
+bool accepted
+string message
+string resume_token

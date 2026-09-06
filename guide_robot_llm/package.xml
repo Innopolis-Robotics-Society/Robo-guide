@@ -4,16 +4,18 @@
   <name>guide_robot_llm</name>
   <version>0.1.0</version>
   <description>
-    Голосовой чат с LLM робота-экскурсовода: замыкает
-    /asr/transcript -&gt; LLM -&gt; say поверх контракта guide_robot_voice.
-    О туре и об экспонатах пакет не знает ничего -- это Stage 0,
-    отладочный "LLM без тура".
+    ЛЛМ-агент робота-экскурсовода: tool_broker держит клиентов к
+    mission_fsm/semantic_map/voice и валидирует/гейтит вызовы инструментов
+    по текущему /mission/state; dialog_agent поверх него ведёт ReAct
+    tool-calling цикл (~/call_tool); interaction_log пишет jsonl-лог ходов.
+    См. README.md/llm_plam.md.
   </description>
   <maintainer email="mook@innopolis.university">Mook</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>diagnostic_msgs</depend>
   <depend>action_msgs</depend>
   <depend>guide_robot_msgs</depend>
@@ -26,6 +28,9 @@
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <test_depend>guide_robot_mission_control</test_depend>
+  <test_depend>nav2_msgs</test_depend>
+  <test_depend>rosgraph_msgs</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

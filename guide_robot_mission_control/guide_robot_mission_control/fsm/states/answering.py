@@ -17,11 +17,22 @@ design §5.4 п.6 оговаривает это явно) -- путь сущес
 
 from __future__ import annotations
 
+from guide_robot_msgs.srv import SubmitAnswer
+
 from guide_robot_mission_control.fsm import outcomes
 from guide_robot_mission_control.fsm.base import InterruptibleState
 from guide_robot_mission_control.fsm.blackboard_keys import Blackboard
 
 __all__ = ["AnsweringState"]
+
+# SubmitAnswer.Request.OUTCOME_* -> исход верхней SM (root_sm._TRANSITIONS).
+# OUTCOME_RESUME_BASE по умолчанию у FsmContext.submit_answer -- тот же путь,
+# что и раньше, когда outcome не существовал.
+_OUTCOME_TO_SM = {
+    SubmitAnswer.Request.OUTCOME_RESUME_BASE: outcomes.ANSWERED,
+    SubmitAnswer.Request.OUTCOME_SKIP_STOP: outcomes.SKIP_STOP,
+    SubmitAnswer.Request.OUTCOME_END_TOUR: outcomes.END_TOUR,
+}
 
 
 class AnsweringState(InterruptibleState):
@@ -42,10 +53,11 @@ class AnsweringState(InterruptibleState):
 
         answer = self.ctx.take_answer()
         if answer is not None:
-            self.ctx.log(f"answering: получен ответ -- {answer!r}")
-            blackboard.last_answer = answer
+            text, sm_outcome = answer
+            self.ctx.log(f"answering: получен ответ -- {text!r} (outcome={sm_outcome})")
+            blackboard.last_answer = text
             blackboard.stack.pop()
-            return outcomes.ANSWERED
+            return _OUTCOME_TO_SM.get(sm_outcome, outcomes.ANSWERED)
 
         if self.ctx.consume_barge_in():
             blackboard.stack.on_barge_in(now=now_s)

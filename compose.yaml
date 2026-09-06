@@ -50,6 +50,13 @@ services:
       - .:/home/fabian/ros2_ws/src:rw
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /dev:/dev:rw   # Important for lidars (ttyUSB*) and motors (ttyACM*)
+      # PulseAudio. This local `volumes:` key overrides the whole list from
+      # x-common, so the two pulse mounts have to be repeated here -- without
+      # them PULSE_SERVER (still inherited from x-common) points at nothing.
+      # A Bluetooth speaker exists only as a sink inside the host's pulse;
+      # there is no ALSA hw: device for it, so this is the only path to it.
+      - /run/user/1000/pulse:/run/user/1000/pulse
+      - ${HOME}/.config/pulse/cookie:/home/fabian/.config/pulse/cookie:ro
 
   old-terminal:
     <<: *common-setup

@@ -43,7 +43,7 @@ class _ChunkRecord:
 class ChunkPlan:
     """Прогресс одного Narrate goal по элементам GetExhibitContent.chunks."""
 
-    def __init__(  # noqa: PLR0913, PLR0917 -- один конструктор значения, не команда с побочными эффектами
+    def __init__(  # noqa: PLR0913 -- один конструктор значения, не команда с побочными эффектами
         self,
         exhibit_id: str,
         version: str,

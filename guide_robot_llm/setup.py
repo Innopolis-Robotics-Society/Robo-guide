@@ -20,11 +20,13 @@ setup(
     zip_safe=True,
     maintainer="Mook",
     maintainer_email="mook@innopolis.university",
-    description="Голосовой чат с LLM робота-экскурсовода.",
+    description="ЛЛМ-агент робота-экскурсовода.",
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
-            f"chat_node = {PACKAGE_NAME}.chat_node:main",
+            "tool_broker = guide_robot_llm.tool_broker_node:main",
+            "dialog_agent = guide_robot_llm.dialog_agent_node:main",
+            "interaction_log = guide_robot_llm.interaction_log_node:main",
         ],
     },
 )

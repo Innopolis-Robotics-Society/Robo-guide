@@ -4,7 +4,7 @@
 #   docker build -f .docker/Dockerfile.x86-cpu -t fabook/iros:x86-cpu .
 # Run:
 #   docker run -it fabook/iros:x86-cpu
-# ============================================================
+# =================================fabook/iros — имя образа (fabook это как пространство имён, iros — название)===========================
 FROM ubuntu:22.04
 
 ENV ROS_DISTRO=humble

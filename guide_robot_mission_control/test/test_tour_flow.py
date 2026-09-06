@@ -288,7 +288,13 @@ def test_second_run_tour_rejected_while_busy(harness: MissionTestHarness) -> Non
     first_handle = first_future.result()
     assert first_handle.accepted
 
-    wait_until(lambda: state["latest"] is not None, timeout_s=15.0)
+    # НЕ "state["latest"] is not None" -- mission_fsm.on_activate() публикует
+    # IDLE ещё до этого goal-а (retained TRANSIENT_LOCAL сэмпл), тот
+    # предикат стал бы истинным мгновенно и не гарантировал бы, что
+    # _execute_run_tour уже успел выставить _active_ctx (гейт
+    # _on_run_tour_goal). NAVIGATING -- первое состояние, которое
+    # _execute_run_tour публикует ПОСЛЕ этого присваивания.
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
 
     second_client_node = harness.make_client_node()
     second_client = ActionClient(second_client_node, RunTour, "run_tour")

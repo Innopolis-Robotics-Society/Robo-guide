@@ -1,0 +1,19 @@
+[Unit]
+Description=iros-llm docker compose stack (llama.cpp inference backend)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Заменить путь на фактическое расположение клона репозитория на хосте
+# (см. docs/host_setup.md). WorkingDirectory нужен, чтобы `docker compose`
+# сам подхватил .env из этой же директории.
+WorkingDirectory=/opt/iros-llm-server
+ExecStart=/usr/bin/docker compose -f /opt/iros-llm-server/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f /opt/iros-llm-server/docker-compose.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

@@ -41,6 +41,7 @@ __all__ = ["RootStateMachine"]
 
 RESUME_BASE = "__resume_base__"
 CONFIRM_OR_CONTINUE = "__confirm_or_continue__"
+SKIP_STOP_PSEUDO = "__skip_stop__"
 
 # Каждое прерываемое состояние обязано принимать CANCELED/HELD -- их
 # производит база (fsm/base.py) для ЛЮБОГО состояния единообразно.
@@ -83,6 +84,8 @@ _TRANSITIONS: dict[str, dict[str, str | None]] = {
     },
     "answering": {
         outcomes.ANSWERED: RESUME_BASE,
+        outcomes.SKIP_STOP: SKIP_STOP_PSEUDO,
+        outcomes.END_TOUR: "returning",
         outcomes.TIMEOUT: RESUME_BASE,
         outcomes.SHUTDOWN: None,
         **_UNIVERSAL,
@@ -122,6 +125,31 @@ def _resume_target(blackboard: Blackboard) -> str:
     return blackboard.interrupted_from
 
 
+def _skip_stop_target(blackboard: Blackboard) -> str:
+    """SubmitAnswer.OUTCOME_SKIP_STOP: закончить текущую остановку, ехать дальше.
+
+    Осмысленно, только когда прервали NARRATING -- "хватит рассказывать
+    про этот экспонат". Прерывание GREETING не имеет текущего экспоната,
+    которое можно пропустить -- вырождается в обычный resume (design этот
+    выбор явно отдавал ЛЛМ, здесь он сведён к единственному случаю,
+    который реально что-то значит).
+
+    Отменять активный `Narrate` не нужно: к этому моменту barge-in уже
+    остановил его сам (narration_server слушает `/speech/cancel_all`
+    напрямую, см. докстринг `fsm/states/narrating.py`), а
+    `blackboard.narrate_goal_handle` уже `None` -- `InterruptibleState.on_exit`
+    отрабатывает раньше, чем `root_sm` решает следующий шаг.
+    """
+    if blackboard.interrupted_from != "narrating":
+        return blackboard.interrupted_from
+    blackboard.stops_skipped += 1
+    if not blackboard.tour.has_next_stop:
+        return "returning"
+    blackboard.tour.index += 1
+    blackboard.resume_token = ""
+    return "navigating"
+
+
 class RootStateMachine:
     """Прогоняет состояния друг за другом по `_TRANSITIONS`, начиная с GREETING/NAVIGATING."""
 
@@ -155,6 +183,8 @@ class RootStateMachine:
                 blackboard.interrupted_from = current
             if next_state == RESUME_BASE:
                 next_state = _resume_target(blackboard)
+            elif next_state == SKIP_STOP_PSEUDO:
+                next_state = _skip_stop_target(blackboard)
             elif next_state == CONFIRM_OR_CONTINUE:
                 next_state = (
                     "awaiting_confirm" if blackboard.tour.confirm_between_stops else "navigating"

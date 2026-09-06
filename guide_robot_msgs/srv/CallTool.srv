@@ -1,0 +1,15 @@
+# Единственный способ вызвать guide_robot_llm/tool_broker.call_tool() из
+# другого процесса -- guide_robot_llm/llm_plam.md §4. dialog_agent -- отдельный
+# lifecycle-узел (свой процесс, как и tool_broker сам -- см. tool_broker_node.py
+# main()), поэтому Python-метод call_tool() недостижим напрямую и нужен сервис.
+#
+# args/data -- произвольные dict, .srv не знает generic map/object, поэтому
+# JSON-строкой в обе стороны: args_json = json.dumps(args) на входе,
+# data_json = json.dumps(result.data) на выходе.
+
+string name
+string args_json
+---
+bool ok
+string message
+string data_json

@@ -150,7 +150,13 @@ private:
 
   // Ход времени для RCLCPP_*_THROTTLE: монотонный, чтобы прыжок системных
   // часов не заблокировал диагностику на произвольный срок.
-  rclcpp::Clock clock_{RCL_STEADY_TIME};
+  //
+  // mutable: в Humble rclcpp::Clock::now() не const (константным он стал только
+  // в более поздних дистрибутивах), а RCLCPP_*_THROTTLE зовёт его из лямбды.
+  // Без mutable макрос не собирается в const-методах вроде toMotorUnits().
+  // Логирование — не часть наблюдаемого состояния, так что const-контракт
+  // методов важнее.
+  mutable rclcpp::Clock clock_{RCL_STEADY_TIME};
 
   // Команды (пишет controller_manager)
   double left_vel_cmd_{0.0};   // рад/с

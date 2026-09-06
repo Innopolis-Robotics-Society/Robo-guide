@@ -21,7 +21,7 @@ import rclpy
 from geometry_msgs.msg import PoseStamped
 from guide_robot_msgs.action import Narrate, RunTour, Say
 from guide_robot_msgs.msg import CancelAll, MissionState
-from guide_robot_msgs.srv import ListLocations, ListTours
+from guide_robot_msgs.srv import ListLocations, ListTours, SubmitAnswer
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
@@ -213,6 +213,12 @@ class MissionFsmNode(LifecycleNode):
             self._srv_submit_confirm,
             callback_group=self._cb_reentrant,
         )
+        self._answer_srv = self.create_service(
+            SubmitAnswer,
+            "~/submit_answer",
+            self._srv_submit_answer,
+            callback_group=self._cb_reentrant,
+        )
 
         self.get_logger().info("mission_fsm сконфигурирован")
         return TransitionCallbackReturn.SUCCESS
@@ -226,23 +232,48 @@ class MissionFsmNode(LifecycleNode):
         `_publish_heartbeat` молчит -- свежеактивированная нода невидима ни
         для `TopicRateWatchdog`, ни для `mission_cli status` (обнаружено
         живым прогоном стека при разработке шага 8, не только по тестам).
+
+        `super().on_activate(state)` -- ПЕРВЫМ, не последним: это он
+        активирует managed-сущности (в т.ч. `create_lifecycle_publisher`
+        `_state_pub`) -- `publish()` до этого молча не уходит в DDS
+        (LifecyclePublisher проверяет свой internal "activated" флаг).
+        Публикация IDLE до этого вызова была тихим no-op -- поздний
+        подписчик (TRANSIENT_LOCAL) на "первый IDLE" так и не дожидался,
+        видел `None` до первого реального перехода состояния (найдено на
+        `dialog_agent`, guide_robot_llm/llm_plam.md §5 -- он, в отличие от
+        `tool_broker`, не подставляет IDLE по умолчанию при `None`).
         """
+        result = super().on_activate(state)
+        if result != TransitionCallbackReturn.SUCCESS:
+            return result
         self._active = True
         self._safety_hold_event.clear()
         self._deactivating_event.clear()
-        with self._state_lock:
-            self._last_state_msg = self._idle_state_msg()
-        self._state_pub.publish(self._last_state_msg)
+        self._publish_idle_state()
         self._heartbeat_timer = self.create_timer(
             self._params["heartbeat_s"], self._publish_heartbeat
         )
-        return super().on_activate(state)
+        return TransitionCallbackReturn.SUCCESS
 
     def _idle_state_msg(self) -> MissionState:
         msg = MissionState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.state = MissionState.STATE_IDLE
         return msg
+
+    def _publish_idle_state(self) -> None:
+        """Опубликовать IDLE и запомнить его как последнее состояние (heartbeat берёт отсюда).
+
+        Публикация внутри `_state_lock` -- иначе конкурентный heartbeat
+        (свой поток `MultiThreadedExecutor`-а) может между `_last_state_msg =
+        ...` и `.publish(...)` успеть прочитать ЕЩЁ старое значение и
+        опубликовать его ПОСЛЕ этого IDLE, навсегда перекрыв его у
+        подписчика (депеша порядка не гарантируется между независимыми
+        `.publish()`-вызовами с разных потоков одного паблишера).
+        """
+        with self._state_lock:
+            self._last_state_msg = self._idle_state_msg()
+            self._state_pub.publish(self._last_state_msg)
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
         """Форсировать завершение активного тура, опубликовать IDLE, снять heartbeat."""
@@ -254,9 +285,7 @@ class MissionFsmNode(LifecycleNode):
             deadline = time.monotonic() + 5.0
             while self._active_ctx is not None and time.monotonic() < deadline:
                 time.sleep(_POLL_S)
-        with self._state_lock:
-            self._last_state_msg = self._idle_state_msg()
-        self._state_pub.publish(self._last_state_msg)
+        self._publish_idle_state()
         self.destroy_timer(self._heartbeat_timer)
         return super().on_deactivate(state)
 
@@ -375,6 +404,16 @@ class MissionFsmNode(LifecycleNode):
             with self._exec_lock:
                 self._active_ctx = None
                 self._active_goal_handle = None
+            # Без этого /mission/state зависает на последнем опубликованном
+            # состоянии тура (обычно RETURNING) навсегда -- ни heartbeat, ни
+            # следующий RunTour это не чинят (heartbeat лишь переповторяет
+            # last_state_msg). Любой гейт по состоянию (design: клиенты
+            # RunTour, будущий tool_broker guide_robot_llm) видел бы "тур
+            # ещё активен" даже после его завершения. on_activate/
+            # on_deactivate уже публикуют IDLE тем же путём -- здесь третий
+            # случай: конец execute_callback вне зависимости от исхода.
+            if self._active:
+                self._publish_idle_state()
 
         result_outcome = _FINAL_OUTCOME_TO_RESULT[outcome]
         return self._finish_run_tour(
@@ -482,17 +521,19 @@ class MissionFsmNode(LifecycleNode):
 
     # -- публичные хуки для CLI/тестов (design §5.4 п.6 -- нет реального ASR/LLM) --
 
-    def submit_answer(self, text: str) -> None:
-        """Передать текст ответа посетителя активному туру, если он есть."""
-        ctx = self._log_hook_call("submit_answer", extra=repr(text))
-        if ctx is not None:
-            ctx.submit_answer(text)
-
     def submit_confirm(self, *, is_yes: bool) -> None:
         """Передать да/нет-ответ на «Идём дальше?» активному туру, если он есть."""
         ctx = self._log_hook_call("submit_confirm", extra=f"is_yes={is_yes}")
         if ctx is not None:
             ctx.submit_confirm(is_yes=is_yes)
+
+    def submit_answer(
+        self, text: str, *, outcome: int = SubmitAnswer.Request.OUTCOME_RESUME_BASE
+    ) -> None:
+        """Передать ответ посетителя (и что с ним делать) активному туру, если он есть."""
+        ctx = self._log_hook_call("submit_answer", extra=f"text={text!r} outcome={outcome}")
+        if ctx is not None:
+            ctx.submit_answer(text, outcome=outcome)
 
     def request_pause(self) -> None:
         """Запросить паузу тура (тестовый хук вместо /mission/presence, design §6)."""
@@ -550,6 +591,21 @@ class MissionFsmNode(LifecycleNode):
         response.message = "" if has_ctx else "нет активного тура"
         return response
 
+    def _srv_submit_answer(
+        self, request: SubmitAnswer.Request, response: SubmitAnswer.Response
+    ) -> SubmitAnswer.Response:
+        with self._exec_lock:
+            has_ctx = self._active_ctx is not None
+        self.submit_answer("", outcome=request.outcome)
+        response.accepted = has_ctx
+        response.message = "" if has_ctx else "нет активного тура"
+        # Актуален в момент ANSWERING -- публикуется _on_fsm_state_changed
+        # на каждом переходе, ЛЛМ полезно знать, куда именно вернётся тур.
+        with self._state_lock:
+            last = self._last_state_msg
+            response.resume_token = last.resume_token if last is not None else ""
+        return response
+
     # -- публикация /mission/state + RunTour feedback ------------------------
 
     def _on_fsm_state_changed(self, name: str, blackboard: Blackboard) -> None:
@@ -572,7 +628,7 @@ class MissionFsmNode(LifecycleNode):
         )
         with self._state_lock:
             self._last_state_msg = msg
-        self._state_pub.publish(msg)
+            self._state_pub.publish(msg)
 
         with self._exec_lock:
             goal_handle = self._active_goal_handle
@@ -588,19 +644,19 @@ class MissionFsmNode(LifecycleNode):
     def _publish_heartbeat(self) -> None:
         with self._state_lock:
             last = self._last_state_msg
-        if last is None:
-            return
-        msg = MissionState()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.state = last.state
-        msg.interrupt = last.interrupt
-        msg.stop_index = last.stop_index
-        msg.stop_total = last.stop_total
-        msg.stop_id = last.stop_id
-        msg.exhibit_id = last.exhibit_id
-        msg.resume_token = last.resume_token
-        msg.resume_available = last.resume_available
-        self._state_pub.publish(msg)
+            if last is None:
+                return
+            msg = MissionState()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.state = last.state
+            msg.interrupt = last.interrupt
+            msg.stop_index = last.stop_index
+            msg.stop_total = last.stop_total
+            msg.stop_id = last.stop_id
+            msg.exhibit_id = last.exhibit_id
+            msg.resume_token = last.resume_token
+            msg.resume_available = last.resume_available
+            self._state_pub.publish(msg)
 
 
 def main(args: list[str] | None = None) -> None:
