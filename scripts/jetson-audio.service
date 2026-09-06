@@ -1,5 +1,5 @@
 [Unit]
-Description=Guide-Robot Pulse: JBL Go 2 default sink, Fifine mic off
+Description=Guide-Robot Pulse: Behringer UM2 default sink 20%, Fifine mic off
 After=pulseaudio.service bluetooth.target
 Wants=pulseaudio.service
 

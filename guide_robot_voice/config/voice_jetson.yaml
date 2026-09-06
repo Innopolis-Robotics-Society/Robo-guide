@@ -1,7 +1,9 @@
-# Оверлей железа: USB Fifine (ALSA "USB PnP Audio Device") + JBL Go 2 через Pulse.
+# Оверлей железа: USB Fifine (ALSA) + колонка на Behringer UM2 через Pulse.
+# UM2 в Pulse: alsa_output.usb-Burr-Brown_from_TI_USB_Audio_CODEC-00.*
 #
-# jetson_audio.sh держит BT как default sink; мик в Pulse = off,
-# иначе Pulse держит hw: и ROS не откроет карту. Захват -- имя карты, не pulse.
+# jetson_audio.sh: мик в Pulse = off (иначе Pulse держит hw: и ROS не откроет
+# карту), UM2 -- default sink на 20% (колонка очень громкая).
+# Захват -- имя карты, не pulse. TTS -- pulse.
 # gate_on_tts: без AEC иначе робот слышит себя и рвёт фразу на одно слово.
 
 /**/audio_frontend:
