@@ -1,0 +1,10 @@
+<library path="say_action_bt_node">
+  <class type="guide_robot_bt_nodes::SayAction" base_class_type="BT::TreeNode">
+    <description>
+      Nav2 BT action node that sends a Say goal to the /say action server
+      (guide_robot_voice tts_node). Used in recovery branches to announce
+      robot manoeuvres to bystanders.
+      XML usage: &lt;SayAction text="Внимание, отойдите!" server_name="say"/&gt;
+    </description>
+  </class>
+</library>

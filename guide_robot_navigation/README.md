@@ -65,16 +65,11 @@ RPLIDAR C1, раньше стояло дефолтное 100.0, поправле
 `(0, 0, 0)` (`:61-66`) — годится только пока робот физически стартует из
 одной и той же точки; см. "Известные проблемы", п. 5.
 
-**bt_navigator (`:76-141`)** — своего BT XML в пакете нет, используется
-дефолтное дерево Humble
-`navigate_to_pose_w_replanning_and_recovery.xml`
-(старый параметр `default_bt_xml_filename` из Galactic был в файле, но
-Humble его не объявляет и молча игнорировал — снят, задокументировано на
-месте, `:82-100`). Именно в этом дереве зашит recovery `RoundRobin` со
-`Spin 1.57 рад` → `Wait 5 c` → `BackUp`, который раньше срабатывал на
-обычных разворотах (см. следующий пункт). Groot-мониторинг выключен
-(`enable_groot_monitoring: False`, `:107`) — иначе ZMQ публикует состояние
-дерева на 100 Гц независимо от подписчиков.
+**bt_navigator** — своё дерево
+`behavior_trees/navigate_to_pose_with_recovery.xml` (recovery: clear →
+BackUp+`SayAction` → Spin 1.57 → Wait 10 → большой BackUp+Spin). Плагин
+`say_action_bt_node` из `guide_robot_bt_nodes`. `default_server_timeout`
+оставлен **150 мс** (не 20 из `dev_behavior`). Groot выключен.
 
 `default_server_timeout` поднят **2026-08-09 с 20 до 150 мс**. Это бюджет на
 ACK от экшен-сервера, а не на выполнение действия, и сток nav2 в 20 мс на
@@ -131,31 +126,26 @@ DWB на `max_vel_x: 0.5`. `raytrace_max_range`/`obstacle_max_range`
 секции молча не читалось и сервер работал на дефолтных 1.0 рад/с вместо
 физических 0.5236. `max_rotational_vel` теперь синхронизирован с базой.
 
-**velocity_smoother (`:520-533`)** — последняя ступень перед колёсами
-(`controller_server → cmd_vel_nav → velocity_smoother → cmd_vel_smoothed →
-cmd_vel`). Лимиты — прямая подстановка `limits.*` из `robot_params.yaml`,
-без запаса (в отличие от DWB, где запас есть, `:245-250`). Без этой секции
-сервер поднимался бы на дефолтах Nav2 (`[0.5, 0, 2.5]` / accel `[2.5, 0,
-3.2]`), в 3–5 раз шире всего остального стека.
+**velocity_smoother** — сглаживает `/cmd_vel_nav` → `/cmd_vel` (вход
+`mux_safety`). Лимиты — прямая подстановка `limits.*` из `robot_params.yaml`.
 
-**collision_monitor (`:548-626`)** — не входит в `nav2_bringup`, поднимается
-отдельной нодой в `launch/common.launch.py:50-58` под отдельным
-lifecycle-менеджером `lifecycle_manager_safety` (`:62-73`), чтобы аварийный
-слой переживал рестарт основного нав-стека. Источники: `/scan` +
-7 дальномеров `/sonar/range/sonar_sensor_{1,2,4,5,6,8,9}` (весь набор
-сонаров, которые физически есть на роботе — id 3 и 7 не существуют).
+**twist_mux** — два узла в `launch/common.launch.py`: `mux_safety`
+(`/cmd_vel` + `/safety_cmd_vel`) и `mux_final` (`/cmd_vel_filtered` +
+`/admin_cmd_vel`, лок `/supervisor/estop`). Телеоп:
+`guide_robot_bringup/launch/teleop.launch.py` (`full_control:=true` —
+админ, минуя collision_monitor).
+
+**collision_monitor** — между mux'ами, под `lifecycle_manager_safety`.
+Вход `/cmd_vel_mux_safety`, выход `/cmd_vel_filtered`. Источники: `/scan` +
+7 дальномеров `/sonar/range/sonar_sensor_{1,2,4,5,6,8,9}`.
 Три полигона:
 - `FootprintApproach` — динамический, по предсказанной траектории робота
-  (`footprint_topic`, `time_before_collision: 1.5 с`) — единственный
+  (`footprint_topic`, `time_before_collision: 0.8 с`) — единственный
   полигон, который реально учитывает текущую скорость.
 - `SonarStopFront` — статичный прямоугольник спереди хода (+X = ролики,
   URDF yaw π), `action_type: stop`. Сзади (экран) отдельного стопа нет.
 - `SonarSlow` — +0.80 м к роликам, −0.22 м к экрану (кромка корпуса),
   `action_type: slowdown`, `slowdown_ratio: 0.4`.
-
-`cmd_vel_out_topic` смотрит прямо в
-`/diff_drive_controller/cmd_vel_unstamped` — collision_monitor стоит
-последним звеном перед аппаратным драйвером, после `velocity_smoother`.
 
 **SLAM (`config/mapper_params_online_async.yaml`)** — `slam_toolbox`,
 `solver_plugin: CeresSolver`, `mode: mapping`, `scan_topic: /scan`,

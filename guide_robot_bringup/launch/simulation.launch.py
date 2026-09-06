@@ -80,9 +80,7 @@ def generate_launch_description():
     # ── 1. Симуляция: Gazebo + робот ─────────────────────────────────────────
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_simulation, "launch", "gazebo.launch.py")),
-        launch_arguments={
-            "use_sim_time": "true",
-            "world": world}.items(),
+        launch_arguments={"use_sim_time": "true", "world": world}.items(),
     )
 
     # ── 2. Перцепция: лидары виртуальные, соноры из плагинов Gazebo ──────────

@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<root main_tree_to_execute="NavigateToPose">
+<BehaviorTree ID="NavigateToPose">
+<RecoveryNode number_of_retries="6" name="NavigateRecovery">
+
+
+  <!--normal navigation-->
+  <PipelineSequence name="NavigateWithReplanning">
+
+    <RateController hz="1.0">
+      <RecoveryNode number_of_retries="1" name="ComputePathRecovery">
+        <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+        <ClearEntireCostmap name="ClearGlobalOnPlanFail"
+            service_name="global_costmap/clear_entirely_global_costmap"/>
+      </RecoveryNode>
+    </RateController>
+
+    <RecoveryNode number_of_retries="1" name="FollowPathRecovery">
+      <FollowPath path="{path}" controller_id="FollowPath"/>
+      <ClearEntireCostmap name="ClearLocalOnControlFail"
+          service_name="local_costmap/clear_entirely_local_costmap"/>
+    </RecoveryNode>
+
+  </PipelineSequence>
+
+  <!-- recovery branch, if ClearEntireCostmap of global/local map does not help-->
+  <ReactiveFallback name="RecoveryFallback">
+
+    <!-- if goal updated ->next tick ──-->
+    <GoalUpdated/>
+
+    <RoundRobin name="RecoveryActions">
+
+      <!-- clearing maps -->
+      <Sequence name="ClearBothMaps">
+        <ClearEntireCostmap name="ClearLocal"
+            service_name="local_costmap/clear_entirely_local_costmap"/>
+        <ClearEntireCostmap name="ClearGlobal"
+            service_name="global_costmap/clear_entirely_global_costmap"/>
+      </Sequence>
+
+
+      <!-- BackUp with voice warning -->
+      <Sequence name="BackUpWithWarning">
+        <SayAction text="Внимание, отойдите!" server_name="say"/>
+        <BackUp backup_dist="0.30" backup_speed="0.05"/>
+      </Sequence>
+
+
+      <Spin spin_dist="1.57"/>
+
+
+      <Wait wait_duration="10"/>
+
+      <!-- the worst situation. large backup and spin with voice warning-->
+      <Sequence name="LargeBackupAndSpin">
+        <SayAction text="Внимание, робот отъезжает!" server_name="say"/>
+        <BackUp backup_dist="0.60" backup_speed="0.05"/>
+        <Spin spin_dist="3.14"/>
+      </Sequence>
+
+    </RoundRobin>
+  </ReactiveFallback>
+
+</RecoveryNode>
+
+</BehaviorTree>
+</root>

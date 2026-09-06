@@ -52,7 +52,8 @@ watchdog'ов, service-клиенты) крутятся в `MultiThreadedExecuto
 делегирует переходы состояний менеджерам nav2.
 
 Порядок bring-up = порядок групп в `config/supervisor.yaml` (`safety →
-localization → navigation`), shutdown — в обратном порядке
+localization → voice → navigation`, nav `requires: [localization, voice]`),
+shutdown — в обратном порядке
 (`_shutdown_all`, `supervisor_node.py:255-261`). Перед `STARTUP` каждой
 группы:
 - проверяются `requires` (зависимости должны быть `ACTIVE`,
@@ -228,11 +229,13 @@ hardware_components_initial_state:
 
 `_do_action` для `estop` (`supervisor_node.py:314-316`) публикует
 `Bool(true)` и **сразу возвращается**: никаких lifecycle-команд. При этом на
-`/supervisor/estop` во всём репозитории не подписан никто (проверено грепом по
-`.py/.yaml/.in/.cpp/.xml`). Единственная проба с этой политикой — `tf_odom`
-(`config/supervisor.yaml:65-68`), то есть потеря `odom → base_link`, самый
+`/supervisor/estop` читает `mux_final` (`first_iter_nav2.yaml.in`, лок
+приоритета 255). Паблишер по-прежнему не latched. Единственная проба
+политики `estop` в yaml — `tf_odom`
+(`config/supervisor.yaml`, `tf_odom`), то есть потеря `odom → base_link`, самый
 опасный отказ для едущего робота. Реакция на него сегодня: одно сообщение в
-топик, который никто не читает.
+топик — `mux_final` должен заглушить cmd_vel, но без latch опоздавший
+подписчик это пропускает.
 
 Плюс паблишер обычный (`supervisor_node.py:126-128`, depth 10, VOLATILE) и
 публикуется только по фронту — подписчик, поднявшийся позже, не узнает о

@@ -7,16 +7,16 @@ supervisor:
       precondition_timeout: 60.0
       startup_timeout: 30.0
 
-    - name: navigation
-      manager: /lifecycle_manager_navigation
-      requires: [safety]
-      preconditions: [slam_alive]
-      startup_timeout: 45.0
-
     - name: voice
       manager: /lifecycle_manager_voice
       startup_timeout: 30.0
       optional: true
+
+    - name: navigation
+      manager: /lifecycle_manager_navigation
+      requires: [safety, voice]
+      preconditions: [slam_alive]
+      startup_timeout: 45.0
 
     - name: semantic_map
       manager: /lifecycle_manager_semantic_map

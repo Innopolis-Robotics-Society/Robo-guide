@@ -151,6 +151,7 @@ RUN apt-get update && apt-get upgrade -y && \
     ros-${ROS_DISTRO}-nav2-rviz-plugins \
     ros-${ROS_DISTRO}-robot-localization \
     ros-${ROS_DISTRO}-pointcloud-to-laserscan \
+    ros-${ROS_DISTRO}-twist-mux \
     --fix-missing
 
 # ROS pkgs

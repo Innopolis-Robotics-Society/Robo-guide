@@ -66,6 +66,7 @@ apt-get install -y --no-install-recommends \
 # Misc utilities
 apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
+    ros-${ROS_DISTRO}-twist-mux \
     ros-${ROS_DISTRO}-imu-tools \
     ros-${ROS_DISTRO}-topic-tools \
     ros-${ROS_DISTRO}-rosbridge-suite \

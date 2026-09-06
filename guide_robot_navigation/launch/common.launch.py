@@ -9,21 +9,22 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    """Generate launch description."""
     pkg = get_package_share_directory("guide_robot_navigation")
-    nav2_launch_dir = os.path.join(
-        get_package_share_directory("nav2_bringup"), "launch"
-    )
+    nav2_launch_dir = os.path.join(get_package_share_directory("nav2_bringup"), "launch")
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     autostart_nav = LaunchConfiguration("autostart_nav")
     nav2_params = LaunchConfiguration("nav2_params_file")
 
     declare_use_sim_time = DeclareLaunchArgument(
-        "use_sim_time", default_value="false",
+        "use_sim_time",
+        default_value="false",
         description="Use simulation clock",
     )
     declare_autostart_nav = DeclareLaunchArgument(
-        "autostart_nav", default_value="false",
+        "autostart_nav",
+        default_value="false",
         description="Autostart the nav2 lifecycle nodes",
     )
     declare_nav2_params = DeclareLaunchArgument(
@@ -34,9 +35,7 @@ def generate_launch_description():
 
     # Nav2 core. composition off so respawn/remaps are predictable on real HW.
     nav2 = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(nav2_launch_dir, "navigation_launch.py")
-        ),
+        PythonLaunchDescriptionSource(os.path.join(nav2_launch_dir, "navigation_launch.py")),
         launch_arguments={
             "use_sim_time": use_sim_time,
             "autostart": autostart_nav,
@@ -45,16 +44,14 @@ def generate_launch_description():
         }.items(),
     )
 
-    # collision_monitor sits between velocity_smoother and the base.
-    # cmd_vel_out is remapped to the diff_drive_controller unstamped input.
+    # mux_safety (nav + safety teleop) → collision_monitor → mux_final
+    # (admin bypass) → diff_drive_controller. e_stop lock is on mux_final.
     collision_monitor = Node(
         package="nav2_collision_monitor",
         executable="collision_monitor",
         name="collision_monitor",
         output="screen",
-        parameters=[nav2_params, 
-                    {"use_sim_time": use_sim_time}
-                ],
+        parameters=[nav2_params, {"use_sim_time": use_sim_time}],
     )
 
     # Separate lifecycle manager so the safety node is managed independently
@@ -64,19 +61,47 @@ def generate_launch_description():
         executable="lifecycle_manager",
         name="lifecycle_manager_safety",
         output="screen",
-        parameters=[{
-            "use_sim_time": use_sim_time,
-            "autostart": autostart_nav,
-            "node_names": ["collision_monitor"],
-            "bond_timeout": 4.0,
-        }],
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+                "autostart": autostart_nav,
+                "node_names": ["collision_monitor"],
+                "bond_timeout": 4.0,
+            }
+        ],
     )
 
-    return LaunchDescription([
-        declare_use_sim_time,
-        declare_autostart_nav,
-        declare_nav2_params,
-        nav2,
-        collision_monitor,
-        lifecycle_safety,
-    ])
+    mux_safety_node = Node(
+        package="twist_mux",
+        executable="twist_mux",
+        name="mux_safety",
+        output="screen",
+        parameters=[nav2_params, {"use_sim_time": use_sim_time}],
+        remappings=[
+            ("cmd_vel_out", "/cmd_vel_mux_safety"),
+        ],
+    )
+
+    mux_final_node = Node(
+        package="twist_mux",
+        executable="twist_mux",
+        name="mux_final",
+        output="screen",
+        parameters=[nav2_params, {"use_sim_time": use_sim_time}],
+        remappings=[
+            ("cmd_vel_out", "/diff_drive_controller/cmd_vel_unstamped"),
+        ],
+    )
+
+    return LaunchDescription(
+        [
+            declare_use_sim_time,
+            declare_autostart_nav,
+            declare_nav2_params,
+            nav2,
+            collision_monitor,
+            lifecycle_safety,
+            mux_safety_node,
+            mux_final_node,
+        ]
+    )

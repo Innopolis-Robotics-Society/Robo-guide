@@ -70,12 +70,15 @@ If you change a speed limit, wheel radius, or lidar range, change it **here** �
 ### Motion path
 
 ```
-Nav2 controller_server → /cmd_vel_nav → velocity_smoother → /cmd_vel_smoothed
-  → collision_monitor → /diff_drive_controller/cmd_vel_unstamped
+Nav2 controller_server → /cmd_vel_nav → velocity_smoother → /cmd_vel
+  → mux_safety (+ /safety_cmd_vel) → /cmd_vel_mux_safety
+  → collision_monitor → /cmd_vel_filtered
+  → mux_final (+ /admin_cmd_vel, lock /supervisor/estop)
+  → /diff_drive_controller/cmd_vel_unstamped
   → diff_drive_controller (limiter) → ros2_control → guide_robot_hardware plugin → UART
 ```
 
-`collision_monitor` is deliberately the **last** stage before the driver and lives under its own `lifecycle_manager_safety`, so the safety layer survives a restart of the main nav stack.
+`collision_monitor` lives under its own `lifecycle_manager_safety`, so the safety layer survives a restart of the main nav stack. `mux_final` is the last stage before the driver (admin teleop bypasses the monitor).
 
 `guide_robot_hardware` is a `pluginlib` `hardware_interface::SystemInterface` (not a node), loaded by `controller_manager`. It is the only place velocity commands become bytes on the bus (FURO protocol — a Dynamixel 1.0 clone with proprietary instruction `0x06`). It carries three independent last-resort guards, all deliberate: a mandatory command watchdog (`cmd_timeout`, refuses to activate without it), a wheel-velocity clamp in `toMotorUnits()` (`command_interface` min/max are metadata only — `hardware_interface` does not enforce them), and an encoder-silence detector that stops the motors and returns `ERROR`. Don't weaken these; the FURO driver holds the last accepted speed forever with no timeout of its own.
 
