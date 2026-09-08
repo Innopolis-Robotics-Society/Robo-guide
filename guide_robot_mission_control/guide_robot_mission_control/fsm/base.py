@@ -68,7 +68,12 @@ class InterruptibleState:
         while True:
             if self.ctx.deactivating_event.is_set():
                 return outcomes.SHUTDOWN
-            if self.ctx.is_cancel_requested():
+            # A1: ~/request_stop делит исход с внешней отменой RunTour-goal-а --
+            # тот же CANCELED, тот же приоритет, тот же cancel_active_work(...).
+            # is_stop_requested() не зависит от goal_handle (см. FsmContext) --
+            # это единственный путь отмены для standalone `~/go_home` (A2),
+            # у которого goal_handle=None и is_cancel_requested() всегда False.
+            if self.ctx.is_cancel_requested() or self.ctx.is_stop_requested():
                 self.cancel_active_work(blackboard, outcomes.CANCELED)
                 return outcomes.CANCELED
             if self.name != "held" and self.ctx.safety_hold_event.is_set():

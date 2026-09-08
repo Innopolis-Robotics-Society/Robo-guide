@@ -47,13 +47,19 @@ class TourPlan:
 
     @property
     def current_stop_id(self) -> str:
-        """location_id остановки, на которой сейчас находится тур."""
-        return self.stop_ids[self.index]
+        """location_id остановки, на которой сейчас находится тур.
+
+        Пусто при пустом `stop_ids` (A2: standalone `~/go_home` строит
+        `TourPlan` без остановок) -- без этой защиты `self.stop_ids[0]`
+        на пустом списке уронил бы `_on_fsm_state_changed` на первом же
+        входе в `returning`.
+        """
+        return self.stop_ids[self.index] if self.stop_ids else ""
 
     @property
     def current_exhibit_id(self) -> str:
-        """exhibit_id текущей остановки -- аргумент для Narrate.Goal."""
-        return self.exhibit_ids[self.index]
+        """exhibit_id текущей остановки -- аргумент для Narrate.Goal. Пусто, если stop_ids пуст."""
+        return self.exhibit_ids[self.index] if self.exhibit_ids else ""
 
     @property
     def has_next_stop(self) -> bool:
@@ -100,6 +106,12 @@ class Blackboard:
     # (mission_fsm_node._on_fsm_state_changed) как PAUSE_USER; "" -- обычный
     # пока-не-реализованный presence-путь PausedState (см. её докстринг).
     pause_reason: str = ""
+
+    # -- A3: почанковый прогресс NARRATING (MissionState.msg:44-45), зеркалит
+    # последний Narrate.Feedback (fsm/states/narrating.py). Сбрасывается в 0
+    # на выходе из NARRATING -- не переживает остановку/следующий экспонат.
+    chunk_index: int = 0
+    chunk_total: int = 0
 
     # -- design §5.3, пока не наполняются в шаге 7 --
     presence: object | None = None

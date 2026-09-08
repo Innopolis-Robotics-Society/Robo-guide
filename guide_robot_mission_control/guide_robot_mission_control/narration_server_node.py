@@ -111,6 +111,10 @@ class _ActiveExecution:
     # stage4 §2.4: дедлайн (clock ns) окончания паузы после чанка с
     # pause_after_s > 0. None -- сейчас не в паузе.
     pause_until_ns: int | None = None
+    # A3: последний idx, на который уже ушёл Narrate.Feedback -- дедуп, чтобы
+    # публиковать не на каждый тик Say.Feedback (частота клауз), а только на
+    # смену чанка (design A3.4). -1 -- ещё ни одного не публиковали.
+    last_fed_chunk_index: int = -1
 
 
 class NarrationServerNode(LifecycleNode):
@@ -505,6 +509,7 @@ class NarrationServerNode(LifecycleNode):
 
     def _on_say_feedback(self, ctx: _ActiveExecution, idx: int, feedback: object) -> None:
         progress = feedback.feedback.progress  # type: ignore[attr-defined]
+        narrate_feedback: Narrate.Feedback | None = None
         with ctx.lock:
             pending = ctx.pending.get(idx)
             if pending is None:
@@ -514,6 +519,36 @@ class NarrationServerNode(LifecycleNode):
             # модуля: отдельная подписка на SpeakingStatus не нужна.
             if ctx.plan.state_of(idx) == ChunkState.SENT:
                 ctx.plan.mark(idx, ChunkState.SPEAKING)
+            # A3: транслировать почанковый прогресс дальше в Narrate.Feedback --
+            # только на смену idx (чанка), не на каждый тик Say.Feedback
+            # (тикает по клаузам/прогрессу заметно чаще, чем меняется чанк;
+            # design A3.4 хочет событийную публикацию /mission/state, а не
+            # heartbeat-частоту). chunk_text заполняем, раз того требует схема
+            # Narrate.action (design §2.2) -- mission_fsm его дальше в
+            # /mission/state не переносит (единственный источник текста --
+            # semantic_map, A3).
+            if idx != ctx.last_fed_chunk_index:
+                ctx.last_fed_chunk_index = idx
+                narrate_feedback = Narrate.Feedback(
+                    chunk_index=idx,
+                    chunk_total=ctx.plan.chunk_total,
+                    chunk_text=ctx.plan.chunk_text(idx),
+                    progress=progress,
+                )
+        if narrate_feedback is None:
+            return
+        # Публикация вне ctx.lock -- publish_feedback уходит в rmw, держать
+        # на нём критическую секцию, которую читают NarrationControl/
+        # CancelAll, незачем. goal_handle мог стать терминальным между этим
+        # Say-фидбеком и публикацией (транзитный Narrate снят
+        # NavigatingState._stop_transit, либо SAFETY-приоритетный Say из
+        # bt_navigator вытеснил нарратив, design §5.6) -- publish на уже
+        # завершённом/отменённом handle не должен ронять чужой
+        # executor-колбэк.
+        try:
+            ctx.goal_handle.publish_feedback(narrate_feedback)  # type: ignore[attr-defined]
+        except Exception:
+            self.get_logger().debug(f"publish_feedback(Narrate) для idx={idx} не удался")
 
     def _on_say_goal_response(self, ctx: _ActiveExecution, idx: int, future: Future) -> None:
         goal_handle = future.result()
