@@ -1,0 +1,28 @@
+# Параметры operator_ui (Stage 1+2). Имена сервисов -- параметры, не
+# хардкод (task_C_operator_ui_stage1.md, раздел C3) -- переопредели здесь,
+# если mission_fsm/location_server/content_server живут не под
+# стандартными именами.
+
+/**/operator_ui:
+  ros__parameters:
+    bind_host: "127.0.0.1"     # панель на самом роботе; 0.0.0.0 -- осознанный выбор оператора
+    http_port: 8091             # 8090 занят guide_robot_face
+    service_timeout_s: 5.0
+    mission_state_stale_s: 3.0  # heartbeat 1 Гц -- см. mission_fsm's config/mission.yaml
+    initialpose_settle_s: 0.5
+    reset_covariance_xyyaw: [0.25, 0.25, 0.06853891945200942]
+    tours_language: "ru"
+    content_language: "ru"      # отдельно от tours_language (design D2)
+    slide_interval_s: 8.0       # design D3 -- когда у элемента нет своего duration_s
+    # PIN -- защита от случайного тапа посетителя, НЕ от злоумышленника
+    # (task doc, "Аутентификации в v1 нет"). Смени перед деплоем.
+    operator_pin: "0000"
+    run_tour_action: "run_tour"
+    request_stop_service: "/mission_fsm/request_stop"
+    go_home_service: "/mission_fsm/go_home"
+    list_tours_service: "/location_server/list_tours"
+    list_locations_service: "/location_server/list_locations"
+    clear_global_costmap_service: "/global_costmap/clear_entirely_global_costmap"
+    clear_local_costmap_service: "/local_costmap/clear_entirely_local_costmap"
+    get_exhibit_content_service: "/content_server/get_exhibit_content"
+    get_exhibit_media_service: "/content_server/get_exhibit_media"

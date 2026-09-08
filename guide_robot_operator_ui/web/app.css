@@ -1,0 +1,274 @@
+/* Тёмный фон, крупные тапабельные цели -- панель сенсорная, палец, не мышь
+   (design C6). Никаких шрифтов/иконок с CDN -- робот без интернета. */
+
+:root {
+  --bg: #0a0d12;
+  --panel-bg: #12161d;
+  --fg: #eaf0f6;
+  --muted: #7d8896;
+  --accent: #2f7de1;
+  --danger: #d1373f;
+  --warn: #c98a1f;
+  --ok: #2f9e5b;
+  --border: #232a35;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  font-size: 20px;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0 0 0.5rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: 1rem 0 0.5rem;
+  color: var(--muted);
+}
+
+#conn-banner {
+  background: var(--danger);
+  color: #fff;
+  text-align: center;
+  padding: 0.75rem;
+  font-weight: 600;
+}
+
+#panel {
+  padding: 1rem 1.25rem 2rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+#status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+#status-state {
+  color: var(--fg);
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.badge {
+  border-radius: 999px;
+  padding: 0.15rem 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+}
+
+.badge-danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+#message {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: rgba(209, 55, 63, 0.15);
+  border: 1px solid var(--danger);
+  color: #ffb3b7;
+}
+
+#tours,
+#commands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+select {
+  flex: 1 1 220px;
+  min-height: 3.25rem;
+  font-size: 1.1rem;
+  background: var(--panel-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 0.75rem;
+}
+
+.btn {
+  min-height: 3.75rem;
+  min-width: 8rem;
+  padding: 0.75rem 1.5rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* "Стоп" визуально отделён от остального (design C6) -- нельзя перепутать
+   с "На базу"/"Старт" даже беглым взглядом. */
+.btn-stop {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  font-size: 1.3rem;
+  min-height: 4.5rem;
+}
+
+#active {
+  height: 100vh;
+  width: 100vw;
+  position: relative;
+  background: #000;
+  cursor: none;
+}
+
+/* -- слайды (design D3): два слоя друг над другом, кроссфейд через opacity -- */
+#slides {
+  position: absolute;
+  inset: 0;
+}
+
+.slide-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  opacity: 0;
+  transition: opacity 200ms linear;
+  pointer-events: none;
+}
+
+.slide-layer.visible {
+  opacity: 1;
+}
+
+.slide-layer img,
+.slide-layer video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+#title-card {
+  color: var(--fg);
+  font-size: 2.2rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 2rem;
+}
+
+#returning-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  font-size: 2rem;
+  background: #000;
+}
+
+/* -- оверлеи (design D4): поверх слайдов, независимо от базового режима -- */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(209, 55, 63, 0.85);
+  z-index: 10;
+}
+
+#conn-lost-overlay {
+  background: rgba(20, 24, 31, 0.9);
+}
+
+#unlock-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4rem;
+  height: 4rem;
+  z-index: 20;
+}
+
+dialog {
+  background: var(--panel-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 420px;
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+#pin-input {
+  width: 100%;
+  min-height: 3.25rem;
+  font-size: 1.3rem;
+  text-align: center;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>guide_robot_operator_ui</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <div id="conn-banner" hidden></div>
+
+    <section id="panel">
+      <header>
+        <h1>Панель оператора</h1>
+        <div id="status">
+          <span id="status-state">--</span>
+          <span id="status-stops"></span>
+          <span id="status-exhibit"></span>
+          <span id="status-estop" class="badge badge-danger" hidden></span>
+          <span id="status-supervisor" class="badge"></span>
+          <span id="status-age" class="muted"></span>
+        </div>
+      </header>
+
+      <div id="message" hidden></div>
+
+      <section id="tours">
+        <h2>Туры</h2>
+        <select id="tour-select"></select>
+        <button id="btn-start" type="button" class="btn btn-primary">Старт</button>
+      </section>
+
+      <section id="commands">
+        <button id="btn-stop" type="button" class="btn btn-stop">Стоп</button>
+        <button id="btn-home" type="button" class="btn">На базу</button>
+        <button id="btn-reset" type="button" class="btn">Сброс локализации</button>
+      </section>
+    </section>
+
+    <section id="active" hidden>
+      <div id="slides">
+        <div id="slide-layer-a" class="slide-layer"></div>
+        <div id="slide-layer-b" class="slide-layer"></div>
+        <div id="title-card" class="slide-layer" hidden>
+          <div id="title-card-text"></div>
+        </div>
+      </div>
+      <div id="returning-screen" hidden>Еду на базу…</div>
+      <div id="estop-overlay" class="overlay" hidden>
+        E-STOP / авария — показ приостановлен
+      </div>
+      <div id="conn-lost-overlay" class="overlay" hidden>Нет связи с mission_fsm</div>
+      <div id="unlock-corner" aria-hidden="true"></div>
+      <div id="prefetch-pool" hidden aria-hidden="true"></div>
+    </section>
+
+    <dialog id="reset-confirm">
+      <p>Убедитесь, что робот физически стоит на базе.</p>
+      <div class="dialog-actions">
+        <button id="btn-reset-confirm" type="button" class="btn btn-stop">
+          Подтвердить сброс
+        </button>
+        <button id="btn-reset-cancel" type="button" class="btn">Отмена</button>
+      </div>
+    </dialog>
+
+    <dialog id="pin-dialog">
+      <p>PIN оператора</p>
+      <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" />
+      <div class="dialog-actions">
+        <button id="btn-pin-ok" type="button" class="btn btn-primary">Открыть панель</button>
+        <button id="btn-pin-cancel" type="button" class="btn">Отмена</button>
+      </div>
+    </dialog>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
