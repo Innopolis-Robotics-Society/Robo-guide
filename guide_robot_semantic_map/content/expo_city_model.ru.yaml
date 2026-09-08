@@ -46,3 +46,12 @@ chunks:
   # Последний чанк остановки -- переход к передаче гиду.
   - {id: c15, level: short, interruptible: true,
      text: "И вот здесь мы подходим к следующей части нашей экскурсии."}
+
+# Task B (B2): синтетический пример медиа-манифеста -- единственный
+# content-файл, тронутый этой задачей (остальные 12 остаются без media:).
+# Файлы -- content/media/expo_city_model/*, заглушки под тесты/приёмку,
+# не реальный контент.
+media:
+  - {id: m1, chunk_id: c1, kind: image, file: overview.jpg}
+  - {id: m2, chunk_id: c2, kind: video, file: flyover.mp4, duration_s: 12.0}
+  - {id: m0, kind: image, file: title.jpg}

@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
-from guide_robot_msgs.msg import ContentHit, ExhibitChunk, SystemEvent
-from guide_robot_msgs.srv import GetExhibitContent, SearchContent
+from guide_robot_msgs.msg import ContentHit, ExhibitChunk, MediaItem, SystemEvent
+from guide_robot_msgs.srv import GetExhibitContent, GetExhibitMedia, SearchContent
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_semantic_map.lib.content_io import (
@@ -90,6 +90,9 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
         )
         self._search_service = self.create_service(
             SearchContent, "~/search_content", self._on_search_content
+        )
+        self._media_service = self.create_service(
+            GetExhibitMedia, "~/get_exhibit_media", self._on_get_exhibit_media
         )
 
         self._stage = "проверка location_ids"
@@ -232,6 +235,74 @@ class ContentServerNode(ServiceGuardMixin, LifecycleNode):
         ]
         response.title = content.title
         response.kind = content.kind
+        response.version = content.version
+        return response
+
+    def _on_get_exhibit_media(
+        self, request: GetExhibitMedia.Request, response: GetExhibitMedia.Response
+    ) -> GetExhibitMedia.Response:
+        """Медиа-манифест экспоната (Task B, B3) -- та же resolve/язык-плинг, что и текст.
+
+        В отличие от `_on_get_exhibit_content`, у этого сервиса есть
+        `ok`/`message` -- используем их для "unknown_exhibit" вместо
+        молчаливого пустого ответа (design задачи требует ok=false именно
+        для неизвестного exhibit_id, не для "нет media у известного").
+        """
+        if not self._require_active("get_exhibit_media"):
+            return response
+
+        default_language = str(self.get_parameter("default_language").value)
+        resolved_id = resolve_exhibit_id(request.exhibit_id, self._content)
+        if resolved_id is None:
+            self.get_logger().warning(
+                f"get_exhibit_media: нет контента для exhibit_id={request.exhibit_id!r} "
+                f"(запрошен язык {request.language!r}, default {default_language!r})"
+            )
+            response.ok = False
+            response.message = "unknown_exhibit"
+            return response
+        if resolved_id != request.exhibit_id.strip():
+            self.get_logger().info(
+                f"get_exhibit_media: {request.exhibit_id!r} → exhibit_id={resolved_id!r} "
+                "(совпадение по title)"
+            )
+
+        available = {
+            language for (exhibit_id, language) in self._content if exhibit_id == resolved_id
+        }
+        language = pick_language(available, request.language, default_language)
+        if language is None:
+            self.get_logger().warning(
+                f"get_exhibit_media: нет языка для exhibit_id={resolved_id!r} "
+                f"(запрошен {request.language!r}, default {default_language!r})"
+            )
+            response.ok = False
+            response.message = "unknown_exhibit"
+            return response
+
+        if request.language and language != request.language:
+            detail = (
+                f"exhibit_id={resolved_id} requested_language={request.language!r} "
+                f"used_language={language!r}"
+            )
+            self.get_logger().warning(f"get_exhibit_media: языковой фолбэк -- {detail}")
+            self._publish_system_event(
+                "semantic_map.content_language_fallback", SystemEvent.WARN, detail
+            )
+
+        content = self._content[(resolved_id, language)]
+        response.ok = True
+        response.items = [
+            MediaItem(
+                id=item.id,
+                chunk_id=item.chunk_id,
+                kind=item.kind,
+                path=f"{resolved_id}/{item.file}",
+                duration_s=item.duration_s,
+                caption=item.caption,
+            )
+            for item in content.media
+        ]
         response.version = content.version
         return response
 

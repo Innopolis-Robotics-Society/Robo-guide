@@ -112,3 +112,24 @@ locations:
     aliases:
       ru: ["точка передачи", "передача гиду"]
       en: ["handoff point"]
+
+  # Task B (B1): точка базы/зарядного дока. Поза (0,0,π) -- источник
+  # guide_robot_navigation/config/first_iter_nav2.yaml.in:53-58 (там же
+  # единственное явное указание, что это именно поза дока), не
+  # guide_robot_mission_control/config/mission.yaml (её yaw не используется
+  # вовсе -- mission_fsm_node._make_context/_home_pose). graph_node=3 --
+  # (0,0) не совпадает физически ни с одним узлом графа; 3
+  # (promobot_m13_artist) ближайший по Евклидовой дистанции (~3.7 м) среди
+  # {1,2,3,4,5,7} -- решение, не факт, см. отчёт задачи. category=charging
+  # (не "base" -- такой категории нет в VALID_CATEGORIES,
+  # lib/locations_io.py:45) -- вместе с is_public=false это единственная
+  # комбинация, уже дающая нужное разделение без нового кода:
+  # is_visible() (lib/locations_io.py:353-364) прячет запись от пустого
+  # ListLocations()-запроса (whitelist guide_robot_llm), но отдаёт её по
+  # явному category="charging" (operator UI, Task C).
+  - id: home
+    graph_node: 3
+    pose: {x: 0.0, y: 0.0, yaw: 3.141592653589793}
+    zone: lab
+    category: charging
+    is_public: false

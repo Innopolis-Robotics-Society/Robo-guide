@@ -48,6 +48,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/FaceState.msg"
   "srv/SetFaceState.srv"
   "msg/DialogPhase.msg"
+  "msg/MediaItem.msg"
+  "srv/GetExhibitMedia.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs
 )
 
