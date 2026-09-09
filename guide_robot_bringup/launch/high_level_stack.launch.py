@@ -158,11 +158,17 @@ def generate_launch_description():
     # ── лицо ─────────────────────────────────────────────────────────────────
     # Не lifecycle: HTTP-сервер + SVG, супервизор его не трогает. Kiosk
     # (Firefox на хосте Jetson) смотрит в http://127.0.0.1:8090.
+    # params_file передан явно -- см. «ГРАБЛЯ» в шапке файла (face.launch.py
+    # тоже объявляет params_file и без явного значения ловит тот же
+    # IsADirectoryError('.')).
     face = GroupAction(
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(os.path.join(pkg_face, "launch", "face.launch.py")),
                 condition=IfCondition(launch_face),
+                launch_arguments={
+                    "params_file": os.path.join(pkg_face, "config", "face_node.yaml"),
+                }.items(),
             ),
         ],
     )
