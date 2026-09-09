@@ -23,11 +23,11 @@
     # RFID-ридера. "changeme" -- валидный по длине (>=8) плейсхолдер,
     # чтобы нода поднималась из коробки; смени перед деплоем -- WARN в
     # логе, пока не сменён.
-    operator_pin: "changeme"
+    operator_pin: "00112233"
     auth_backends: ["rfid", "pin"]
     session_ttl_s: 600.0        # скользящее окно: каждая успешная команда продлевает
     nonce_ttl_s: 30.0
-    max_failed_attempts: 5
+    max_failed_attempts: 30
     lockout_s: 60.0
     # Оператор сворачивает панель посмотреть на слайд и по умолчанию не
     # должен логиниться заново.
@@ -39,8 +39,11 @@
     #   echo "<секрет из прошивки ESP>" > ~/.config/guide_robot/rfid_secret
     #   chmod 600 ~/.config/guide_robot/rfid_secret
     rfid_port: "/dev/rfid0"
-    rfid_secret_file: ""
+    rfid_secret_file: "/home/fabian/ros2_ws/src/rfid_secret"
     rfid_timeout_s: 0.3
+    # firmware/rfid_bridge/src/main.cpp:19-22 -- один REQA не всегда видит
+    # неподвижно лежащую карту, наблюдалось 3 подряд no_card перед успехом.
+    rfid_retries: 5
     run_tour_action: "run_tour"
     request_stop_service: "/mission_fsm/request_stop"
     go_home_service: "/mission_fsm/go_home"

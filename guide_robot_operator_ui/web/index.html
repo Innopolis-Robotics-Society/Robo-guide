@@ -92,10 +92,32 @@
         inputmode="numeric"
         autocomplete="off"
         placeholder="PIN"
+        readonly
       />
+      <!-- readonly на инпуте: сенсорная панель, системной клавиатуры нет
+           (или её показ нежелателен) -- ввод только этими кнопками
+           (design C6, крупные тапабельные цели). -->
+      <!-- 3 колонки x 4 ряда -- классическая раскладка телефона/банкомата,
+           последний ряд -- стереть/0/принять. -->
+      <div id="pin-keypad">
+        <button type="button" class="btn keypad-btn" data-digit="1">1</button>
+        <button type="button" class="btn keypad-btn" data-digit="2">2</button>
+        <button type="button" class="btn keypad-btn" data-digit="3">3</button>
+
+        <button type="button" class="btn keypad-btn" data-digit="4">4</button>
+        <button type="button" class="btn keypad-btn" data-digit="5">5</button>
+        <button type="button" class="btn keypad-btn" data-digit="6">6</button>
+
+        <button type="button" class="btn keypad-btn" data-digit="7">7</button>
+        <button type="button" class="btn keypad-btn" data-digit="8">8</button>
+        <button type="button" class="btn keypad-btn" data-digit="9">9</button>
+
+        <button id="btn-pin-backspace" type="button" class="btn keypad-btn btn-stop">⌫</button>
+        <button type="button" class="btn keypad-btn" data-digit="0">0</button>
+        <button id="btn-pin-ok" type="button" class="btn keypad-btn btn-primary">✓</button>
+      </div>
       <div id="auth-message" class="muted" hidden></div>
       <div class="dialog-actions">
-        <button id="btn-pin-ok" type="button" class="btn btn-primary">Войти по PIN</button>
         <button id="btn-rfid-ok" type="button" class="btn" disabled>Приложить карту</button>
         <button id="btn-auth-cancel" type="button" class="btn">Отмена</button>
       </div>

@@ -17,6 +17,16 @@
   box-sizing: border-box;
 }
 
+/* Авторские правила ниже перебивают UA-дефолт "[hidden] { display: none }"
+   везде, где у элемента/класса свой display (.overlay, #idle-screen,
+   #returning-screen -- все display: flex) -- без этого el.hidden = true
+   ничего не скрывает визуально, хотя атрибут hidden в DOM выставляется
+   верно. !important обязателен: конкурирует именно с более специфичными
+   правилами display ниже по файлу. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -327,9 +337,26 @@ dialog::backdrop {
   width: 100%;
   min-height: 3.25rem;
   font-size: 1.3rem;
+  letter-spacing: 0.3rem;
   text-align: center;
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 8px;
+  /* readonly -- ввод только кнопками ниже (сенсорная панель, без
+     системной клавиатуры), но каретка/курсор незачем, палец не мышь. */
+  caret-color: transparent;
+}
+
+#pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.keypad-btn {
+  min-width: 0; /* .btn задаёт min-width: 8rem, в сетке 3 колонки так не влезет */
+  min-height: 4rem;
+  font-size: 1.4rem;
 }

@@ -2,5 +2,8 @@
 # демонстрации -- реальный контент см. README.md, раздел «Промо-петля».
 version: "2026-09-01.1"
 items:
-  - { id: p1, kind: image, file: hall.jpg, duration_s: 6.0, caption: "" }
-  - { id: p2, kind: video, file: teaser.mp4 }
+  - { id: p1, kind: image, file: IMG_1.PNG, duration_s: 6.0, caption: "" }
+  - { id: p2, kind: image, file: IMG_2.JPG, duration_s: 6.0, caption: "" }
+  - { id: p3, kind: image, file: IMG_3.JPG, duration_s: 6.0, caption: "" }
+  - { id: p4, kind: image, file: IMG_4.JPG, duration_s: 6.0, caption: "" }
+  - { id: p5, kind: image, file: IMG_5.JPG, duration_s: 6.0, caption: "" }

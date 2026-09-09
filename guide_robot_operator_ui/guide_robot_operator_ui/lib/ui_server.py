@@ -160,10 +160,21 @@ class UiServer:
             await self._runner.cleanup()
 
     async def push(self, frame: dict[str, Any]) -> None:
-        """Новый кадр состояния -- запомнить (для реплея) и разослать клиентам."""
+        """Новый кадр состояния -- запомнить (для реплея) и разослать клиентам.
+
+        Итерируем по СНИМКУ `self._clients` (list(...)), не по самому
+        множеству: `await ws.send_json` отдаёт управление циклу событий, и
+        если за это время другой клиент отключится, `_handle_ws`'s
+        `finally: self._clients.discard(ws)` мутирует множество прямо
+        посреди этого цикла -- `RuntimeError: Set changed size during
+        iteration`, вылетающий из корутины, запущенной через fire-and-forget
+        `run_coroutine_threadsafe` в operator_ui_node.py, то есть без
+        снимка эта ошибка молча проглатывалась бы и обрывала рассылку
+        остальным клиентам.
+        """
         self._last_frame = frame
         dead = []
-        for ws in self._clients:
+        for ws in list(self._clients):
             try:
                 await ws.send_json(frame)
             except ConnectionResetError:

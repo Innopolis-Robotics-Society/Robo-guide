@@ -21,6 +21,7 @@ NavigateToPose), и `/admin_cmd_vel` здесь не упоминается во
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import math
 import threading
 import time
@@ -126,6 +127,10 @@ class OperatorUiNode(Node):
         self.declare_parameter("rfid_port", "/dev/rfid0")
         self.declare_parameter("rfid_secret_file", "")
         self.declare_parameter("rfid_timeout_s", 0.3)
+        # firmware/rfid_bridge/src/main.cpp:19-22 -- один REQA на challenge
+        # не всегда видит неподвижно лежащую карту (наблюдалось 3 подряд
+        # no_card перед успехом), опрос в цикле обязателен на этой стороне.
+        self.declare_parameter("rfid_retries", 5)
         # Имена сервисов/экшена -- параметры, не хардкод (design C3).
         self.declare_parameter("run_tour_action", "run_tour")
         self.declare_parameter("request_stop_service", "/mission_fsm/request_stop")
@@ -336,8 +341,13 @@ class OperatorUiNode(Node):
                     f"rfid_port {rfid_port} не открылся ({exc}) -- RFID недоступен, "
                     "вход по PIN, узел поднимается (design E5)"
                 )
+            else:
+                self.get_logger().info(
+                    f"rfid: порт {rfid_port} открыт, timeout={rfid_timeout_s}s"
+                )
 
-        return RfidBackend(link, secret)
+        rfid_retries = int(self.get_parameter("rfid_retries").value)
+        return RfidBackend(link, secret, retries=rfid_retries)
 
     def _run_server(self, host: str, port: int) -> None:
         loop = asyncio.new_event_loop()
@@ -350,6 +360,8 @@ class OperatorUiNode(Node):
     # -- ROS -> web (подписки) ------------------------------------------------
 
     def _on_mission_state(self, msg: MissionState) -> None:
+        if self._mission_received_at_s is None:
+            self.get_logger().info("mission_fsm: первое /mission/state получено")
         self._last_mission_msg = msg
         self._mission_received_at_s = self._now_s()
         self._push_frame()
@@ -381,11 +393,21 @@ class OperatorUiNode(Node):
             mission_received_at_s=self._mission_received_at_s,
         )
         assert self._loop is not None
-        asyncio.run_coroutine_threadsafe(self._server.push(frame), self._loop)
+        push_fut = asyncio.run_coroutine_threadsafe(self._server.push(frame), self._loop)
+        # push() бежит fire-and-forget с точки зрения rclpy-потока -- без
+        # этого колбэка исключение из неё (напр. ошибка отправки клиенту)
+        # осело бы в concurrent.futures.Future, которую никто не читает, и
+        # пропало бы молча, оставив UI считать, что кадр ушёл.
+        push_fut.add_done_callback(self._log_push_exception)
+
+    def _log_push_exception(self, fut: "concurrent.futures.Future[None]") -> None:
+        exc = fut.exception()
+        if exc is not None:
+            self.get_logger().error(f"ui_server.push() упал: {exc!r}", throttle_duration_sec=5.0)
 
     # -- web -> ROS мост -------------------------------------------------------
 
-    async def _call_ros(self, make_future: Any, timeout_s: float) -> Any:
+    async def _call_ros(self, make_future: Any, timeout_s: float, *, name: str = "?") -> Any:
         """Вызвать rclpy `*.call_async()`/`send_goal_async()` и дождаться ответа.
 
         `make_future` зовётся на ЭТОМ (серверном) потоке -- безопасно,
@@ -398,7 +420,11 @@ class OperatorUiNode(Node):
         другом конце `ros_future` просто никогда не резолвится, и это
         неотличимо здесь от "сервер медленный" -- ни то ни другое не
         считается по отдельности, оба ловятся одним `asyncio.wait_for`.
+
+        `name` -- только для лога (какой именно ROS-вызов идёт/упал/повис),
+        на логику не влияет.
         """
+        self.get_logger().debug(f"_call_ros[{name}]: старт, timeout={timeout_s}s")
         ros_future = make_future()
         aio_future = self._loop.create_future()  # type: ignore[union-attr]
 
@@ -412,15 +438,27 @@ class OperatorUiNode(Node):
 
         ros_future.add_done_callback(_on_done)
         try:
-            return await asyncio.wait_for(aio_future, timeout=timeout_s)
+            result = await asyncio.wait_for(aio_future, timeout=timeout_s)
+        except (TimeoutError, asyncio.TimeoutError):
+            self.get_logger().warning(
+                f"_call_ros[{name}]: таймаут за {timeout_s}s -- сервис/экшен-сервер не отвечает"
+                " (не поднят, не активирован, или реально завис)"
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001 -- пробрасываем как есть, только логируем
+            self.get_logger().error(f"_call_ros[{name}]: упал -- {exc!r}")
+            raise
+        else:
+            self.get_logger().debug(f"_call_ros[{name}]: ответ получен")
+            return result
         finally:
             if not ros_future.done():
                 ros_future.cancel()
 
-    async def _call_trigger(self, client: Any) -> tuple[int, dict[str, Any]]:
+    async def _call_trigger(self, client: Any, *, name: str) -> tuple[int, dict[str, Any]]:
         try:
             response = await self._call_ros(
-                lambda: client.call_async(Trigger.Request()), self._service_timeout_s
+                lambda: client.call_async(Trigger.Request()), self._service_timeout_s, name=name
             )
         except (TimeoutError, asyncio.TimeoutError):
             return 503, {"message": "service_unavailable"}
@@ -435,6 +473,7 @@ class OperatorUiNode(Node):
                     ListTours.Request(language=self._tours_language)
                 ),
                 self._service_timeout_s,
+                name="list_tours",
             )
         except (TimeoutError, asyncio.TimeoutError):
             return 503, {"message": "service_unavailable"}
@@ -474,7 +513,9 @@ class OperatorUiNode(Node):
         )
         try:
             goal_handle = await self._call_ros(
-                lambda: self._run_tour_client.send_goal_async(goal), self._service_timeout_s
+                lambda: self._run_tour_client.send_goal_async(goal),
+                self._service_timeout_s,
+                name="run_tour.send_goal",
             )
         except (TimeoutError, asyncio.TimeoutError):
             return 503, {"message": "service_unavailable"}
@@ -483,10 +524,10 @@ class OperatorUiNode(Node):
         return 200, {"message": ""}
 
     async def _on_api_tour_stop(self) -> tuple[int, dict[str, Any]]:
-        return await self._call_trigger(self._request_stop_client)
+        return await self._call_trigger(self._request_stop_client, name="request_stop")
 
     async def _on_api_go_home(self) -> tuple[int, dict[str, Any]]:
-        return await self._call_trigger(self._go_home_client)
+        return await self._call_trigger(self._go_home_client, name="go_home")
 
     async def _on_api_localization_reset(self) -> tuple[int, dict[str, Any]]:
         """Сброс AMCL на позу `home` (design C5). Порядок шагов -- см. task doc.
@@ -509,6 +550,7 @@ class OperatorUiNode(Node):
                     ListLocations.Request(category="charging")
                 ),
                 self._service_timeout_s,
+                name="list_locations",
             )
         except (TimeoutError, asyncio.TimeoutError):
             return 503, {"message": "service_unavailable"}
@@ -539,6 +581,7 @@ class OperatorUiNode(Node):
                 await self._call_ros(
                     lambda c=client: c.call_async(ClearEntireCostmap.Request()),
                     self._service_timeout_s,
+                    name=f"clear_costmap[{client.srv_name}]",
                 )
             except (TimeoutError, asyncio.TimeoutError):
                 self.get_logger().warning(
@@ -586,6 +629,7 @@ class OperatorUiNode(Node):
                     )
                 ),
                 self._service_timeout_s,
+                name="get_exhibit_content",
             )
         except (TimeoutError, asyncio.TimeoutError):
             return 503, {"message": "service_unavailable"}
@@ -596,6 +640,7 @@ class OperatorUiNode(Node):
                     GetExhibitMedia.Request(exhibit_id=exhibit_id, language=self._content_language)
                 ),
                 self._service_timeout_s,
+                name="get_exhibit_media",
             )
         except (TimeoutError, asyncio.TimeoutError):
             return 503, {"message": "service_unavailable"}
@@ -685,11 +730,26 @@ class OperatorUiNode(Node):
             )
             return 429, {"error": "locked_out", "retry_after_s": lockout_remaining_s}
 
+        if used_backend == "rfid":
+            self.get_logger().info("rfid: приложите карту -- жду challenge/response")
+
         # to_thread: RfidBackend.verify() блокирует до rfid_timeout_s на
         # реальном порте (design E4) -- вызов из event loop сервера
         # напрямую застопорил бы вообще все WS/HTTP на время каждой
         # попытки входа. Pin/MockBackend от этого не страдают -- быстрые.
+        started_s = time.monotonic()
         result = await asyncio.to_thread(self._auth_chain.verify, nonce, backend_name, kwargs)
+        elapsed_s = time.monotonic() - started_s
+        if used_backend == "rfid":
+            # reason уже несёт код от ESP (rfid_timeout/rfid_bad_response/
+            # rfid_bad_signature/rfid_missing_card/rfid_unavailable/...,
+            # см. RfidBackend.verify в lib/auth.py) -- здесь только делаем
+            # его видимым в живом логе ноды, а не только в jsonl.
+            self.get_logger().info(
+                f"rfid: {'успех' if result.ok else 'отказ'} за {elapsed_s:.2f}s"
+                f"{'' if result.ok else f', причина={result.reason}'}"
+            )
+
         if not result.ok:
             self._sessions.record_failure()
             self._log_command_line(
@@ -699,7 +759,15 @@ class OperatorUiNode(Node):
                 ok=False,
                 reason=result.reason,
             )
-            return 401, {"error": "invalid_credentials"}
+            body: dict[str, Any] = {"error": "invalid_credentials"}
+            # rfid_no_card -- единственная причина, которую стоит отличать
+            # в UI ("карту не считало", а не "неверный вход"): это
+            # состояние ридера, не попытка подбора учётных данных, ничего
+            # чувствительного не раскрывает. Остальные reason (wrong_pin,
+            # rfid_bad_signature, ...) наружу нарочно не идут.
+            if result.reason == "rfid_no_card":
+                body["reason"] = "rfid_no_card"
+            return 401, body
 
         info, evicted = self._sessions.create_session(
             operator=result.operator, backend=used_backend
@@ -747,6 +815,7 @@ class OperatorUiNode(Node):
         self._sessions.touch(token)
 
     async def _on_api_command_logged(self, *, path: str, operator: str, status: int) -> None:
+        self.get_logger().info(f"команда {path} -- оператор={operator or '?'}, статус={status}")
         self._log_command_line(event="command", path=path, operator=operator, status=status)
 
     # -- завершение -------------------------------------------------------------

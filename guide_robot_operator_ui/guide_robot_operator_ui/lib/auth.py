@@ -99,28 +99,40 @@ class RfidBackend:
 
     Секрет не покидает ESP -- по проводу только подпись (`RfidLink`),
     сверка HMAC -- здесь. `verify()` синхронный и может блокироваться до
-    `rfid_timeout_s` (порт открывается один раз при создании, не на
-    каждый вызов) -- вызывающий (operator_ui_node.py) обязан звать это
+    `retries * rfid_timeout_s` (порт открывается один раз при создании, не
+    на каждый вызов) -- вызывающий (operator_ui_node.py) обязан звать это
     через `asyncio.to_thread`, не напрямую из event loop сервера.
     """
 
     name = "rfid"
 
-    def __init__(self, link: RfidLink | None, secret: str) -> None:
-        """`link=None` -- порт не открылся при старте (design E4: узел всё равно поднимается)."""
+    def __init__(self, link: RfidLink | None, secret: str, *, retries: int = 5) -> None:
+        """`link=None` -- порт не открылся при старте (design E4: узел всё равно поднимается).
+
+        `retries` -- сколько раз опросить мост подряд, пока он отвечает
+        "no_card" (firmware/rfid_bridge/src/main.cpp:19-22: один REQA на
+        challenge не всегда видит неподвижно лежащую карту, на живом
+        железе наблюдалось 3 подряд no_card перед успехом -- одиночный
+        опрос это не отказ входа, а промах антиколлизии).
+        """
         self._link = link
         self._secret = secret.encode("utf-8")
+        self._retries = max(1, retries)
 
     def available(self) -> bool:
         """Готов, только если порт открылся И секрет загружен -- оба обязательны."""
         return self._link is not None and bool(self._secret)
 
     def verify(self, nonce: str, payload: dict[str, Any]) -> AuthResult:
-        """Дёрнуть ридер и сверить HMAC-SHA256(secret, nonce) с полученной подписью."""
+        """Дёрнуть ридер (с ретраями на no_card) и сверить HMAC-SHA256(secret, nonce)."""
         del payload  # RFID ничего не берёт из тела POST -- решает сам ридер
         if self._link is None or not self._secret:
             return AuthResult(ok=False, operator="", reason="rfid_unavailable")
         challenge = self._link.challenge(nonce)
+        for _ in range(self._retries - 1):
+            if challenge.ok or challenge.err != "no_card":
+                break
+            challenge = self._link.challenge(nonce)
         if not challenge.ok:
             return AuthResult(ok=False, operator="", reason=f"rfid_{challenge.err}")
         expected = hmac.new(self._secret, nonce.encode("utf-8"), hashlib.sha256).hexdigest()

@@ -17,6 +17,12 @@
   // renderItem/handleBrokenMedia): каждый цикл несёт свой baseUrl.
   const MEDIA_BASE_URL = "/media";
   const PROMO_BASE_URL = "/promo";
+  // TODO(временно): настоящих медиа тура/экспоната ещё нет (promo/media --
+  // синтетические заглушки для теста/демо, не контент), поэтому пока
+  // ВСЕГДА крутим промо-цикл -- и в простое, и во время тура. Убрать этот
+  // флаг (вернуть isActive/lastKnownActive-гейт ниже), когда появится
+  // реальный контент под /media.
+  const ALWAYS_PROMO = true;
 
   const STATE_NAME_RU = {
     idle: "Ожидание",
@@ -69,6 +75,9 @@
   const btnPinOk = document.getElementById("btn-pin-ok");
   const btnRfidOk = document.getElementById("btn-rfid-ok");
   const btnAuthCancel = document.getElementById("btn-auth-cancel");
+  const pinKeypad = document.getElementById("pin-keypad");
+  const btnPinBackspace = document.getElementById("btn-pin-backspace");
+  const PIN_MAX_LEN = 20; // разумный потолок -- не защита, просто не даём полю расти бесконечно
 
   // -- слой 3: плашки (design E1, поверх обоих слоёв) --------------------------
   const estopOverlay = document.getElementById("estop-overlay");
@@ -142,6 +151,7 @@
   // это сигнал "сессия истекла/вытеснена", а не ошибка конкретной кнопки
   // (design E2: гейт -- middleware по списку путей, единый для всех).
   async function api(method, path, body) {
+    console.debug(`operator_ui: -> ${method} ${path}`, body !== undefined ? body : "");
     const opts = { method, headers: {} };
     if (authToken !== null) opts.headers.Authorization = `Bearer ${authToken}`;
     if (body !== undefined) {
@@ -152,6 +162,7 @@
     try {
       resp = await fetch(path, opts);
     } catch (err) {
+      console.error(`operator_ui: ${method} ${path} -- fetch упал`, err);
       showMessage(`Нет связи с operator_ui: ${err}`);
       return null;
     }
@@ -161,11 +172,14 @@
     } catch {
       /* тело могло быть пустым (200 без body) */
     }
+    console.debug(`operator_ui: <- ${method} ${path} [${resp.status}]`, data);
     if (resp.status === 401 && authToken !== null) {
+      console.warn(`operator_ui: ${method} ${path} -- 401, сессия сброшена`);
       onSessionLost("Сессия истекла или была закрыта");
       return null;
     }
     if (!resp.ok) {
+      console.warn(`operator_ui: ${method} ${path} -- ${resp.status}`, data);
       showMessage(data.message || data.error || `Ошибка ${resp.status}`);
       return null;
     }
@@ -527,7 +541,7 @@
   // заглядывает вообще -- паузу/снятие с паузы по панели считает
   // updateVideoPauseState(), не этот код. --
   function updateMediaLayer() {
-    const isActive = lastKnownActive;
+    const isActive = !ALWAYS_PROMO && lastKnownActive;
 
     if (!isActive) {
       lastWasReturning = false;
@@ -609,7 +623,7 @@
   function updateVideoPauseState() {
     const overlayOpen = panelOpen && authToken !== null;
     let pauseForState = false;
-    if (lastKnownActive) {
+    if (!ALWAYS_PROMO && lastKnownActive) {
       // estop/fault/потеря связи -- пауза ТОЛЬКО для тура (design D4).
       // Промо не замирает от потери /mission/state (design F4, критерий 9).
       const connLost =
@@ -632,16 +646,22 @@
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
       const ws = new WebSocket(`${proto}//${location.host}/ws`);
       ws.onopen = () => {
+        console.debug("operator_ui: ws открыт");
         reconnectDelay = WS_RECONNECT_MIN_MS;
       };
       ws.onmessage = (ev) => {
         try {
-          applyFrame(JSON.parse(ev.data));
+          const frame = JSON.parse(ev.data);
+          console.debug(
+            `operator_ui: кадр #${frame.seq}, mission_state_age_s=${frame.mission_state_age_s}`
+          );
+          applyFrame(frame);
         } catch (err) {
           console.error("operator_ui: malformed ws frame", err);
         }
       };
       ws.onclose = () => {
+        console.debug("operator_ui: ws закрыт, переподключение через", reconnectDelay, "мс");
         // Пока не переподключились -- считаем, что данных нет (design C4:
         // возраст важнее последнего известного значения).
         latestFrame = null;
@@ -649,12 +669,21 @@
         setTimeout(open, reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 2, WS_RECONNECT_MAX_MS);
       };
-      ws.onerror = () => ws.close();
+      ws.onerror = (err) => {
+        console.debug("operator_ui: ws error", err);
+        ws.close();
+      };
     };
     open();
   }
 
   btnStart.addEventListener("click", async () => {
+    console.debug("operator_ui: клик Старт", {
+      tourId: tourSelect.value,
+      blocked: commandsBlocked(),
+      blockReason: blockReason(),
+      authToken: authToken !== null,
+    });
     const tourId = tourSelect.value;
     if (!tourId) {
       showMessage("Нет доступных туров");
@@ -664,14 +693,23 @@
   });
 
   btnStop.addEventListener("click", async () => {
+    console.debug("operator_ui: клик Стоп", { blocked: commandsBlocked(), blockReason: blockReason() });
     await api("POST", "/api/tour/stop");
   });
 
   btnHome.addEventListener("click", async () => {
+    console.debug("operator_ui: клик На базу", {
+      blocked: commandsBlocked(),
+      blockReason: blockReason(),
+    });
     await api("POST", "/api/go_home");
   });
 
   btnReset.addEventListener("click", () => {
+    console.debug("operator_ui: клик Сброс локализации", {
+      blocked: commandsBlocked(),
+      blockReason: blockReason(),
+    });
     resetConfirmDialog.showModal();
   });
   btnResetCancel.addEventListener("click", () => resetConfirmDialog.close());
@@ -723,6 +761,22 @@
     if (pressTimer) clearTimeout(pressTimer);
     pressTimer = null;
   };
+  // nonce одноразовый -- сервер гасит его при ЛЮБОМ /api/auth/verify,
+  // успешном или нет (design E2, критерий 5/6). Без повторного запроса
+  // сюда после неудачной попытки currentNonce остаётся null, и второй
+  // клик по "Войти по PIN"/"Приложить карту" молча ничего не делает
+  // (verifyAndOpen выходит по первой же проверке) -- отсюда баг "кнопка
+  // работает один раз".
+  async function refreshChallenge() {
+    const data = await api("POST", "/api/auth/challenge");
+    if (!data) return false;
+    currentNonce = data.nonce;
+    const rfidAvailable = (data.backends || []).includes("rfid");
+    console.debug("operator_ui: auth/challenge backends=", data.backends, "rfid доступен:", rfidAvailable);
+    btnRfidOk.disabled = !rfidAvailable;
+    return true;
+  }
+
   unlockCorner.addEventListener("pointerdown", () => {
     pressTimer = setTimeout(async () => {
       if (authToken !== null) {
@@ -732,10 +786,7 @@
       }
       pinInput.value = "";
       showAuthMessage("");
-      const data = await api("POST", "/api/auth/challenge");
-      if (!data) return;
-      currentNonce = data.nonce;
-      btnRfidOk.disabled = !((data.backends || []).includes("rfid"));
+      if (!(await refreshChallenge())) return;
       authDialog.showModal();
       pinInput.focus();
     }, LONG_PRESS_MS);
@@ -745,7 +796,11 @@
   unlockCorner.addEventListener("pointercancel", cancelPress);
 
   async function verifyAndOpen(backend, extra) {
-    if (!currentNonce) return;
+    if (!currentNonce) {
+      console.debug("operator_ui: verifyAndOpen без nonce -- клик проигнорирован", { backend });
+      return;
+    }
+    console.debug("operator_ui: -> POST /api/auth/verify", { backend });
     const resp = await fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -758,9 +813,18 @@
     } catch {
       /* тело могло быть пустым */
     }
+    console.debug(`operator_ui: <- POST /api/auth/verify [${resp.status}]`, data);
     if (!resp.ok) {
-      showAuthMessage(data.error === "locked_out" ? "Слишком много попыток, подождите" : "Неверно");
+      console.warn(`operator_ui: вход по ${backend} отклонён`, data);
+      if (data.error === "locked_out") {
+        showAuthMessage("Слишком много попыток, подождите");
+      } else if (data.reason === "rfid_no_card") {
+        showAuthMessage("Карта не считалась -- приложите её ещё раз и не убирайте");
+      } else {
+        showAuthMessage("Неверно");
+      }
       pinInput.value = "";
+      await refreshChallenge();
       return;
     }
     authToken = data.token;
@@ -776,6 +840,19 @@
   });
   btnPinOk.addEventListener("click", () => verifyAndOpen("pin", { pin: pinInput.value }));
   btnRfidOk.addEventListener("click", () => verifyAndOpen("rfid", {}));
+
+  // -- цифровая клавиатура PIN (design C6): панель сенсорная, системной
+  // клавиатуры нет -- pin-input readonly, ввод только этими кнопками.
+  pinKeypad.addEventListener("click", (ev) => {
+    const digit = ev.target.dataset.digit;
+    if (digit === undefined) return;
+    if (pinInput.value.length >= PIN_MAX_LEN) return;
+    pinInput.value += digit;
+    showAuthMessage("");
+  });
+  btnPinBackspace.addEventListener("click", () => {
+    pinInput.value = pinInput.value.slice(0, -1);
+  });
 
   // Сервер -- единственный источник истины по истечении сессии (design
   // E2): без push-канала для auth клиент обязан сам спрашивать, иначе

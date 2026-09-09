@@ -15,11 +15,15 @@
 // ниже единственное место, которое пишет в Serial, и они принимают
 // только (hex-подпись, имя) или код ошибки, физически не могут переслать
 // что-то ещё.
+//
+// ВАЖНО для вызывающей стороны: опрос карты синхронный, ровно один REQA
+// на challenge. Карта попадает в поле не всегда -- на живом железе
+// наблюдалось 3 подряд no_card перед успехом. Узел ОБЯЗАН опрашивать
+// мост в цикле с retry, а не считать одиночный no_card отказом.
 
 #include <Arduino.h>
 #include <MFRC522.h>
 #include <SPI.h>
-#include <USB.h>
 #include <esp_wifi.h>
 #include <mbedtls/md.h>
 
@@ -44,11 +48,12 @@ MFRC522 rfid(PIN_RC522_SS, PIN_RC522_RST);
 MFRC522::MIFARE_Key sectorKey;
 
 void setup() {
-  // Серийник -- ДО USB.begin()/Serial.begin(), иначе поздно (design E5):
-  // без него все платы этой модели отвечают одним и тем же VID:PID
-  // 303a:1001, и udev-правило по ATTRS{serial} не сможет их различить
-  // при переподключении/перезагрузке.
-  USB.serialNumber(RFID_BRIDGE_USB_SERIAL);
+  // Серийный номер USB-дескриптора (design E5) здесь НЕ задаётся -- он
+  // приходит из -D USB_SERIAL в platformio.ini. Задать его отсюда нельзя
+  // в принципе: ядро зовёт USB.begin() в app_main(), то есть до setup(),
+  // а ESPUSB::serialNumber() после старта молча возвращает false и
+  // ничего не меняет. Проверка после прошивки:
+  //   lsusb -d 303a: -v 2>/dev/null | grep -iE 'iProduct|iSerial'
   Serial.begin(115200);
   while (!Serial) {
     delay(10);
@@ -83,6 +88,11 @@ void reply_err(const char *err) {
 // false -- карты нет ИЛИ ключ сектора не подошёл; клон/чужая карта без
 // прошитого сектора не отличается от "карты нет" на этом уровне --
 // так и задумано (design E4: клонировать UID недостаточно).
+//
+// PICC_HaltA() ниже уводит карту в состояние HALT, а PICC_IsNewCardPresent()
+// шлёт REQA, на который HALT-карта не отвечает. Следствие: второй challenge
+// подряд при неподвижно лежащей карте штатно вернёт no_card. Это не баг,
+// но именно поэтому узлу нужен retry (см. шапку файла).
 bool readOperatorName(String &outName) {
   if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
     return false;
