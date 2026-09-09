@@ -23,9 +23,7 @@
     # чтобы нода поднималась из коробки; смени перед деплоем -- WARN в
     # логе, пока не сменён.
     operator_pin: "changeme"
-    # "rfid" добавится вместе с RfidBackend (Task E4); до тех пор -- только
-    # ["pin"], иначе нода откажется стартовать (design E3).
-    auth_backends: ["pin"]
+    auth_backends: ["rfid", "pin"]
     session_ttl_s: 600.0        # скользящее окно: каждая успешная команда продлевает
     nonce_ttl_s: 30.0
     max_failed_attempts: 5
@@ -34,6 +32,14 @@
     # должен логиниться заново.
     close_session_on_panel_hide: false
     command_log_dir: "~/.guide_robot/operator_ui"
+    # -- RFID (Task E4) -- удобство и атрибуция в логах, НЕ стойкость.
+    # Пусто/нет порта -- RFID недоступен, вход по PIN, узел всё равно
+    # поднимается (design E5). Секрет -- в файле вне git, не здесь:
+    #   echo "<секрет из прошивки ESP>" > ~/.config/guide_robot/rfid_secret
+    #   chmod 600 ~/.config/guide_robot/rfid_secret
+    rfid_port: "/dev/rfid0"
+    rfid_secret_file: ""
+    rfid_timeout_s: 0.3
     run_tour_action: "run_tour"
     request_stop_service: "/mission_fsm/request_stop"
     go_home_service: "/mission_fsm/go_home"

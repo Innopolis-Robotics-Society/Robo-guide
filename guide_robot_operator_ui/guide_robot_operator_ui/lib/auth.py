@@ -2,8 +2,8 @@
 
 Один интерфейс (`AuthBackend`), несколько реализаций: PIN -- резерв и
 потолок стойкости всей схемы (переживает отказ ридера), RFID -- удобство и
-атрибуция в логах, не стойкость (E4, `RfidBackend` появится вместе с ним).
-MockBackend -- только для стенда без железа.
+атрибуция в логах, не стойкость (E4), MockBackend -- только для стенда без
+железа.
 
 `"mock"` в `auth_backends` коротит ВСЮ цепочку, а не участвует в переборе
 по порядку: если бы он был рядовой записью, `["pin","mock"]` и
@@ -14,9 +14,12 @@ MockBackend -- только для стенда без железа.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 from dataclasses import dataclass
 from typing import Any, Protocol
+
+from guide_robot_operator_ui.lib.rfid_link import RfidLink
 
 __all__ = [
     "AuthBackend",
@@ -24,6 +27,7 @@ __all__ = [
     "AuthResult",
     "MockBackend",
     "PinBackend",
+    "RfidBackend",
     "make_auth_chain",
 ]
 
@@ -90,6 +94,45 @@ class MockBackend:
         return AuthResult(ok=True, operator="mock", reason="")
 
 
+class RfidBackend:
+    """HMAC challenge/response через ESP32-S3/RC522 (design E4).
+
+    Секрет не покидает ESP -- по проводу только подпись (`RfidLink`),
+    сверка HMAC -- здесь. `verify()` синхронный и может блокироваться до
+    `rfid_timeout_s` (порт открывается один раз при создании, не на
+    каждый вызов) -- вызывающий (operator_ui_node.py) обязан звать это
+    через `asyncio.to_thread`, не напрямую из event loop сервера.
+    """
+
+    name = "rfid"
+
+    def __init__(self, link: RfidLink | None, secret: str) -> None:
+        """`link=None` -- порт не открылся при старте (design E4: узел всё равно поднимается)."""
+        self._link = link
+        self._secret = secret.encode("utf-8")
+
+    def available(self) -> bool:
+        """Готов, только если порт открылся И секрет загружен -- оба обязательны."""
+        return self._link is not None and bool(self._secret)
+
+    def verify(self, nonce: str, payload: dict[str, Any]) -> AuthResult:
+        """Дёрнуть ридер и сверить HMAC-SHA256(secret, nonce) с полученной подписью."""
+        del payload  # RFID ничего не берёт из тела POST -- решает сам ридер
+        if self._link is None or not self._secret:
+            return AuthResult(ok=False, operator="", reason="rfid_unavailable")
+        challenge = self._link.challenge(nonce)
+        if not challenge.ok:
+            return AuthResult(ok=False, operator="", reason=f"rfid_{challenge.err}")
+        expected = hmac.new(self._secret, nonce.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(challenge.resp, expected):
+            return AuthResult(ok=False, operator="", reason="rfid_bad_signature")
+        if not challenge.card:
+            return AuthResult(ok=False, operator="", reason="rfid_missing_card")
+        # card -- логическое имя оператора (design E4), НЕ UID -- уже
+        # гарантировано схемой ChallengeResult в rfid_link.py.
+        return AuthResult(ok=True, operator=challenge.card, reason="")
+
+
 @dataclass(frozen=True)
 class AuthChain:
     """Собранная и провалидированная на старте цепочка бэкендов."""
@@ -124,8 +167,9 @@ def make_auth_chain(
 
     Отказ стартовать, не молчаливое игнорирование: пустой список; "pin"
     отсутствует (потолок стойкости всей схемы обязан быть доступен всегда);
-    неизвестное имя; "rfid" указан, но `rfid_backend` не передан (E4 ещё не
-    подключён -- до тех пор дефолт `auth_backends` обязан быть `["pin"]`).
+    неизвестное имя; "rfid" указан, но `rfid_backend` не передан (вызывающий
+    обязан собрать `RfidBackend` сам -- отсутствие порта/секрета делает его
+    `available() == False`, а не отсутствующим, design E4).
     """
     if not names:
         raise ValueError("auth_backends: пустой список -- PIN обязателен")

@@ -39,9 +39,10 @@ from std_srvs.srv import Trigger
 from guide_robot_msgs.action import RunTour
 from guide_robot_msgs.msg import MissionState
 from guide_robot_msgs.srv import GetExhibitContent, GetExhibitMedia, ListLocations, ListTours
-from guide_robot_operator_ui.lib.auth import make_auth_chain
+from guide_robot_operator_ui.lib.auth import RfidBackend, make_auth_chain
 from guide_robot_operator_ui.lib.command_log import CommandLogSink
 from guide_robot_operator_ui.lib.qos import QOS_MISSION_STATE
+from guide_robot_operator_ui.lib.rfid_link import PySerialPort, RfidLink
 from guide_robot_operator_ui.lib.session import SessionManager
 from guide_robot_operator_ui.lib.state_frame import build_frame
 from guide_robot_operator_ui.lib.ui_server import UiServer
@@ -105,10 +106,7 @@ class OperatorUiNode(Node):
         # чтобы нода поднималась из коробки, а не "0000" (было бы отказом
         # стартовать сразу после проверки, которую этот же коммит вводит).
         self.declare_parameter("operator_pin", "changeme")
-        # "rfid" добавится в этот список вместе с RfidBackend (Task E4) --
-        # до тех пор дефолт обязан быть только ["pin"], иначе make_auth_chain
-        # откажет стартовать (design E3: "rfid" без rfid_backend -- ошибка).
-        self.declare_parameter("auth_backends", ["pin"])
+        self.declare_parameter("auth_backends", ["rfid", "pin"])
         self.declare_parameter("session_ttl_s", 600.0)
         self.declare_parameter("nonce_ttl_s", 30.0)
         self.declare_parameter("max_failed_attempts", 5)
@@ -117,6 +115,11 @@ class OperatorUiNode(Node):
         # не должен логиниться заново (design E2).
         self.declare_parameter("close_session_on_panel_hide", False)
         self.declare_parameter("command_log_dir", "~/.guide_robot/operator_ui")
+        # -- RFID (Task E4). Пусто/нет порта -- RFID недоступен, вход по
+        # PIN, узел всё равно поднимается (design E5, критерий 15).
+        self.declare_parameter("rfid_port", "/dev/rfid0")
+        self.declare_parameter("rfid_secret_file", "")
+        self.declare_parameter("rfid_timeout_s", 0.3)
         # Имена сервисов/экшена -- параметры, не хардкод (design C3).
         self.declare_parameter("run_tour_action", "run_tour")
         self.declare_parameter("request_stop_service", "/mission_fsm/request_stop")
@@ -164,7 +167,12 @@ class OperatorUiNode(Node):
             )
 
         auth_backend_names = [str(name) for name in self.get_parameter("auth_backends").value]
-        self._auth_chain = make_auth_chain(auth_backend_names, operator_pin=self._operator_pin)
+        rfid_backend = None
+        if "rfid" in auth_backend_names:
+            rfid_backend = self._build_rfid_backend()
+        self._auth_chain = make_auth_chain(
+            auth_backend_names, operator_pin=self._operator_pin, rfid_backend=rfid_backend
+        )
 
         self._session_ttl_s = float(self.get_parameter("session_ttl_s").value)
         self._close_session_on_panel_hide = bool(
@@ -275,6 +283,42 @@ class OperatorUiNode(Node):
         )
 
         self.get_logger().info(f"operator_ui: http://{bind_host}:{http_port}, web_root={web_root}")
+
+    def _build_rfid_backend(self) -> RfidBackend:
+        """Собрать RfidBackend; отсутствие секрета/порта -- WARN, не отказ узла (design E5).
+
+        Секрет читается из файла (путь -- параметр, файл вне git,
+        design E4/E5), не из самого параметра -- он не должен осесть в
+        ros2 param dump/логе запуска.
+        """
+        secret = ""
+        secret_file = str(self.get_parameter("rfid_secret_file").value)
+        if secret_file:
+            secret_path = Path(secret_file).expanduser()
+            try:
+                secret = secret_path.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                self.get_logger().warning(
+                    f"rfid_secret_file {secret_path} не прочитан ({exc}) -- RFID недоступен"
+                )
+        else:
+            self.get_logger().warning(
+                "rfid_secret_file не задан -- RFID недоступен, вход только по PIN"
+            )
+
+        link: RfidLink | None = None
+        if secret:
+            rfid_port = str(self.get_parameter("rfid_port").value)
+            rfid_timeout_s = float(self.get_parameter("rfid_timeout_s").value)
+            try:
+                link = RfidLink(PySerialPort(rfid_port), timeout_s=rfid_timeout_s)
+            except OSError as exc:
+                self.get_logger().warning(
+                    f"rfid_port {rfid_port} не открылся ({exc}) -- RFID недоступен, "
+                    "вход по PIN, узел поднимается (design E5)"
+                )
+
+        return RfidBackend(link, secret)
 
     def _run_server(self, host: str, port: int) -> None:
         loop = asyncio.new_event_loop()
@@ -601,7 +645,11 @@ class OperatorUiNode(Node):
             )
             return 429, {"error": "locked_out", "retry_after_s": lockout_remaining_s}
 
-        result = self._auth_chain.verify(nonce, backend_name, kwargs)
+        # to_thread: RfidBackend.verify() блокирует до rfid_timeout_s на
+        # реальном порте (design E4) -- вызов из event loop сервера
+        # напрямую застопорил бы вообще все WS/HTTP на время каждой
+        # попытки входа. Pin/MockBackend от этого не страдают -- быстрые.
+        result = await asyncio.to_thread(self._auth_chain.verify, nonce, backend_name, kwargs)
         if not result.ok:
             self._sessions.record_failure()
             self._log_command_line(
