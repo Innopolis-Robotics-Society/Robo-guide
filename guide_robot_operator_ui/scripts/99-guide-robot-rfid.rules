@@ -1,0 +1,14 @@
+# udev rule for the RFID bridge (ESP32-S3 + RC522), Task E4/E5.
+#
+# ESP32-S3's native USB reports the same idVendor:idProduct (303a:1001) on
+# thousands of boards, and /dev/ttyACM* is renumbered on every reconnect --
+# so this matches on ATTRS{serial} (RFID_BRIDGE_USB_SERIAL from the
+# firmware, firmware/rfid_bridge/include/rfid_bridge_secrets.h), not on
+# VID/PID. Update the serial below to match what you flashed.
+#
+# Install (manual, same recipe as guide_robot_face's kiosk setup):
+#   sudo cp 99-guide-robot-rfid.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ATTRS{serial}=="guide-robot-rfid-01", SYMLINK+="rfid0", MODE="0666"
