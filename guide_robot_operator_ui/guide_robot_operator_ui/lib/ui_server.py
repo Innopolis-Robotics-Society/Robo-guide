@@ -71,12 +71,14 @@ class UiServer:
         *,
         web_root: Path,
         media_root: Path,
+        promo_root: Path,
         on_tours: _CommandCallback,
         on_tour_start: _CommandCallback,
         on_tour_stop: _CommandCallback,
         on_go_home: _CommandCallback,
         on_localization_reset: _CommandCallback,
         on_media: _CommandCallback,
+        on_promo: _CommandCallback,
         on_auth_challenge: _CommandCallback,
         on_auth_verify: _CommandCallback,
         on_auth_logout: _CommandCallback,
@@ -88,12 +90,14 @@ class UiServer:
         """Собрать aiohttp.Application; ни один аргумент не завязан на rclpy."""
         self._web_root = Path(web_root)
         self._media_root = Path(media_root)
+        self._promo_root = Path(promo_root)
         self._on_tours = on_tours
         self._on_tour_start = on_tour_start
         self._on_tour_stop = on_tour_stop
         self._on_go_home = on_go_home
         self._on_localization_reset = on_localization_reset
         self._on_media = on_media
+        self._on_promo = on_promo
         self._on_auth_challenge = on_auth_challenge
         self._on_auth_verify = on_auth_verify
         self._on_auth_logout = on_auth_logout
@@ -114,6 +118,7 @@ class UiServer:
         self.app.router.add_post("/api/go_home", self._handle_go_home)
         self.app.router.add_post("/api/localization/reset", self._handle_localization_reset)
         self.app.router.add_get("/api/media/{exhibit_id}", self._handle_media)
+        self.app.router.add_get("/api/promo", self._handle_promo)
         self.app.router.add_post("/api/auth/challenge", self._handle_auth_challenge)
         self.app.router.add_post("/api/auth/verify", self._handle_auth_verify)
         self.app.router.add_post("/api/auth/logout", self._handle_auth_logout)
@@ -128,6 +133,13 @@ class UiServer:
             self.app.router.add_static("/media", self._media_root, show_index=False)
         else:
             self.app.router.add_get("/media/{tail:.*}", self._handle_media_missing)
+        # Тот же паттерн для promo/media (design F2) -- promo_root
+        # опционален по своей природе (промо не курируется, F1), а не
+        # только временно недоступен, как media_root до слияния Task B.
+        if self._promo_root.is_dir():
+            self.app.router.add_static("/promo", self._promo_root, show_index=False)
+        else:
+            self.app.router.add_get("/promo/{tail:.*}", self._handle_promo_missing)
         self.app.router.add_static("/static", self._web_root, show_index=False)
 
         self._runner: web.AppRunner | None = None
@@ -194,6 +206,10 @@ class UiServer:
     async def _handle_media_missing(self, request: web.Request) -> web.Response:
         del request
         return web.Response(status=404, text="media_root not configured (see operator_ui log)")
+
+    async def _handle_promo_missing(self, request: web.Request) -> web.Response:
+        del request
+        return web.Response(status=404, text="promo_root not configured (see operator_ui log)")
 
     async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -284,4 +300,10 @@ class UiServer:
         """Манифест слайдов экспоната (design D2) -- {title, chunk_ids, items}."""
         exhibit_id = request.match_info["exhibit_id"]
         status, body = await self._on_media(exhibit_id=exhibit_id)
+        return web.json_response(body, status=status)
+
+    async def _handle_promo(self, request: web.Request) -> web.Response:
+        """Манифест промо-петли (design F2) -- {items, promo_interval_s}. Без гейта."""
+        del request
+        status, body = await self._on_promo()
         return web.json_response(body, status=status)

@@ -1,0 +1,6 @@
+# Промо-петля в простое (Task F). Синтетический пример для тестов и
+# демонстрации -- реальный контент см. README.md, раздел «Промо-петля».
+version: "2026-09-01.1"
+items:
+  - { id: p1, kind: image, file: hall.jpg, duration_s: 6.0, caption: "" }
+  - { id: p2, kind: video, file: teaser.mp4 }

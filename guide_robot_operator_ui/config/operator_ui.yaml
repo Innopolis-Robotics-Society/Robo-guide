@@ -14,6 +14,7 @@
     tours_language: "ru"
     content_language: "ru"      # отдельно от tours_language (design D2)
     slide_interval_s: 8.0       # design D3 -- когда у элемента нет своего duration_s
+    promo_interval_s: 10.0      # design F2 -- то же самое, для промо-петли в простое
 
     # -- аутентификация оператора (Task E) --------------------------------
     # Модель угроз: посетитель музея, не человек с Proxmark и не тот, у

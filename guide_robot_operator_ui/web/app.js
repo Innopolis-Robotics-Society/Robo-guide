@@ -10,7 +10,13 @@
   const LONG_PRESS_MS = 2000;
   const MISSION_STALE_S = 3.0;
   const DEFAULT_SLIDE_INTERVAL_S = 8.0;
+  const DEFAULT_PROMO_INTERVAL_S = 10.0;
   const SESSION_POLL_MS = 5000;
+  // Базовые URL медиа (design F2) -- единственное, чем отличается манифест
+  // тура от манифеста промо для общего рендерера ниже (startCycle/
+  // renderItem/handleBrokenMedia): каждый цикл несёт свой baseUrl.
+  const MEDIA_BASE_URL = "/media";
+  const PROMO_BASE_URL = "/promo";
 
   const STATE_NAME_RU = {
     idle: "Ожидание",
@@ -71,6 +77,13 @@
 
   let latestFrame = null;
   let slideIntervalS = DEFAULT_SLIDE_INTERVAL_S;
+
+  // -- промо-петля (design F2/F3): манифест грузится один раз при
+  // старте, promoRunning гейтит startPromoCycle() от повторного вызова
+  // на каждый render()-тик, пока мы уже в простое (design F3).
+  let promoManifest = null;
+  let promoIntervalS = DEFAULT_PROMO_INTERVAL_S;
+  let promoRunning = false;
 
   // -- сессия (design E2): токен -- переменная модульной области, страница
   // киоска не перезагружается, localStorage не нужен и не используется --
@@ -252,6 +265,7 @@
     renderOverlay();
     updateMediaLayer();
     updateBadges();
+    updateVideoPauseState();
   }
 
   function applyFrame(frame) {
@@ -261,8 +275,8 @@
 
   // -- слайды: манифест + выбор (design D2/D3) -- зеркалит lib/slide_select.py --
 
-  function mediaUrl(item) {
-    return `/media/${item.path}`;
+  function itemUrl(baseUrl, item) {
+    return `${baseUrl}/${item.path}`;
   }
 
   function resolveChunkId(chunkIds, chunkIndex) {
@@ -306,7 +320,7 @@
       prefetchPool.innerHTML = "";
       for (const item of manifest.items || []) {
         const el = document.createElement(item.kind === "video" ? "video" : "img");
-        el.src = mediaUrl(item);
+        el.src = itemUrl(MEDIA_BASE_URL, item);
         el.preload = "auto";
         if (item.kind === "video") el.muted = true;
         prefetchPool.appendChild(el);
@@ -356,17 +370,18 @@
   }
 
   function handleBrokenMedia(item) {
-    const url = mediaUrl(item);
+    if (!currentCycle) return;
+    const url = itemUrl(currentCycle.baseUrl, item);
     if (!brokenMediaUrls.has(url)) {
       brokenMediaUrls.add(url);
       console.warn("operator_ui: медиа недоступно, пропускаю", url);
     }
-    if (!currentCycle) return;
     const remaining = currentCycle.items.filter((i) => i !== item);
     if (!remaining.length) {
-      // Ничего не осталось от резолва текущего чанка -- design D1's
-      // фолбэк "манифест пуст -> титульная карточка", не чёрный экран.
-      showTitleCard(lastManifestTitle || lastSlideExhibitId || "");
+      // Ничего не осталось -- фолбэк свой на каждый режим (design D1/F3):
+      // тур -> титульная карточка, промо -> заставка простоя. Ни то ни
+      // другое не чёрный экран.
+      currentCycle.onEmpty();
       return;
     }
     currentCycle.items = remaining;
@@ -407,14 +422,16 @@
       }
       mediaEl.addEventListener("error", () => handleBrokenMedia(item));
       mediaEl.addEventListener("stalled", () => handleBrokenMedia(item));
-      mediaEl.src = mediaUrl(item);
+      mediaEl.src = itemUrl(currentCycle.baseUrl, item);
       currentCycle.videoEl = mediaEl;
     } else {
       mediaEl = document.createElement("img");
       mediaEl.addEventListener("error", () => handleBrokenMedia(item));
-      mediaEl.src = mediaUrl(item);
+      mediaEl.src = itemUrl(currentCycle.baseUrl, item);
       currentCycle.videoEl = null;
-      const intervalS = item.duration_s > 0 ? item.duration_s : slideIntervalS;
+      // Свой дефолт-интервал на цикл (design F2): у тура -- slideIntervalS,
+      // у промо -- promoIntervalS, никогда не смешиваются.
+      const intervalS = item.duration_s > 0 ? item.duration_s : currentCycle.defaultIntervalS;
       currentCycle.timer = setTimeout(advanceCycle, intervalS * 1000);
     }
 
@@ -426,9 +443,21 @@
     });
   }
 
-  function startCycle(items) {
+  // Общий рендерер тура (D3) и промо (F2) -- baseUrl различает URL медиа,
+  // defaultIntervalS -- дефолт для изображений без своего duration_s,
+  // onEmpty -- что показать, если ото всех items ничего не осталось
+  // (design F2, критерий 11: один рендерер, не два).
+  function startCycle(items, baseUrl, defaultIntervalS, onEmpty) {
     stopCycle();
-    currentCycle = { items, index: 0, timer: null, videoEl: null };
+    currentCycle = {
+      items,
+      baseUrl,
+      defaultIntervalS,
+      onEmpty,
+      index: 0,
+      timer: null,
+      videoEl: null,
+    };
     playCycleItem();
   }
 
@@ -444,13 +473,43 @@
     lastManifestTitle = manifest.title || exhibitId;
     const chunkId = resolveChunkId(manifest.chunk_ids || [], chunkIndex);
     const items = selectMedia(manifest.items || [], chunkId).filter(
-      (item) => !brokenMediaUrls.has(mediaUrl(item))
+      (item) => !brokenMediaUrls.has(itemUrl(MEDIA_BASE_URL, item))
     );
     if (!items.length) {
       showTitleCard(lastManifestTitle);
       return;
     }
-    startCycle(items);
+    startCycle(items, MEDIA_BASE_URL, slideIntervalS, () => showTitleCard(lastManifestTitle));
+  }
+
+  // -- промо-петля (design F2/F3) ----------------------------------------------
+
+  async function loadPromo() {
+    const data = await api("GET", "/api/promo");
+    promoManifest = data && Array.isArray(data.items) ? data : { items: [] };
+    if (typeof promoManifest.promo_interval_s === "number") {
+      promoIntervalS = promoManifest.promo_interval_s;
+    }
+    // Холодный старт: первый render() (из самого низа файла) мог уже
+    // пройти по пустому promoManifest и защёлкнуть promoRunning=true на
+    // статичной заставке -- сбросить, чтобы этот render() пересобрал
+    // промо-цикл заново, уже с полным манифестом, а не молчал из-за
+    // гейта "уже запущено".
+    promoRunning = false;
+    render();
+  }
+
+  function startPromoCycle() {
+    const items = (promoManifest && promoManifest.items ? promoManifest.items : []).filter(
+      (item) => !brokenMediaUrls.has(itemUrl(PROMO_BASE_URL, item))
+    );
+    if (!items.length) {
+      // Манифеста нет/пуст/все элементы битые -- статичная заставка из
+      // web/, не чёрный экран (design F3, критерии 5/6).
+      showIdleScreen();
+      return;
+    }
+    startCycle(items, PROMO_BASE_URL, promoIntervalS, showIdleScreen);
   }
 
   function setVideoPaused(shouldPause) {
@@ -465,7 +524,8 @@
 
   // -- слой 1: медиа -- всегда смонтирован, содержимое переключается по
   // состоянию тура (design E1). Открытие/закрытие оверлея панели сюда не
-  // заглядывает вообще -- их обновляет renderOverlay(), не этот код. --
+  // заглядывает вообще -- паузу/снятие с паузы по панели считает
+  // updateVideoPauseState(), не этот код. --
   function updateMediaLayer() {
     const isActive = lastKnownActive;
 
@@ -475,20 +535,23 @@
         lastSlideExhibitId = null;
         lastSlideChunkIndex = undefined;
       }
-      showIdleScreen();
+      // Промо -- НЕ на каждый тик: перезапускало бы видео с нуля при
+      // каждом WS-кадре, пока мы в простое (design F3). Стартует один
+      // раз при входе в простое; "с начала списка" при возврате из тура
+      // (критерий 3) выходит бесплатно -- каждый вход сюда заново ставит
+      // promoRunning=false->true и зовёт startCycle() с index:0.
+      if (!promoRunning) {
+        promoRunning = true;
+        startPromoCycle();
+      }
       return;
     }
+    promoRunning = false;
 
     const connLost =
       !latestFrame ||
       latestFrame.mission_state_age_s === null ||
       latestFrame.mission_state_age_s > MISSION_STALE_S;
-    const estopActive = Boolean(latestFrame && latestFrame.estop);
-    const faultActive = Boolean(
-      latestFrame &&
-        (latestFrame.supervisor_state === "FAULT" || latestFrame.supervisor_state === "SHUTDOWN")
-    );
-    setVideoPaused(estopActive || faultActive || connLost);
 
     if (connLost) return; // замереть на последнем слайде (design D4/D5)
 
@@ -525,13 +588,42 @@
     const showEstopOverlay = estopActive || faultActive;
     estopOverlay.hidden = !showEstopOverlay;
 
+    // НЕ гейтится lastKnownActive (в отличие от старой двухрежимной
+    // модели) -- промо в простое тоже должно показывать эту плашку
+    // поверх себя при потере /mission/state, просто не замирать
+    // (design F4, критерий 9).
     const connLost =
-      lastKnownActive &&
-      (!latestFrame ||
-        latestFrame.mission_state_age_s === null ||
-        latestFrame.mission_state_age_s > MISSION_STALE_S);
+      !latestFrame ||
+      latestFrame.mission_state_age_s === null ||
+      latestFrame.mission_state_age_s > MISSION_STALE_S;
     // Не показывать обе плашки разом -- E-Stop важнее, конфликта смыслов нет.
     connLostOverlay.hidden = showEstopOverlay || !connLost;
+  }
+
+  // -- пауза видео -- ОДИН источник истины (design F4): звать
+  // setVideoPaused() из двух мест по очереди рискованно, последний
+  // вызов в render() побеждал бы и тихо перезаписывал состояние, заданное
+  // первым -- реальный риск, вскрывшийся при добавлении паузы по
+  // открытию панели (её не было вовсе до Task F). Вызывается один раз,
+  // последней, из render().
+  function updateVideoPauseState() {
+    const overlayOpen = panelOpen && authToken !== null;
+    let pauseForState = false;
+    if (lastKnownActive) {
+      // estop/fault/потеря связи -- пауза ТОЛЬКО для тура (design D4).
+      // Промо не замирает от потери /mission/state (design F4, критерий 9).
+      const connLost =
+        !latestFrame ||
+        latestFrame.mission_state_age_s === null ||
+        latestFrame.mission_state_age_s > MISSION_STALE_S;
+      const estopActive = Boolean(latestFrame && latestFrame.estop);
+      const faultActive = Boolean(
+        latestFrame &&
+          (latestFrame.supervisor_state === "FAULT" || latestFrame.supervisor_state === "SHUTDOWN")
+      );
+      pauseForState = estopActive || faultActive || connLost;
+    }
+    setVideoPaused(overlayOpen || pauseForState);
   }
 
   function connectWs() {
@@ -696,6 +788,7 @@
   }, SESSION_POLL_MS);
 
   loadTours();
+  loadPromo();
   connectWs();
   render();
 })();

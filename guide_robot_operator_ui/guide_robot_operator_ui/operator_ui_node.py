@@ -41,6 +41,7 @@ from guide_robot_msgs.msg import MissionState
 from guide_robot_msgs.srv import GetExhibitContent, GetExhibitMedia, ListLocations, ListTours
 from guide_robot_operator_ui.lib.auth import RfidBackend, make_auth_chain
 from guide_robot_operator_ui.lib.command_log import CommandLogSink
+from guide_robot_operator_ui.lib.promo_io import load_promo
 from guide_robot_operator_ui.lib.qos import QOS_MISSION_STATE
 from guide_robot_operator_ui.lib.rfid_link import PySerialPort, RfidLink
 from guide_robot_operator_ui.lib.session import SessionManager
@@ -91,6 +92,11 @@ class OperatorUiNode(Node):
         self.declare_parameter("http_port", 8091)
         self.declare_parameter("web_root", str(share / "web"))
         self.declare_parameter("media_root", default_media_root)
+        # promo/ живёт в этом же пакете (design F1), не semantic_map --
+        # дефолт всегда конкретный путь, PackageNotFoundError здесь
+        # невозможен в отличие от media_root выше.
+        self.declare_parameter("promo_dir", str(share / "promo"))
+        self.declare_parameter("promo_interval_s", 10.0)
         self.declare_parameter("service_timeout_s", 5.0)
         self.declare_parameter("mission_state_stale_s", 3.0)
         self.declare_parameter("initialpose_settle_s", 0.5)
@@ -142,6 +148,9 @@ class OperatorUiNode(Node):
         web_root = Path(str(self.get_parameter("web_root").value))
         media_root_str = str(self.get_parameter("media_root").value)
         media_root = Path(media_root_str) if media_root_str else _UNSET_MEDIA_ROOT
+        promo_dir = Path(str(self.get_parameter("promo_dir").value))
+        promo_root = promo_dir / "media"
+        self._promo_interval_s = float(self.get_parameter("promo_interval_s").value)
         self._service_timeout_s = float(self.get_parameter("service_timeout_s").value)
         self._mission_state_stale_s = float(self.get_parameter("mission_state_stale_s").value)
         self._initialpose_settle_s = float(self.get_parameter("initialpose_settle_s").value)
@@ -188,6 +197,14 @@ class OperatorUiNode(Node):
         command_log_dir = str(self.get_parameter("command_log_dir").value)
         self._command_log = CommandLogSink(command_log_dir)
 
+        # Один раз при старте (design F2/F3) -- тот же принцип, что у
+        # _media_manifest_cache ниже: "кэш есть -- используем", без
+        # фоновой инвалидации. Никогда не бросает (lib/promo_io.py) --
+        # опечатка в promo.yaml не должна валить узел целиком.
+        self._promo_items, promo_warnings = load_promo(promo_dir / "promo.yaml", promo_root)
+        for warning in promo_warnings:
+            self.get_logger().warning(f"promo: {warning}")
+
         if not media_root.is_dir():
             self.get_logger().warning(
                 f"media_root {media_root} не существует -- /media/* будет 404 "
@@ -210,12 +227,14 @@ class OperatorUiNode(Node):
         self._server = UiServer(
             web_root=web_root,
             media_root=media_root,
+            promo_root=promo_root,
             on_tours=self._on_api_tours,
             on_tour_start=self._on_api_tour_start,
             on_tour_stop=self._on_api_tour_stop,
             on_go_home=self._on_api_go_home,
             on_localization_reset=self._on_api_localization_reset,
             on_media=self._on_api_media,
+            on_promo=self._on_api_promo,
             on_auth_challenge=self._on_api_auth_challenge,
             on_auth_verify=self._on_api_auth_verify,
             on_auth_logout=self._on_api_auth_logout,
@@ -602,6 +621,27 @@ class OperatorUiNode(Node):
         }
         self._media_manifest_cache[cache_key] = manifest
         return 200, manifest
+
+    async def _on_api_promo(self) -> tuple[int, dict[str, Any]]:
+        """Манифест промо-петли (design F2) -- {items, promo_interval_s}, без гейта.
+
+        `path`, не `file` -- тот же ключ, что уже отдаёт `_on_api_media`
+        для слайдов тура (промо переиспользует тот же рендерер на
+        клиенте, design F2, критерий 11).
+        """
+        return 200, {
+            "items": [
+                {
+                    "id": item.id,
+                    "kind": item.kind,
+                    "path": item.file,
+                    "duration_s": item.duration_s,
+                    "caption": item.caption,
+                }
+                for item in self._promo_items
+            ],
+            "promo_interval_s": self._promo_interval_s,
+        }
 
     # -- аутентификация HTTP (design E2/E3, выполняются на серверном потоке) --
 

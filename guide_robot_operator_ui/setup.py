@@ -16,6 +16,13 @@ setup(
         (f"share/{PACKAGE_NAME}/launch", glob("launch/*.launch.py")),
         (f"share/{PACKAGE_NAME}/config", glob("config/*.yaml")),
         (f"share/{PACKAGE_NAME}/web", glob("web/*")),
+        # Два отдельных tuple, не один рекурсивный glob (design F1):
+        # promo/ содержит и promo.yaml, и поддиректорию media/ --
+        # glob("promo/*") попытался бы скопировать саму директорию media
+        # как файл и упал бы (та же грабля, что у web/ выше, если бы в
+        # нём завелась поддиректория).
+        (f"share/{PACKAGE_NAME}/promo", glob("promo/*.yaml")),
+        (f"share/{PACKAGE_NAME}/promo/media", glob("promo/media/*")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

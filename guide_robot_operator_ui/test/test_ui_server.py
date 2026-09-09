@@ -16,6 +16,7 @@ from guide_robot_operator_ui.lib.ui_server import GATED_COMMAND_PATHS, UiServer
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
 _MISSING_MEDIA_ROOT = WEB_ROOT.parent / "no-such-media-dir"
+_MISSING_PROMO_ROOT = WEB_ROOT.parent / "no-such-promo-dir"
 VALID_TOKEN = "valid-token-for-tests"  # noqa: S105 -- тестовая фикстура, не секрет
 
 
@@ -39,6 +40,10 @@ async def _ok_no_message() -> tuple[int, dict]:
 async def _ok_empty_manifest(*, exhibit_id: str) -> tuple[int, dict]:
     del exhibit_id
     return 200, {"title": "", "chunk_ids": [], "items": []}
+
+
+async def _ok_empty_promo() -> tuple[int, dict]:
+    return 200, {"items": [], "promo_interval_s": 10.0}
 
 
 async def _ok_auth_challenge() -> tuple[int, dict]:
@@ -80,12 +85,14 @@ async def _noop_command_logged(*, path: str, operator: str, status: int) -> None
 def _new_server(
     *,
     media_root: Path | None = None,
+    promo_root: Path | None = None,
     on_tours: Any = _ok_tours,
     on_tour_start: Any = _reject_tour_start,
     on_tour_stop: Any = _ok_no_message,
     on_go_home: Any = _ok_no_message,
     on_localization_reset: Any = _ok_no_message,
     on_media: Any = _ok_empty_manifest,
+    on_promo: Any = _ok_empty_promo,
     on_auth_challenge: Any = _ok_auth_challenge,
     on_auth_verify: Any = _ok_auth_verify,
     on_auth_logout: Any = _ok_auth_logout,
@@ -97,12 +104,14 @@ def _new_server(
     return UiServer(
         web_root=WEB_ROOT,
         media_root=media_root or _MISSING_MEDIA_ROOT,
+        promo_root=promo_root or _MISSING_PROMO_ROOT,
         on_tours=on_tours,
         on_tour_start=on_tour_start,
         on_tour_stop=on_tour_stop,
         on_go_home=on_go_home,
         on_localization_reset=on_localization_reset,
         on_media=on_media,
+        on_promo=on_promo,
         on_auth_challenge=on_auth_challenge,
         on_auth_verify=on_auth_verify,
         on_auth_logout=on_auth_logout,
@@ -142,6 +151,17 @@ def test_media_route_registered_even_when_directory_missing() -> None:
     async def body() -> None:
         async with TestClient(TestServer(_new_server().app)) as client:
             resp = await client.get("/media/nope.jpg")
+            assert resp.status == 404
+
+    _run(body())
+
+
+def test_promo_route_registered_even_when_directory_missing() -> None:
+    """design F2 -- тот же паттерн C7, что и /media/*: 404, не 500."""
+
+    async def body() -> None:
+        async with TestClient(TestServer(_new_server().app)) as client:
+            resp = await client.get("/promo/nope.jpg")
             assert resp.status == 404
 
     _run(body())
@@ -195,6 +215,26 @@ def test_api_tours_returns_callback_body() -> None:
             resp = await client.get("/api/tours")
             assert resp.status == 200
             assert (await resp.json())["tours"][0]["id"] == "lab_demo"
+
+    _run(body())
+
+
+def test_api_promo_returns_callback_body_without_token() -> None:
+    """design F2, критерий 10: без токена, тот же паттерн, что /api/tours."""
+
+    async def on_promo() -> tuple[int, dict]:
+        return 200, {
+            "items": [{"id": "p1", "kind": "image", "path": "hall.jpg"}],
+            "promo_interval_s": 6.0,
+        }
+
+    async def body() -> None:
+        async with TestClient(TestServer(_new_server(on_promo=on_promo).app)) as client:
+            resp = await client.get("/api/promo")
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["items"][0]["id"] == "p1"
+            assert data["promo_interval_s"] == 6.0
 
     _run(body())
 
