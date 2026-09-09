@@ -7,21 +7,40 @@
     <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
-    <div id="conn-banner" hidden></div>
+    <!-- Медиа-слой (design E1): смонтирован ВСЕГДА -- вход/выход оператора,
+         истечение сессии и обрыв WS его не трогают. -->
+    <section id="media-layer">
+      <div id="idle-screen">
+        <div id="idle-screen-text">Экскурсовод</div>
+      </div>
+      <div id="slides">
+        <div id="slide-layer-a" class="slide-layer"></div>
+        <div id="slide-layer-b" class="slide-layer"></div>
+        <div id="title-card" class="slide-layer" hidden>
+          <div id="title-card-text"></div>
+        </div>
+      </div>
+      <div id="returning-screen" hidden>Еду на базу…</div>
+      <div id="unlock-corner" aria-hidden="true"></div>
+      <div id="prefetch-pool" hidden aria-hidden="true"></div>
+    </section>
 
-    <section id="panel">
+    <!-- Оверлей панели (design E1): по требованию, поверх медиа-слоя, не
+         размонтируя и не перезапуская его. Видимость определяется только
+         состоянием сессии. -->
+    <section id="panel-overlay" hidden>
       <header>
         <h1>Панель оператора</h1>
         <div id="status">
           <span id="status-state">--</span>
           <span id="status-stops"></span>
           <span id="status-exhibit"></span>
-          <span id="status-estop" class="badge badge-danger" hidden></span>
           <span id="status-supervisor" class="badge"></span>
           <span id="status-age" class="muted"></span>
         </div>
       </header>
 
+      <div id="conn-banner" hidden></div>
       <div id="message" hidden></div>
 
       <section id="tours">
@@ -35,24 +54,25 @@
         <button id="btn-home" type="button" class="btn">На базу</button>
         <button id="btn-reset" type="button" class="btn">Сброс локализации</button>
       </section>
+
+      <section id="session-controls">
+        <span id="session-expiry" class="muted"></span>
+        <button id="btn-hide-panel" type="button" class="btn">Свернуть</button>
+        <button id="btn-logout" type="button" class="btn btn-stop">Выйти</button>
+      </section>
     </section>
 
-    <section id="active" hidden>
-      <div id="slides">
-        <div id="slide-layer-a" class="slide-layer"></div>
-        <div id="slide-layer-b" class="slide-layer"></div>
-        <div id="title-card" class="slide-layer" hidden>
-          <div id="title-card-text"></div>
-        </div>
-      </div>
-      <div id="returning-screen" hidden>Еду на базу…</div>
+    <!-- Плашки (design E1): поверх ОБОИХ слоёв, независимо друг от друга и
+         от того, открыта ли панель. -->
+    <div id="badges">
       <div id="estop-overlay" class="overlay" hidden>
         E-STOP / авария — показ приостановлен
       </div>
       <div id="conn-lost-overlay" class="overlay" hidden>Нет связи с mission_fsm</div>
-      <div id="unlock-corner" aria-hidden="true"></div>
-      <div id="prefetch-pool" hidden aria-hidden="true"></div>
-    </section>
+      <div id="auth-mock-badge" class="badge badge-warn" hidden>
+        Аутентификация отключена (auth_backends: mock)
+      </div>
+    </div>
 
     <dialog id="reset-confirm">
       <p>Убедитесь, что робот физически стоит на базе.</p>
@@ -64,12 +84,20 @@
       </div>
     </dialog>
 
-    <dialog id="pin-dialog">
-      <p>PIN оператора</p>
-      <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" />
+    <dialog id="auth-dialog">
+      <p>Вход оператора</p>
+      <input
+        id="pin-input"
+        type="password"
+        inputmode="numeric"
+        autocomplete="off"
+        placeholder="PIN"
+      />
+      <div id="auth-message" class="muted" hidden></div>
       <div class="dialog-actions">
-        <button id="btn-pin-ok" type="button" class="btn btn-primary">Открыть панель</button>
-        <button id="btn-pin-cancel" type="button" class="btn">Отмена</button>
+        <button id="btn-pin-ok" type="button" class="btn btn-primary">Войти по PIN</button>
+        <button id="btn-rfid-ok" type="button" class="btn" disabled>Приложить карту</button>
+        <button id="btn-auth-cancel" type="button" class="btn">Отмена</button>
       </div>
     </dialog>
 

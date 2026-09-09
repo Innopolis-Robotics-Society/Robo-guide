@@ -1,0 +1,19 @@
+# Дев-конфиг для ноутбука без RFID-ридера (Task E3, MockBackend).
+#
+# НЕ устанавливается colcon'ом -- setup.py ставит только config/*.yaml,
+# этот файл живёт вне того каталога намеренно: дев-конфиг с включённым
+# моком не должен физически оказаться на роботе. Подключать явным путём:
+#
+#   ros2 launch guide_robot_operator_ui operator_ui.launch.py \
+#       params_file:=$(pwd)/guide_robot_operator_ui/config_dev/operator_ui_dev.yaml
+#
+# "mock" в auth_backends коротит ВСЮ цепочку -- любой вход успешен, PIN
+# ниже никогда по-настоящему не проверяется. Нода пишет WARN в каждый
+# heartbeat, а UI показывает несъёмную плашку "аутентификация отключена".
+# Остальные параметры не перечислены -- у них уже есть дефолты в коде
+# ноды (operator_ui_node.py), совпадающие с config/operator_ui.yaml.
+
+/**/operator_ui:
+  ros__parameters:
+    auth_backends: ["mock", "pin"]
+    operator_pin: "changeme"

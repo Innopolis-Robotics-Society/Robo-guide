@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import math
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,10 @@ from std_srvs.srv import Trigger
 from guide_robot_msgs.action import RunTour
 from guide_robot_msgs.msg import MissionState
 from guide_robot_msgs.srv import GetExhibitContent, GetExhibitMedia, ListLocations, ListTours
+from guide_robot_operator_ui.lib.auth import make_auth_chain
+from guide_robot_operator_ui.lib.command_log import CommandLogSink
 from guide_robot_operator_ui.lib.qos import QOS_MISSION_STATE
+from guide_robot_operator_ui.lib.session import SessionManager
 from guide_robot_operator_ui.lib.state_frame import build_frame
 from guide_robot_operator_ui.lib.ui_server import UiServer
 
@@ -89,15 +93,30 @@ class OperatorUiNode(Node):
         self.declare_parameter("service_timeout_s", 5.0)
         self.declare_parameter("mission_state_stale_s", 3.0)
         self.declare_parameter("initialpose_settle_s", 0.5)
-        self.declare_parameter(
-            "reset_covariance_xyyaw", [0.25, 0.25, 0.06853891945200942]
-        )
+        self.declare_parameter("reset_covariance_xyyaw", [0.25, 0.25, 0.06853891945200942])
         self.declare_parameter("tours_language", "ru")
         # Отдельно от tours_language -- у content_server/narration_server
         # тоже свои независимые языковые параметры, не общий (design D2).
         self.declare_parameter("content_language", "ru")
         self.declare_parameter("slide_interval_s", 8.0)
-        self.declare_parameter("operator_pin", "0000")
+        # -- аутентификация оператора (Task E). Потолок стойкости всей схемы
+        # -- PIN, поэтому его дефолт обязан пройти собственную проверку
+        # длины ниже: "changeme" -- валидный по длине (>=8) плейсхолдер,
+        # чтобы нода поднималась из коробки, а не "0000" (было бы отказом
+        # стартовать сразу после проверки, которую этот же коммит вводит).
+        self.declare_parameter("operator_pin", "changeme")
+        # "rfid" добавится в этот список вместе с RfidBackend (Task E4) --
+        # до тех пор дефолт обязан быть только ["pin"], иначе make_auth_chain
+        # откажет стартовать (design E3: "rfid" без rfid_backend -- ошибка).
+        self.declare_parameter("auth_backends", ["pin"])
+        self.declare_parameter("session_ttl_s", 600.0)
+        self.declare_parameter("nonce_ttl_s", 30.0)
+        self.declare_parameter("max_failed_attempts", 5)
+        self.declare_parameter("lockout_s", 60.0)
+        # Дефолт false -- оператор сворачивает панель посмотреть на слайд и
+        # не должен логиниться заново (design E2).
+        self.declare_parameter("close_session_on_panel_hide", False)
+        self.declare_parameter("command_log_dir", "~/.guide_robot/operator_ui")
         # Имена сервисов/экшена -- параметры, не хардкод (design C3).
         self.declare_parameter("run_tour_action", "run_tour")
         self.declare_parameter("request_stop_service", "/mission_fsm/request_stop")
@@ -129,7 +148,37 @@ class OperatorUiNode(Node):
         self._tours_language = str(self.get_parameter("tours_language").value)
         self._content_language = str(self.get_parameter("content_language").value)
         self._slide_interval_s = float(self.get_parameter("slide_interval_s").value)
+
         self._operator_pin = str(self.get_parameter("operator_pin").value)
+        # Отказ стартовать, не молчаливая слабая защита (design E3, критерий
+        # 9) -- PIN остаётся резервом при отказе RFID-ридера, поэтому его
+        # длина -- потолок стойкости ВСЕЙ схемы, не только PIN-пути.
+        if len(self._operator_pin) < 8:
+            raise ValueError(
+                f"operator_pin короче 8 символов ({len(self._operator_pin)}) -- "
+                "это потолок стойкости всей схемы аутентификации, см. README.md"
+            )
+        if self._operator_pin == "changeme":
+            self.get_logger().warning(
+                'operator_pin -- дефолтный плейсхолдер "changeme", смени перед деплоем'
+            )
+
+        auth_backend_names = [str(name) for name in self.get_parameter("auth_backends").value]
+        self._auth_chain = make_auth_chain(auth_backend_names, operator_pin=self._operator_pin)
+
+        self._session_ttl_s = float(self.get_parameter("session_ttl_s").value)
+        self._close_session_on_panel_hide = bool(
+            self.get_parameter("close_session_on_panel_hide").value
+        )
+        self._sessions = SessionManager(
+            session_ttl_s=self._session_ttl_s,
+            nonce_ttl_s=float(self.get_parameter("nonce_ttl_s").value),
+            max_failed_attempts=int(self.get_parameter("max_failed_attempts").value),
+            lockout_s=float(self.get_parameter("lockout_s").value),
+        )
+
+        command_log_dir = str(self.get_parameter("command_log_dir").value)
+        self._command_log = CommandLogSink(command_log_dir)
 
         if not media_root.is_dir():
             self.get_logger().warning(
@@ -159,6 +208,13 @@ class OperatorUiNode(Node):
             on_go_home=self._on_api_go_home,
             on_localization_reset=self._on_api_localization_reset,
             on_media=self._on_api_media,
+            on_auth_challenge=self._on_api_auth_challenge,
+            on_auth_verify=self._on_api_auth_verify,
+            on_auth_logout=self._on_api_auth_logout,
+            on_auth_status=self._on_api_auth_status,
+            on_auth_check=self._on_api_auth_check,
+            on_auth_touch=self._on_api_auth_touch,
+            on_command_logged=self._on_api_command_logged,
         )
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_ready = threading.Event()
@@ -168,6 +224,12 @@ class OperatorUiNode(Node):
         self._server_thread.start()
         if not self._loop_ready.wait(timeout=_SERVER_START_TIMEOUT_S):
             raise RuntimeError("ui_server не поднялся за отведённое время")
+
+        if self._auth_chain.mock_active:
+            # 1 Гц, отдельный от heartbeat /mission/state (design E3,
+            # критерий 11): без mission_fsm предупреждение не должно
+            # молчать именно тогда, когда оно нужнее всего.
+            self.create_timer(1.0, self._warn_mock_auth)
 
         # -- подписки. Три фиксированных системных топика -- не параметры,
         # как и в mission_fsm_node.py (свои клиенты/экшен ниже параметризованы,
@@ -314,14 +376,24 @@ class OperatorUiNode(Node):
         except (TimeoutError, asyncio.TimeoutError):
             return 503, {"message": "service_unavailable"}
         tours = [{"id": t.id, "name": t.name} for t in response.tours]
-        # operator_pin и slide_interval_s едут здесь же, не отдельным
-        # endpoint'ом (design C6/D3): ни то ни другое не секрет, а
-        # /api/tours и так уже дёргается клиентом ровно один раз при
-        # загрузке страницы -- удобное место для статической конфигурации.
+        # slide_interval_s едет здесь же, не отдельным endpoint'ом (design
+        # D3): не секрет, а /api/tours и так дёргается клиентом ровно один
+        # раз при загрузке страницы -- удобное место для статической
+        # конфигурации. operator_pin здесь БОЛЬШЕ НЕ ЕДЕТ (design E2) --
+        # раньше это позволяло обойти "замок" одним curl по localhost,
+        # проверка PIN теперь только на сервере (/api/auth/verify). "auth"
+        # -- то немногое об аутентификации, что UI должен знать статически:
+        # список реальных методов входа для экрана входа, флаг mock (для
+        # несъёмной плашки, design E3) и параметр сворачивания панели.
         return 200, {
             "tours": tours,
-            "operator_pin": self._operator_pin,
             "slide_interval_s": self._slide_interval_s,
+            "auth": {
+                "mock": self._auth_chain.mock_active,
+                "backends": self._auth_chain.available_names(),
+                "session_ttl_s": self._session_ttl_s,
+                "close_session_on_panel_hide": self._close_session_on_panel_hide,
+            },
         }
 
     async def _on_api_tour_start(self, *, tour_id: str) -> tuple[int, dict[str, Any]]:
@@ -487,10 +559,112 @@ class OperatorUiNode(Node):
         self._media_manifest_cache[cache_key] = manifest
         return 200, manifest
 
+    # -- аутентификация HTTP (design E2/E3, выполняются на серверном потоке) --
+
+    def _log_command_line(self, **fields: Any) -> None:
+        self._command_log.write({"ts": time.time(), **fields})
+
+    def _warn_mock_auth(self) -> None:
+        self.get_logger().warning(
+            'operator_ui: auth_backends содержит "mock" -- аутентификация '
+            "отключена, любой вход успешен (только для стенда без железа)"
+        )
+
+    async def _on_api_auth_challenge(self) -> tuple[int, dict[str, Any]]:
+        nonce = self._sessions.issue_nonce()
+        return 200, {"nonce": nonce, "backends": self._auth_chain.available_names()}
+
+    async def _on_api_auth_verify(self, **kwargs: Any) -> tuple[int, dict[str, Any]]:
+        nonce = kwargs.get("nonce")
+        backend_name = kwargs.get("backend")
+        if not isinstance(nonce, str) or not nonce:
+            return 400, {"message": "invalid_body"}
+        if not isinstance(backend_name, str) or not backend_name:
+            return 400, {"message": "invalid_body"}
+
+        # Погашен НЕЗАВИСИМО от исхода ниже -- design E2, критерий 5/6.
+        if not self._sessions.consume_nonce(nonce):
+            return 401, {"error": "invalid_nonce"}
+
+        # mock коротит всю цепочку (design E3) -- логируемый механизм входа
+        # обязан отражать это, а не то, что запросил клиент.
+        used_backend = "mock" if self._auth_chain.mock_active else backend_name
+
+        lockout_remaining_s = self._sessions.lockout_remaining_s()
+        if lockout_remaining_s is not None:
+            self._log_command_line(
+                event="auth_attempt",
+                backend=used_backend,
+                operator="",
+                ok=False,
+                reason="locked_out",
+            )
+            return 429, {"error": "locked_out", "retry_after_s": lockout_remaining_s}
+
+        result = self._auth_chain.verify(nonce, backend_name, kwargs)
+        if not result.ok:
+            self._sessions.record_failure()
+            self._log_command_line(
+                event="auth_attempt",
+                backend=used_backend,
+                operator="",
+                ok=False,
+                reason=result.reason,
+            )
+            return 401, {"error": "invalid_credentials"}
+
+        info, evicted = self._sessions.create_session(
+            operator=result.operator, backend=used_backend
+        )
+        if evicted is not None:
+            self.get_logger().warning(
+                f"operator_ui: сессия {evicted.operator}/{evicted.backend} "
+                "вытеснена новым успешным входом"
+            )
+            self._log_command_line(
+                event="session_evicted", operator=evicted.operator, backend=evicted.backend
+            )
+        self._log_command_line(
+            event="auth_attempt",
+            backend=used_backend,
+            operator=result.operator,
+            ok=True,
+            reason="",
+        )
+        return 200, {
+            "token": info.token,
+            "expires_at": info.expires_at_wall,
+            "operator": info.operator,
+        }
+
+    async def _on_api_auth_logout(self) -> tuple[int, dict[str, Any]]:
+        info = self._sessions.logout()
+        if info is not None:
+            self._log_command_line(event="logout", operator=info.operator, backend=info.backend)
+        return 200, {"ok": True}
+
+    async def _on_api_auth_status(self) -> tuple[int, dict[str, Any]]:
+        info = self._sessions.status()
+        if info is None:
+            return 200, {"active": False, "expires_at": None, "operator": None}
+        return 200, {"active": True, "expires_at": info.expires_at_wall, "operator": info.operator}
+
+    async def _on_api_auth_check(self, token: str | None) -> tuple[bool, str]:
+        """Гейт-коллбэк UiServer (design E2) -- без продления окна."""
+        info = self._sessions.validate(token)
+        return (False, "") if info is None else (True, info.operator)
+
+    async def _on_api_auth_touch(self, token: str) -> None:
+        """Продлить скользящее окно -- зовётся гейтом только на исход < 400."""
+        self._sessions.touch(token)
+
+    async def _on_api_command_logged(self, *, path: str, operator: str, status: int) -> None:
+        self._log_command_line(event="command", path=path, operator=operator, status=status)
+
     # -- завершение -------------------------------------------------------------
 
     def destroy_node(self) -> None:
-        """Остановить UiServer и его поток перед уничтожением ноды."""
+        """Остановить UiServer и его поток, закрыть лог-файл перед уничтожением ноды."""
         if self._loop is not None:
             stop_fut = asyncio.run_coroutine_threadsafe(self._server.stop(), self._loop)
             try:
@@ -499,6 +673,7 @@ class OperatorUiNode(Node):
                 self.get_logger().warning("ui_server: ошибка при остановке", exc_info=True)
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._server_thread.join(timeout=_SERVER_STOP_TIMEOUT_S)
+        self._command_log.close()
         super().destroy_node()
 
 

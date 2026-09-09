@@ -14,9 +14,26 @@
     tours_language: "ru"
     content_language: "ru"      # отдельно от tours_language (design D2)
     slide_interval_s: 8.0       # design D3 -- когда у элемента нет своего duration_s
-    # PIN -- защита от случайного тапа посетителя, НЕ от злоумышленника
-    # (task doc, "Аутентификации в v1 нет"). Смени перед деплоем.
-    operator_pin: "0000"
+
+    # -- аутентификация оператора (Task E) --------------------------------
+    # Модель угроз: посетитель музея, не человек с Proxmark и не тот, у
+    # кого физический доступ к Jetson (см. README.md). Потолок стойкости
+    # ВСЕЙ схемы -- PIN, потому что он остаётся резервом при отказе
+    # RFID-ридера. "changeme" -- валидный по длине (>=8) плейсхолдер,
+    # чтобы нода поднималась из коробки; смени перед деплоем -- WARN в
+    # логе, пока не сменён.
+    operator_pin: "changeme"
+    # "rfid" добавится вместе с RfidBackend (Task E4); до тех пор -- только
+    # ["pin"], иначе нода откажется стартовать (design E3).
+    auth_backends: ["pin"]
+    session_ttl_s: 600.0        # скользящее окно: каждая успешная команда продлевает
+    nonce_ttl_s: 30.0
+    max_failed_attempts: 5
+    lockout_s: 60.0
+    # Оператор сворачивает панель посмотреть на слайд и по умолчанию не
+    # должен логиниться заново.
+    close_session_on_panel_hide: false
+    command_log_dir: "~/.guide_robot/operator_ui"
     run_tour_action: "run_tour"
     request_stop_service: "/mission_fsm/request_stop"
     go_home_service: "/mission_fsm/go_home"

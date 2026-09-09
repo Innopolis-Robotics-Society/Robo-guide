@@ -44,18 +44,110 @@ h2 {
   color: var(--muted);
 }
 
+/* -- слой 1: медиа (design E1) -- смонтирован всегда, z-index по умолчанию (0) -- */
+#media-layer {
+  height: 100vh;
+  width: 100vw;
+  position: relative;
+  background: #000;
+  cursor: none;
+}
+
+#idle-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 2rem;
+  background: #000;
+}
+
+/* -- слайды (design D3): два слоя друг над другом, кроссфейд через opacity -- */
+#slides {
+  position: absolute;
+  inset: 0;
+}
+
+.slide-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  opacity: 0;
+  transition: opacity 200ms linear;
+  pointer-events: none;
+}
+
+.slide-layer.visible {
+  opacity: 1;
+}
+
+.slide-layer img,
+.slide-layer video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+#title-card {
+  color: var(--fg);
+  font-size: 2.2rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 2rem;
+}
+
+#returning-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  font-size: 2rem;
+  background: #000;
+}
+
+/* Долгий тап открывает экран входа (design E1) -- сам по себе панель не
+   открывает. Живёт над медиа-слоем, под панелью/плашками. */
+#unlock-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4rem;
+  height: 4rem;
+  z-index: 20;
+}
+
+/* -- слой 2: оверлей панели (design E1) -- position: fixed, не в потоке
+   медиа-слоя, поэтому его показ/скрытие не двигает и не размонтирует
+   #media-layer -- */
+#panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  overflow-y: auto;
+  background: var(--bg);
+  padding: 1rem 1.25rem 2rem;
+}
+
+#panel-overlay > * {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
 #conn-banner {
   background: var(--danger);
   color: #fff;
   text-align: center;
   padding: 0.75rem;
   font-weight: 600;
-}
-
-#panel {
-  padding: 1rem 1.25rem 2rem;
-  max-width: 900px;
-  margin: 0 auto;
+  border-radius: 8px;
+  margin-bottom: 1rem;
 }
 
 #status {
@@ -88,6 +180,12 @@ h2 {
   border-color: var(--danger);
 }
 
+.badge-warn {
+  background: var(--warn);
+  color: #1a1204;
+  border-color: var(--warn);
+}
+
 .muted {
   color: var(--muted);
 }
@@ -107,6 +205,17 @@ h2 {
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
+}
+
+#session-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
 }
 
 select {
@@ -158,63 +267,17 @@ select {
   min-height: 4.5rem;
 }
 
-#active {
-  height: 100vh;
-  width: 100vw;
-  position: relative;
-  background: #000;
-  cursor: none;
-}
-
-/* -- слайды (design D3): два слоя друг над другом, кроссфейд через opacity -- */
-#slides {
-  position: absolute;
+/* -- слой 3: плашки (design E1) -- поверх ОБОИХ слоёв, включая открытую
+   панель: E-Stop/потеря связи обязаны быть видны оператору тоже, не
+   только посетителю, смотрящему на слайды. pointer-events: none -- сами
+   плашки ничего не перехватывают, под ними всё кликабельно. -- */
+#badges {
+  position: fixed;
   inset: 0;
-}
-
-.slide-layer {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #000;
-  opacity: 0;
-  transition: opacity 200ms linear;
+  z-index: 40;
   pointer-events: none;
 }
 
-.slide-layer.visible {
-  opacity: 1;
-}
-
-.slide-layer img,
-.slide-layer video {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
-
-#title-card {
-  color: var(--fg);
-  font-size: 2.2rem;
-  font-weight: 700;
-  text-align: center;
-  padding: 2rem;
-}
-
-#returning-screen {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--fg);
-  font-size: 2rem;
-  background: #000;
-}
-
-/* -- оверлеи (design D4): поверх слайдов, независимо от базового режима -- */
 .overlay {
   position: absolute;
   inset: 0;
@@ -227,20 +290,17 @@ select {
   font-weight: 700;
   color: #fff;
   background: rgba(209, 55, 63, 0.85);
-  z-index: 10;
 }
 
 #conn-lost-overlay {
   background: rgba(20, 24, 31, 0.9);
 }
 
-#unlock-corner {
+#auth-mock-badge {
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 4rem;
-  height: 4rem;
-  z-index: 20;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 dialog {
@@ -258,6 +318,7 @@ dialog::backdrop {
 
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: 1rem;
 }

@@ -1,5 +1,6 @@
-// Панель оператора: WS-приёмник кадров + командные POST'ы (design C6).
-// Никаких фреймворков/CDN -- робот работает без интернета.
+// Панель оператора: WS-приёмник кадров + командные POST'ы (design C6),
+// сессионная аутентификация (design E1/E2) поверх двух независимых слоёв
+// экрана. Никаких фреймворков/CDN -- робот работает без интернета.
 
 (() => {
   "use strict";
@@ -9,6 +10,7 @@
   const LONG_PRESS_MS = 2000;
   const MISSION_STALE_S = 3.0;
   const DEFAULT_SLIDE_INTERVAL_S = 8.0;
+  const SESSION_POLL_MS = 5000;
 
   const STATE_NAME_RU = {
     idle: "Ожидание",
@@ -23,14 +25,23 @@
     unknown: "Нет данных",
   };
 
-  const panelEl = document.getElementById("panel");
-  const activeEl = document.getElementById("active");
+  // -- слой 1: медиа (design E1, всегда смонтирован) --------------------------
+  const idleScreen = document.getElementById("idle-screen");
+  const slideLayerA = document.getElementById("slide-layer-a");
+  const slideLayerB = document.getElementById("slide-layer-b");
+  const titleCard = document.getElementById("title-card");
+  const titleCardText = document.getElementById("title-card-text");
+  const returningScreen = document.getElementById("returning-screen");
+  const unlockCorner = document.getElementById("unlock-corner");
+  const prefetchPool = document.getElementById("prefetch-pool");
+
+  // -- слой 2: оверлей панели (design E1, по требованию) -----------------------
+  const panelOverlay = document.getElementById("panel-overlay");
   const connBanner = document.getElementById("conn-banner");
   const messageEl = document.getElementById("message");
   const statusState = document.getElementById("status-state");
   const statusStops = document.getElementById("status-stops");
   const statusExhibit = document.getElementById("status-exhibit");
-  const statusEstop = document.getElementById("status-estop");
   const statusSupervisor = document.getElementById("status-supervisor");
   const statusAge = document.getElementById("status-age");
   const tourSelect = document.getElementById("tour-select");
@@ -41,33 +52,41 @@
   const resetConfirmDialog = document.getElementById("reset-confirm");
   const btnResetConfirm = document.getElementById("btn-reset-confirm");
   const btnResetCancel = document.getElementById("btn-reset-cancel");
-  const unlockCorner = document.getElementById("unlock-corner");
-  const pinDialog = document.getElementById("pin-dialog");
+  const sessionExpiryEl = document.getElementById("session-expiry");
+  const btnHidePanel = document.getElementById("btn-hide-panel");
+  const btnLogout = document.getElementById("btn-logout");
+
+  // -- вход оператора (design E2) ----------------------------------------------
+  const authDialog = document.getElementById("auth-dialog");
   const pinInput = document.getElementById("pin-input");
+  const authMessageEl = document.getElementById("auth-message");
   const btnPinOk = document.getElementById("btn-pin-ok");
-  const btnPinCancel = document.getElementById("btn-pin-cancel");
-  const slideLayerA = document.getElementById("slide-layer-a");
-  const slideLayerB = document.getElementById("slide-layer-b");
-  const titleCard = document.getElementById("title-card");
-  const titleCardText = document.getElementById("title-card-text");
-  const returningScreen = document.getElementById("returning-screen");
+  const btnRfidOk = document.getElementById("btn-rfid-ok");
+  const btnAuthCancel = document.getElementById("btn-auth-cancel");
+
+  // -- слой 3: плашки (design E1, поверх обоих слоёв) --------------------------
   const estopOverlay = document.getElementById("estop-overlay");
   const connLostOverlay = document.getElementById("conn-lost-overlay");
-  const prefetchPool = document.getElementById("prefetch-pool");
+  const authMockBadge = document.getElementById("auth-mock-badge");
 
   let latestFrame = null;
-  // Не секрет (задание явно: "не выдавай его за безопасность") -- защита
-  // от случайного тапа посетителя, не от того, кто откроет devtools.
-  // Отдаётся вместе с /api/tours -- отдельный endpoint ради одного поля
-  // не заводим (design "не изобретай лишнего").
-  let operatorPin = null;
-  let panelUnlocked = false;
   let slideIntervalS = DEFAULT_SLIDE_INTERVAL_S;
+
+  // -- сессия (design E2): токен -- переменная модульной области, страница
+  // киоска не перезагружается, localStorage не нужен и не используется --
+  // сессия обязана исчезать при закрытии вкладки, а не переживать её.
+  let authToken = null;
+  let sessionExpiresAt = null; // unix-секунды, для отображения обратного отсчёта
+  let sessionOperator = "";
+  let panelOpen = false; // "свёрнуто" -- отдельно от наличия токена (E2, close_session_on_panel_hide)
+  let closeSessionOnPanelHide = false;
+  let currentNonce = null;
+  let availableAuthBackends = [];
 
   // -- слайды (design D1/D3/D5) ------------------------------------------------
   // lastKnownActive НЕ сбрасывается, когда latestFrame становится null
   // (обрыв WS) -- иначе потеря связи посреди тура откидывала бы экран в
-  // панель управления вместо плашки "нет связи" поверх слайдов (design D4).
+  // заставку простоя вместо плашки "нет связи" поверх слайдов (design D4).
   let lastKnownActive = false;
   let lastWasReturning = false;
   // exhibit_id/chunk_index последнего ПРИМЕНЁННОГО слайда -- отдельно от
@@ -96,10 +115,24 @@
     messageEl.textContent = text;
   }
 
+  function showAuthMessage(text) {
+    if (!text) {
+      authMessageEl.hidden = true;
+      authMessageEl.textContent = "";
+      return;
+    }
+    authMessageEl.hidden = false;
+    authMessageEl.textContent = text;
+  }
+
+  // -- HTTP: api() подставляет токен, где он есть; 401 от ЛЮБОЙ команды --
+  // это сигнал "сессия истекла/вытеснена", а не ошибка конкретной кнопки
+  // (design E2: гейт -- middleware по списку путей, единый для всех).
   async function api(method, path, body) {
-    const opts = { method };
+    const opts = { method, headers: {} };
+    if (authToken !== null) opts.headers.Authorization = `Bearer ${authToken}`;
     if (body !== undefined) {
-      opts.headers = { "Content-Type": "application/json" };
+      opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
     }
     let resp;
@@ -115,8 +148,12 @@
     } catch {
       /* тело могло быть пустым (200 без body) */
     }
+    if (resp.status === 401 && authToken !== null) {
+      onSessionLost("Сессия истекла или была закрыта");
+      return null;
+    }
     if (!resp.ok) {
-      showMessage(data.message || `Ошибка ${resp.status}`);
+      showMessage(data.message || data.error || `Ошибка ${resp.status}`);
       return null;
     }
     showMessage("");
@@ -126,7 +163,6 @@
   async function loadTours() {
     const data = await api("GET", "/api/tours");
     if (!data) return;
-    if (typeof data.operator_pin === "string") operatorPin = data.operator_pin;
     if (typeof data.slide_interval_s === "number") slideIntervalS = data.slide_interval_s;
     tourSelect.innerHTML = "";
     for (const tour of data.tours || []) {
@@ -135,6 +171,13 @@
       opt.textContent = tour.name || tour.id;
       tourSelect.appendChild(opt);
     }
+    const auth = data.auth || {};
+    closeSessionOnPanelHide = Boolean(auth.close_session_on_panel_hide);
+    availableAuthBackends = Array.isArray(auth.backends) ? auth.backends : [];
+    btnRfidOk.disabled = !availableAuthBackends.includes("rfid");
+    // Несъёмная плашка (design E3): пока auth_backends содержит "mock",
+    // видна ВСЕГДА, не только во время попытки входа.
+    authMockBadge.hidden = !auth.mock;
   }
 
   function commandsBlocked() {
@@ -159,27 +202,25 @@
     return "";
   }
 
-  function render() {
+  // -- слой 2: оверлей панели -- видимость определяется ТОЛЬКО сессией
+  // (design E1: не размонтирует и не двигает #media-layer, т.к. position: fixed) --
+  function renderOverlay() {
+    panelOverlay.hidden = !(panelOpen && authToken !== null);
+    if (authToken === null) return;
+
+    if (sessionExpiresAt !== null) {
+      const remainingS = Math.max(0, Math.round(sessionExpiresAt - Date.now() / 1000));
+      const mm = String(Math.floor(remainingS / 60)).padStart(2, "0");
+      const ss = String(remainingS % 60).padStart(2, "0");
+      sessionExpiryEl.textContent = `${sessionOperator || "оператор"}: сессия ${mm}:${ss}`;
+    }
+
     const blocked = commandsBlocked();
     connBanner.hidden = !blocked;
     connBanner.textContent = blockReason();
-
     for (const btn of [btnStart, btnStop, btnHome, btnReset]) {
       btn.disabled = blocked;
     }
-
-    if (latestFrame) {
-      lastKnownActive = latestFrame.state_name !== "idle" && latestFrame.state_name !== "unknown";
-    }
-    // latestFrame === null (WS оборвался) -- lastKnownActive НЕ трогаем,
-    // иначе обрыв связи посреди тура откинул бы экран в панель управления
-    // вместо плашки "нет связи" поверх замерших слайдов (design D4/D5).
-    const isActive = lastKnownActive;
-    // Возврат в idle обязан снова запереть панель -- иначе долгий тап на
-    // ПРЕДЫДУЩЕМ туре остаётся в силе и на следующем без PIN.
-    if (!isActive) panelUnlocked = false;
-    panelEl.hidden = isActive && !panelUnlocked;
-    activeEl.hidden = !isActive;
 
     if (latestFrame) {
       statusState.textContent = STATE_NAME_RU[latestFrame.state_name] || latestFrame.state_name;
@@ -187,8 +228,6 @@
         ? `Остановка ${latestFrame.stop_index + 1}/${latestFrame.stop_total}`
         : "";
       statusExhibit.textContent = latestFrame.exhibit_id || "";
-      statusEstop.hidden = !latestFrame.estop;
-      statusEstop.textContent = latestFrame.estop ? "E-STOP" : "";
       statusSupervisor.textContent = latestFrame.supervisor_state || "";
       statusAge.textContent =
         latestFrame.mission_state_age_s === null
@@ -198,12 +237,21 @@
       statusState.textContent = "Нет данных";
       statusStops.textContent = "";
       statusExhibit.textContent = "";
-      statusEstop.hidden = true;
       statusSupervisor.textContent = "";
       statusAge.textContent = "";
     }
+  }
 
-    if (isActive) updateActiveView();
+  function render() {
+    if (latestFrame) {
+      lastKnownActive = latestFrame.state_name !== "idle" && latestFrame.state_name !== "unknown";
+    }
+    // latestFrame === null (WS оборвался) -- lastKnownActive НЕ трогаем,
+    // иначе обрыв связи посреди тура откинул бы медиа-слой в заставку
+    // простоя вместо плашки "нет связи" поверх замерших слайдов (design D4/D5).
+    renderOverlay();
+    updateMediaLayer();
+    updateBadges();
   }
 
   function applyFrame(frame) {
@@ -279,8 +327,18 @@
     currentCycle = null;
   }
 
+  function showIdleScreen() {
+    stopCycle();
+    returningScreen.hidden = true;
+    titleCard.hidden = true;
+    slideLayerA.classList.remove("visible");
+    slideLayerB.classList.remove("visible");
+    idleScreen.hidden = false;
+  }
+
   function showTitleCard(text) {
     stopCycle();
+    idleScreen.hidden = true;
     returningScreen.hidden = true;
     titleCardText.textContent = text || "…";
     titleCard.hidden = false;
@@ -290,6 +348,7 @@
 
   function showReturningScreen() {
     stopCycle();
+    idleScreen.hidden = true;
     titleCard.hidden = true;
     slideLayerA.classList.remove("visible");
     slideLayerB.classList.remove("visible");
@@ -327,6 +386,7 @@
   }
 
   function renderItem(item) {
+    idleScreen.hidden = true;
     titleCard.hidden = true;
     returningScreen.hidden = true;
 
@@ -403,22 +463,32 @@
     }
   }
 
-  function updateActiveView() {
+  // -- слой 1: медиа -- всегда смонтирован, содержимое переключается по
+  // состоянию тура (design E1). Открытие/закрытие оверлея панели сюда не
+  // заглядывает вообще -- их обновляет renderOverlay(), не этот код. --
+  function updateMediaLayer() {
+    const isActive = lastKnownActive;
+
+    if (!isActive) {
+      lastWasReturning = false;
+      if (lastSlideExhibitId !== null) {
+        lastSlideExhibitId = null;
+        lastSlideChunkIndex = undefined;
+      }
+      showIdleScreen();
+      return;
+    }
+
+    const connLost =
+      !latestFrame ||
+      latestFrame.mission_state_age_s === null ||
+      latestFrame.mission_state_age_s > MISSION_STALE_S;
     const estopActive = Boolean(latestFrame && latestFrame.estop);
     const faultActive = Boolean(
       latestFrame &&
         (latestFrame.supervisor_state === "FAULT" || latestFrame.supervisor_state === "SHUTDOWN")
     );
-    const connLost =
-      !latestFrame ||
-      latestFrame.mission_state_age_s === null ||
-      latestFrame.mission_state_age_s > MISSION_STALE_S;
-
-    const showEstopOverlay = estopActive || faultActive;
-    estopOverlay.hidden = !showEstopOverlay;
-    // Не показывать обе плашки разом -- E-Stop важнее, конфликта смыслов нет.
-    connLostOverlay.hidden = showEstopOverlay || !connLost;
-    setVideoPaused(showEstopOverlay || connLost);
+    setVideoPaused(estopActive || faultActive || connLost);
 
     if (connLost) return; // замереть на последнем слайде (design D4/D5)
 
@@ -443,6 +513,25 @@
     }
 
     maybePrefetchNext();
+  }
+
+  // -- слой 3: плашки -- поверх ОБОИХ слоёв, независимо от панели (design E1) --
+  function updateBadges() {
+    const estopActive = Boolean(latestFrame && latestFrame.estop);
+    const faultActive = Boolean(
+      latestFrame &&
+        (latestFrame.supervisor_state === "FAULT" || latestFrame.supervisor_state === "SHUTDOWN")
+    );
+    const showEstopOverlay = estopActive || faultActive;
+    estopOverlay.hidden = !showEstopOverlay;
+
+    const connLost =
+      lastKnownActive &&
+      (!latestFrame ||
+        latestFrame.mission_state_age_s === null ||
+        latestFrame.mission_state_age_s > MISSION_STALE_S);
+    // Не показывать обе плашки разом -- E-Stop важнее, конфликта смыслов нет.
+    connLostOverlay.hidden = showEstopOverlay || !connLost;
   }
 
   function connectWs() {
@@ -499,32 +588,112 @@
     await api("POST", "/api/localization/reset", { confirm: true });
   });
 
-  // -- долгий тап в углу + PIN, чтобы открыть панель поверх активного тура --
+  // -- сессия оператора (design E2) --------------------------------------------
+
+  function onSessionLost(reason) {
+    authToken = null;
+    sessionExpiresAt = null;
+    sessionOperator = "";
+    panelOpen = false;
+    if (!authDialog.open) showMessage(reason);
+    renderOverlay();
+  }
+
+  btnHidePanel.addEventListener("click", async () => {
+    panelOpen = false;
+    // design E2, close_session_on_panel_hide (дефолт false): оператор
+    // сворачивает панель посмотреть на слайд и по умолчанию НЕ должен
+    // логиниться заново -- сессия переживает сворачивание, если параметр
+    // явно не требует иного.
+    if (closeSessionOnPanelHide && authToken !== null) {
+      await api("POST", "/api/auth/logout");
+      authToken = null;
+      sessionExpiresAt = null;
+      sessionOperator = "";
+    }
+    renderOverlay();
+  });
+
+  btnLogout.addEventListener("click", async () => {
+    await api("POST", "/api/auth/logout");
+    authToken = null;
+    sessionExpiresAt = null;
+    sessionOperator = "";
+    panelOpen = false;
+    renderOverlay();
+  });
+
+  // -- долгий тап в углу открывает ЭКРАН ВХОДА, а не панель напрямую
+  // (design E1) -- если сессия уже валидна (панель была свёрнута), просто
+  // разворачивает её обратно без повторного PIN/карты. --
   let pressTimer = null;
   const cancelPress = () => {
     if (pressTimer) clearTimeout(pressTimer);
     pressTimer = null;
   };
   unlockCorner.addEventListener("pointerdown", () => {
-    pressTimer = setTimeout(() => {
+    pressTimer = setTimeout(async () => {
+      if (authToken !== null) {
+        panelOpen = true;
+        renderOverlay();
+        return;
+      }
       pinInput.value = "";
-      pinDialog.showModal();
+      showAuthMessage("");
+      const data = await api("POST", "/api/auth/challenge");
+      if (!data) return;
+      currentNonce = data.nonce;
+      btnRfidOk.disabled = !((data.backends || []).includes("rfid"));
+      authDialog.showModal();
+      pinInput.focus();
     }, LONG_PRESS_MS);
   });
   unlockCorner.addEventListener("pointerup", cancelPress);
   unlockCorner.addEventListener("pointerleave", cancelPress);
   unlockCorner.addEventListener("pointercancel", cancelPress);
 
-  btnPinCancel.addEventListener("click", () => pinDialog.close());
-  btnPinOk.addEventListener("click", () => {
-    if (operatorPin !== null && pinInput.value === operatorPin) {
-      panelUnlocked = true;
-      pinDialog.close();
-      render();
-    } else {
-      pinInput.value = "";
+  async function verifyAndOpen(backend, extra) {
+    if (!currentNonce) return;
+    const resp = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nonce: currentNonce, backend, ...extra }),
+    });
+    currentNonce = null; // одноразовый -- сервер уже погасил его этим вызовом
+    let data = {};
+    try {
+      data = await resp.json();
+    } catch {
+      /* тело могло быть пустым */
     }
+    if (!resp.ok) {
+      showAuthMessage(data.error === "locked_out" ? "Слишком много попыток, подождите" : "Неверно");
+      pinInput.value = "";
+      return;
+    }
+    authToken = data.token;
+    sessionExpiresAt = data.expires_at;
+    sessionOperator = data.operator || "";
+    panelOpen = true;
+    authDialog.close();
+    render();
+  }
+
+  btnAuthCancel.addEventListener("click", () => {
+    authDialog.close();
   });
+  btnPinOk.addEventListener("click", () => verifyAndOpen("pin", { pin: pinInput.value }));
+  btnRfidOk.addEventListener("click", () => verifyAndOpen("rfid", {}));
+
+  // Сервер -- единственный источник истины по истечении сессии (design
+  // E2): без push-канала для auth клиент обязан сам спрашивать, иначе
+  // истечение TTL без активности оператора (панель просто открыта и
+  // забыта) никогда не закроет панель (criterion 13).
+  setInterval(async () => {
+    if (authToken === null) return;
+    const data = await api("GET", "/api/auth/status");
+    if (data && !data.active) onSessionLost("Сессия истекла");
+  }, SESSION_POLL_MS);
 
   loadTours();
   connectWs();
