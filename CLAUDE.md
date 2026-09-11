@@ -10,6 +10,10 @@ ROS 2 workspace source tree (`colcon` packages at the repo root) for the **Guide
 
 Comments, docs, and package READMEs are largely in Russian. Match the surrounding language when editing a file.
 
+## Issue tracking
+
+Issues, priorities, and the kanban are managed in **self-hosted Taiga** (project **VLM**, id 1) — not in GitHub Issues. UI: <https://corgi.sinorin.ru/project/vlm>. Agents: follow `docs/taiga.md` for setup, endpoints, and conventions; on pi machines use the bundled skill `skills/taiga/` (install once with `ln -s <repo>/skills/taiga ~/.pi/agent/skills/taiga`, then `python3 skills/taiga/taiga.py --help` for the CLI).
+
 ## Build, test, lint
 
 ```bash
