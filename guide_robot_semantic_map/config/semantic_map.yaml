@@ -1,10 +1,24 @@
 # Параметры трёх нод guide_robot_semantic_map.
 #
-# Пути к данным (*_file/*_dir) оставлены пустыми: пустая строка -- сигнал
-# нодам самим найти файл в share/guide_robot_semantic_map/{config,content}
-# через ament_index (см. _configure() в каждой ноде). Задавать их здесь
-# явно нужно только при развёртывании с данными вне пакета (design.md §2:
-# "Реальные музейные тексты в кодовый репозиторий не кладём").
+# Пути к данным (*_file/*_dir) явно указаны на датасет Innopark (реальная
+# площадка expo_one) -- пустая строка была бы сигналом нодам искать файл
+# по умолчанию (config/graph.geojson и т.п. в share/guide_robot_semantic_map,
+# см. _configure()/_resolve_path() в каждой ноде), а дефолт-фолбэк в коде
+# всё ещё смотрит на лабораторный датасет ("для тестов", см. locations.yaml/
+# tours.yaml). ParameterFile грузится с allow_substs=True (semantic_map.launch.py),
+# поэтому $(find-pkg-share ...) здесь работает так же, как в
+# guide_robot_voice/config/voice.yaml.
+#
+# graph_file здесь -- ОТДЕЛЬНЫЙ параметр от launch-аргумента graph_file,
+# которым route_server (semantic_map.launch.py) грузит топологию: этот
+# используется только location_server для валидации graph_node локаций.
+# Меняются вместе, но не связаны ничем, кроме дисциплины (не забыть менять
+# оба разом при смене площадки).
+#
+# Чтобы вернуться на лабораторный датасет для тестов -- переопределить
+# ВСЕ ЧЕТЫРЕ пути разом (graph_file здесь, locations_file, tours_file,
+# route_planner.locations_file) на *.geojson/*.yaml без суффикса
+# "_innopark", и graph_file launch-аргумент semantic_map.launch.py тоже.
 
 /**/content_server:
   ros__parameters:
@@ -13,15 +27,15 @@
 
 /**/location_server:
   ros__parameters:
-    locations_file: ""
-    tours_file: ""
-    graph_file: ""              # только для валидации graph_node, топологию не использует
+    locations_file: "$(find-pkg-share guide_robot_semantic_map)/config/locations_innopark.yaml"
+    tours_file: "$(find-pkg-share guide_robot_semantic_map)/config/tours_innopark.yaml"
+    graph_file: "$(find-pkg-share guide_robot_semantic_map)/config/graph_innopark.geojson"
     default_language: "ru"
     near_radius_m: 5.0          # отсечка near_only=true, метры
 
 /**/route_planner:
   ros__parameters:
-    locations_file: ""
+    locations_file: "$(find-pkg-share guide_robot_semantic_map)/config/locations_innopark.yaml"
     nominal_speed_mps: 0.35     # ИЗМЕРИТЬ на роботе -- паспортная скорость, не эффективная
     crowd_factor: 0.7           # design.md §1.2: оценка должна быть пессимистичной
     turn_penalty_s: 3.0

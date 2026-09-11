@@ -66,3 +66,44 @@ def test_lab_demo_tour_stops_have_content() -> None:
     covered = {exhibit_id for exhibit_id, _language in content}
     missing = stop_exhibit_ids - covered
     assert missing == set()
+
+
+# -- Innopark (expo_one, реальная площадка) --------------------------------
+
+
+def test_graph_innopark_geojson_is_valid() -> None:
+    graph = load_graph(_CONFIG_DIR / "graph_innopark.geojson")
+    assert len(graph.nodes) == 5
+
+
+def test_locations_innopark_yaml_is_valid_and_linked_to_graph() -> None:
+    graph = load_graph(_CONFIG_DIR / "graph_innopark.geojson")
+    locations = load_locations(_CONFIG_DIR / "locations_innopark.yaml")
+    validate_locations(locations)
+    validate_graph_links(locations, set(graph.nodes))
+    assert "expo_meeting" in locations.locations
+    assert "right_wing" in locations.locations
+    assert "left_wing" in locations.locations
+
+
+def test_tours_innopark_yaml_references_valid_locations() -> None:
+    locations = load_locations(_CONFIG_DIR / "locations_innopark.yaml")
+    tours = load_tours(_CONFIG_DIR / "tours_innopark.yaml")
+    validate_tours(tours, locations)
+    assert "expo_one" in tours.tours
+    assert len(tours.tours["expo_one"].stops) == 5
+
+
+def test_expo_one_tour_has_known_content_gaps() -> None:
+    # right_wing/left_wing -- новые остановки площадки, контент под них ещё
+    # не написан (см. TODO в locations_innopark.yaml/tours_innopark.yaml).
+    # Тест зафиксирован явно: если появится content/right_wing.ru.yaml или
+    # content/left_wing.ru.yaml, множество missing должно уменьшиться --
+    # тест начнёт падать, и это будет сигналом обновить его, а не тихий
+    # пробел в турах.
+    content, _ = load_content_dir(_CONTENT_DIR)
+    tours = load_tours(_CONFIG_DIR / "tours_innopark.yaml")
+    stop_exhibit_ids = {stop.exhibit_id for stop in tours.tours["expo_one"].stops}
+    covered = {exhibit_id for exhibit_id, _language in content}
+    missing = stop_exhibit_ids - covered
+    assert missing == {"right_wing", "left_wing"}
