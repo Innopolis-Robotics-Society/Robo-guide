@@ -6,8 +6,12 @@
 # см. _configure()/_resolve_path() в каждой ноде), а дефолт-фолбэк в коде
 # всё ещё смотрит на лабораторный датасет ("для тестов", см. locations.yaml/
 # tours.yaml). ParameterFile грузится с allow_substs=True (semantic_map.launch.py),
-# поэтому $(find-pkg-share ...) здесь работает так же, как в
-# guide_robot_voice/config/voice.yaml.
+# поэтому пути ниже пишутся через find-pkg-share substitution, как в
+# guide_robot_voice/config/voice.yaml. ВАЖНО: allow_substs парсит подстановки
+# по сырому тексту файла, включая комментарии -- дословный вид этой
+# подстановки в комментарии (со знаком доллара и круглыми скобками) сюда
+# специально не вставлен, иначе launch попытается её выполнить и упадёт
+# с "is not a valid package name" на плейсхолдере вместо реального имени пакета.
 #
 # graph_file здесь -- ОТДЕЛЬНЫЙ параметр от launch-аргумента graph_file,
 # которым route_server (semantic_map.launch.py) грузит топологию: этот
