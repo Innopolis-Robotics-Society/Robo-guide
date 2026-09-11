@@ -50,6 +50,14 @@ launch-файл его оттуда не запускает (см. «Извес�
   `geometry.wheel_radius`/`wheel_width`. Эти же имена joint'ов используются в
   `guide_robot.ros2_control.xacro`, `guide_robot.gazebo.xacro` и в
   `guide_robot_hardware` (протокол опроса энкодеров/скоростей).
+  Origin и axis каждого колеса заданы с минусом (`0 ${-y_offset} 0` /
+  `0 -1 0`) — это компенсация yaw **π** у `base_footprint_joint` выше: без
+  неё в `base_footprint` левое и правое колесо физически меняются местами,
+  а ось смотрит в `-Y`, из-за чего `diff_drive_controller` даёт верный `wz`,
+  но инвертированный `vx`. На реальном роботе это компенсирует
+  `left_sign`/`right_sign`/`swap_drives` в `guide_robot_hardware` (см.
+  `robot_params.yaml`, раздел `drive`), но у `gazebo_ros2_control/GazeboSystem`
+  таких параметров нет — без минуса в URDF симуляция ехала бы задом.
 - **Каретки-опоры** (`urdf.xacro:119-149`): по ходу впереди (+X footprint),
   смоделированы сферами радиуса `wheel_radius` на фиксированных joint'ах,
   в Gazebo — нулевое трение (`gazebo.xacro:140-153`), чтобы не искажали
