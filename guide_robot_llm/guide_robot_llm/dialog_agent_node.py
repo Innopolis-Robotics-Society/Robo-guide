@@ -148,6 +148,13 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("llm.answer_frequency_penalty", 0.4)
         self.declare_parameter("llm.action_repair_attempts", 1)
         self.declare_parameter("llm.raw", False)
+        # Taiga #3: capability-конфиг эндпоинтов, индекс -- по llm.base_urls
+        # (короткий список -- дефолт для остальных: text-only, без model).
+        self.declare_parameter("llm.models", [])
+        self.declare_parameter("llm.multimodal_enabled", [])
+        self.declare_parameter("llm.max_images", [])
+        # JSON-строка (у ROS-параметров нет dict-типа): '{"X-Client": "..."}'
+        self.declare_parameter("llm.request_headers", "")
 
         self.declare_parameter("system_prompt_path", "")
         self.declare_parameter("tool_broker_ns", "/tool_broker")
@@ -225,6 +232,15 @@ class DialogAgentNode(LifecycleNode):
         self._temperature_action = float(self.get_parameter("llm.temperature_action").value)
         self._action_repair_attempts = int(self.get_parameter("llm.action_repair_attempts").value)
         self._raw_llm = bool(self.get_parameter("llm.raw").value)
+        # Taiga #3: capability-конфиг; кадры к сообщениям прикрепляет turn
+        # context (#4), здесь только то, какой эндпоинт что принимает.
+        llm_models = list(self.get_parameter("llm.models").value)
+        llm_multimodal_enabled = list(self.get_parameter("llm.multimodal_enabled").value)
+        llm_max_images = list(self.get_parameter("llm.max_images").value)
+        llm_request_headers_json = str(self.get_parameter("llm.request_headers").value)
+        llm_request_headers = (
+            dict(json.loads(llm_request_headers_json)) if llm_request_headers_json else {}
+        )
 
         self._service_call_timeout_s = float(self.get_parameter("service_call_timeout_s").value)
         self._say_result_timeout_s = float(self.get_parameter("say_result_timeout_s").value)
@@ -259,6 +275,10 @@ class DialogAgentNode(LifecycleNode):
 
         self._answer_max_chars = int(self.get_parameter("answer.max_chars").value)
 
+        def _per_endpoint(index: int, values: list, default: object) -> object:
+            # Индекс -- по llm.base_urls; короткий список -- дефолт для хвоста.
+            return values[index] if index < len(values) else default
+
         self._backends = [
             Backend(
                 BackendConfig(
@@ -266,9 +286,13 @@ class DialogAgentNode(LifecycleNode):
                     api_key=api_key,
                     connect_timeout_s=connect_timeout_s,
                     read_timeout_s=read_timeout_s,
+                    model_name=str(_per_endpoint(i, llm_models, "")),
+                    multimodal_enabled=bool(_per_endpoint(i, llm_multimodal_enabled, False)),
+                    max_images=int(_per_endpoint(i, llm_max_images, 0)),
+                    extra_headers=llm_request_headers,
                 )
             )
-            for url in base_urls
+            for i, url in enumerate(base_urls)
         ]
 
         # Преамбул -- из файла (та же копия должна греть
