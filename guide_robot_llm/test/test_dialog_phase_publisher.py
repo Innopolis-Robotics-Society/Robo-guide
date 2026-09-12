@@ -19,7 +19,7 @@ from guide_robot_msgs.msg import CancelAll, DialogPhase, Presence, Transcript
 from test.mocks.harness import ToolBrokerTestHarness, wait_until
 from test.mocks.mock_llm_server import MockLlmServer
 
-_NOOP = json.dumps({"tool": "reply", "args": {}})
+_NOOP = json.dumps({"tool": "reply", "args": {}, "confidence": 0.9, "abstain": False})
 _PHASE_NAMES = {
     DialogPhase.IDLE: "IDLE",
     DialogPhase.ACTION: "ACTION",
@@ -85,13 +85,14 @@ def test_ask_visitor_turn_reaches_awaiting_only_after_answer_phase_returns() -> 
         harness.llm_server.chunks_with_grammar = [
             json.dumps(
                 {
-                    "think": "нужно подтверждение перед движением",
                     "tool": "ask_visitor",
                     "args": {
                         "question": "Прервать экскурсию и пойти к лидару?",
                         "on_yes": {"tool": "reply", "args": {}},
                         "on_no": "Хорошо, продолжаем.",
                     },
+                    "confidence": 0.9,
+                    "abstain": False,
                 }
             )
         ]
@@ -117,13 +118,14 @@ def test_ask_visitor_fast_path_yes_never_publishes_action() -> None:
         harness.llm_server.chunks_with_grammar = [
             json.dumps(
                 {
-                    "think": "нужно подтверждение перед движением",
                     "tool": "ask_visitor",
                     "args": {
                         "question": "Прервать экскурсию и пойти к лидару?",
                         "on_yes": {"tool": "reply", "args": {}},
                         "on_no": "Хорошо, продолжаем.",
                     },
+                    "confidence": 0.9,
+                    "abstain": False,
                 }
             )
         ]
@@ -176,11 +178,8 @@ def test_barge_in_during_turn_returns_to_idle_not_stuck_thinking() -> None:
         wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
         harness.llm_server.mode = MockLlmServer.MODE_SLOW
         harness.llm_server.chunks_with_grammar = [
-            '{"think": "',
-            "думаю",
-            '"',
-            ", ",
-            '"tool": "reply", "args": {}}',
+            '{"tool": "reply", "args": {}, "confidence": 0.',
+            '9, "abstain": false}',
         ]
         harness.llm_server.chunks_no_grammar = ["ок"]
         harness.llm_server.chunk_delay_s = 0.3

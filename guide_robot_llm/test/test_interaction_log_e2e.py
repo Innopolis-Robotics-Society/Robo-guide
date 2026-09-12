@@ -25,7 +25,9 @@ def test_turn_produces_interaction_log_record() -> None:
     try:
         wait_until(lambda: harness.dialog_agent.last_mission_state() is not None, timeout_s=5.0)
         harness.llm_server.chunks_no_grammar = ["Привет!"]
-        harness.llm_server.chunks_with_grammar = ['{"tool": "reply", "args": {}}']
+        harness.llm_server.chunks_with_grammar = [
+            '{"tool": "reply", "args": {}, "confidence": 0.9, "abstain": false}'
+        ]
 
         client = harness.make_client_node()
         _publish_transcript(client, "робот, привет")
@@ -64,7 +66,9 @@ def test_turn_produces_interaction_log_record() -> None:
         # только то, что дошло до озвучки/действия.
         assert record["answer_raw_text"] == "Привет!"
         assert record["answer_finish_reason"] == "stop"
-        assert record["action_raw_text"] == '{"tool": "reply", "args": {}}'
+        assert record["action_raw_text"] == (
+            '{"tool": "reply", "args": {}, "confidence": 0.9, "abstain": false}'
+        )
         assert record["action_finish_reason"] == "stop"
         assert record["llm_messages"][0]["role"] == "system"
         roles = [m["role"] for m in record["llm_messages"]]

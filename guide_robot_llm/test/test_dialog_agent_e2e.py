@@ -24,7 +24,7 @@ from test.mocks.harness import ToolBrokerTestHarness, pump_clock, wait_until
 from test.mocks.mock_llm_server import MockLlmServer
 
 _S = MissionState
-_NOOP = json.dumps({"tool": "reply", "args": {}})
+_NOOP = json.dumps({"tool": "reply", "args": {}, "confidence": 0.9, "abstain": False})
 
 
 def _mission_state_is(harness: ToolBrokerTestHarness, target: int):
@@ -177,9 +177,10 @@ def test_action_reaches_tool_broker_then_answer_is_spoken() -> None:
         harness.llm_server.chunks_with_grammar = [
             json.dumps(
                 {
-                    "think": "посетитель просит отвести в лабораторию",
                     "tool": "guide_to",
                     "args": {"location_id": "lab105a"},
+                    "confidence": 0.9,
+                    "abstain": False,
                 }
             )
         ]
@@ -223,13 +224,14 @@ def test_ask_visitor_speaks_the_question() -> None:
         harness.llm_server.chunks_with_grammar = [
             json.dumps(
                 {
-                    "think": "нужно подтверждение перед движением",
                     "tool": "ask_visitor",
                     "args": {
                         "question": "Прервать экскурсию и пойти к лидару?",
                         "on_yes": {"tool": "reply", "args": {}},
                         "on_no": "Хорошо, продолжаем.",
                     },
+                    "confidence": 0.9,
+                    "abstain": False,
                 }
             )
         ]
@@ -252,13 +254,14 @@ def test_ask_visitor_then_no_speaks_on_no_without_calling_llm_again() -> None:
         harness.llm_server.chunks_with_grammar = [
             json.dumps(
                 {
-                    "think": "нужно подтверждение перед движением",
                     "tool": "ask_visitor",
                     "args": {
                         "question": "Прервать экскурсию и пойти к лидару?",
                         "on_yes": {"tool": "reply", "args": {}},
                         "on_no": "Хорошо, продолжаем.",
                     },
+                    "confidence": 0.9,
+                    "abstain": False,
                 }
             )
         ]
@@ -295,13 +298,14 @@ def test_ask_visitor_ttl_expires_pending_slot() -> None:
         harness.llm_server.chunks_with_grammar = [
             json.dumps(
                 {
-                    "think": "нужно подтверждение перед движением",
                     "tool": "ask_visitor",
                     "args": {
                         "question": "Прервать экскурсию и пойти к лидару?",
                         "on_yes": {"tool": "reply", "args": {}},
                         "on_no": "Хорошо, продолжаем.",
                     },
+                    "confidence": 0.9,
+                    "abstain": False,
                 }
             )
         ]
@@ -342,9 +346,10 @@ def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
         harness.llm_server.chunks_with_grammar = [
             json.dumps(
                 {
-                    "think": "явная просьба отвести в лабораторию",
                     "tool": "guide_to",
                     "args": {"location_id": "lab105a"},
+                    "confidence": 0.9,
+                    "abstain": False,
                 }
             )
         ]
@@ -356,13 +361,14 @@ def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
         harness.llm_server.chunks_with_grammar = [
             json.dumps(
                 {
-                    "think": "посетитель хочет к лидару, нужно подтверждение",
                     "tool": "ask_visitor",
                     "args": {
                         "question": "Прервать экскурсию и пойти к лидару?",
                         "on_yes": {"tool": "guide_to", "args": {"location_id": "lidar_stand"}},
                         "on_no": "Хорошо, продолжаем.",
                     },
+                    "confidence": 0.9,
+                    "abstain": False,
                 }
             )
         ]
@@ -416,9 +422,10 @@ def test_start_tour_from_dialog_sends_greet_false_and_skips_greeting_state() -> 
         harness.llm_server.chunks_with_grammar = [
             json.dumps(
                 {
-                    "think": "явная просьба начать тур",
                     "tool": "start_tour",
                     "args": {"tour_id": "full"},
+                    "confidence": 0.9,
+                    "abstain": False,
                 }
             )
         ]
@@ -441,11 +448,8 @@ def test_barge_in_aborts_in_flight_turn_before_tool_executes() -> None:
         # Первая фаза хода теперь -- действие (с грамматикой): медленный стрим
         # именно её, чтобы barge-in пришёлся на генерацию в полёте.
         harness.llm_server.chunks_with_grammar = [
-            '{"think": "',
-            "думаю",
-            '"',
-            ", ",
-            '"tool": "reply", "args": {}}',
+            '{"tool": "reply", "args": {}, "confidence": 0.',
+            '9, "abstain": false}',
         ]
         harness.llm_server.chunks_no_grammar = ["ок"]
         harness.llm_server.chunk_delay_s = 0.3
@@ -478,11 +482,8 @@ def test_pending_transcript_replayed_after_turn() -> None:
         wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
         harness.llm_server.mode = MockLlmServer.MODE_SLOW
         harness.llm_server.chunks_with_grammar = [
-            '{"think": "',
-            "долго",
-            " думаю",
-            '"',
-            ', "tool": "reply", "args": {}}',
+            '{"tool": "reply", "args": {}, "confidence": 0.',
+            '9, "abstain": false}',
         ]
         harness.llm_server.chunks_no_grammar = ["ок"]
         harness.llm_server.chunk_delay_s = 0.3
