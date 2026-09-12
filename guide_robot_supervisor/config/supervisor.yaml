@@ -15,6 +15,17 @@ supervisor:
       preconditions: [tf_odom]
       startup_timeout: 30.0
 
+    # keepout-зоны (Nav2 costmap filters) -- filter_mask_server +
+    # costmap_filter_info_server, запускаются guide_robot_navigation/launch/
+    # navigation.launch.py только когда keepout_mask_file непуст (сейчас --
+    # только для карты симуляции innopark_l_10.09_edited, на hardware/
+    # lab_105_full маски ещё нет, поэтому optional: узлов может не быть вовсе).
+    - name: costmap_filters
+      manager: /lifecycle_manager_costmap_filters
+      requires: [safety]
+      startup_timeout: 15.0
+      optional: true
+
     # voice до navigation: кастомный BT зовёт /say на activate.
     # Без tts_node bt_navigator падает с "Action server say not available".
     - name: voice
@@ -25,7 +36,15 @@ supervisor:
     - name: navigation
       manager: /lifecycle_manager_navigation
       # requires: voice -- ждём, пока tts_node активен, прежде чем
-      # активировать bt_navigator (см. комментарий выше).
+      # активировать bt_navigator (см. комментарий выше). costmap_filters
+      # НЕ в requires намеренно: это optional-группа (узлов может не быть
+      # вовсе, если для текущей карты нет keepout-маски), а _bringup() в
+      # supervisor_node.py -- один синхронный проход: FAILED-состояние
+      # optional-группы не считается "requires удовлетворён", и весь bring-up
+      # уйдёт в FAULT для КАЖДОЙ не-optional группы, которая её потребует
+      # (живой баг, если добавить). Costmap-фильтр не нуждается в жёстком
+      # порядке -- KeepoutFilter просто ждёт данные на топике, активация
+      # костмапов не блокируется их отсутствием.
       requires: [localization, voice]
       preconditions: [tf_map]
       startup_timeout: 45.0

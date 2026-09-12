@@ -116,6 +116,30 @@ Orin не выдерживается: замерено в бэге `fp_on_0.db3`
 DWB на `max_vel_x: 0.5`. `raytrace_max_range`/`obstacle_max_range`
 пересчитаны под это окно (`:370-377`).
 
+**Keepout-зоны (Nav2 costmap filters)** — в оба костмапа добавлен
+`filters: ["keepout_filter"]` (`nav2_costmap_2d::KeepoutFilter`, слушает
+`/costmap_filter_info`). Маску и метаданные публикуют два отдельных узла
+(`filter_mask_server` — тот же executable `map_server`, другое имя/топик;
+`costmap_filter_info_server`), под своим `lifecycle_manager_costmap_filters`
+(`map_server`+`amcl` управляются `lifecycle_manager_localization` из
+`nav2_bringup`, дописать в него нельзя без форка чужого launch-файла).
+Запускаются ТОЛЬКО на AMCL-пути (`launch/navigation.launch.py`), не в SLAM
+(`slam_navigation.launch.py`) — keepout защищает зоны на уже готовой карте,
+во время online-SLAM карты ещё нет. Включаются launch-аргументом
+`keepout_mask_file` (полный путь до маски-yaml, origin/resolution обязаны
+совпадать с активной `map`); пустая строка (дефолт) — фильтр выключен,
+костмапы работают как раньше. Маска подготовлена пока только для карты
+симуляции `map/innopark_l_10.09_edited_keepout.{pgm,yaml}`
+(`simulation.launch.py` подставляет её по умолчанию) — для `lab_105_full`
+(карта на реальном роботе, `hardware.launch.py`) маски ещё нет, там фильтр
+не включён. `costmap_filters` — отдельная `optional: true` группа в
+`guide_robot_supervisor/config/supervisor.yaml`, намеренно НЕ в `requires`
+группы `navigation`: `_bringup()` там — один синхронный проход, FAILED
+optional-группы не засчитывается как "requires удовлетворён", и жёсткая
+зависимость уронила бы в FAULT весь bring-up там, где маски для карты нет
+(сейчас — на hardware). Жёсткого порядка и не требуется — KeepoutFilter
+просто ждёт данные на топике, активация костмапов ими не блокируется.
+
 **planner_server (`:458-477`)** — `NavfnPlanner`, `use_astar: false`
 (Дijkstra, не A*), `allow_unknown: true`. `expected_planner_frequency: 1.0`
 подогнано под реальную частоту вызова из BT (`RateController hz="1.0"`),

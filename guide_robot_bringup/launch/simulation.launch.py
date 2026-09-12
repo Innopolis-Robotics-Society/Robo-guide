@@ -43,6 +43,11 @@ def generate_launch_description():
         default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited.yaml"),
         description="Map yaml, used only when slam:=false",
     )
+    declare_keepout_mask_file = DeclareLaunchArgument(
+        "keepout_mask_file",
+        default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited_keepout.yaml"),
+        description="Keepout costmap-filter mask, must match `map`. Empty -- filter off.",
+    )
     world_arg = DeclareLaunchArgument(
         name="world",
         default_value=os.path.join(pkg_simulation, "worlds", "innopark_edited.world"),
@@ -76,6 +81,7 @@ def generate_launch_description():
 
     slam = LaunchConfiguration("slam")
     map_yaml = LaunchConfiguration("map")
+    keepout_mask_file = LaunchConfiguration("keepout_mask_file")
     world = LaunchConfiguration("world")
     spawn_yaw = LaunchConfiguration("spawn_yaw")
     nav = LaunchConfiguration("nav")
@@ -111,6 +117,7 @@ def generate_launch_description():
             "map": map_yaml,
             "nav_params_file": nav_params,
             "slam_params_file": slam_params,
+            "keepout_mask_file": keepout_mask_file,
             "autostart_nav": "false",
             "launch_supervisor": "true",
             "autostart_supervisor": "true",
@@ -141,6 +148,7 @@ def generate_launch_description():
         [
             declare_slam,
             declare_map,
+            declare_keepout_mask_file,
             declare_nav,
             world_arg,
             spawn_yaw_arg,

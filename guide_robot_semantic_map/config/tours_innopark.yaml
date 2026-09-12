@@ -24,5 +24,3 @@ tours:
       - {location_id: expo_meeting,      exhibit_id: expo_meeting,      dwell_s: 180, mode: full}
       - {location_id: expo_city_model,   exhibit_id: expo_city_model,   dwell_s: 180, mode: full}
       - {location_id: expo_handoff,      exhibit_id: expo_handoff,      dwell_s: 60,  mode: full}
-      - {location_id: right_wing,        exhibit_id: right_wing,        dwell_s: 60,  mode: full}
-      - {location_id: left_wing,         exhibit_id: left_wing,         dwell_s: 60,  mode: full}
