@@ -7,7 +7,14 @@
 
 from __future__ import annotations
 
-from guide_robot_llm.llm_client.backend import Backend, BackendConfig, CompletionResult
+from guide_robot_llm.llm_client.backend import (
+    Backend,
+    BackendConfig,
+    CompletionResult,
+    build_content,
+    count_images,
+    has_images,
+)
 from guide_robot_llm.llm_client.errors import (
     BackendAborted,
     BackendError,
@@ -16,6 +23,7 @@ from guide_robot_llm.llm_client.errors import (
 )
 from guide_robot_llm.llm_client.grammar import build_tool_call_grammar
 from guide_robot_llm.llm_client.ladder import complete_with_fallback
+from guide_robot_llm.llm_client.telemetry import ClientTelemetry, StageTimings
 
 __all__ = [
     "Backend",
@@ -24,7 +32,12 @@ __all__ = [
     "BackendError",
     "BackendHTTPError",
     "BackendTimeout",
+    "ClientTelemetry",
     "CompletionResult",
+    "StageTimings",
+    "build_content",
     "build_tool_call_grammar",
     "complete_with_fallback",
+    "count_images",
+    "has_images",
 ]

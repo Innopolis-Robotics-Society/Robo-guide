@@ -37,6 +37,15 @@
     # ../llm_server/README.md.
     llm.answer_frequency_penalty: 0.4
     llm.action_repair_attempts: 1
+    # Taiga #3: capability-конфигурация эндпоинтов. Индекс -- по llm.base_urls;
+    # короткий список -- дефолт для остальных (text-only, без model, без лимита
+    # кадров). Кадры к сообщениям прикрепляет turn context (#4); здесь только то,
+    # какой эндпоинт их принимает. Текущие два llama.cpp-эндпоинта -- text-only.
+    llm.models: ["", ""]
+    llm.multimodal_enabled: [false, false]
+    llm.max_images: [0, 0]
+    # Заголовки -- JSON-объект (у ROS-параметров нет dict-типа); пусто -- не шлём.
+    llm.request_headers: ""
 
     system_prompt_path: "$(find-pkg-share guide_robot_llm)/config/system_prompt.txt"
     tool_broker_ns: "/tool_broker"

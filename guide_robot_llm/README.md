@@ -487,7 +487,9 @@ ruff check .
 
 Без ROS-железа — rclpy + моки (`test/mocks/`: `mock_llm_server.py` —
 голый `http.server`, chunked SSE, различает фазы по `grammar` в теле
-запроса; `mock_nav_server.py`/`mock_say_server.py`/`mock_semantic_map.py`/
+запроса, fault-режимы (malformed JSON / disconnect / delayed first token /
+mid-stream failure) и redacted-метаданные запроса для ассертов (Taiga #3);
+`mock_nav_server.py`/`mock_say_server.py`/`mock_semantic_map.py`/
 `sim_clock.py` — переиспользованы из `guide_robot_mission_control` тем
 же приёмом «копия, не импорт»). `test/mocks/harness.py` поднимает
 РЕАЛЬНЫЕ `mission_fsm`/`narration_server` (не мок поверх мока) +
