@@ -53,7 +53,7 @@ def _base_kwargs(**overrides) -> dict:
 def test_record_carries_core_fields_verbatim() -> None:
     record = build_interaction_record(**_base_kwargs(turn_id=42, mission_state_name="IDLE"))
 
-    assert record["schema_version"] == 5
+    assert record["schema_version"] == 6
     assert record["turn_id"] == 42
     assert record["session_id"] == "abc123def456"
     assert record["utterance_ts"] == 1729999999.5
@@ -61,6 +61,7 @@ def test_record_carries_core_fields_verbatim() -> None:
     assert record["utterance"] == "привет"
     assert record["snapshot"] == {"mission": {"state": "IDLE"}}
     assert record["answer_text"] == "Привет!"
+    assert record["answer_source"] == "answer_phase"
     assert record["answer_chars"] == len("Привет!")
     assert record["say_ok"] is True
     assert record["stopped_reason"] == "ok"
@@ -114,9 +115,7 @@ def test_action_none_when_turn_result_has_no_action() -> None:
 
 
 def test_action_serialized_with_content_version_none_when_absent() -> None:
-    call = ToolCallRecord(
-        name="reply", args={}, result_ok=True, result_message="", result_data={}
-    )
+    call = ToolCallRecord(name="reply", args={}, result_ok=True, result_message="", result_data={})
     record = build_interaction_record(**_base_kwargs(result=_result(action=call)))
 
     assert record["action"] == {

@@ -41,7 +41,25 @@ class MockLlmServer:
         self.chunk_delay_s = 0.05
         self.hang_s = 10.0
         self.http_status = 500
+        # -1 -- MODE_HTTP_ERROR отвечает ошибкой всегда (старое поведение);
+        # N>=0 -- ошибка N раз, дальше запросы обрабатываются как MODE_OK
+        # (для теста ретрая: 429 один раз, потом успех на том же бэкенде).
+        self.http_error_count = -1
+        self.request_count = 0
         self.last_request_body: dict | None = None
+        # Внешний шлюз без GBNF (TASK_external_llm_backend.md §0/§6): reasoning
+        # приходит ДО обычного content, отдельными `delta.reasoning`-событиями,
+        # не идёт в `chunks`. Пусто по умолчанию -- существующие тесты `llm_
+        # client/backend.py`/e2e его не видят.
+        self.reasoning_chunks: list[str] = []
+        # Если задан -- послать РОВНО одно `{"error": ...}` SSE-событие вместо
+        # обычных чанков и завершить стрим.
+        self.send_error: dict | None = None
+        # Прикладываются к КАЖДОМУ обычному событию как `event["gateway"]`/
+        # `event["usage"]` -- ближе к тому, как реально шлёт шлюз (usage чаще
+        # всего только в последнем событии, но повтор безвреден).
+        self.gateway_warnings: list[str] = []
+        self.usage_payload: dict | None = None
 
         outer = self
 
@@ -83,8 +101,11 @@ class MockLlmServer:
             self.last_request_body = json.loads(body) if body else None
         except json.JSONDecodeError:
             self.last_request_body = None
+        self.request_count += 1
 
-        if self.mode == self.MODE_HTTP_ERROR:
+        if self.mode == self.MODE_HTTP_ERROR and self.http_error_count != 0:
+            if self.http_error_count > 0:
+                self.http_error_count -= 1
             handler.send_response(self.http_status)
             handler.send_header("Content-Type", "application/json")
             handler.end_headers()
@@ -116,7 +137,20 @@ class MockLlmServer:
             handler.wfile.write(b"\r\n")
             handler.wfile.flush()
 
-        has_grammar = bool(self.last_request_body and self.last_request_body.get("grammar"))
+        if self.send_error is not None:
+            event = {"error": self.send_error}
+            _write_chunk(f"data: {json.dumps(event)}\n\n".encode())
+            _write_chunk(b"data: [DONE]\n\n")
+            handler.wfile.write(b"0\r\n\r\n")
+            handler.wfile.flush()
+            return
+
+        # `structured=json_object` (внешний шлюз без GBNF) не шлёт "grammar" --
+        # гейт там response_format (TASK_external_llm_backend.md §1).
+        request_body = self.last_request_body
+        has_grammar = bool(
+            request_body and (request_body.get("grammar") or request_body.get("response_format"))
+        )
         if has_grammar and self.chunks_with_grammar is not None:
             chunks = self.chunks_with_grammar
         elif not has_grammar and self.chunks_no_grammar is not None:
@@ -124,13 +158,39 @@ class MockLlmServer:
         else:
             chunks = self.chunks
 
+        # Ближе к реальному шлюзу: warnings -- один раз, на самое первое
+        # событие (решение о параметрах принимается один раз на запрос);
+        # usage -- только в последнем (`stream_options.include_usage`,
+        # ровно как у OpenAI-совместимых стримов).
+        warnings_sent = False
+
+        def _leading_fields() -> dict:
+            nonlocal warnings_sent
+            if warnings_sent or not self.gateway_warnings:
+                return {}
+            warnings_sent = True
+            return {"gateway": {"warnings": self.gateway_warnings}}
+
         delay = self.chunk_delay_s if self.mode == self.MODE_SLOW else 0.0
-        for piece in chunks:
-            event = {"choices": [{"delta": {"content": piece}, "finish_reason": None}]}
+        for piece in self.reasoning_chunks:
+            event = {
+                "choices": [{"delta": {"reasoning": piece}, "finish_reason": None}],
+                **_leading_fields(),
+            }
             _write_chunk(f"data: {json.dumps(event)}\n\n".encode())
             if delay:
                 time.sleep(delay)
-        final = {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        for piece in chunks:
+            event = {
+                "choices": [{"delta": {"content": piece}, "finish_reason": None}],
+                **_leading_fields(),
+            }
+            _write_chunk(f"data: {json.dumps(event)}\n\n".encode())
+            if delay:
+                time.sleep(delay)
+        final: dict = {"choices": [{"delta": {}, "finish_reason": "stop"}], **_leading_fields()}
+        if self.usage_payload is not None:
+            final["usage"] = self.usage_payload
         _write_chunk(f"data: {json.dumps(final)}\n\n".encode())
         _write_chunk(b"data: [DONE]\n\n")
         handler.wfile.write(b"0\r\n\r\n")

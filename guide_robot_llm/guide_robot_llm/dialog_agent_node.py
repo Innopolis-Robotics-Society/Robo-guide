@@ -25,6 +25,7 @@ ROS-события (транскрипт, переходы `/mission/state`, bar
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import uuid
@@ -62,7 +63,12 @@ from guide_robot_llm.lib.qos import (
     QOS_MISSION_STATE,
     QOS_WAKEWORD,
 )
-from guide_robot_llm.llm_client import Backend, BackendConfig, complete_with_fallback
+from guide_robot_llm.llm_client import (
+    Backend,
+    BackendConfig,
+    CompletionResult,
+    complete_with_fallback,
+)
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
 from guide_robot_llm.tools import schema
 from guide_robot_msgs.msg import (
@@ -131,17 +137,33 @@ class DialogAgentNode(LifecycleNode):
     """Lifecycle-нода: двухфазный ход, слушает ASR/mission/cancel_all, зовёт tool_broker."""
 
     def __init__(self, **node_kwargs: object) -> None:
-        """Объявить параметры. Бэкенды -- в `on_configure`, каталог -- в `on_activate`."""
+        """Объявить параметры. Бэкенды -- в `on_configure`, каталог -- в `on_activate`.
+
+        `llm.<name>.*` объявляются ЗДЕСЬ, не в `on_configure`, по именам из
+        `llm.backends` -- повторный `declare_parameter` того же имени на
+        втором `configure` после `cleanup` падает (rclpy запрещает
+        передекларацию), а `__init__` вызывается ровно один раз за жизнь
+        объекта ноды, сквозь любые lifecycle-переходы (TASK_external_llm_
+        backend.md §4).
+        """
         super().__init__("dialog_agent", **node_kwargs)
 
-        self.declare_parameter("llm.base_urls", ["http://127.0.0.1:18080/v1"])
-        self.declare_parameter("llm.connect_timeout_s", 2.0)
-        self.declare_parameter("llm.read_timeout_s", 30.0)
-        self.declare_parameter("llm.api_key", "")
-        self.declare_parameter("llm.max_attempts_per_backend", 2)
+        self.declare_parameter("llm.backends", ["local"])
+        self._backend_names = list(self.get_parameter("llm.backends").value)
+        for name in self._backend_names:
+            self.declare_parameter(f"llm.{name}.base_url", "")
+            self.declare_parameter(f"llm.{name}.model", "")
+            self.declare_parameter(f"llm.{name}.api_key_env", "")
+            self.declare_parameter(f"llm.{name}.structured", "gbnf")
+            self.declare_parameter(f"llm.{name}.extra_body_json", "{}")
+            self.declare_parameter(f"llm.{name}.connect_timeout_s", 2.0)
+            self.declare_parameter(f"llm.{name}.read_timeout_s", 30.0)
+            self.declare_parameter(f"llm.{name}.reasoning_budget_tokens", 0)
+            self.declare_parameter(f"llm.{name}.first_content_timeout_s", 0.0)
+            self.declare_parameter(f"llm.{name}.max_attempts", 2)
         self.declare_parameter("llm.backoff_s", 0.5)
         self.declare_parameter("llm.max_tokens_answer", 160)
-        self.declare_parameter("llm.max_tokens_action", 64)
+        self.declare_parameter("llm.max_tokens_action", 220)
         self.declare_parameter("llm.temperature_answer", 0.6)
         self.declare_parameter("llm.temperature_action", 0.0)
         # stage5 п.3: только фаза реплики -- см. `_complete_answer` ниже.
@@ -193,6 +215,10 @@ class DialogAgentNode(LifecycleNode):
         # бы её. Мьютекс с _pending_text: последний голос побеждает,
         # какого бы рода он ни был -- см. оба места записи ниже.
         self._pending_answer_replay: tuple[str, dict] | None = None
+        # WARN на gateway-предупреждение -- один раз на уникальную строку за
+        # жизнь ноды (не за сессию configure/activate), поэтому в __init__,
+        # не в _configure()/_teardown().
+        self._seen_gateway_warnings: set[str] = set()
 
         self._cb_reentrant = ReentrantCallbackGroup()
 
@@ -208,13 +234,6 @@ class DialogAgentNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
     def _configure(self) -> TransitionCallbackReturn:
-        base_urls = list(self.get_parameter("llm.base_urls").value)
-        connect_timeout_s = float(self.get_parameter("llm.connect_timeout_s").value)
-        read_timeout_s = float(self.get_parameter("llm.read_timeout_s").value)
-        api_key = str(self.get_parameter("llm.api_key").value)
-        self._max_attempts_per_backend = int(
-            self.get_parameter("llm.max_attempts_per_backend").value
-        )
         self._backoff_s = float(self.get_parameter("llm.backoff_s").value)
         self._max_tokens_answer = int(self.get_parameter("llm.max_tokens_answer").value)
         self._max_tokens_action = int(self.get_parameter("llm.max_tokens_action").value)
@@ -259,17 +278,13 @@ class DialogAgentNode(LifecycleNode):
 
         self._answer_max_chars = int(self.get_parameter("answer.max_chars").value)
 
-        self._backends = [
-            Backend(
-                BackendConfig(
-                    base_url=url,
-                    api_key=api_key,
-                    connect_timeout_s=connect_timeout_s,
-                    read_timeout_s=read_timeout_s,
-                )
-            )
-            for url in base_urls
-        ]
+        self._backends = self._build_backends()
+        # TASK_external_llm_backend.md §4: гейт по состоянию (строка "Сейчас
+        # доступны только: ...") и inline-путь реплики (`run_turn(inline_reply=
+        # ...)`) зависят ТОЛЬКО от того, что реально спросят -- первого
+        # бэкенда лестницы. Считаем один раз здесь, не на каждый ход:
+        # `llm.backends`/`llm.<name>.structured` не меняются между configure.
+        self._prompt_gate = self._backends[0].config.structured != "gbnf"
 
         # Преамбул -- из файла (та же копия должна греть
         # llm_server/config/system_prompt.txt). Полный системный промпт (с
@@ -345,6 +360,71 @@ class DialogAgentNode(LifecycleNode):
 
         self.get_logger().info("dialog_agent сконфигурирован")
         return TransitionCallbackReturn.SUCCESS
+
+    def _build_backends(self) -> list[Backend]:
+        """Собрать лестницу `Backend` из `llm.<name>.*`, в порядке `llm.backends`.
+
+        `api_key_env` заданный, но пустая/отсутствующая переменная окружения --
+        `ValueError` (ловится `on_configure` → `FAILURE` с понятным логом):
+        тихо запускаться без ключа, когда он явно потребован конфигом, хуже,
+        чем не подняться вовсе (TASK_external_llm_backend.md §4). Пустой
+        `api_key_env` -- ключ не нужен (локальный `llm_server/` без авторизации).
+        """
+        backends: list[Backend] = []
+        for name in self._backend_names:
+            base_url = str(self.get_parameter(f"llm.{name}.base_url").value)
+            model = str(self.get_parameter(f"llm.{name}.model").value)
+            api_key_env = str(self.get_parameter(f"llm.{name}.api_key_env").value)
+            structured = str(self.get_parameter(f"llm.{name}.structured").value)
+            extra_body_json = str(self.get_parameter(f"llm.{name}.extra_body_json").value)
+            connect_timeout_s = float(self.get_parameter(f"llm.{name}.connect_timeout_s").value)
+            read_timeout_s = float(self.get_parameter(f"llm.{name}.read_timeout_s").value)
+            reasoning_budget_tokens = int(
+                self.get_parameter(f"llm.{name}.reasoning_budget_tokens").value
+            )
+            raw_first_content_timeout_s = float(
+                self.get_parameter(f"llm.{name}.first_content_timeout_s").value
+            )
+            # 0.0 в параметре -- нет дедлайна (BackendConfig ждёт None, не 0.0).
+            first_content_timeout_s = raw_first_content_timeout_s or None
+            max_attempts = int(self.get_parameter(f"llm.{name}.max_attempts").value)
+
+            api_key = ""
+            if api_key_env:
+                api_key = os.environ.get(api_key_env, "")
+                if not api_key:
+                    msg = f"{api_key_env} не задан для бэкенда {name!r}"
+                    raise ValueError(msg)
+            try:
+                extra_body = json.loads(extra_body_json)
+            except json.JSONDecodeError as error:
+                msg = f"llm.{name}.extra_body_json невалиден: {error}"
+                raise ValueError(msg) from error
+            if not isinstance(extra_body, dict):
+                msg = f"llm.{name}.extra_body_json обязан быть JSON-объектом"
+                raise ValueError(msg)
+
+            backends.append(
+                Backend(
+                    BackendConfig(
+                        name=name,
+                        base_url=base_url,
+                        model=model,
+                        api_key=api_key,
+                        structured=structured,
+                        extra_body=extra_body,
+                        connect_timeout_s=connect_timeout_s,
+                        read_timeout_s=read_timeout_s,
+                        reasoning_budget_tokens=reasoning_budget_tokens,
+                        first_content_timeout_s=first_content_timeout_s,
+                        max_attempts=max_attempts,
+                    )
+                )
+            )
+        if not backends:
+            msg = "llm.backends пуст"
+            raise ValueError(msg)
+        return backends
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         """Стянуть каталог локаций/туров, собрать системный промпт и ретривер, разрешить ходы."""
@@ -965,6 +1045,27 @@ class DialogAgentNode(LifecycleNode):
             utterance=utterance,
         )
 
+    def _log_completion_diagnostics(self, result: CompletionResult) -> None:
+        """Раз в жизни ноды на уникальную строку -- WARN про gateway; DEBUG/WARN про usage.
+
+        TASK_external_llm_backend.md §4: `gateway.warnings` -- шлюз молча
+        выкидывает незнакомый параметр и пишет это ТОЛЬКО сюда (например,
+        `"ignored unknown parameter 'grammar'"`), пропустить -- значит не
+        заметить, что часть конфига бэкенда никак не действует.
+        `reasoning_chars > 0` -- WARN, не DEBUG: у `deepseek-v4.1-flash` через
+        роутер reasoning нельзя выключить ни одним параметром, это ожидаемо,
+        но должно быть видно в логе, а не молчаливо жрать `max_tokens`.
+        """
+        for warning in result.gateway_warnings:
+            if warning not in self._seen_gateway_warnings:
+                self._seen_gateway_warnings.add(warning)
+                self.get_logger().warning(f"gateway warning: {warning}")
+        cached_tokens = (result.usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+        if cached_tokens:
+            self.get_logger().debug(f"cached_tokens={cached_tokens}")
+        if result.reasoning_chars > 0:
+            self.get_logger().warning(f"reasoning_chars={result.reasoning_chars}")
+
     def _run_turn(
         self,
         turn_id: int,
@@ -1075,16 +1176,27 @@ class DialogAgentNode(LifecycleNode):
             # СПРАВКА -- волатильный хвост ПОСЛЕ статус-строки: префикс до
             # неё (system + история + сама статус-строка) не меняется от
             # факта поиска, префикс-кэш не страдает.
-            user_content = "\n".join(
-                [f"СОБЫТИЕ: {event}" for event in trailing_events]
-                + [status_line, knowledge_block, text]
-            )
+            lines = [f"СОБЫТИЕ: {event}" for event in trailing_events] + [
+                status_line,
+                knowledge_block,
+                text,
+            ]
+            if self._prompt_gate:
+                # TASK_external_llm_backend.md §3.3/§4: бэкенды без GBNF не
+                # гейтят `tool` по `tools_allowed` через грамматику -- гейт
+                # строкой в самом волатильном хвосте `user_content` (клеим
+                # здесь, не в `_complete_action`/`turn.py`, иначе
+                # `result.messages` в `interaction_log` разойдётся с тем, что
+                # реально ушло в модель). Статичный префикс (system + история
+                # + `action_instruction`) не трогается -- CACHE_REUSE не страдает.
+                lines.append(f"Сейчас доступны только: {', '.join(tools_allowed)}.")
+            user_content = "\n".join(lines)
             self.get_logger().info(f"ASR: {text!r}")
 
             def _complete_answer(messages: list[dict]):
                 start = time.monotonic()
                 try:
-                    return complete_with_fallback(
+                    result = complete_with_fallback(
                         self._backends,
                         messages,
                         grammar=None,
@@ -1095,9 +1207,10 @@ class DialogAgentNode(LifecycleNode):
                         # temperature 0, штраф повторов там не нужен.
                         frequency_penalty=self._answer_frequency_penalty,
                         abort_event=abort_event,
-                        max_attempts_per_backend=self._max_attempts_per_backend,
                         backoff_s=self._backoff_s,
                     )
+                    self._log_completion_diagnostics(result)
+                    return result
                 finally:
                     stage_timings.append(
                         {"stage": "llm_answer", "ms": (time.monotonic() - start) * 1000}
@@ -1106,7 +1219,7 @@ class DialogAgentNode(LifecycleNode):
             def _complete_action(messages: list[dict], grammar: str, *, stop_when=None):
                 start = time.monotonic()
                 try:
-                    return complete_with_fallback(
+                    result = complete_with_fallback(
                         self._backends,
                         messages,
                         grammar=grammar,
@@ -1114,9 +1227,10 @@ class DialogAgentNode(LifecycleNode):
                         temperature=self._temperature_action,
                         abort_event=abort_event,
                         stop_when=stop_when,
-                        max_attempts_per_backend=self._max_attempts_per_backend,
                         backoff_s=self._backoff_s,
                     )
+                    self._log_completion_diagnostics(result)
+                    return result
                 finally:
                     stage_timings.append(
                         {"stage": "llm_action", "ms": (time.monotonic() - start) * 1000}
@@ -1212,6 +1326,7 @@ class DialogAgentNode(LifecycleNode):
                     on_action_resolved=_on_action_resolved,
                     utterance=text,
                     default_tour_id=next(iter(self._tour_name_by_id), ""),
+                    inline_reply=self._prompt_gate,
                 )
             if result.action is not None and result.action.read_only and result.action.result_ok:
                 # Явный read_only-вызов модели (фаза 1) -- те же чанки, что

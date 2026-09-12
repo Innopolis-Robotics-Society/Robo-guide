@@ -649,3 +649,55 @@ def test_mission_state_transition_appends_history_event() -> None:
         wait_until(_sent_history_mentions_transition, timeout_s=5.0)
     finally:
         harness.shutdown()
+
+
+# -- гейт по состоянию для бэкендов без GBNF (TASK_external_llm_backend.md §3.3/§4) --
+
+
+def test_gate_line_appended_to_user_content_when_backend_not_gbnf() -> None:
+    harness = ToolBrokerTestHarness(
+        dialog_agent_overrides=(Parameter("llm.mock.structured", value="json_object"),)
+    )
+    try:
+        wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
+        harness.llm_server.chunks_no_grammar = ["Привет!"]
+        harness.llm_server.chunks_with_grammar = [_NOOP]
+
+        client = harness.make_client_node()
+        _publish_transcript(client, "робот, привет")
+
+        wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
+
+        body = harness.llm_server.last_request_body
+        assert body is not None
+        gated = [
+            m["content"]
+            for m in body["messages"]
+            if m["role"] == "user" and "привет" in m["content"]
+        ]
+        assert gated, "сообщение с текущей репликой не найдено в запросе к ЛЛМ"
+        last_line = gated[0].splitlines()[-1]
+        assert last_line.startswith("Сейчас доступны только: ")
+        assert "reply" in last_line
+    finally:
+        harness.shutdown()
+
+
+def test_gate_line_absent_for_gbnf_backend() -> None:
+    """Дефолт харнесса -- `structured=gbnf` (локальный сервер): строки быть не должно."""
+    harness = ToolBrokerTestHarness()
+    try:
+        wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
+        harness.llm_server.chunks_no_grammar = ["Привет!"]
+        harness.llm_server.chunks_with_grammar = [_NOOP]
+
+        client = harness.make_client_node()
+        _publish_transcript(client, "робот, привет")
+
+        wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
+
+        body = harness.llm_server.last_request_body
+        assert body is not None
+        assert not any("Сейчас доступны только:" in m.get("content", "") for m in body["messages"])
+    finally:
+        harness.shutdown()

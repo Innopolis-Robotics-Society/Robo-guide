@@ -25,6 +25,9 @@ guide_robot_navigation/generated_config/
 odom_test_runs/
 asr_takes/
 
+# Secrets (SELECTEL_AIG_KEY и т.п.) -- cp .env.example .env, см. compose.yaml
+.env
+
 # System files
 .DS_Store
 Thumbs.db

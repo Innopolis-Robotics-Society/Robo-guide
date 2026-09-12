@@ -17,7 +17,7 @@ import time
 from collections.abc import Callable, Sequence
 
 from guide_robot_llm.llm_client.backend import Backend, CompletionResult
-from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
+from guide_robot_llm.llm_client.errors import BackendAborted, BackendError, BackendHTTPError
 
 __all__ = ["complete_with_fallback"]
 
@@ -33,7 +33,6 @@ def complete_with_fallback(
     abort_event: threading.Event | None = None,
     on_delta: Callable[[str], None] | None = None,
     stop_when: Callable[[str], bool] | None = None,
-    max_attempts_per_backend: int = 2,
     backoff_s: float = 0.5,
 ) -> CompletionResult:
     """Пробовать `backends` по порядку, с retry внутри каждого.
@@ -41,10 +40,15 @@ def complete_with_fallback(
     `BackendAborted` (barge-in) поднимается сразу наружу без ретраев --
     прерванный намеренно ход не ретраят ни на том же бэкенде, ни на
     следующем: посетитель уже не ждёт ответа на старый вопрос. Остальные
-    ошибки (timeout/HTTP/сеть) -- до `max_attempts_per_backend` попыток на
-    бэкенд с паузой `backoff_s`, затем переход к следующему бэкенду. Если
-    исчерпаны все -- поднимается последняя пойманная ошибка (вызывающий,
-    `dialog_agent` в шаге 5, решает как деградировать дальше).
+    ошибки (timeout/HTTP/сеть) -- до `backend.config.max_attempts` попыток НА
+    ЭТОТ бэкенд (не общий на все, каждый бэкенд решает сам -- TASK_external_
+    llm_backend.md §2, внешний шлюз с деньгами за попытку хочет `max_attempts=1`,
+    локальный -- прежние 2) с паузой `backoff_s`, затем переход к следующему
+    бэкенду. `BackendHTTPError` с кодом 4xx кроме 429 (401/403/404 и т.п. --
+    неправильный ключ или конфиг, повтор того же запроса не поможет) не
+    ретраится вовсе, сразу следующий бэкенд; 429 (rate limit) и 5xx ретраятся
+    как обычно. Если исчерпаны все -- поднимается последняя пойманная ошибка
+    (вызывающий, `dialog_agent`, решает как деградировать дальше).
     """
     if not backends:
         msg = "список бэкендов пуст"
@@ -52,7 +56,8 @@ def complete_with_fallback(
 
     last_error: BackendError | None = None
     for backend in backends:
-        for attempt in range(max_attempts_per_backend):
+        max_attempts = backend.config.max_attempts
+        for attempt in range(max_attempts):
             try:
                 return backend.complete(
                     messages,
@@ -66,9 +71,16 @@ def complete_with_fallback(
                 )
             except BackendAborted:
                 raise
+            except BackendHTTPError as error:
+                last_error = error
+                if 400 <= error.status_code < 500 and error.status_code != 429:
+                    break  # неправильный запрос/ключ -- ретрай бессмыслен
+                is_last_attempt_on_backend = attempt == max_attempts - 1
+                if not is_last_attempt_on_backend:
+                    time.sleep(backoff_s)
             except BackendError as error:
                 last_error = error
-                is_last_attempt_on_backend = attempt == max_attempts_per_backend - 1
+                is_last_attempt_on_backend = attempt == max_attempts - 1
                 if not is_last_attempt_on_backend:
                     time.sleep(backoff_s)
 

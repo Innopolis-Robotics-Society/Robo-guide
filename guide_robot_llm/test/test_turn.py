@@ -50,6 +50,10 @@ def _reply_call(think: str = "поболтать") -> str:
     return json.dumps({"think": think, "tool": "reply", "args": {}})
 
 
+def _reply_call_with_text(text: str, think: str = "поболтать") -> str:
+    return json.dumps({"think": think, "tool": "reply", "args": {"text": text}})
+
+
 def _guide_call(location_id: object = "cafe", think: str = "просит отвести") -> str:
     return json.dumps({"think": think, "tool": "guide_to", "args": {"location_id": location_id}})
 
@@ -767,3 +771,147 @@ def test_start_tour_phrase_overrides_reply() -> None:
     assert executed == [("start_tour", {"tour_id": "lab_demo"})]
     assert result.action is not None
     assert result.action.name == "start_tour"
+
+
+# -- markdown-обёртка вокруг tool-call JSON (TASK_external_llm_backend.md §3.1) --
+
+
+def test_parse_tool_call_strips_closed_markdown_fence() -> None:
+    from guide_robot_llm.dialog.turn import _parse_tool_call
+
+    raw = '```json\n{"think": "x", "tool": "reply", "args": {}}\n```'
+    parsed = _parse_tool_call(raw)
+    assert parsed is not None
+    assert parsed[1] == "reply"
+
+
+def test_parse_tool_call_strips_unclosed_markdown_fence_with_complete_object() -> None:
+    from guide_robot_llm.dialog.turn import _parse_tool_call
+
+    raw = '```json\n{"think": "x", "tool": "reply", "args": {}}'
+    parsed = _parse_tool_call(raw)
+    assert parsed is not None
+    assert parsed[1] == "reply"
+
+
+# -- inline reply (TASK_external_llm_backend.md §3.2): бэкенды без GBNF -----------
+
+
+def test_inline_reply_with_text_finishes_turn_in_action_phase_only() -> None:
+    answer_calls: list[str] = []
+    spoken: list[str] = []
+
+    def complete_answer(messages: list[dict]) -> CompletionResult:
+        del messages
+        answer_calls.append("called")
+        return CompletionResult(text="ЭТОГО НЕ ДОЛЖНО БЫТЬ")
+
+    def speak(text: str) -> _FakeResult:
+        spoken.append(text)
+        return _FakeResult(ok=True)
+
+    result = _run(
+        complete_action=_actions(_reply_call_with_text("Привет! Рад видеть.")),
+        complete_answer=complete_answer,
+        speak=speak,
+        inline_reply=True,
+    )
+
+    assert answer_calls == []
+    assert spoken == ["Привет! Рад видеть."]
+    assert result.answer_source == "inline"
+    assert result.answer_text == "Привет! Рад видеть."
+    assert result.answer_raw_text == "Привет! Рад видеть."
+    assert result.say_ok is True
+    assert result.stopped_reason == "ok"
+    assert result.action is not None
+    assert result.action.name == "reply"
+
+
+def test_inline_reply_empty_text_falls_back_to_answer_phase() -> None:
+    answer_calls: list[str] = []
+
+    def complete_answer(messages: list[dict]) -> CompletionResult:
+        del messages
+        answer_calls.append("called")
+        return CompletionResult(text="Привет!")
+
+    result = _run(
+        complete_action=_actions(_reply_call()),  # args={} -- нет text
+        complete_answer=complete_answer,
+        inline_reply=True,
+    )
+
+    assert answer_calls == ["called"]
+    assert result.answer_source == "answer_phase"
+    assert result.answer_text == "Привет!"
+
+
+def test_inline_reply_truncated_json_falls_back_to_answer_phase() -> None:
+    """Синтетика `_SYNTH_REPLY_JSON` при обрыве стрима даёт args={} -- инлайна нет."""
+    answer_calls: list[str] = []
+
+    def complete_action(messages, grammar, *, stop_when=None):
+        del messages, grammar
+        assert stop_when is not None
+        partial = '{"tool":"reply","args":'
+        # inline_reply=True отключает ранний обрыв по REPLY_TOOL_RE -- stop_when
+        # не должен рвать поток на голом "tool":"reply" без завершённых args.
+        assert stop_when(partial) is False
+        return CompletionResult(text=partial, finish_reason="length")
+
+    def complete_answer(messages: list[dict]) -> CompletionResult:
+        del messages
+        answer_calls.append("called")
+        return CompletionResult(text="Привет!")
+
+    result = _run(
+        complete_action=complete_action,
+        complete_answer=complete_answer,
+        inline_reply=True,
+    )
+
+    assert answer_calls == ["called"]
+    assert result.answer_source == "answer_phase"
+    assert result.action is not None
+    assert result.action.name == "reply"
+
+
+def test_inline_reply_non_reply_tool_goes_through_answer_phase_once() -> None:
+    spoken: list[str] = []
+
+    def speak(text: str) -> _FakeResult:
+        spoken.append(text)
+        return _FakeResult(ok=True)
+
+    result = _run(
+        complete_action=_actions(_guide_call()),
+        complete_answer=_answer("Едем к кафе."),
+        execute_tool=lambda name, args: _FakeResult(ok=True),
+        speak=speak,
+        inline_reply=True,
+    )
+
+    assert spoken == ["Едем к кафе."]
+    assert result.answer_source == "answer_phase"
+    assert result.action is not None
+    assert result.action.name == "guide_to"
+
+
+def test_inline_reply_false_ignores_args_text_regression() -> None:
+    """`inline_reply` по умолчанию `False` (локальный GBNF) -- поведение как раньше."""
+    answer_calls: list[str] = []
+
+    def complete_answer(messages: list[dict]) -> CompletionResult:
+        del messages
+        answer_calls.append("called")
+        return CompletionResult(text="Привет!")
+
+    result = _run(
+        complete_action=_actions(_reply_call_with_text("текст, который не должен исполниться")),
+        complete_answer=complete_answer,
+    )
+
+    assert answer_calls == ["called"]
+    assert result.answer_source == "answer_phase"
+    assert result.answer_text == "Привет!"

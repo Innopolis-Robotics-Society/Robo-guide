@@ -45,7 +45,13 @@ __all__ = ["SCHEMA_VERSION", "build_interaction_record"]
 # п.7.1) от явного read_only-вызова модели ("tool", п.7.2). Обратная
 # совместимость со старой формой не нужна -- единственный потребитель
 # (`kb.jsonl`) удалён вместе с корпусом.
-SCHEMA_VERSION = 5
+# v6: `answer_source` (TASK_external_llm_backend.md §3.2/§5) -- бэкенды без
+# GBNF могут закончить ход прямо в фазе действия (`reply` с непустым `args.
+# text`), без второй фазы. Без этого поля лог не отличал бы такой inline-ход
+# от обычного -- `answer_raw_text`/`answer_finish_reason` совпадали бы по
+# форме, но означали бы разные вещи (текст из `args.text` фазы действия
+# против отдельного вызова фазы реплики).
+SCHEMA_VERSION = 6
 
 
 def build_interaction_record(
@@ -130,6 +136,7 @@ def build_interaction_record(
             for ref in references
         ],
         "answer_text": result.answer_text,
+        "answer_source": result.answer_source,
         "answer_chars": len(result.answer_text),
         "answer_raw_text": result.answer_raw_text,
         "answer_finish_reason": result.answer_finish_reason,

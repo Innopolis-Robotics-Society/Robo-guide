@@ -161,3 +161,146 @@ def test_stop_when_ends_stream_without_abort(mock_server: MockLlmServer) -> None
     assert "SHOULD_NOT" not in result.text
     assert '"tool":"reply"' in result.text
     assert result.finish_reason == "stop_when"
+
+
+# -- внешний OpenAI-совместимый шлюз (TASK_external_llm_backend.md §1) -----------
+
+
+def test_model_included_in_request_body_when_configured(mock_server: MockLlmServer) -> None:
+    backend = Backend(
+        BackendConfig(
+            base_url=mock_server.url, read_timeout_s=5.0, model="deepseek/deepseek-v4.1-flash"
+        )
+    )
+
+    backend.complete(_MESSAGES)
+
+    assert mock_server.last_request_body["model"] == "deepseek/deepseek-v4.1-flash"
+
+
+def test_model_omitted_from_request_body_when_empty(mock_server: MockLlmServer) -> None:
+    backend = Backend(BackendConfig(base_url=mock_server.url, read_timeout_s=5.0))
+
+    backend.complete(_MESSAGES)
+
+    assert "model" not in mock_server.last_request_body
+
+
+def test_structured_gbnf_sends_grammar_key(mock_server: MockLlmServer) -> None:
+    backend = Backend(
+        BackendConfig(base_url=mock_server.url, read_timeout_s=5.0, structured="gbnf")
+    )
+
+    backend.complete(_MESSAGES, grammar="root ::= object")
+
+    assert mock_server.last_request_body["grammar"] == "root ::= object"
+    assert "response_format" not in mock_server.last_request_body
+
+
+def test_structured_json_object_sends_response_format_not_grammar(
+    mock_server: MockLlmServer,
+) -> None:
+    backend = Backend(
+        BackendConfig(base_url=mock_server.url, read_timeout_s=5.0, structured="json_object")
+    )
+
+    backend.complete(_MESSAGES, grammar="root ::= object")
+
+    assert mock_server.last_request_body["response_format"] == {"type": "json_object"}
+    assert "grammar" not in mock_server.last_request_body
+
+
+def test_structured_none_sends_neither_grammar_nor_response_format(
+    mock_server: MockLlmServer,
+) -> None:
+    backend = Backend(
+        BackendConfig(base_url=mock_server.url, read_timeout_s=5.0, structured="none")
+    )
+
+    backend.complete(_MESSAGES, grammar="root ::= object")
+
+    assert "grammar" not in mock_server.last_request_body
+    assert "response_format" not in mock_server.last_request_body
+
+
+def test_extra_body_reaches_payload_without_clobbering_core_keys(
+    mock_server: MockLlmServer,
+) -> None:
+    backend = Backend(
+        BackendConfig(
+            base_url=mock_server.url,
+            read_timeout_s=5.0,
+            extra_body={
+                "stream_options": {"include_usage": True},
+                # Совпадающие с core-ключами имена -- core обязан победить.
+                "messages": "SHOULD_NOT_SURVIVE",
+                "stream": False,
+            },
+        )
+    )
+
+    backend.complete(_MESSAGES, max_tokens=42)
+
+    body = mock_server.last_request_body
+    assert body["stream_options"] == {"include_usage": True}
+    assert body["messages"] == _MESSAGES
+    assert body["stream"] is True
+
+
+def test_reasoning_deltas_excluded_from_text_and_counted(mock_server: MockLlmServer) -> None:
+    mock_server.reasoning_chunks = ["дума", "ю..."]
+    mock_server.chunks = ["Готово."]
+    backend = Backend(BackendConfig(base_url=mock_server.url, read_timeout_s=5.0))
+
+    result = backend.complete(_MESSAGES)
+
+    assert result.text == "Готово."
+    assert result.reasoning_chars == len("дума") + len("ю...")
+
+
+def test_only_reasoning_past_first_content_timeout_raises_backend_timeout(
+    mock_server: MockLlmServer,
+) -> None:
+    mock_server.mode = MockLlmServer.MODE_SLOW
+    mock_server.chunk_delay_s = 0.1
+    mock_server.reasoning_chunks = ["думаю"] * 5
+    mock_server.chunks = []  # content не приходит вовсе
+    backend = Backend(
+        BackendConfig(base_url=mock_server.url, read_timeout_s=5.0, first_content_timeout_s=0.2)
+    )
+
+    with pytest.raises(BackendTimeout):
+        backend.complete(_MESSAGES)
+
+
+def test_max_tokens_in_body_includes_reasoning_budget(mock_server: MockLlmServer) -> None:
+    backend = Backend(
+        BackendConfig(base_url=mock_server.url, read_timeout_s=5.0, reasoning_budget_tokens=1024)
+    )
+
+    backend.complete(_MESSAGES, max_tokens=160)
+
+    assert mock_server.last_request_body["max_tokens"] == 160 + 1024
+
+
+def test_sse_error_event_raises_backend_error(mock_server: MockLlmServer) -> None:
+    mock_server.send_error = {"message": "мок ошибка шлюза", "type": "invalid_request"}
+    backend = Backend(BackendConfig(base_url=mock_server.url, read_timeout_s=5.0))
+
+    with pytest.raises(BackendError):
+        backend.complete(_MESSAGES)
+
+
+def test_gateway_warnings_and_usage_reach_completion_result(mock_server: MockLlmServer) -> None:
+    mock_server.gateway_warnings = ["ignored unknown parameter 'grammar'"]
+    mock_server.usage_payload = {
+        "prompt_tokens": 2000,
+        "prompt_tokens_details": {"cached_tokens": 512},
+    }
+    backend = Backend(BackendConfig(base_url=mock_server.url, read_timeout_s=5.0))
+
+    result = backend.complete(_MESSAGES)
+
+    assert result.gateway_warnings == ["ignored unknown parameter 'grammar'"]
+    assert result.usage["prompt_tokens"] == 2000
+    assert result.usage["prompt_tokens_details"]["cached_tokens"] == 512
