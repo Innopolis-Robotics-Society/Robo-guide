@@ -443,11 +443,13 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
   не старше `vision.max_frame_age_s`, совокупный payload ≤
   `vision.max_payload_bytes` (при превышении выкидывают с самого
   старого). Без свежих кадров возвращает `[]` — ход идёт text-only.
-- **Контракт для ЛЛМ**: `snap["frames"]` — список data-URL
-  `data:image/jpeg;base64,...`, форма, ожидаемая `build_content()` из
-  Taiga #3 (мультимодальный контент) и консумируемая промпт-путём из
-  #4. До слияния #4 кадры не уезжают в модель — они только фиксируются в
-  поле `snapshot` записи interaction-лога.
+- **Контракт для ЛЛМ** (Taiga #4): `snap["frames"]` в interaction-логе —
+  список МЕТАДАННЫХ `{captured_at, age_s, sha256_16, payload_bytes}`
+  (текстовый лог не содержит base64; отпечаток — sha256 payload'а, 16 hex). Сам
+  data-URL живёт только в локальной переменной хода и уезжает в модель через
+  `build_content()` из Taiga #3 (мультимодальный контент), см. промпт-путь ниже.
+  `llm_messages` записи маскируются `redact_messages` (data-URL →
+  `<<REDACTED n bytes>>`), структура сообщений сохраняется 1:1.
 - **Bringup**: `guide_robot_bringup/launch/camera.launch.py`
   (`v4l2_camera`; сжатый транспорт создаётся плагином
   `compressed_image_transport` автоматически). Из `hardware.launch.py`
@@ -459,7 +461,49 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
 - **Параметры** (`vision.*` в `config/llm.yaml`): `enabled`,
   `compressed_topic`, `frame_count` (3), `lookback_s` (2.0),
   `max_frame_age_s` (2.0), `max_long_edge_px` (1280),
-  `max_payload_bytes` (2 500 000 B).
+  `max_payload_bytes` (2 500 000 B), `prompt_strategy` ("direct_action"),
+  `answer_phase_images` (false), `max_candidates` (5),
+  `observation_max_chars` (400); плюс `llm.max_tokens_observation` (192).
+
+### Промпт-путь визуального хода (Taiga #4)
+
+Чистая логика в `visual_context.py` (без rclpy): `build_visual_context()`
+собирает из замороженных кадров `FrameMeta` (время, возраст, отпечаток,
+размер, флаг устарелости: возраст ≥ `vision.max_frame_age_s` → `stale`) и
+список кандидатов; `render_visual_context()` рендерит волатильное текстовое
+сообщение хода (реплика, метаданные кадров БЕЗ base64, кандидаты; пустые
+кадры/кандидаты → явный text-only/abstention-текст); `parse_observation()` —
+strict-парсинг наблюдения с host-фильтром id (всё вне списка кандидатов
+выбрасывается, чужие ключи/типы → `None`).
+
+- **Кандидаты-экспонаты** — только из каталога семантической карты,
+  стянутого на `on_activate` (`_visual_candidates`): текущая остановка +
+  экспонаты той же зоны, детерминированный порядок каталога, обрезка по
+  `vision.max_candidates`. id вне этого списка в промпт НЕ попадают
+  (принцип "не вставляй id, которых нет в списке", из issue).
+- **Стратегии** (`vision.prompt_strategy`):
+  - `direct_action` (дефолт): волатильное визуальное сообщение (кадры +
+    кандидаты + реплика) прикрепляется к фазе действия ПОСЛЕ стабильной
+    инструкции (кэш-префикс не страдает); без кадров сообщение строковое.
+  - `observe_then_decide`: ПЕРЕД фазой действия отдельный LLM-вызов под
+    GBNF-грамматикой (`build_observation_grammar` пиннит `exhibit_candidates`
+    на точный список id) выдаёт структурированное наблюдение
+    (people_count / exhibit_candidates / pointing_evidence / scene_facts);
+    host парсит, режет id и рендерит блок `[Визуальное наблюдение]`, который
+    фаза действия получает вместе с кадрами. Наблюдение — side-channel:
+    malformed-вывод или `BackendError` НЕ рвёт ход (метрика
+    `observation_error` в записи), фаза действия идёт без наблюдения; без
+    кадров вызов не делается (text-only вариант стратегии).
+  - `BackendAborted` (barge-in) из любой фазы пробрасывается наружу —
+    прерывание, а не деградация.
+- **Кадры в фазе реплики**: `vision.answer_phase_images` (дефолт false) +
+  выбранное действие ≠ `reply` — иначе реплика строковая, как раньше.
+- **Стабильность инструкций** (CACHE_REUSE): `build_observation_instruction()`
+  и `build_action_instruction()` строятся один раз на `on_activate`, побайтово
+  одинаковы между ходами; волатильная часть хода — только последние
+  сообщения.
+- **Схема interaction-лога** — v6: опциональный блок `observation`
+  (`raw`/`text`/`error`), `llm_messages` замаскированы.
 
 ## Известные пробелы
 

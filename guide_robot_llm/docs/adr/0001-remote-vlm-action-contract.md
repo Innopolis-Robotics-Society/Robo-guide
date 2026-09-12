@@ -128,6 +128,14 @@ and mission-state gates are untouched — the broker's existing legality
 checks remain the state authority; the validator adds the strict
 envelope and pre-broker rejection.
 
+The visual turn context (Taiga #4) is likewise non-breaking: with
+`vision.enabled=false` or no fresh frames the turn is byte-for-byte the
+old text-only turn (no extra messages, no extra LLM calls); with frames,
+the observation phase (`observe_then_decide`) is a side channel that
+cannot veto or rewrite the decision — the decision phase still emits the
+same 4-field contract and the same validator/broker gates apply to it.
+Candidate ids are pinned to the semantic-map catalog, never invented.
+
 ## Terminology
 
 - **model** — the remote LLM/VLM instance (one or more backends behind
