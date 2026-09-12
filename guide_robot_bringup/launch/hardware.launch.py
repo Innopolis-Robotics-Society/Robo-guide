@@ -108,6 +108,13 @@ def generate_launch_description():
         default_value=os.path.join(pkg_voice, "config", "voice_jetson.yaml"),
         description="Voice YAML: USB mic + Pulse Bluetooth speaker on the real robot",
     )
+    # Taiga #2: камера для диалога (v4l2_camera + compressed transport).
+    # false по умолчанию: робот без камеры работает text-only без изменений.
+    declare_use_vision = DeclareLaunchArgument(
+        "use_vision",
+        default_value="false",
+        description="Taiga #2: true — поднять v4l2_camera и включить vision в dialog_agent",
+    )
     # tooling
     declare_launch_foxglove = DeclareLaunchArgument(
         "launch_foxglove", default_value="false", description="Launch Foxglove Bridge"
@@ -134,6 +141,7 @@ def generate_launch_description():
     launch_llm = LaunchConfiguration("launch_llm")
     launch_foxglove = LaunchConfiguration("launch_foxglove")
     launch_rviz = LaunchConfiguration("launch_rviz")
+    use_vision = LaunchConfiguration("use_vision")
 
     # ── Robot description & ros2_control ─────────────────────────────────────
     urdf_path = PathJoinSubstitution(
@@ -237,10 +245,18 @@ def generate_launch_description():
                     "use_sim_time": use_sim_time,
                     "autostart": "false",
                     "params_file": os.path.join(pkg_llm, "config", "llm.yaml"),
+                    "vision_enabled": use_vision,
                 }.items(),
             )
         ],
         condition=IfCondition(launch_llm),
+    )
+
+    # Taiga #2: камера. Запускается только при use_vision:=true; без камеры
+    # машина просто не поднимает этот узел (dialog_agent остаётся text-only).
+    camera_stack = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(pkg_bringup, "launch", "camera.launch.py")),
+        condition=IfCondition(use_vision),
     )
 
     # ── Tooling ──────────────────────────────────────────────────────────────
@@ -287,6 +303,7 @@ def generate_launch_description():
             declare_launch_face,
             declare_launch_llm,
             declare_voice_params_file,
+            declare_use_vision,
             declare_launch_foxglove,
             declare_launch_rviz,
             robot_state_publisher_node,
@@ -297,6 +314,7 @@ def generate_launch_description():
             nav_stack,
             high_level_stack,
             llm_stack,
+            camera_stack,
             foxglove_bridge_node,
             rviz_node,
         ]

@@ -50,10 +50,20 @@ def generate_launch_description() -> LaunchDescription:
             default_value="false",
             description="true — голый чат с моделью, без system prompt / GBNF / инструментов",
         ),
+        DeclareLaunchArgument(
+            "vision_enabled",
+            default_value="false",
+            description="Taiga #2: true — диалоговый агент подписывается на камеру "
+            "(нужен camera.launch.py; без камеры ход идёт text-only)",
+        ),
     ]
 
     node_params = [ParameterFile(params, allow_substs=True), {"use_sim_time": use_sim_time}]
-    dialog_params = [*node_params, {"llm.raw": LaunchConfiguration("raw")}]
+    dialog_params = [
+        *node_params,
+        {"llm.raw": LaunchConfiguration("raw")},
+        {"vision.enabled": LaunchConfiguration("vision_enabled")},
+    ]
 
     tool_broker = Node(
         package="guide_robot_llm",

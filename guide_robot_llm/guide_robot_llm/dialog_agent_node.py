@@ -36,6 +36,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.task import Future
+from sensor_msgs.msg import CompressedImage
 
 from guide_robot_llm import matching, snapshot
 from guide_robot_llm.dialog.history import DialogHistory
@@ -53,6 +54,7 @@ from guide_robot_llm.dialog.turn import (
     run_answer_phase,
     run_turn,
 )
+from guide_robot_llm.lib.frame_buffer import FrameBuffer
 from guide_robot_llm.lib.qos import (
     QOS_ASR_TRANSCRIPT,
     QOS_CANCEL_ALL,
@@ -60,6 +62,7 @@ from guide_robot_llm.lib.qos import (
     QOS_INTERACTION_EVENT,
     QOS_MISSION_PRESENCE,
     QOS_MISSION_STATE,
+    QOS_VISION_COMPRESSED,
     QOS_WAKEWORD,
 )
 from guide_robot_llm.llm_client import Backend, BackendConfig, complete_with_fallback
@@ -171,6 +174,18 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("answer.max_chars", 400)
         self.declare_parameter("wake_grace_s", 0.0)
         self.declare_parameter("ask_visitor_ttl_s", 30.0)
+
+        # Taiga #2: камера -- полностью опциональная (робот без камеры
+        # работает text-only без изменений). Кольцевой буфер сжатых кадров
+        # живёт в lib/frame_buffer.py (чистый Python), замораживается на
+        # моменте транскрипта и уезжает в снимок хода snap["frames"].
+        self.declare_parameter("vision.enabled", False)
+        self.declare_parameter("vision.compressed_topic", "/camera/image_raw/compressed")
+        self.declare_parameter("vision.frame_count", 3)
+        self.declare_parameter("vision.lookback_s", 2.0)
+        self.declare_parameter("vision.max_frame_age_s", 2.0)
+        self.declare_parameter("vision.max_long_edge_px", 1280)
+        self.declare_parameter("vision.max_payload_bytes", 2_500_000)
 
         self._active = False
         self._state_lock = threading.Lock()
@@ -340,6 +355,32 @@ class DialogAgentNode(LifecycleNode):
             callback_group=self._cb_reentrant,
         )
 
+        # Taiga #2: подписка на камеру создаётся только при vision.enabled.
+        # Отсутствие камеры не блокирует активацию: подписка не проверяет
+        # соединение, а ход без свежих кадров просто идёт text-only.
+        self._frame_buffer: FrameBuffer | None = None
+        self._vision_sub: object | None = None
+        if bool(self.get_parameter("vision.enabled").value):
+            self._frame_buffer = FrameBuffer(
+                frame_count=int(self.get_parameter("vision.frame_count").value),
+                lookback_s=float(self.get_parameter("vision.lookback_s").value),
+                max_frame_age_s=float(self.get_parameter("vision.max_frame_age_s").value),
+                max_long_edge_px=int(self.get_parameter("vision.max_long_edge_px").value),
+                max_payload_bytes=int(self.get_parameter("vision.max_payload_bytes").value),
+            )
+            self._vision_sub = self.create_subscription(
+                CompressedImage,
+                str(self.get_parameter("vision.compressed_topic").value),
+                self._on_compressed_image,
+                QOS_VISION_COMPRESSED,
+                callback_group=self._cb_reentrant,
+            )
+            self.get_logger().info(
+                "vision: подписка на "
+                f"{str(self.get_parameter('vision.compressed_topic').value)} "
+                f"(кадров на ход: {int(self.get_parameter('vision.frame_count').value)})"
+            )
+
         if self._raw_llm:
             self.get_logger().warning("llm.raw=true — чат без system/GBNF/инструментов")
 
@@ -455,11 +496,13 @@ class DialogAgentNode(LifecycleNode):
             "_mission_state_sub",
             "_presence_sub",
             "_cancel_all_sub",
+            "_vision_sub",
         ):
             sub = getattr(self, attr, None)
             if sub is not None:
                 self.destroy_subscription(sub)
                 setattr(self, attr, None)
+        self._frame_buffer = None
         client = getattr(self, "_call_tool_client", None)
         if client is not None:
             self.destroy_client(client)
@@ -614,6 +657,23 @@ class DialogAgentNode(LifecycleNode):
         if abort_event is not None:
             self.get_logger().info("barge-in получен -- прерываю текущий ход")
             abort_event.set()
+
+    # -- камера: кольцевой буфер сжатых кадров (Taiga #2) ----------------------
+
+    def _now_s(self) -> float:
+        """Текущий момент в секундах (симуляционный-aware) -- часы буфера кадров."""
+        return self.get_clock().now().nanoseconds / 1e9
+
+    def _on_compressed_image(self, msg: CompressedImage) -> None:
+        """Кадр от камеры в кольцо; время -- из часов ноды, не из msg.header.
+
+        `msg.header.stamp` у v4l2_camera заполняется теми же часами, но
+        в sim-тестах публикуемый синтетика может идти с нулевым stamp'ом --
+        доверяем только своей `get_clock()`.
+        """
+        if self._frame_buffer is None:
+            return
+        self._frame_buffer.offer(msg.data, self._now_s())
 
     def _on_wakeword(self, msg: Wakeword) -> None:
         """Открыть окно слушания на активацию.
@@ -1013,6 +1073,19 @@ class DialogAgentNode(LifecycleNode):
                 pending_question=pending_answer["question"] if pending_answer else None,
             )
             status_line = snapshot.render_status_line(snap)
+
+            # Taiga #2: визуальный снимок замораживается НА МОМЕНТЕ ХОДА
+            # (транскрипт уже получен -- см. _handle_transcript). Ключ
+            # присутствует всегда, когда vision.enabled (возможно пустой --
+            # тогда ход идёт text-only, failure handling из issue). Форма
+            # -- data-URL, готовые к `llm_client.build_content()` (#3);
+            # потребитель промпт-пути -- #4.
+            if self._frame_buffer is not None:
+                frozen = self._frame_buffer.freeze(self._now_s())
+                snap["frames"] = [frame.data_url for frame in frozen]
+                discarded = self._frame_buffer.stats
+                if any(discarded.values()):
+                    self.get_logger().info(f"vision: отброшено кадров: {discarded}")
 
             # Автосправка ДО фазы действия (CLAUDE_CODE_TASK_stage1_knowledge.md
             # п.7.1): текущая остановка целиком (если есть) + поиск по
