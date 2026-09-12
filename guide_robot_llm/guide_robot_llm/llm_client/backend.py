@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Callable
-from dataclasses import dataclass
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 
 import requests
 
@@ -32,12 +33,30 @@ _DONE = "[DONE]"
 
 @dataclass(frozen=True)
 class BackendConfig:
-    """Один бэкенд: адрес + раздельные таймауты."""
+    """Один бэкенд: адрес + раздельные таймауты + особенности внешних шлюзов.
+
+    Помимо локального `llm_server/` (GBNF per-request), бэкенд может быть
+    внешним OpenAI-совместимым шлюзом (Selectel AI Router и т.п.), который
+    `model` в теле требует, GBNF не понимает, а reasoning-модели за ним не
+    дают выключить рассуждения ни одним параметром (TASK_external_llm_backend.md
+    §0) -- отсюда `structured`/`reasoning_budget_tokens`/`first_content_timeout_s`.
+    """
 
     base_url: str  # "http://host:port/v1", без хвостового "/"
     api_key: str = ""  # пусто -- заголовок Authorization не шлём
     connect_timeout_s: float = 2.0
     read_timeout_s: float = 30.0
+    name: str = ""  # для логов
+    model: str = ""  # пусто -- ключ "model" не шлём
+    structured: str = "gbnf"  # "gbnf" | "json_object" | "none"
+    extra_body: Mapping[str, object] = field(default_factory=dict)
+    # Reasoning тарифицируется и лимитируется как output (§0) -- прибавляется
+    # к max_tokens фазы, иначе reasoning съедает весь бюджет и content обрезается.
+    reasoning_budget_tokens: int = 0
+    # Дедлайн на первый content-чанк -- reasoning-чанки держат сокет живым
+    # (сбрасывают read_timeout_s), не защищая от бесконечного "думания".
+    first_content_timeout_s: float | None = None
+    max_attempts: int = 2  # заменяет глобальный max_attempts_per_backend
 
 
 @dataclass
@@ -46,6 +65,9 @@ class CompletionResult:
 
     text: str
     finish_reason: str = ""
+    reasoning_chars: int = 0
+    gateway_warnings: list[str] = field(default_factory=list)
+    usage: dict = field(default_factory=dict)
 
 
 class Backend:
@@ -55,6 +77,11 @@ class Backend:
         """Запомнить конфиг; `session` подменяется в тестах (мок-сервер на localhost)."""
         self._config = config
         self._session = session or requests.Session()
+
+    @property
+    def config(self) -> BackendConfig:
+        """Конфиг бэкенда, только для чтения (`ladder.py` читает `max_attempts`)."""
+        return self._config
 
     def complete(
         self,
@@ -90,15 +117,36 @@ class Backend:
         temperature 0, штраф повторов там не нужен и не проверялся). `None`
         -- ключ не идёт в payload вовсе, а не `0.0`: сервер, которому
         параметр незнаком, не обязан отличать "выключено" от "не прислали".
+
+        `config.extra_body` вливается в payload ПЕРВЫМ, core-ключи (`messages`/
+        `max_tokens`/`temperature`/`stream`) идут поверх и не могут быть им
+        перетёрты. `config.structured` решает, КАК передать `grammar`: локальный
+        `llm_server/` понимает GBNF-грамматику per-request (`"gbnf"`), внешний
+        OpenAI-совместимый шлюз -- нет, но соглашается на `response_format:
+        {"type":"json_object"}` (`"json_object"`), а `"none"` -- ни то, ни
+        другое (шлюз молча игнорирует незнакомые ключи, TASK_external_llm_
+        backend.md §0). `max_tokens` в payload включает `config.
+        reasoning_budget_tokens` -- у reasoning-моделей рассуждение
+        тарифицируется как output и входит в тот же лимит.
         """
-        payload: dict[str, object] = {
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "stream": True,
-        }
+        payload: dict[str, object] = dict(self._config.extra_body)
+        payload.update(
+            {
+                "messages": messages,
+                "max_tokens": max_tokens + self._config.reasoning_budget_tokens,
+                "temperature": temperature,
+                "stream": True,
+            }
+        )
+        if self._config.model:
+            payload["model"] = self._config.model
         if grammar:
-            payload["grammar"] = grammar
+            if self._config.structured == "gbnf":
+                payload["grammar"] = grammar
+            elif self._config.structured == "json_object":
+                payload["response_format"] = {"type": "json_object"}
+            # "none" -- ни "grammar", ни "response_format": шлюз без GBNF и без
+            # структурного гейта, у которого даже json_object не годится.
         if frequency_penalty is not None:
             payload["frequency_penalty"] = frequency_penalty
 
@@ -135,8 +183,35 @@ class Backend:
         on_delta: Callable[[str], None] | None,
         stop_when: Callable[[str], bool] | None = None,
     ) -> CompletionResult:
+        """Разобрать SSE в текст + диагностику (reasoning/warnings/usage).
+
+        `delta.reasoning`/`delta.reasoning_content` -- рассуждение
+        reasoning-модели за внешним шлюзом: не идёт в `chunks`/`on_delta`/
+        `stop_when` (это не ответ), только считается по длине --
+        `_consume_stream` не решает, что с этим делать, это дело вызывающего
+        (`dialog_agent_node` логирует WARN, TASK_external_llm_backend.md §4).
+
+        `first_content_timeout_s` -- дедлайн на первый content-чанк, НЕЗАВИСИМЫЙ
+        от `read_timeout_s` сокета: у reasoning-моделей за внешним шлюзом
+        reasoning-чанки идут секундами и держат сокет живым (сбрасывают
+        socket-level read timeout), не защищая от того, что content вообще не
+        появится вовремя -- секундомер здесь свой, по `time.monotonic()`.
+        """
         chunks: list[str] = []
         finish_reason = ""
+        reasoning_chars = 0
+        gateway_warnings: list[str] = []
+        usage: dict = {}
+        deadline = self._config.first_content_timeout_s
+        start = time.monotonic()
+
+        def _check_first_content_deadline() -> None:
+            if chunks or deadline is None:
+                return
+            if time.monotonic() - start > deadline:
+                msg = f"первый content не пришёл за {deadline}с (только reasoning/пусто)"
+                raise BackendTimeout(msg)
+
         try:
             for raw_bytes in response.iter_lines():
                 # НЕ decode_unicode=True: requests угадывает кодировку по
@@ -167,25 +242,46 @@ class Backend:
                 except json.JSONDecodeError as error:
                     msg = f"битый JSON в SSE: {data[:200]!r}"
                     raise BackendError(msg) from error
+                if "error" in event:
+                    msg = f"ошибка от шлюза: {event['error']}"
+                    raise BackendError(msg)
+                warnings = (event.get("gateway") or {}).get("warnings") or []
+                if warnings:
+                    gateway_warnings.extend(warnings)
+                event_usage = event.get("usage")
+                if event_usage:
+                    usage = event_usage
                 choices = event.get("choices") or []
                 if not choices:
+                    _check_first_content_deadline()
                     continue
                 choice = choices[0]
-                delta = (choice.get("delta") or {}).get("content") or ""
-                if delta:
-                    chunks.append(delta)
+                delta = choice.get("delta") or {}
+                reasoning_piece = delta.get("reasoning") or delta.get("reasoning_content") or ""
+                if reasoning_piece:
+                    reasoning_chars += len(reasoning_piece)
+                content_piece = delta.get("content") or ""
+                if content_piece:
+                    chunks.append(content_piece)
                     if on_delta is not None:
-                        on_delta(delta)
+                        on_delta(content_piece)
                     if stop_when is not None and stop_when("".join(chunks)):
                         finish_reason = finish_reason or "stop_when"
                         break
                 reason = choice.get("finish_reason")
                 if reason:
                     finish_reason = reason
+                _check_first_content_deadline()
         except requests.exceptions.Timeout as error:
             raise BackendTimeout(str(error)) from error
         except requests.exceptions.RequestException as error:
             raise BackendError(str(error)) from error
         finally:
             response.close()
-        return CompletionResult(text="".join(chunks), finish_reason=finish_reason)
+        return CompletionResult(
+            text="".join(chunks),
+            finish_reason=finish_reason,
+            reasoning_chars=reasoning_chars,
+            gateway_warnings=gateway_warnings,
+            usage=usage,
+        )

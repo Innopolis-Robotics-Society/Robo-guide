@@ -221,10 +221,36 @@ turn.run_answer_phase`, без повторной фазы действия); «
 **Публикует**: `/dialog/interaction` (`InteractionEvent`, fire-and-forget,
 для `interaction_log`).
 
-**Параметры**: `llm.base_urls`, `llm.connect_timeout_s`(2.0),
-`llm.read_timeout_s`(30.0), `llm.api_key`(""),
-`llm.max_attempts_per_backend`(2), `llm.backoff_s`(0.5),
-`llm.max_tokens_answer`(160), `llm.max_tokens_action`(128),
+**Лестница бэкендов и внешний шлюз** (`llm.backends`, TASK_external_llm_
+backend.md): список имён, порядок = порядок деградации (`llm_client.ladder.
+complete_with_fallback`), каждое имя — своя секция `llm.<name>.*`
+(`base_url`/`model`/`api_key_env`/`structured`/`extra_body_json`/таймауты/
+`reasoning_budget_tokens`/`first_content_timeout_s`/`max_attempts`) —
+объявляются в `__init__`, читаются в `on_configure`. `api_key_env` задан, а
+переменная окружения пуста/отсутствует — `configure` `FAILURE`.
+`llm.<name>.structured` (`gbnf` — локальный `llm_server/`, GBNF per-request;
+`json_object` — внешний OpenAI-совместимый шлюз без GBNF, response_format
+вместо грамматики; `none` — ни то, ни другое) у ПЕРВОГО бэкенда лестницы
+решает две вещи разом (посчитаны один раз на `on_configure`): гейт по
+состоянию строкой `"Сейчас доступны только: ..."` в хвосте `user_content`
+(бэкенды без GBNF не гейтят `tool` по `tools_allowed` грамматикой) и
+`inline_reply` — если `reply` в фазе действия несёт готовый текст в
+`args.text`, ход заканчивается сразу там (`speak()`, `answer_source=
+"inline"` в `interaction_log`), без второй фазы. Локальный GBNF-бэкенд не
+кладёт текст в `args` — оба поведения для него не включаются.
+`reasoning_chars > 0`/`gateway.warnings` (шлюз молча игнорирует незнакомый
+параметр, warning — единственный след) логируются WARN (warning — один раз
+на уникальную строку за жизнь ноды); `usage.prompt_tokens_details.
+cached_tokens` — DEBUG.
+
+**Параметры**: `llm.backends` (`["local"]`), `llm.<name>.base_url`,
+`llm.<name>.model` (""), `llm.<name>.api_key_env` (""), `llm.<name>.
+structured` (`"gbnf"`), `llm.<name>.extra_body_json` (`"{}"`),
+`llm.<name>.connect_timeout_s`(2.0), `llm.<name>.read_timeout_s`(30.0),
+`llm.<name>.reasoning_budget_tokens`(0), `llm.<name>.
+first_content_timeout_s`(0.0 — без дедлайна), `llm.<name>.max_attempts`(2),
+`llm.backoff_s`(0.5), `llm.max_tokens_answer`(160), `llm.max_tokens_action`
+(220 — инлайн-реплика до 160 токенов + сам JSON действия),
 `llm.temperature_answer`(0.6), `llm.temperature_action`(0.0),
 `llm.answer_frequency_penalty`(0.4 -- только фаза реплики, см. «Известные
 пробелы»), `llm.action_repair_attempts`(1), `system_prompt_path`,
@@ -250,11 +276,11 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
 **Параметры**: `log_dir` (`~/.guide_robot/llm_turns`) — файл
 `interaction_YYYYmmdd_HHMMSS.jsonl` на сессию активации.
 
-**Формат записи** (схема v5, `dialog/interaction_log.py`):
+**Формат записи** (схема v6, `dialog/interaction_log.py`):
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "ts": 1730000000.123, "turn_id": 42,
   "session_id": "3f9a1c2b4d5e", "utterance_ts": 1730000000.001,
   "mission_state": "NARRATING",
@@ -263,6 +289,7 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
   "references": [{"content_id": "robo_guide", "chunk_id": "c5",
                   "score": 0.0, "source": "auto"}],
   "answer_text": "Это макет университетского кампуса...",
+  "answer_source": "answer_phase",
   "answer_chars": 96,
   "answer_raw_text": "Это макет университетского кампуса...",
   "answer_finish_reason": "stop",
@@ -404,12 +431,14 @@ ros2 lifecycle set /dialog_agent configure && ros2 lifecycle set /dialog_agent a
 ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction_log activate
 ```
 
-Перед `dialog_agent`: `llm_server/` должен отвечать на `/health` (см.
-`../llm_server/README.md`) — иначе каждый ход уходит в
-`degrade_reason=backend_error`/`answer_backend_error` после исчерпания
-`llm.max_attempts_per_backend`. `dialog_agent.on_activate` также требует
+Перед `dialog_agent`: хотя бы один бэкенд из `llm.backends` должен отвечать
+(локальный `llm_server/` — `/health`, см. `../llm_server/README.md`) —
+иначе каждый ход уходит в `degrade_reason=backend_error`/
+`answer_backend_error` после исчерпания `llm.<name>.max_attempts` на КАЖДОМ
+бэкенде лестницы по очереди. `dialog_agent.on_activate` также требует
 живого `tool_broker` (каталог локаций/туров) — активировать `tool_broker`
-раньше.
+раньше. `api_key_env` бэкенда без переменной окружения — `on_configure`
+`FAILURE` сразу, до попытки живого запроса.
 
 Не зарегистрирован в `guide_robot_supervisor` — по прецеденту с `voice`/
 `semantic_map` (см. `guide_robot_mission_control/README.md`, «Известные

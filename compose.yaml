@@ -22,6 +22,12 @@ x-common: &common-setup
     - QT_X11_NO_MITSHM=1
     - PULSE_SERVER=unix:/run/user/1000/pulse/native
     - XDG_RUNTIME_DIR=/run/user/1000
+    # guide_robot_llm dialog_agent, внешний бэкенд (llm.selectel.api_key_env,
+    # config/llm.yaml) -- bare-форма подхватывает shell-окружение хоста или
+    # корневой .env (cp .env.example .env), который docker compose грузит
+    # автоматически рядом с этим файлом. Пусто -- бэкенд просто не
+    # сконфигурируется (on_configure FAILURE), локальный llm_server/ не задет.
+    - SELECTEL_AIG_KEY
   working_dir: /home/fabian/ros2_ws
   group_add:
     - "video"

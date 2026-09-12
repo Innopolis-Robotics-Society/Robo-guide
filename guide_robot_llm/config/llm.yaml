@@ -16,19 +16,52 @@
     content_server_ns: "/content_server"
 
 # dialog_agent (DIALOG_REWORK_PLAN.md): двухфазный ход поверх llm_client + tool_broker.
-# llm.base_urls -- реальный адрес llm_server/ (см. llm_server/.env: LLM_PORT=18080).
+# llm.backends -- лестница деградации, порядок = порядок попыток
+# (TASK_external_llm_backend.md §4/§5). Каждое имя из списка обязано иметь
+# свою секцию llm.<name>.* -- см. dialog_agent_node.__init__ (декларация
+# параметров зависит от llm.backends и происходит один раз, до configure).
 /**/dialog_agent:
   ros__parameters:
-    llm.base_urls: ["http://127.0.0.1:18080/v1", "http://10.100.20.195:18080/v1"]
-    llm.connect_timeout_s: 2.0
-    llm.read_timeout_s: 30.0
-    llm.api_key: ""
-    llm.max_attempts_per_backend: 2
+    # Порядок = порядок лестницы деградации.
+    llm.backends: ["selectel", "local", "lan"]
+
+    # Selectel AI Router (внешний OpenAI-совместимый шлюз, TASK_external_llm_
+    # backend.md §0): GBNF не понимает, reasoning модели не выключить ни
+    # одним параметром -- гейт инструментов строкой в промпте (structured=
+    # json_object), reasoning тарифицируется как output и учтён в
+    # reasoning_budget_tokens.
+    llm.selectel.base_url: "https://api.selectel.ru/aig/v1"
+    llm.selectel.model: "deepseek/deepseek-v4.1-flash"
+    llm.selectel.api_key_env: "SELECTEL_AIG_KEY"
+    llm.selectel.structured: "json_object"
+    # reasoning у этой модели через роутер не выключается -- thinking/effort не передаём
+    llm.selectel.extra_body_json: '{"stream_options": {"include_usage": true}}'
+    llm.selectel.reasoning_budget_tokens: 1024  # замерено max 761 в фазе реплики
+    llm.selectel.connect_timeout_s: 3.0
+    llm.selectel.read_timeout_s: 8.0
+    llm.selectel.first_content_timeout_s: 6.0   # замерено max 4.9 с
+    llm.selectel.max_attempts: 1
+
+    # Локальный llm_server/ (llama.cpp, GBNF per-request, см. llm_server/.env:
+    # LLM_PORT=18080) -- вторая ступень лестницы, деградация при недоступности
+    # или отказе Selectel (401/403/сеть).
+    llm.local.base_url: "http://127.0.0.1:18080/v1"
+    llm.local.structured: "gbnf"
+    llm.local.connect_timeout_s: 2.0
+    llm.local.read_timeout_s: 30.0
+
+    # LAN-адрес того же llm_server/ (другой хост в сети) -- третья ступень.
+    llm.lan.base_url: "http://10.100.20.195:18080/v1"
+    llm.lan.structured: "gbnf"
+    llm.lan.connect_timeout_s: 2.0
+    llm.lan.read_timeout_s: 30.0
+
     llm.backoff_s: 0.5
     llm.max_tokens_answer: 160
-    # Без think в GBNF хватает короткого {"tool","args"}; 64 -- потолок на
-    # args у guide_to/ask_visitor, не на рассуждения.
-    llm.max_tokens_action: 64
+    # Реплика инлайн (до 160 токенов) + сам JSON действия -- см.
+    # TASK_external_llm_backend.md §4 (было 64, хватало только на короткий
+    # {"tool","args"} без think и без текста реплики).
+    llm.max_tokens_action: 220
     llm.temperature_answer: 0.6
     llm.temperature_action: 0.0
     # stage5 п.3: только фаза реплики -- фаза действия идёт под грамматикой

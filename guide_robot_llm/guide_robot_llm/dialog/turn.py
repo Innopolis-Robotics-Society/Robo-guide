@@ -108,6 +108,9 @@ class TurnResult:
     # "ok" | "answer_backend_error" | "action_backend_error"
     # | "action_parse_error" | "action_invalid" | "aborted"
     stopped_reason: str = "ok"
+    # "answer_phase" (обычный путь, вторая фаза) | "inline" (текст пришёл
+    # прямо в args.text фазы действия -- см. inline_reply в run_turn()).
+    answer_source: str = "answer_phase"
 
 
 def render_action_outcome(record: ToolCallRecord | None) -> str:
@@ -192,6 +195,7 @@ def run_turn(
     on_action_resolved: Callable[[ToolCallRecord], None] | None = None,
     utterance: str = "",
     default_tour_id: str = "",
+    inline_reply: bool = False,
 ) -> TurnResult:
     """Прогнать один ход: действие (GBNF) -> исполнение -> реплика -> `speak()`.
 
@@ -240,6 +244,16 @@ def run_turn(
     «действий не требуется» и хвост собственных прошлых ответов, отвечала
     на позапрошлый вопрос вместо последнего. Пусто по умолчанию -- фейковые
     тесты без реального утторанса не обязаны его знать.
+
+    `inline_reply` (TASK_external_llm_backend.md §3.2) -- для бэкендов без
+    GBNF, где `reply` иногда несёт готовый текст ответа прямо в `args.text`:
+    если он непуст после `sanitize_answer`, ход завершается ПРЯМО ЗДЕСЬ
+    (`speak()`, `answer_source="inline"`), БЕЗ второй фазы -- реплике у
+    `reply` нечего исполнять, вторая фаза ей ничего не добавляет, только
+    задержку. Пустой/отсутствующий `args.text` -- как раньше, вторая фаза.
+    По умолчанию `False` -- локальный GBNF-бэкенд не кладёт текст в `args`
+    (`llm_client.build_tool_call_grammar` даже не знает про `args.text`),
+    поведение не меняется.
     """
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
@@ -255,9 +269,18 @@ def run_turn(
     action_raw_text = ""
     action_finish_reason = ""
 
+    def _stop_when(text: str) -> bool:
+        if _parse_tool_call(text) is not None:
+            return True
+        # inline_reply: args.text ещё не сгенерирован в момент, когда в
+        # потоке появляется голое `"tool":"reply"` -- ранний обрыв здесь
+        # обрежет сам текст ответа, поэтому для inline-хода он выключен;
+        # `_parse_tool_call` выше по-прежнему рвёт стрим на полном JSON.
+        return not inline_reply and _REPLY_TOOL_RE.search(text) is not None
+
     while True:
         try:
-            action_completion = complete_action(messages, grammar, stop_when=_action_stop_when)
+            action_completion = complete_action(messages, grammar, stop_when=_stop_when)
         except BackendAborted:
             raise
         except BackendError:
@@ -310,6 +333,35 @@ def run_turn(
                 result_data={},
                 think=think,
             )
+            if inline_reply:
+                raw_inline_text = str(args.get("text", ""))
+                inline_text = sanitize_answer(raw_inline_text, max_chars=answer_max_chars)
+                if inline_text:
+                    if on_action_resolved is not None:
+                        on_action_resolved(record)
+                    if check_aborted():
+                        return TurnResult(
+                            messages=messages,
+                            action_raw_text=action_raw_text,
+                            action_finish_reason=action_finish_reason,
+                            action=record,
+                            repair_used=repair_used,
+                            stopped_reason="aborted",
+                        )
+                    say_result = speak(inline_text)
+                    return TurnResult(
+                        messages=messages,
+                        answer_text=inline_text,
+                        answer_raw_text=raw_inline_text,
+                        action_raw_text=action_raw_text,
+                        action_finish_reason=action_finish_reason,
+                        say_ok=say_result.ok,
+                        say_preempted=bool(say_result.data.get("preempted")),
+                        action=record,
+                        repair_used=repair_used,
+                        stopped_reason="ok",
+                        answer_source="inline",
+                    )
             break
 
         # Без think модель иногда жмёт guide_to на «привет». Не гоняем моторы.
@@ -449,13 +501,6 @@ def run_answer_phase(
     )
 
 
-def _action_stop_when(text: str) -> bool:
-    """Рвать стрим, как только JSON действия валиден или tool уже reply."""
-    if _parse_tool_call(text) is not None:
-        return True
-    return _REPLY_TOOL_RE.search(text) is not None
-
-
 def _parse_tool_call(raw_text: str) -> tuple[str, str, dict] | None:
     """Разобрать `{"think": "...", "tool": "...", "args": {...}}`.
 
@@ -464,7 +509,14 @@ def _parse_tool_call(raw_text: str) -> tuple[str, str, dict] | None:
     диагностическое поле, его порча не повод терять действие.
     """
     try:
-        parsed = json.loads(raw_text.strip())
+        text = raw_text.strip()
+        if text.startswith("```"):
+            # Внешний шлюз без GBNF иногда оборачивает JSON в markdown-fence,
+            # закрытый или нет (ранний обрыв стрима может отрезать хвостовые
+            # ```) -- strip("`") снимает бэктики с обоих концов независимо,
+            # в незакрытом случае снимать с хвоста просто нечего.
+            text = text.strip("`").removeprefix("json").strip()
+        parsed = json.loads(text)
         name = parsed["tool"]
         args = parsed.get("args", {})
         if not isinstance(name, str) or not isinstance(args, dict):

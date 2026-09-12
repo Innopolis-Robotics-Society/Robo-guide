@@ -23,17 +23,17 @@ from collections.abc import Callable
 from pathlib import Path
 
 import rclpy
-from guide_robot_llm.dialog_agent_node import DialogAgentNode
-from guide_robot_llm.interaction_log_node import InteractionLogNode
-from guide_robot_llm.tool_broker_node import ToolBrokerNode
-from guide_robot_mission_control.mission_fsm_node import MissionFsmNode
-from guide_robot_mission_control.narration_server_node import NarrationServerNode
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import TransitionCallbackReturn
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.task import Future
 
+from guide_robot_llm.dialog_agent_node import DialogAgentNode
+from guide_robot_llm.interaction_log_node import InteractionLogNode
+from guide_robot_llm.tool_broker_node import ToolBrokerNode
+from guide_robot_mission_control.mission_fsm_node import MissionFsmNode
+from guide_robot_mission_control.narration_server_node import NarrationServerNode
 from test.mocks.mock_llm_server import MockLlmServer
 from test.mocks.mock_nav_server import MockNavServer
 from test.mocks.mock_say_server import MockSayServer
@@ -142,9 +142,10 @@ class ToolBrokerTestHarness:
             context=self.context,
             parameter_overrides=[
                 *_USE_SIM_TIME,
-                Parameter("llm.base_urls", value=[self.llm_server.url]),
-                Parameter("llm.connect_timeout_s", value=1.0),
-                Parameter("llm.read_timeout_s", value=5.0),
+                Parameter("llm.backends", value=["mock"]),
+                Parameter("llm.mock.base_url", value=self.llm_server.url),
+                Parameter("llm.mock.connect_timeout_s", value=1.0),
+                Parameter("llm.mock.read_timeout_s", value=5.0),
                 Parameter("system_prompt_path", value=self._system_prompt_file.name),
                 *dialog_agent_overrides,
             ],
