@@ -29,6 +29,9 @@
     # Контракт ADR-0001: 4 поля {"tool","args","confidence","abstain"} --
     # ~60 токенов на guide_to/ask_visitor с длинными id; запас 96.
     llm.max_tokens_action: 96
+    # Taiga #4: фаза наблюдения observe_then_decide -- строго JSON под GBNF,
+    # ~100 токенов максимум; 192 -- запас на переполнение строк.
+    llm.max_tokens_observation: 192
     llm.temperature_answer: 0.6
     llm.temperature_action: 0.0
     # stage5 п.3: только фаза реплики -- фаза действия идёт под грамматикой
@@ -82,6 +85,18 @@
     vision.max_frame_age_s: 2.0
     vision.max_long_edge_px: 1280
     vision.max_payload_bytes: 2500000
+    # Taiga #4: промпт-стратегии. direct_action -- кадры и кандидаты сразу к
+    # фазе действия (дефолт, один LLM-вызов на ход); observe_then_decide --
+    # сначала структурированное наблюдение под GBNF (id только из кандидатов),
+    # затем фаза действия видит его рендер + кадры. Кандидаты -- только из
+    # каталога семантической карты; id вне списка в промпт не попадают.
+    vision.prompt_strategy: "direct_action"
+    # Кадры в фазу реплики: false по умолчанию; reply кадров никогда не
+    # получает (выбранного skill'а нет). Будущие визуальные skill'ы #6/#7
+    # определят своё по-своему.
+    vision.answer_phase_images: false
+    vision.max_candidates: 5
+    vision.observation_max_chars: 400
 
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
 /**/interaction_log:

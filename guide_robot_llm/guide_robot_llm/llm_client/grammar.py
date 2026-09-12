@@ -19,7 +19,7 @@
 
 from __future__ import annotations
 
-__all__ = ["build_action_grammar"]
+__all__ = ["build_action_grammar", "build_observation_grammar"]
 
 # Порядок полей контракта фиксирован (ADR-0001 §2) -- не менять:
 # repair-инструкции и парсер на него опираются.
@@ -77,6 +77,50 @@ def build_action_grammar(tool_names: list[str]) -> str:
             _ACTION_ROOT,
             f"tool-name ::= {name_rule} ws",
             _CONFIDENCE_RULE,
+            *_JSON_RULES.splitlines(),
+        ]
+    )
+
+
+# Наблюдение (Taiga #4, observe_then_decide): компактный JSON -- люди,
+# «видимые» экспонаты (id ТОЛЬКО из списка кандидатов), жест-указание,
+# факты сцены. Ключевое отличие от action-грамматики: `exhibit_candidates`
+# фиксируется на конкретные строки кандидатов (semantic map -- единственный
+# источник id, инвариант issue #4), а не на общий `string`.
+_OBSERVATION_ROOT = (
+    'root ::= "{" ws "people_count" ws ":" ws people-count ws "," ws '
+    '"exhibit_candidates" ws ":" ws candidate-array ws "," ws '
+    '"pointing_evidence" ws ":" ws pointing ws "," ws '
+    '"scene_facts" ws ":" ws string ws "}" ws'
+)
+_PEOPLE_COUNT_RULE = "people-count ::= [0-9]{1,2} ws"
+_POINTING_RULE = 'pointing ::= ("none" | "yes" | "uncertain") ws'
+
+
+def build_observation_grammar(candidate_ids: list[str]) -> str:
+    """Собрать GBNF фазы наблюдения (Taiga #4, observe_then_decide).
+
+    `candidate_ids` -- id кандидатов-экспонатов из семантической карты на
+    МОМЕНТ ХОДА: модель не сгенерирует ни одного id вне этого списка
+    (пустой список -- только пустой массив). `scene_facts` -- общий
+    `string` (свободный текст, обрезается host-стороной в
+    `visual_context.parse_observation`).
+    """
+    id_rule = " | ".join(f'"\\"{name}\\""' for name in candidate_ids) or '""'
+    if candidate_ids:
+        candidate_array = (
+            'candidate-array ::= "[" ws (candidate-id ("," ws candidate-id)*)? "]" ws'
+        )
+    else:
+        # Пустые кандидаты: единственный допустимый массив -- пустой.
+        candidate_array = 'candidate-array ::= "[" ws "]" ws'
+    return "\n".join(
+        [
+            _OBSERVATION_ROOT,
+            _PEOPLE_COUNT_RULE,
+            _POINTING_RULE,
+            candidate_array,
+            f"candidate-id ::= ({id_rule}) ws",
             *_JSON_RULES.splitlines(),
         ]
     )

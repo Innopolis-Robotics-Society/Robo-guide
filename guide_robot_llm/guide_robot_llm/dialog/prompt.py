@@ -40,7 +40,12 @@ from collections.abc import Sequence
 
 from guide_robot_llm.tools.schema import ToolSpec
 
-__all__ = ["build_action_instruction", "build_answer_instruction", "build_system_prompt"]
+__all__ = [
+    "build_action_instruction",
+    "build_answer_instruction",
+    "build_observation_instruction",
+    "build_system_prompt",
+]
 
 _ACTION_HEADER = (
     "Выбери ровно одно действие робота по ПОСЛЕДНЕЙ реплике посетителя -- ответь "
@@ -135,6 +140,34 @@ def build_answer_instruction() -> str:
     ПОСЛЕ него (правило кэша: статика раньше волатильного).
     """
     return _ANSWER_INSTRUCTION
+
+
+_OBSERVATION_INSTRUCTION = (
+    "Перед выбором действия посмотри ПРИЛОЖЁННЫЕ кадры с камеры и ответь "
+    'ТОЛЬКО одним JSON-объектом вида '
+    '{"people_count": <целое 0..20>, "exhibit_candidates": ["<id>"], '
+    '"pointing_evidence": "none"|"yes"|"uncertain", "scene_facts": "<короткий текст>"} '
+    "без какого-либо текста до или после него. people_count -- сколько людей "
+    "в кадре. exhibit_candidates -- id ТОЛЬКО из списка кандидатов в "
+    "[Визуальный контекст] (внешние id не существует, лучше пусто, чем выдумка); "
+    'повторять id нельзя. pointing_evidence -- видит ли кто-то в кадре явный '
+    "жест-указание (на экспонат/направление): none/yes/uncertain. scene_facts -- "
+    "одна-две фразы по-русски: что реально видно (люди, экспонаты, жест, "
+    "освещённость/помехи), только устойчивые детали, без домысливания. "
+    "Если кадров нет или их не разобрать -- people_count 0, пустой список, "
+    'pointing_evidence "uncertain", scene_facts "кадры не разобрать".'
+)
+
+
+def build_observation_instruction() -> str:
+    """Собрать СТАБИЛЬНУЮ инструкцию фазы наблюдения (Taiga #4).
+
+    Вызывается ОДИН раз на `on_activate` (как `build_action_instruction`):
+    побайтово одинакова между ходами, иначе теряется CACHE_REUSE префикса.
+    Волатильная часть хода (кандидаты, метаданные кадров, реплика) идёт
+    отдельным сообщением ПОСЛЕ неё -- `visual_context.render_visual_context`.
+    """
+    return _OBSERVATION_INSTRUCTION
 
 
 def build_system_prompt(

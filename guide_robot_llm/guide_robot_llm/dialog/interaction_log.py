@@ -1,4 +1,4 @@
-"""Сборка одной jsonl-записи интеракции из `TurnResult` -- схема v3 (DIALOG_REWORK_PLAN.md §8).
+"""Сборка одной jsonl-записи интеракции из `TurnResult` -- схема v6 (DIALOG_REWORK_PLAN.md §8).
 
 Чистая логика без rclpy -- тестируется на голом `TurnResult` без ROS/HTTP,
 `dialog_agent_node.py` -- единственный потребитель из rclpy-контекста (он же
@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from guide_robot_llm.dialog.verbatim import max_shingle_overlap
+from guide_robot_llm.llm_client.redact import redact_messages
 
 if TYPE_CHECKING:
     from guide_robot_llm.dialog.turn import TurnResult
@@ -45,7 +46,12 @@ __all__ = ["SCHEMA_VERSION", "build_interaction_record"]
 # п.7.1) от явного read_only-вызова модели ("tool", п.7.2). Обратная
 # совместимость со старой формой не нужна -- единственный потребитель
 # (`kb.jsonl`) удалён вместе с корпусом.
-SCHEMA_VERSION = 5
+# v6 (Taiga #4): `llm_messages` теперь идёт через `redact_messages`
+# (llm_client.redact) -- base64-payload'ы data-URL'ов кадров маскируются, в
+# текстовый лог не попадает (acceptance issue #4); добавлен опциональный
+# блок `observation` (фаза observe_then_decide: сырой вывод, рендер,
+# причина деградации).
+SCHEMA_VERSION = 6
 
 
 def build_interaction_record(
@@ -138,8 +144,25 @@ def build_interaction_record(
         "verbatim_overlap_words": verbatim_overlap_words,
         "say_ok": result.say_ok,
         "action": action,
+        # Таига #4: фаза наблюдения (observe_then_decide) -- только если
+        # прогонялась или деградировала (direct_action/text-only не несут).
+        "observation": (
+            {
+                "raw": result.observation_raw_text,
+                "text": result.observation_text,
+                "error": result.observation_error,
+            }
+            if (
+                result.observation_raw_text
+                or result.observation_text
+                or result.observation_error
+            )
+            else None
+        ),
         "repair_used": result.repair_used,
-        "llm_messages": result.messages,
+        # Таига #4: base64 кадров в текстовый лог не попадает -- content-
+        # массивы с image_url маскируются (redact_messages, Taiga #3).
+        "llm_messages": redact_messages(result.messages),
         "history_entries": history_entries,
         "history_cleared": history_cleared,
         "told_ids": list(told_ids),

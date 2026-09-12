@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from guide_robot_llm.dialog.sanitize import sanitize_answer
-from guide_robot_llm.llm_client import CompletionResult, build_action_grammar
+from guide_robot_llm.llm_client import CompletionResult, build_action_grammar, build_content
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
 from guide_robot_llm.matching import looks_like_chit_chat, match_start_tour
 from guide_robot_llm.tools.validate import (
@@ -33,6 +33,11 @@ from guide_robot_llm.tools.validate import (
     REASON_LOW_CONFIDENCE,
     parse_action,
     verify_action,
+)
+from guide_robot_llm.visual_context import (
+    ObservationRequest,
+    parse_observation,
+    render_observation,
 )
 
 __all__ = [
@@ -103,6 +108,13 @@ class TurnResult:
     Измеряются раздельно: raw-валидность (первая попытка) и repaired
     (исход после починки, `repair_used`).
 
+    `observation_raw_text`/`observation_text`/`observation_error` -- фаза
+    наблюдения (Taiga #4, observe_then_decide): сырой вывод модели, его
+    отрендеренный (host-отфильтрованный) вариант и причина деградации
+    (`""` = фаза не прогонялась либо прошла чисто; `malformed` /
+    `backend_error`). Наблюдение -- side-channel: его провал НИКОГДА не
+    рвёт ход, фаза действия идёт без него.
+
     Семантика `stopped_reason` при инвертированном порядке фаз:
     `action_backend_error` -- бэкенд упал на ПЕРВОЙ фазе, не произошло
     вообще ничего (ни действия, ни речи); `answer_backend_error` -- действие
@@ -132,6 +144,11 @@ class TurnResult:
     action_reason_code: str = ""
     # True, если ПЕРВАЯ попытка фазы действия была схема-валидной.
     action_first_attempt_valid: bool = False
+    # Фаза наблюдения (Taiga #4): сырой вывод / рендер для промпта /
+    # причина деградации (см. docstring).
+    observation_raw_text: str = ""
+    observation_text: str = ""
+    observation_error: str = ""
     # "ok" | "answer_backend_error" | "action_backend_error"
     # | "action_parse_error" | "action_invalid" | "aborted"
     stopped_reason: str = "ok"
@@ -222,6 +239,13 @@ def run_turn(
     confidence_threshold: float = 0.5,
     known_location_ids: frozenset[str] = frozenset(),
     known_tour_ids: frozenset[str] = frozenset(),
+    # Таiga #4: визуальный контекст хода (см. docstring ниже).
+    action_frames: Sequence[str] = (),
+    visual_suffix: str = "",
+    observation_request: ObservationRequest | None = None,
+    complete_observation: Callable[..., CompletionResult] | None = None,
+    answer_frames: Sequence[str] = (),
+    answer_phase_images: bool = False,
 ) -> TurnResult:
     """Прогнать один ход диалога (контракт действия ADR-0001).
 
@@ -281,6 +305,23 @@ def run_turn(
     параметры валидатора (ADR-0001 §5): порог safe abstention и живые
     каталоги id (пустой каталог = членство не проверяется, как в
     `tools.validate.validate_call`).
+
+    Таига #4 (визуальный контекст): `action_frames` -- data-URL'ы замороженных
+    кадров, прикрепляются к волатильному сообщению визуального контекста фазы
+    действия (`build_content`: без кадров сообщение остаётся строкой и ход
+    байт-в-байт прежний). `visual_suffix` -- волатильный текст хода
+    (`visual_context.render_visual_context`: реплика, метаданные кадров БЕЗ
+    base64, кандидаты-экспонаты). `observation_request` + `complete_observation`
+    -- фаза наблюдения observe_then_decide: ПЕРЕД фазой действия модель под
+    GBNF-грамматикой выдаёт структурированное наблюдение (люди/экспонаты/
+    жест/факты), которое host режет (id вне кандидатов выбрасываются) и
+    рендерит в `observation_text` -- его добавляет к волатильному сообщению
+    после `visual_suffix`. Наблюдение -- side-channel: `BackendError`/
+    malformed-вывод НЕ рвёт ход (метрика `observation_error`), фаза действия
+    идёт без наблюдения. `answer_frames` + `answer_phase_images` -- кадры в
+    фазе реплики: прикрепляются только если флаг включен И выбранное действие
+    не `reply` (выбирающего skill'а у reply нет, будущие визуальные skill'ы
+    #6/#7 определят своё).
     """
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
@@ -297,6 +338,79 @@ def run_turn(
     action_finish_reason = ""
     action_reason_code = ""
     first_attempt_valid = False
+
+    # Таига #4: фаза наблюдения ПЕРЕД фазой действия (observe_then_decide).
+    # Только когда есть и запрос, и бэкенд, и кадры (без кадров наблюдать
+    # нечего -- text-only вариант стратегии).
+    observation_raw_text = ""
+    observation_text = ""
+    observation_error = ""
+    if (
+        observation_request is not None
+        and complete_observation is not None
+        and observation_request.frames
+    ):
+        observation_messages: list[dict] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+            {"role": "user", "content": observation_request.instruction},
+            {
+                "role": "user",
+                "content": build_content(
+                    observation_request.context_text, observation_request.frames
+                ),
+            },
+        ]
+
+        def _observation_stop_when(text: str) -> bool:
+            return (
+                parse_observation(
+                    text,
+                    candidate_ids=observation_request.candidate_ids,
+                    max_chars=observation_request.max_chars,
+                )
+                is not None
+            )
+
+        try:
+            observation_completion = complete_observation(
+                observation_messages,
+                observation_request.grammar,
+                stop_when=_observation_stop_when,
+            )
+        except BackendAborted:
+            raise
+        except BackendError:
+            observation_error = "backend_error"
+            observation_completion = None
+        if observation_completion is not None:
+            observation_raw_text = observation_completion.text
+            parsed_observation = parse_observation(
+                observation_raw_text,
+                candidate_ids=observation_request.candidate_ids,
+                max_chars=observation_request.max_chars,
+            )
+            if parsed_observation is None:
+                observation_error = "malformed"
+            else:
+                observation_text = render_observation(
+                    parsed_observation,
+                    quality=observation_request.quality,
+                    max_chars=observation_request.max_chars,
+                )
+
+    # Таига #4: волатильное визуальное сообщение фазы действия -- ПОСЛЕ
+    # стабильной инструкции (кэш-префикс не страдает). Пусто -- нет
+    # сообщений вообще, ход байт-в-байт прежний (text-only).
+    if visual_suffix or action_frames or observation_text:
+        visual_parts = [part for part in (visual_suffix, observation_text) if part]
+        messages = [
+            *messages,
+            {
+                "role": "user",
+                "content": build_content("\n\n".join(visual_parts), tuple(action_frames)),
+            },
+        ]
 
     def _abstain_record(reason: str) -> ToolCallRecord:
         # Safe fallback (ADR-0001 §4): действие не исполняется, в запись
@@ -322,6 +436,9 @@ def run_turn(
                 action_raw_text=action_raw_text,
                 action_finish_reason=action_finish_reason,
                 repair_used=repair_used,
+                observation_raw_text=observation_raw_text,
+                observation_text=observation_text,
+                observation_error=observation_error,
                 stopped_reason="action_backend_error",
             )
 
@@ -348,6 +465,9 @@ def run_turn(
                 action_finish_reason=action_finish_reason,
                 repair_used=repair_used,
                 action_first_attempt_valid=first_attempt_valid,
+                observation_raw_text=observation_raw_text,
+                observation_text=observation_text,
+                observation_error=observation_error,
                 stopped_reason="action_parse_error",
             )
         # Метрика «была ли ПЕРВАЯ попытка схема-валидна»: после repair
@@ -438,6 +558,9 @@ def run_turn(
                 repair_used=repair_used,
                 action_reason_code=action_reason_code,
                 action_first_attempt_valid=first_attempt_valid,
+                observation_raw_text=observation_raw_text,
+                observation_text=observation_text,
+                observation_error=observation_error,
                 stopped_reason="aborted",
             )
 
@@ -475,6 +598,11 @@ def run_turn(
         utterance=utterance,
         action_reason_code=action_reason_code,
         action_first_attempt_valid=first_attempt_valid,
+        observation_raw_text=observation_raw_text,
+        observation_text=observation_text,
+        observation_error=observation_error,
+        answer_frames=answer_frames,
+        answer_phase_images=answer_phase_images,
     )
 
 
@@ -493,6 +621,11 @@ def run_answer_phase(
     utterance: str = "",
     action_reason_code: str = "",
     action_first_attempt_valid: bool = False,
+    observation_raw_text: str = "",
+    observation_text: str = "",
+    observation_error: str = "",
+    answer_frames: Sequence[str] = (),
+    answer_phase_images: bool = False,
 ) -> TurnResult:
     """Фаза реплики: итог действия -> ЛЛМ -> `sanitize` -> один `speak()`.
 
@@ -500,6 +633,12 @@ def run_answer_phase(
     между двумя goal). При safe fallback (`action_reason_code` задан)
     итог действия заменяется инструкцией на короткое уточнение --
     мутирующего действия не было, и реплика это обязана отражать.
+
+    Таига #4: `answer_frames` (data-URL'ы тех же замороженных кадров, что
+    фаза действия) прикрепляются к сообщению фазы реплики ТОЛЬКО если
+    `answer_phase_images` включен И выбранное действие не `reply` --
+    «только если выбранный skill' их требует»: у reply визуального
+    skill'а нет, будущие #6/#7 определят своё.
     """
     action_stopped_reason = "ok" if record.result_ok else "action_invalid"
 
@@ -515,7 +654,15 @@ def run_answer_phase(
     answer_message = f"{answer_instruction}\n\nИтог действия: {outcome_line}"
     if utterance:
         answer_message += f"\n\nРеплика посетителя: «{utterance}»\nОтветь именно на неё."
-    messages = [*messages, {"role": "user", "content": answer_message}]
+    answer_image_frames = (
+        tuple(answer_frames)
+        if (answer_phase_images and record.name != "reply")
+        else ()
+    )
+    messages = [
+        *messages,
+        {"role": "user", "content": build_content(answer_message, answer_image_frames)},
+    ]
 
     try:
         answer_completion = complete_answer(messages)
@@ -530,6 +677,9 @@ def run_answer_phase(
             repair_used=repair_used,
             action_reason_code=action_reason_code,
             action_first_attempt_valid=action_first_attempt_valid,
+            observation_raw_text=observation_raw_text,
+            observation_text=observation_text,
+            observation_error=observation_error,
             stopped_reason="answer_backend_error",
         )
 
@@ -553,6 +703,9 @@ def run_answer_phase(
                 repair_used=repair_used,
                 action_reason_code=action_reason_code,
                 action_first_attempt_valid=action_first_attempt_valid,
+                observation_raw_text=observation_raw_text,
+                observation_text=observation_text,
+                observation_error=observation_error,
                 stopped_reason="aborted",
             )
         say_result = speak(answer_text)
@@ -572,6 +725,9 @@ def run_answer_phase(
         repair_used=repair_used,
         action_reason_code=action_reason_code,
         action_first_attempt_valid=action_first_attempt_valid,
+        observation_raw_text=observation_raw_text,
+        observation_text=observation_text,
+        observation_error=observation_error,
         stopped_reason=action_stopped_reason,
     )
 

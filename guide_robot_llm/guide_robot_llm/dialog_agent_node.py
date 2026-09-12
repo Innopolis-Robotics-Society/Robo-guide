@@ -44,6 +44,7 @@ from guide_robot_llm.dialog.interaction_log import build_interaction_record
 from guide_robot_llm.dialog.prompt import (
     build_action_instruction,
     build_answer_instruction,
+    build_observation_instruction,
     build_system_prompt,
 )
 from guide_robot_llm.dialog.sanitize import sanitize_answer
@@ -65,9 +66,21 @@ from guide_robot_llm.lib.qos import (
     QOS_VISION_COMPRESSED,
     QOS_WAKEWORD,
 )
-from guide_robot_llm.llm_client import Backend, BackendConfig, complete_with_fallback
+from guide_robot_llm.llm_client import (
+    Backend,
+    BackendConfig,
+    build_observation_grammar,
+    complete_with_fallback,
+)
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
 from guide_robot_llm.tools import schema
+from guide_robot_llm.visual_context import (
+    ExhibitCandidate,
+    ObservationRequest,
+    build_visual_context,
+    frame_sha256_16,
+    render_visual_context,
+)
 from guide_robot_msgs.msg import (
     CancelAll,
     DialogPhase,
@@ -145,6 +158,8 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("llm.backoff_s", 0.5)
         self.declare_parameter("llm.max_tokens_answer", 160)
         self.declare_parameter("llm.max_tokens_action", 64)
+        # Таига #4: фаза наблюдения observe_then_decide (строго JSON, ~100 токенов).
+        self.declare_parameter("llm.max_tokens_observation", 192)
         self.declare_parameter("llm.temperature_answer", 0.6)
         self.declare_parameter("llm.temperature_action", 0.0)
         # stage5 п.3: только фаза реплики -- см. `_complete_answer` ниже.
@@ -195,6 +210,18 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("vision.max_frame_age_s", 2.0)
         self.declare_parameter("vision.max_long_edge_px", 1280)
         self.declare_parameter("vision.max_payload_bytes", 2_500_000)
+        # Таига #4: промпт-стратегии. direct_action -- кадры прямо к фазе
+        # действия (дефолт: поведение хода без observation-вызова);
+        # observe_then_decide -- сначала структурированное наблюдение под
+        # GBNF, затем фаза действия видит его рендер (и кадры).
+        self.declare_parameter("vision.prompt_strategy", "direct_action")
+        # Кадры в фазу реплики -- только если флаг и действие не reply
+        # (выбранного skill'а у reply нет; визуальные #6/#7 определят своё).
+        self.declare_parameter("vision.answer_phase_images", False)
+        # Потолок кандидатов-экспонатов в визуальном контексте хода.
+        self.declare_parameter("vision.max_candidates", 5)
+        # Потолок scene_facts наблюдения (host-обрезка, детерминированная).
+        self.declare_parameter("vision.observation_max_chars", 400)
 
         self._active = False
         self._state_lock = threading.Lock()
@@ -324,6 +351,7 @@ class DialogAgentNode(LifecycleNode):
         self._system_prompt = self._preamble
         self._action_instruction = ""
         self._answer_instruction = ""
+        self._observation_instruction = ""
         self._read_only_tool_names: frozenset[str] = frozenset()
         self._locations_catalog: list[dict] = []
         self._tours_catalog: list[dict] = []
@@ -410,6 +438,30 @@ class DialogAgentNode(LifecycleNode):
                 f"(кадров на ход: {int(self.get_parameter('vision.frame_count').value)})"
             )
 
+        # Таига #4: параметры визуального контекста хода. Стратегия --
+        # fail-fast: неизвестное значение не должно тихо работать как
+        # direct_action, лучше не подняться (тот же принцип, что каталог).
+        self._vision_prompt_strategy = str(self.get_parameter("vision.prompt_strategy").value)
+        if self._vision_prompt_strategy not in ("direct_action", "observe_then_decide"):
+            msg = (
+                f"неизвестный vision.prompt_strategy: {self._vision_prompt_strategy!r} "
+                "(допустимо: direct_action, observe_then_decide)"
+            )
+            raise ValueError(msg)
+        self._vision_answer_phase_images = bool(
+            self.get_parameter("vision.answer_phase_images").value
+        )
+        self._vision_max_candidates = int(self.get_parameter("vision.max_candidates").value)
+        self._vision_observation_max_chars = int(
+            self.get_parameter("vision.observation_max_chars").value
+        )
+        self._vision_max_frame_age_s = float(
+            self.get_parameter("vision.max_frame_age_s").value
+        )
+        self._max_tokens_observation = int(
+            self.get_parameter("llm.max_tokens_observation").value
+        )
+
         if self._raw_llm:
             self.get_logger().warning("llm.raw=true — чат без system/GBNF/инструментов")
 
@@ -467,6 +519,13 @@ class DialogAgentNode(LifecycleNode):
         )
         self._action_instruction = build_action_instruction(schema.TOOLS)
         self._answer_instruction = build_answer_instruction()
+        # Таига #4: стабильная инструкция наблюдения -- только для
+        # observe_then_decide; побайтово одинакова между ходами (CACHE_REUSE).
+        self._observation_instruction = (
+            build_observation_instruction()
+            if self._vision_prompt_strategy == "observe_then_decide"
+            else ""
+        )
         self._read_only_tool_names = frozenset(
             spec.name for spec in schema.TOOLS if spec.read_only
         )
@@ -1056,6 +1115,45 @@ class DialogAgentNode(LifecycleNode):
             utterance=utterance,
         )
 
+    def _visual_candidates(self, mission: MissionState) -> list[ExhibitCandidate]:
+        """Кандидаты-экспонаты для визуального контекста (Taiga #4).
+
+        Единственный источник id -- каталог семантической карты, стянутый на
+        `on_activate`: текущая остановка (любого типа -- робот реально стоит
+        здесь) + экспонаты той же зоны в порядке каталога (детерминированно).
+        Координат в списке НЕТ (то же правило, что системный промпт: в промпт
+        координаты не идут) -- только id/имя/зона. Обрезка по
+        `vision.max_candidates` -- в `build_visual_context` (ближайшие первые).
+        """
+        stop_id = mission.stop_id
+        stop_zone = self._location_zone_by_id.get(stop_id, "") if stop_id else ""
+        candidates: list[ExhibitCandidate] = []
+        for loc in self._locations_catalog:
+            loc_id = str(loc["id"])
+            if loc_id == stop_id:
+                candidates.append(
+                    ExhibitCandidate(
+                        id=loc_id,
+                        name=self._location_name_by_id.get(loc_id, loc_id),
+                        zone=str(loc.get("zone", "")),
+                    )
+                )
+        if stop_zone:
+            for loc in self._locations_catalog:
+                loc_id = str(loc["id"])
+                if loc_id == stop_id or str(loc.get("zone", "")) != stop_zone:
+                    continue
+                if loc.get("category") != "exhibit":
+                    continue
+                candidates.append(
+                    ExhibitCandidate(
+                        id=loc_id,
+                        name=self._location_name_by_id.get(loc_id, loc_id),
+                        zone=stop_zone,
+                    )
+                )
+        return candidates
+
     def _run_turn(
         self,
         turn_id: int,
@@ -1105,15 +1203,27 @@ class DialogAgentNode(LifecycleNode):
             )
             status_line = snapshot.render_status_line(snap)
 
-            # Taiga #2: визуальный снимок замораживается НА МОМЕНТЕ ХОДА
-            # (транскрипт уже получен -- см. _handle_transcript). Ключ
-            # присутствует всегда, когда vision.enabled (возможно пустой --
-            # тогда ход идёт text-only, failure handling из issue). Форма
-            # -- data-URL, готовые к `llm_client.build_content()` (#3);
-            # потребитель промпт-пути -- #4.
+            # Taiga #2/#4: визуальный снимок замораживается НА МОМЕНТЕ ХОДА
+            # (транскрипт уже получен -- см. _handle_transcript), в тот же
+            # логический момент, что миссия-снимок. Ключ присутствует всегда,
+            # когда vision.enabled (возможно пустой -- тогда ход идёт
+            # text-only, failure handling из issue). Форма snap["frames"] --
+            # МЕТАДАННЫЕ БЕЗ base64 (время/возраст/отпечаток/размер): текстовый
+            # лог обязан оставаться без base64 (acceptance #4); data-URL'ы
+            # остаются локальными переменными для промпт-пути (build_content).
+            frozen: list = []
+            now_s = self._now_s()
             if self._frame_buffer is not None:
-                frozen = self._frame_buffer.freeze(self._now_s())
-                snap["frames"] = [frame.data_url for frame in frozen]
+                frozen = self._frame_buffer.freeze(now_s)
+                snap["frames"] = [
+                    {
+                        "captured_at": frame.captured_at,
+                        "age_s": max(0.0, round(now_s - frame.captured_at, 1)),
+                        "sha256_16": frame_sha256_16(frame.data_url),
+                        "payload_bytes": frame.payload_bytes,
+                    }
+                    for frame in frozen
+                ]
                 discarded = self._frame_buffer.stats
                 if any(discarded.values()):
                     self.get_logger().info(f"vision: отброшено кадров: {discarded}")
@@ -1226,6 +1336,28 @@ class DialogAgentNode(LifecycleNode):
                         {"stage": "llm_action", "ms": (time.monotonic() - start) * 1000}
                     )
 
+            # Таига #4: фаза наблюдения -- тот же бэкенд-лестница и grammar-
+            # режим, что фаза действия (temperature 0), только свои
+            # max_tokens и свой stage в таймингах.
+            def _complete_observation(messages: list[dict], grammar: str, *, stop_when=None):
+                start = time.monotonic()
+                try:
+                    return complete_with_fallback(
+                        self._backends,
+                        messages,
+                        grammar=grammar,
+                        max_tokens=self._max_tokens_observation,
+                        temperature=self._temperature_action,
+                        abort_event=abort_event,
+                        stop_when=stop_when,
+                        max_attempts_per_backend=self._max_attempts_per_backend,
+                        backoff_s=self._backoff_s,
+                    )
+                finally:
+                    stage_timings.append(
+                        {"stage": "llm_observation", "ms": (time.monotonic() - start) * 1000}
+                    )
+
             def _speak(spoken_text: str) -> _RemoteToolResult:
                 start = time.monotonic()
                 try:
@@ -1281,6 +1413,43 @@ class DialogAgentNode(LifecycleNode):
                     )
                 self._arm_wake_grace()
 
+            # Таига #4: визуальный контекст хода (только обычный ход: у
+            # pending_answer нет выбранного skill'а, у raw -- ни промпта).
+            # Кадры заморозились выше в тот же момент (now_s), кандидаты --
+            # детерминированно из каталога по текущей остановке/зоне.
+            action_frames: list[str] = []
+            visual_suffix = ""
+            answer_frames: list[str] = []
+            observation_request: ObservationRequest | None = None
+            if self._frame_buffer is not None and pending_answer is None and not self._raw_llm:
+                visual_context = build_visual_context(
+                    frozen,
+                    now_s=now_s,
+                    candidates=self._visual_candidates(mission),
+                    max_candidates=self._vision_max_candidates,
+                    stale_age_s=self._vision_max_frame_age_s,
+                )
+                frame_urls = tuple(frame.data_url for frame in frozen)
+                visual_suffix = render_visual_context(visual_context, utterance=text)
+                if frame_urls:
+                    action_frames = list(frame_urls)
+                    answer_frames = list(frame_urls)
+                if self._vision_prompt_strategy == "observe_then_decide" and frame_urls:
+                    # observe_then_decide: сначала наблюдение под GBNF (id
+                    # ТОЛЬКО из кандидатов), фаза действия получит его
+                    # рендер; без кадров наблюдение нечего прогонять --
+                    # text-only вариант стратегии (прямое действие).
+                    candidate_ids = [candidate.id for candidate in visual_context.candidates]
+                    observation_request = ObservationRequest(
+                        instruction=self._observation_instruction,
+                        context_text=visual_suffix,
+                        frames=frame_urls,
+                        grammar=build_observation_grammar(candidate_ids),
+                        candidate_ids=frozenset(candidate_ids),
+                        quality=visual_context.quality,
+                        max_chars=self._vision_observation_max_chars,
+                    )
+
             if pending_answer is not None:
                 result = self._run_pending_answer_phase(
                     pending_answer,
@@ -1321,6 +1490,13 @@ class DialogAgentNode(LifecycleNode):
                     on_action_resolved=_on_action_resolved,
                     utterance=text,
                     default_tour_id=next(iter(self._tour_name_by_id), ""),
+                    # Таига #4: визуальный контекст (кадры/кандидаты/наблюдение).
+                    action_frames=action_frames,
+                    visual_suffix=visual_suffix,
+                    observation_request=observation_request,
+                    complete_observation=_complete_observation,
+                    answer_frames=answer_frames,
+                    answer_phase_images=self._vision_answer_phase_images,
                 )
             if result.action is not None and result.action.read_only and result.action.result_ok:
                 # Явный read_only-вызов модели (фаза 1) -- те же чанки, что
