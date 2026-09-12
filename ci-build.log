@@ -1,0 +1,39 @@
+Starting >>> guide_robot_msgs
+Starting >>> guide_robot_hardware
+Starting >>> guide_robot_sonar
+Starting >>> guide_robot_supervisor
+Finished <<< guide_robot_supervisor [0.80s]
+Finished <<< guide_robot_hardware [4.16s]
+Starting >>> guide_robot_description
+Finished <<< guide_robot_sonar [4.79s]
+--- stderr: guide_robot_description
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    CMAKE_EXPORT_COMPILE_COMMANDS
+
+
+---
+Finished <<< guide_robot_description [0.85s]
+Finished <<< guide_robot_msgs [16.7s]
+Starting >>> guide_robot_bt_nodes
+Starting >>> guide_robot_mission_control
+Starting >>> guide_robot_face
+Starting >>> guide_robot_semantic_map
+Starting >>> guide_robot_voice
+Starting >>> guide_robot_simulation
+Finished <<< guide_robot_simulation [1.44s]
+Finished <<< guide_robot_face [1.46s]
+Finished <<< guide_robot_semantic_map [1.47s]
+Finished <<< guide_robot_mission_control [1.52s]
+Starting >>> guide_robot_llm
+Finished <<< guide_robot_voice [1.97s]
+Finished <<< guide_robot_llm [0.81s]
+Finished <<< guide_robot_bt_nodes [5.30s]
+Starting >>> guide_robot_navigation
+Finished <<< guide_robot_navigation [0.86s]
+Starting >>> guide_robot_bringup
+Finished <<< guide_robot_bringup [0.83s]
+
+Summary: 14 packages finished [23.8s]
+  1 package had stderr output: guide_robot_description

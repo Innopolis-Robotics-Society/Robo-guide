@@ -69,7 +69,10 @@ def test_turn_produces_interaction_log_record() -> None:
         assert record["action_raw_text"] == (
             '{"tool": "reply", "args": {}, "confidence": 0.9, "abstain": false}'
         )
-        assert record["action_finish_reason"] == "stop"
+        # Фаза действия идёт с `stop_when`-колбэком (ранняя остановка на
+        # готовом JSON), поэтому бэкенд сообщает finish_reason `stop_when`, а не
+        # `stop` (фаза ответа `stop_when` не использует).
+        assert record["action_finish_reason"] == "stop_when"
         assert record["llm_messages"][0]["role"] == "system"
         roles = [m["role"] for m in record["llm_messages"]]
         assert roles.count("assistant") == 2  # tool-call фазы действия + реплика

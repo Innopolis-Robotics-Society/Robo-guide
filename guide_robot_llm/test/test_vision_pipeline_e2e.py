@@ -27,7 +27,7 @@ from guide_robot_llm.lib.qos import QOS_VISION_COMPRESSED
 from guide_robot_msgs.msg import Transcript
 from test.mocks.harness import ToolBrokerTestHarness, wait_until
 
-_NOOP = json.dumps({"tool": "reply", "args": {}})
+_NOOP = json.dumps({"tool": "reply", "args": {}, "confidence": 0.9, "abstain": False})
 _PREFIX = "data:image/jpeg;base64,"
 
 
