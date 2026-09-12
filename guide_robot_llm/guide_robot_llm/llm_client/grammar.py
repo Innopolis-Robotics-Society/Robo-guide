@@ -1,30 +1,41 @@
-"""GBNF-грамматика tool-call JSON: по форме, не по содержимому (llm_plam.md §4).
+"""GBNF-грамматика фазы действия (контракт ADR-0001).
 
-`{"tool": "<один из переданных имён>", "args": <произвольный JSON-объект>}` --
-семантику `args` (существует ли `location_id`, `outcome ∈ {0,1,2}` и т.п.)
-по-прежнему проверяет `guide_robot_llm.tools.validate` в рантайме, здесь
-только форма. Решение обсуждено явно: типизировать `args` под каждый
-инструмент в GBNF означало бы держать грамматику в синхроне с сигнатурой
-каждого инструмента отдельно от `tools/schema.py`/`tools/validate.py` --
-источник дублирования без выигрыша там, где whitelist (например,
-`location_id`) всё равно рантаймовый и в грамматику не укладывается.
+`build_action_grammar(tool_names)` собирает GBNF, в котором модель
+выдаёт ТОЛЬКО объект действия контракта:
 
-Функция, не константа модуля: набор разрешённых инструментов -- это
-`tools.schema.allowed_tools(mission_state)`, меняется с состоянием тура.
+    {"tool": "<имя>", "args": {...}, "confidence": <0..1>, "abstain": <bool>}
 
-JSON-часть (`object`/`array`/`string`/`number`/литералы) -- стандартная
-GBNF-грамматика JSON из примеров llama.cpp (`grammars/json.gbnf`), без
-изменений по существу -- воспроизводить её иначе означало бы придумывать
-формат заново без причины.
+ровно эти 4 поля, в этом порядке, без чужих ключей (включая устаревший
+`think`) и без текста до/после объекта. JSON-правила зашиты в теле
+(llm_plam.md §4): грамматика задаёт только форму, а не содержимое
+аргументов.
+
+`confidence` фиксится в [0, 1] уже на уровне грамматики
+(`confidence ::= "1" | "0"."до 12 знаков"`): вне диапазона модель
+даже не сгенерирует. Грамматика -- первая линия защиты, а не
+авторитет: сервер может проигнорировать её, и финальное слово
+всегда за `tools.validate.parse_action`/`verify_action`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+__all__ = ["build_action_grammar"]
 
-__all__ = ["build_tool_call_grammar"]
+# Порядок полей контракта фиксирован (ADR-0001 §2) -- не менять:
+# repair-инструкции и парсер на него опираются.
+_ACTION_ROOT = (
+    'root ::= "{" ws "tool" ws ":" ws tool-name ws "," ws "args" ws ":" ws object ws '
+    '"," ws "confidence" ws ":" ws confidence ws "," ws "abstain" ws ":" ws '
+    '("true" | "false") ws "}" ws'
+)
 
-# Общая JSON-грамматика для `args` -- копия стандартной llama.cpp json.gbnf.
+# Диапазон [0, 1]: "1" или "0" с дробью до 12 знаков. Дробь без целой
+# части не разрешаем -- модель и так знает, как писать 0.9.
+_CONFIDENCE_RULE = 'confidence ::= ("1" | "0" ("." [0-9]{1,12})?) ws'
+
+# JSON-часть -- стандартная GBNF-грамматика JSON из примеров llama.cpp
+# (grammars/json.gbnf), многолинейный формат принимают серверы;
+# воспроизводить её иначе означало бы придумывать формат заново.
 _JSON_RULES = r"""
 value  ::= object | array | string | number | ("true" | "false" | "null") ws
 
@@ -52,33 +63,20 @@ ws ::= | " " | "\n" [ \t]{0,20}
 """
 
 
-def _escape_tool_name(name: str) -> str:
-    # Имена инструментов -- идентификаторы (`tools/schema.py`: latin+underscore),
-    # но экранируем как строку по-честному, а не полагаемся на это как на инвариант.
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+def build_action_grammar(tool_names: list[str]) -> str:
+    """Собрать GBNF для 4-полевого действия (контракт ADR-0001 §2).
 
-
-def build_tool_call_grammar(tool_names: Sequence[str]) -> str:
-    """Собрать GBNF формы `{"tool": <enum>, "args": <object>}`.
-
-    Без `think`: на 8B+GBNF поле съедало ~0.5–1 с до имени инструмента и
-    блокировало ранний stop стрима. Диагностика «почему выбран tool»
-    остаётся в jsonl пустой / из логов ASR; parser по-прежнему терпит
-    устаревший ключ `think`, если бэкенд его пришлёт.
-
-    `tool_names` -- обычно `tools.schema.allowed_tools(mission_state)`: пустой
-    список -- вырожденный случай (в такой момент `dialog_agent` не должен
-    вообще звать ЛЛМ с tool-grammar, но грамматика на пустом enum остаётся
-    синтаксически валидной, просто ничего не сможет сгенерировать).
+    `tool_names` -- разрешённые в ТЕКУЩЕМ состоянии миссии инструменты
+    (режим/гости/тур). Пустой список допустим: модель всё равно обязана
+    ответить объектом, просто `tool-name` выродится в пустую альтернативу
+    (на практике список не бывает пустым -- `reply` всегда разрешён).
     """
-    if not tool_names:
-        tool_alt = '"\\u0000"'  # заведомо непроизносимая альтернатива, не пустая продукция
-    else:
-        tool_alt = " | ".join(f'"\\"{_escape_tool_name(name)}\\""' for name in tool_names)
-
-    root = (
-        'root ::= "{" ws "\\"tool\\"" ws ":" ws tool-name ws "," ws '
-        '"\\"args\\"" ws ":" ws object ws "}" ws\n'
-        f"tool-name ::= {tool_alt}\n"
+    name_rule = " | ".join(f'"\\"{name}\\""' for name in tool_names) or '""'
+    return "\n".join(
+        [
+            _ACTION_ROOT,
+            f"tool-name ::= {name_rule} ws",
+            _CONFIDENCE_RULE,
+            *_JSON_RULES.splitlines(),
+        ]
     )
-    return root + _JSON_RULES

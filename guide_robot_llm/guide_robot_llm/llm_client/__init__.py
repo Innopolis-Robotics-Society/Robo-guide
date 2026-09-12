@@ -21,7 +21,7 @@ from guide_robot_llm.llm_client.errors import (
     BackendHTTPError,
     BackendTimeout,
 )
-from guide_robot_llm.llm_client.grammar import build_tool_call_grammar
+from guide_robot_llm.llm_client.grammar import build_action_grammar
 from guide_robot_llm.llm_client.ladder import complete_with_fallback
 from guide_robot_llm.llm_client.telemetry import ClientTelemetry, StageTimings
 
@@ -35,8 +35,8 @@ __all__ = [
     "ClientTelemetry",
     "CompletionResult",
     "StageTimings",
+    "build_action_grammar",
     "build_content",
-    "build_tool_call_grammar",
     "complete_with_fallback",
     "count_images",
     "has_images",

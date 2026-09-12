@@ -44,7 +44,16 @@ def test_turn_in_answering_ends_via_finish_answer_or_reply_never_say() -> None:
 
     def complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
         del messages, grammar
-        return CompletionResult(text=json.dumps({"tool": "finish_answer", "args": {"outcome": 0}}))
+        return CompletionResult(
+            text=json.dumps(
+                {
+                    "tool": "finish_answer",
+                    "args": {"outcome": 0},
+                    "confidence": 0.9,
+                    "abstain": False,
+                }
+            )
+        )
 
     result = run_turn(
         system_prompt="sys",
@@ -76,7 +85,9 @@ def test_turn_in_answering_reply_still_closes_the_turn_not_the_frame() -> None:
 
     def complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
         del messages, grammar
-        return CompletionResult(text=json.dumps({"tool": "reply", "args": {}}))
+        return CompletionResult(
+            text=json.dumps({"tool": "reply", "args": {}, "confidence": 0.9, "abstain": False})
+        )
 
     result = run_turn(
         system_prompt="sys",

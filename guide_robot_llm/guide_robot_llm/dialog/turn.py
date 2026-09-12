@@ -1,15 +1,16 @@
-"""Ход dialog_agent: действие (фаза 1, GBNF+think) -> исполнение -> реплика (фаза 2).
+"""Ход dialog_agent: действие (фаза 1, GBNF, контракт ADR-0001) -> исполнение -> реплика (фаза 2).
 
 Порядок фаз ИНВЕРТИРОВАН против DIALOG_REWORK_PLAN.md §0/§5 (живой баг:
 реплика «отвожу вас к кафе» + действие noop в том же ходу): сначала модель
-под GBNF выбирает действие -- `{"think": ..., "tool": ..., "args": ...}`,
-где `think` -- короткое явное рассуждение (ReAct-Thought), инструмент
-исполняется через `tool_broker`, и только потом генерируется свободная
-реплика, которая видит think, действие и его РЕАЛЬНЫЙ итог -- согласованность
-речи с действием структурная, а не «просьба в промпте». Цена -- первая речь
-начинается позже на длительность фазы действия (temp 0, короткий JSON);
-взамен посетитель слышит правду («веду вас к входу» / «не получилось»),
-а починка провалившегося вызова происходит ДО того, как что-то сказано.
+под GBNF выдаёт действие контракта -- `{"tool", "args", "confidence",
+"abstain"}` (ровно 4 поля, `think` из контракта УБРАН, ADR-0001 §3) --
+детерминированный валидатор (`tools.validate.verify_action`) решает,
+допускать ли его в `tool_broker` (abstain модели, confidence ниже порога,
+недоступный инструмент, чужие id -- никуда не исполняются), затем
+инструмент исполняется, и только потом генерируется свободная реплика,
+которая видит действие и его РЕАЛЬНЫЙ итог. Воздержание (abstention)
+заканчивается safe fallback: короткая реплика-уточнение, никогда не
+мутирующее действие (ADR-0001 §4).
 
 Чистая логика без rclpy -- backend'ы, `speak`/`execute_tool` инжектируются
 как callable, тестируется на фейках без ROS и без HTTP
@@ -18,17 +19,21 @@
 
 from __future__ import annotations
 
-import json
-import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from guide_robot_llm.dialog.sanitize import sanitize_answer
-from guide_robot_llm.llm_client import CompletionResult, build_tool_call_grammar
+from guide_robot_llm.llm_client import CompletionResult, build_action_grammar
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
 from guide_robot_llm.matching import looks_like_chit_chat, match_start_tour
-from guide_robot_llm.tools.validate import MOTION_TOOLS
+from guide_robot_llm.tools.validate import (
+    MOTION_TOOLS,
+    REASON_ABSTAIN_FROM_MODEL,
+    REASON_LOW_CONFIDENCE,
+    parse_action,
+    verify_action,
+)
 
 __all__ = [
     "ToolCallRecord",
@@ -39,9 +44,14 @@ __all__ = [
     "run_turn",
 ]
 
-# GBNF уже зафиксировал tool=reply -- args для reply пустые, ждать `}` незачем.
-_REPLY_TOOL_RE = re.compile(r'"tool"\s*:\s*"reply"')
-_SYNTH_REPLY_JSON = '{"tool":"reply","args":{}}'
+# Repair-инструкция на malformed-вывод: форма контракта повторяется
+# дословно, чтобы модель не «докладывала» про формат.
+_MALFORMED_REPAIR_HINT = (
+    "Предыдущий ответ не соответствует контракту. Ответь ТОЛЬКО одним "
+    "JSON-объектом {\"tool\": \"<имя>\", \"args\": {...}, "
+    "\"confidence\": <число 0..1>, \"abstain\": true|false} -- ровно эти 4 "
+    "поля, без чужих ключей и без текста до или после JSON."
+)
 
 
 class ToolResultLike(Protocol):
@@ -54,7 +64,11 @@ class ToolResultLike(Protocol):
 
 @dataclass
 class ToolCallRecord:
-    """Действие, выбранное фазой действия, и его исход (включая `reply`)."""
+    """Действие, выбранное фазой действия, и его исход (включая `reply`).
+
+    `think` -- диагностическая пометка (код причины / override), не поле
+    модели: из контракта `think` убран (ADR-0001 §3).
+    """
 
     name: str
     args: dict
@@ -76,20 +90,28 @@ class TurnResult:
     (`interaction_log` кладёт его в запись как есть).
 
     `answer_raw_text`/`action_raw_text` -- то, что модель выдала ДО
-    постобработки (`sanitize_answer` для реплики, `json.loads` для действия).
-    `action_raw_text` -- текст ПОСЛЕДНЕЙ попытки фазы действия (включая
-    случай `action_parse_error`, когда `action` остаётся `None`, но модель
-    что-то всё-таки прислала). `*_finish_reason` -- как сервер объяснил
-    остановку генерации, пусто, если бэкенд не ответил вовсе.
+    постобработки (`sanitize_answer` для реплики, `parse_action` для
+    действия). `action_raw_text` -- текст ПОСЛЕДНЕЙ попытки фазы действия
+    (включая случай `action_parse_error`, когда `action` остаётся `None`,
+    но модель что-то всё-таки прислала). `*_finish_reason` -- как сервер
+    объяснил остановку генерации, пусто, если бэкенд не ответил вовсе.
+
+    `action_first_attempt_valid` / `action_reason_code` -- метрики
+    валидности контракта (ADR-0001 §Research evidence): была ли ПЕРВАЯ
+    попытка схемы-валидна и какой код причины закрыл ход (пусто = обычный
+    `ok`, либо код из `tools.validate.REASONS` при safe fallback).
+    Измеряются раздельно: raw-валидность (первая попытка) и repaired
+    (исход после починки, `repair_used`).
 
     Семантика `stopped_reason` при инвертированном порядке фаз:
     `action_backend_error` -- бэкенд упал на ПЕРВОЙ фазе, не произошло
     вообще ничего (ни действия, ни речи); `answer_backend_error` -- действие
     могло уже ИСПОЛНИТЬСЯ, но реплика не сгенерировалась и ничего не
-    сказано; `action_parse_error` -- баг сервера/грамматики, ход обрывается
-    до исполнения и до речи; `action_invalid` -- инструмент исполнён с
-    ошибкой и починка исчерпана (реплика при этом генерируется и честно
-    сообщает о провале); `aborted` -- barge-in/новая реплика посетителя.
+    сказано; `action_parse_error` -- malformed-вывод действия и починка
+    исчерпана, ход обрывается до исполнения и до речи; `action_invalid` --
+    инструмент исполнён с ошибкой и починка исчерпана (реплика при этом
+    генерируется и честно сообщает о провале); `aborted` --
+    barge-in/новая реплика посетителя.
     """
 
     messages: list[dict] = field(default_factory=list)
@@ -105,6 +127,11 @@ class TurnResult:
     say_preempted: bool = False
     action: ToolCallRecord | None = None
     repair_used: bool = False
+    # Код причины safe fallback (abstain/low_confidence/исчерпанная
+    # починка) либо "" -- обычный ход.
+    action_reason_code: str = ""
+    # True, если ПЕРВАЯ попытка фазы действия была схема-валидной.
+    action_first_attempt_valid: bool = False
     # "ok" | "answer_backend_error" | "action_backend_error"
     # | "action_parse_error" | "action_invalid" | "aborted"
     stopped_reason: str = "ok"
@@ -192,8 +219,11 @@ def run_turn(
     on_action_resolved: Callable[[ToolCallRecord], None] | None = None,
     utterance: str = "",
     default_tour_id: str = "",
+    confidence_threshold: float = 0.5,
+    known_location_ids: frozenset[str] = frozenset(),
+    known_tour_ids: frozenset[str] = frozenset(),
 ) -> TurnResult:
-    """Прогнать один ход: действие (GBNF) -> исполнение -> реплика -> `speak()`.
+    """Прогнать один ход диалога (контракт действия ADR-0001).
 
     `on_action_resolved` (если задан) зовётся с финальным `record` СРАЗУ
     после исполнения действия, ДО фазы реплики и её `speak()` -- вызывающий
@@ -219,12 +249,18 @@ def run_turn(
     нельзя) -- в обоих случаях ход останавливается со
     `stopped_reason="aborted"`.
 
-    Починка (`repair_attempts`, по умолчанию 1) срабатывает только на
-    ПРОВАЛИВШЕМСЯ исполнении (`execute_tool().ok is False`) -- не на
-    `action_parse_error`: если модель прислала не тот JSON, синтаксическая
-    починка средствами этого модуля бессмысленна (GBNF и так гарантирует
-    форму, а провал парсинга -- баг сервера/грамматики). Починка происходит
-    ДО фазы реплики -- посетитель её не слышит и не замечает.
+    Валидатор (ADR-0001 §2, `tools.validate.verify_action`) стоит МЕЖДУ
+    выходом модели и брокером: malformed-вывод (chужие ключи, NaN,
+    out-of-range confidence, хвост после JSON) и отклонённые действия
+    (недоступный инструмент, чужие id, кривые аргументы) чинятся repair-
+    попытками и НИКОГДА не доходят до `execute_tool`. Явное
+    `abstain=true` и confidence ниже `confidence_threshold` -- без
+    починки сразу safe fallback: ни один инструмент не исполняется
+    (включая моторные), реплика -- короткое уточнение/неопределённость.
+    `confidence` никогда не используется как доверие для авторизации:
+    инструмент исполняется только если каталог, состояние миссии
+    (`tool_names`) и аргументы все прошли. Починка происходит ДО фазы
+    реплики -- посетитель её не слышит и не замечает.
 
     `read_only_tools` -- имена инструментов, чей результат `render_action_
     outcome()` показывает фазе реплики целиком (`chunks`/`hits`/
@@ -240,6 +276,11 @@ def run_turn(
     «действий не требуется» и хвост собственных прошлых ответов, отвечала
     на позапрошлый вопрос вместо последнего. Пусто по умолчанию -- фейковые
     тесты без реального утторанса не обязаны его знать.
+
+    `confidence_threshold`/`known_location_ids`/`known_tour_ids` --
+    параметры валидатора (ADR-0001 §5): порог safe abstention и живые
+    каталоги id (пустой каталог = членство не проверяется, как в
+    `tools.validate.validate_call`).
     """
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
@@ -248,12 +289,27 @@ def run_turn(
         {"role": "user", "content": action_instruction},
     ]
 
-    grammar = build_tool_call_grammar(tool_names)
+    grammar = build_action_grammar(list(tool_names))
     repair_used = False
     attempts_left = repair_attempts
     record: ToolCallRecord | None = None
     action_raw_text = ""
     action_finish_reason = ""
+    action_reason_code = ""
+    first_attempt_valid = False
+
+    def _abstain_record(reason: str) -> ToolCallRecord:
+        # Safe fallback (ADR-0001 §4): действие не исполняется, в запись
+        # кладётся reply-заглушка с кодом причины -- фаза реплики по коду
+        # переключается на короткое уточнение.
+        return ToolCallRecord(
+            name="reply",
+            args={},
+            result_ok=True,
+            result_message="",
+            result_data={},
+            think=reason,
+        )
 
     while True:
         try:
@@ -274,23 +330,38 @@ def run_turn(
         # Сырой текст попадает в messages ДО проверки парсинга -- иначе
         # `action_parse_error` (модель прислала не ту форму) теряет
         # единственную улику, что она вообще ответила, и чем именно.
-        # Ранний stop на tool=reply мог оборвать JSON до `}` -- подставляем
-        # канонический reply-call, чтобы история и парсер сходились.
-        if _parse_tool_call(action_raw_text) is None and _REPLY_TOOL_RE.search(action_raw_text):
-            action_raw_text = _SYNTH_REPLY_JSON
         messages = [*messages, {"role": "assistant", "content": action_raw_text}]
 
-        parsed = _parse_tool_call(action_raw_text)
+        parsed = parse_action(action_raw_text)
         if parsed is None:
+            # Malformed-вывод (чужие ключи, NaN, хвост после JSON...):
+            # одна-две repair-попытки, затем обрыв хода -- ничего не
+            # исполнять и не говорить (см. `action_parse_error`).
+            if attempts_left > 0:
+                attempts_left -= 1
+                repair_used = True
+                messages = [*messages, {"role": "user", "content": _MALFORMED_REPAIR_HINT}]
+                continue
             return TurnResult(
                 messages=messages,
                 action_raw_text=action_raw_text,
                 action_finish_reason=action_finish_reason,
                 repair_used=repair_used,
+                action_first_attempt_valid=first_attempt_valid,
                 stopped_reason="action_parse_error",
             )
-        think, name, args = parsed
+        # Метрика «была ли ПЕРВАЯ попытка схема-валидна»: после repair
+        # любая успешная попытка уже не первая.
+        if not first_attempt_valid and not repair_used:
+            first_attempt_valid = True
 
+        name = parsed.tool
+        args = parsed.args
+        overridden = False
+
+        # «начни экскурсию» + reply от модели -- детерминированное
+        # host-side решение (не действие модели): confidence/abstain
+        # модели на reply сюда не распространяются.
         if (
             name == "reply"
             and utterance
@@ -300,6 +371,42 @@ def run_turn(
         ):
             name = "start_tour"
             args = {"tour_id": default_tour_id}
+            overridden = True
+
+        if not overridden:
+            verdict = verify_action(
+                parsed,
+                tools_allowed=tool_names,
+                known_location_ids=known_location_ids,
+                known_tour_ids=known_tour_ids,
+                confidence_threshold=confidence_threshold,
+            )
+            if verdict.reason in (REASON_ABSTAIN_FROM_MODEL, REASON_LOW_CONFIDENCE):
+                # Явное воздержание / низкое confidence: без починки
+                # (синтаксис не лечит), ни один инструмент не исполняется.
+                record = _abstain_record(verdict.reason)
+                action_reason_code = verdict.reason
+                break
+            if not verdict.ok:
+                # Illegal state / unknown id / invalid args: чиним ДО
+                # брокера (брокер их никогда не видит).
+                if attempts_left > 0:
+                    attempts_left -= 1
+                    repair_used = True
+                    messages = [
+                        *messages,
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Действие отклонено: {verdict.message}. "
+                                "Выбери другое доступное действие или reply."
+                            ),
+                        },
+                    ]
+                    continue
+                record = _abstain_record(verdict.reason)
+                action_reason_code = verdict.reason
+                break
 
         if name == "reply":
             record = ToolCallRecord(
@@ -308,11 +415,10 @@ def run_turn(
                 result_ok=True,
                 result_message="",
                 result_data={},
-                think=think,
             )
             break
 
-        # Без think модель иногда жмёт guide_to на «привет». Не гоняем моторы.
+        # Модель иногда жмёт guide_to на «привет». Не гоняем моторы.
         if name in MOTION_TOOLS and utterance and looks_like_chit_chat(utterance):
             record = ToolCallRecord(
                 name="reply",
@@ -320,7 +426,7 @@ def run_turn(
                 result_ok=True,
                 result_message="",
                 result_data={},
-                think=think or f"override:{name}->reply",
+                think=f"override:{name}->reply",
             )
             break
 
@@ -330,6 +436,8 @@ def run_turn(
                 action_raw_text=action_raw_text,
                 action_finish_reason=action_finish_reason,
                 repair_used=repair_used,
+                action_reason_code=action_reason_code,
+                action_first_attempt_valid=first_attempt_valid,
                 stopped_reason="aborted",
             )
 
@@ -340,7 +448,6 @@ def run_turn(
             result_ok=result.ok,
             result_message=result.message,
             result_data=dict(result.data),
-            think=think,
             read_only=name in read_only_tools,
         )
 
@@ -366,6 +473,8 @@ def run_turn(
         action_finish_reason=action_finish_reason,
         repair_used=repair_used,
         utterance=utterance,
+        action_reason_code=action_reason_code,
+        action_first_attempt_valid=first_attempt_valid,
     )
 
 
@@ -382,15 +491,27 @@ def run_answer_phase(
     action_finish_reason: str = "",
     repair_used: bool = False,
     utterance: str = "",
+    action_reason_code: str = "",
+    action_first_attempt_valid: bool = False,
 ) -> TurnResult:
     """Фаза реплики: итог действия -> ЛЛМ -> `sanitize` -> один `speak()`.
 
     Один Say на весь ответ (ранний TTS первого предложения давал разрыв
-    между двумя goal).
+    между двумя goal). При safe fallback (`action_reason_code` задан)
+    итог действия заменяется инструкцией на короткое уточнение --
+    мутирующего действия не было, и реплика это обязана отражать.
     """
     action_stopped_reason = "ok" if record.result_ok else "action_invalid"
 
-    outcome_line = render_action_outcome(record)
+    if action_reason_code:
+        outcome_line = (
+            f"Действие НЕ было исполнено: модель воздержалась "
+            f"(причина: {action_reason_code}). Ответь коротким уточняющим "
+            "вопросом или признай неопределённость; не утверждай, что "
+            "что-то уже сделано."
+        )
+    else:
+        outcome_line = render_action_outcome(record)
     answer_message = f"{answer_instruction}\n\nИтог действия: {outcome_line}"
     if utterance:
         answer_message += f"\n\nРеплика посетителя: «{utterance}»\nОтветь именно на неё."
@@ -407,6 +528,8 @@ def run_answer_phase(
             action_finish_reason=action_finish_reason,
             action=record,
             repair_used=repair_used,
+            action_reason_code=action_reason_code,
+            action_first_attempt_valid=action_first_attempt_valid,
             stopped_reason="answer_backend_error",
         )
 
@@ -428,6 +551,8 @@ def run_answer_phase(
                 action_finish_reason=action_finish_reason,
                 action=record,
                 repair_used=repair_used,
+                action_reason_code=action_reason_code,
+                action_first_attempt_valid=action_first_attempt_valid,
                 stopped_reason="aborted",
             )
         say_result = speak(answer_text)
@@ -445,34 +570,17 @@ def run_answer_phase(
         say_preempted=say_preempted,
         action=record,
         repair_used=repair_used,
+        action_reason_code=action_reason_code,
+        action_first_attempt_valid=action_first_attempt_valid,
         stopped_reason=action_stopped_reason,
     )
 
 
 def _action_stop_when(text: str) -> bool:
-    """Рвать стрим, как только JSON действия валиден или tool уже reply."""
-    if _parse_tool_call(text) is not None:
-        return True
-    return _REPLY_TOOL_RE.search(text) is not None
+    """Рвать стрим, как только полное JSON действия стало схема-валидным.
 
-
-def _parse_tool_call(raw_text: str) -> tuple[str, str, dict] | None:
-    """Разобрать `{"think": "...", "tool": "...", "args": {...}}`.
-
-    `None` -- форма невалидна (баг сервера/GBNF). Отсутствующий или
-    не-строковый `think` толерантно превращается в пустую строку -- это
-    диагностическое поле, его порча не повод терять действие.
+    Раннего stop на `"tool":"reply"` НЕТ намеренно: `confidence`/`abstain`
+    идут в конце объекта, и обрыв раньше них скрал бы сигнал воздержания
+    (ADR-0001 §2/§4) -- сэкономленные токены не стоят потери abstain.
     """
-    try:
-        parsed = json.loads(raw_text.strip())
-        name = parsed["tool"]
-        args = parsed.get("args", {})
-        if not isinstance(name, str) or not isinstance(args, dict):
-            msg = "неверная форма tool-call JSON"
-            raise ValueError(msg)
-        think = parsed.get("think", "")
-        if not isinstance(think, str):
-            think = ""
-    except (json.JSONDecodeError, KeyError, ValueError, TypeError, AttributeError):
-        return None
-    return think, name, args
+    return parse_action(text) is not None

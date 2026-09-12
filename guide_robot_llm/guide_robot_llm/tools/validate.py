@@ -1,21 +1,67 @@
-"""Валидация вызова инструмента до похода в ROS (llm_plam.md §3/§4).
+"""Валидация действия (контракт ADR-0001) + валидация вызова инструмента.
 
-Чистая логика: принимает уже посчитанные `tools_allowed` и whitelist
-локаций/туров как данные, сама за ними в ROS не лезет -- это ответственность
-`tool_broker_node.py`. Whitelist локаций собирается через
-`~/list_locations(category="")`: пустая category уже фильтрует
-`is_public=false` (`guide_robot_semantic_map/lib/locations_io.py:is_visible`),
-второй фильтр здесь не нужен.
+Два уровня, оба ЧИСТЫЕ (без ROS):
+
+- `parse_action(raw_text)` -- строгий парсер КОНВЕЙСА действия: ровно
+  `{"tool", "args", "confidence", "abstain"}`, ничего лишнего (ADR-0001 §2).
+  `None` = `malformed_output`.
+- `verify_action(parsed, ...)` -- детерминированный вердикт ДО брокера:
+  abstain модели -> confidence-порог -> доступность инструмента в
+  состоянии -> семантика аргументов. `confidence` НИКОГДА не используется
+  как доверие: авторизация только по каталогу, состоянию миссии
+  (`tools_allowed`) и валидации аргументов.
+- `validate_call(...)` -- прежняя публичная проверка вызова (брокер и
+  тесты): поведение и сообщения не меняются (llm_plam.md §3/§4).
+
+Whitelist локаций/туров приходит уже посчитанным (ответственность
+`tool_broker_node.py`): пустой whitelist = членство не проверяется.
 """
 
 from __future__ import annotations
 
-__all__ = ["MOTION_TOOLS", "ValidationError", "validate_call"]
+import json
+import math
+from dataclasses import dataclass
+
+__all__ = [
+    "MOTION_TOOLS",
+    "ValidationError",
+    "validate_call",
+    "ParsedAction",
+    "ActionVerdict",
+    "parse_action",
+    "verify_action",
+    "REASON_MALFORMED_OUTPUT",
+    "REASON_LOW_CONFIDENCE",
+    "REASON_UNKNOWN_ID",
+    "REASON_ILLEGAL_STATE",
+    "REASON_ABSTAIN_FROM_MODEL",
+    "REASON_INVALID_ARGS",
+    "REASONS",
+]
 
 # stage2 D1: используется не здесь -- у tool_broker_node.call_tool() для
 # гейта "во время тура моторный инструмент только confirmed=True" (см.
 # докстринг `validate_call`, регулярка/has_motion_intent отсюда убраны).
 MOTION_TOOLS = frozenset({"start_tour", "guide_to", "tour_by_points"})
+
+# Коды причин финальные (ADR-0001 §6): единственный источник «почему»
+# действия вместо свободного текста.
+REASON_MALFORMED_OUTPUT = "malformed_output"
+REASON_LOW_CONFIDENCE = "low_confidence"
+REASON_UNKNOWN_ID = "unknown_id"
+REASON_ILLEGAL_STATE = "illegal_state"
+REASON_ABSTAIN_FROM_MODEL = "abstain_from_model"
+REASON_INVALID_ARGS = "invalid_args"
+
+REASONS = (
+    REASON_MALFORMED_OUTPUT,
+    REASON_LOW_CONFIDENCE,
+    REASON_UNKNOWN_ID,
+    REASON_ILLEGAL_STATE,
+    REASON_ABSTAIN_FROM_MODEL,
+    REASON_INVALID_ARGS,
+)
 
 
 class ValidationError(Exception):
@@ -142,3 +188,140 @@ def _require_known(value: object, known: frozenset[str], kind: str) -> None:
     # а не считаем всё недействительным.
     if known and value not in known:
         raise ValidationError(f"{kind} {value!r} не найдена")
+
+
+# ---------------------------------------------------------------------------
+# Строгий слой контракта действия (ADR-0001)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ParsedAction:
+    """Распарсенный конвейс действия: ровно 4 поля, строгие типы."""
+
+    tool: str
+    args: dict
+    confidence: float
+    abstain: bool
+
+
+@dataclass(frozen=True)
+class ActionVerdict:
+    """Вердикт валидатора: пускать в брокер или нет, и почему.
+
+    `reason` -- код из `REASONS` (кроме `malformed_output`, который живёт
+    на уровне `parse_action`); `message` -- человекочитаемая причина,
+    пригодная для repair-инструкции и лога.
+    """
+
+    ok: bool
+    reason: str | None
+    tool: str
+    args: dict
+    confidence: float
+    abstain: bool
+    message: str = ""
+
+
+def _reject_non_finite(constant: str) -> float:
+    """`json.loads` по умолчанию принимает NaN/Infinity -- тут они запрещены."""
+    raise ValueError(f"non-finite number in action JSON: {constant}")
+
+
+def parse_action(raw_text: str) -> ParsedAction | None:
+    """Строго разобрать конвейс действия (ADR-0001 §2).
+
+    Отклоняет: чужие ключи (включая устаревший `think`), недостающие поля,
+    неверные типы, `NaN`/`Infinity`, `confidence` вне [0, 1] и любой текст
+    после JSON. Возврат `None` = `malformed_output`.
+    """
+    try:
+        parsed = json.loads(raw_text.strip(), parse_constant=_reject_non_finite)
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict) or set(parsed) != {"tool", "args", "confidence", "abstain"}:
+        return None
+
+    tool = parsed["tool"]
+    args = parsed["args"]
+    confidence = parsed["confidence"]
+    abstain = parsed["abstain"]
+
+    if not isinstance(tool, str) or not tool:
+        return None
+    if not isinstance(args, dict):
+        return None
+    # bool -- подкласс int; confidence=true должен упасть, не стать 1.0.
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+        return None
+    confidence = float(confidence)
+    if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+        return None
+    if not isinstance(abstain, bool):
+        return None
+    return ParsedAction(tool=tool, args=args, confidence=confidence, abstain=abstain)
+
+
+def verify_action(
+    action: ParsedAction,
+    *,
+    tools_allowed: list[str],
+    known_location_ids: frozenset[str] = frozenset(),
+    known_tour_ids: frozenset[str] = frozenset(),
+    confidence_threshold: float = 0.5,
+) -> ActionVerdict:
+    """Детерминированный валидатор МЕЖДУ выходом модели и `tool_broker`.
+
+    Порядок проверок (приоритет причин): явный abstain модели -> порог
+    confidence -> доступность инструмента в состоянии -> аргументы.
+    `confidence` не авторизует: ниже порога действие превращается в safe
+    abstention (ADR-0001 §4), выше -- на авторизацию не влияет. Аргументы
+    гонятся прежней `validate_call` (та же семантика, что у брокера);
+    её `ValidationError` классифицируется: чужой id из каталога --
+    `unknown_id`, всё остальное -- `invalid_args`.
+    """
+    base: dict = {
+        "tool": action.tool,
+        "args": action.args,
+        "confidence": action.confidence,
+        "abstain": action.abstain,
+    }
+    if action.abstain:
+        return ActionVerdict(
+            ok=False,
+            reason=REASON_ABSTAIN_FROM_MODEL,
+            message="модель запросила воздержаться (abstain=true)",
+            **base,
+        )
+    if action.confidence < confidence_threshold:
+        return ActionVerdict(
+            ok=False,
+            reason=REASON_LOW_CONFIDENCE,
+            message=(
+                f"confidence {action.confidence:.2f} ниже порога "
+                f"{confidence_threshold:.2f}"
+            ),
+            **base,
+        )
+    if action.tool not in tools_allowed:
+        return ActionVerdict(
+            ok=False,
+            reason=REASON_ILLEGAL_STATE,
+            message=f"{action.tool} сейчас недоступен, доступно: "
+            f"{', '.join(tools_allowed) or '(ничего)'}",
+            **base,
+        )
+    try:
+        validate_call(
+            action.tool,
+            action.args,
+            tools_allowed=tools_allowed,
+            known_location_ids=known_location_ids,
+            known_tour_ids=known_tour_ids,
+        )
+    except ValidationError as error:
+        # `_require_known` -- единственный источник «не найдена»; всё
+        # остальное -- форма аргумента.
+        reason = REASON_UNKNOWN_ID if "не найдена" in str(error) else REASON_INVALID_ARGS
+        return ActionVerdict(ok=False, reason=reason, message=str(error), **base)
+    return ActionVerdict(ok=True, reason=None, message="", **base)
