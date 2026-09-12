@@ -19,6 +19,7 @@ __all__ = [
     "QOS_MISSION_PRESENCE",
     "QOS_MISSION_STATE",
     "QOS_VOICE_SPEAKING",
+    "QOS_VISION_COMPRESSED",
     "QOS_WAKEWORD",
 ]
 
@@ -92,5 +93,18 @@ QOS_ASR_TRANSCRIPT = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
     reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
+
+# /camera/image_raw/compressed -- сенсорные данные камеры (Taiga #2).
+# Сжатый транспорт image_transport публикует сенсорным QoS (BEST_EFFORT,
+# KEEP_LAST, depth 1); RELIABLE-подписчик молча так и не получит
+# соединения (несовпадение QoS не является ошибкой) -- профиль жёстко
+# привязан к издателю, depth 1: из кольцевого буфера диалогу нужен только
+# свежий кадр, а старые всё равно отбрасываются по возрасту.
+QOS_VISION_COMPRESSED = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
 )

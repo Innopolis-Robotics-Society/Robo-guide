@@ -40,6 +40,15 @@
     # ADR-0001 §5: confidence ниже порога -- safe abstention до брокера
     # (ни один инструмент не исполняется, реплика-уточнение).
     llm.action_confidence_threshold: 0.5
+    # Taiga #3: capability-конфигурация эндпоинтов. Индекс -- по llm.base_urls;
+    # короткий список -- дефолт для остальных (text-only, без model, без лимита
+    # кадров). Кадры к сообщениям прикрепляет turn context (#4); здесь только то,
+    # какой эндпоинт их принимает. Текущие два llama.cpp-эндпоинта -- text-only.
+    llm.models: ["", ""]
+    llm.multimodal_enabled: [false, false]
+    llm.max_images: [0, 0]
+    # Заголовки -- JSON-объект (у ROS-параметров нет dict-типа); пусто -- не шлём.
+    llm.request_headers: ""
 
     system_prompt_path: "$(find-pkg-share guide_robot_llm)/config/system_prompt.txt"
     tool_broker_ns: "/tool_broker"
@@ -61,6 +70,18 @@
 
     # unused: ход к ЛЛМ только после «робот» или окна /speech/wakeword.
     wake_grace_s: 0.0
+
+    # Taiga #2: камера -- опционально. false по умолчанию: робот без камеры
+    # работает text-only без изменений; включение требует camera.launch.py
+    # (guide_robot_bringup) на той же машине. Контракт snap["frames"] -- в
+    # README.md раздел «Визуальная pipeline».
+    vision.enabled: false
+    vision.compressed_topic: "/camera/image_raw/compressed"
+    vision.frame_count: 3
+    vision.lookback_s: 2.0
+    vision.max_frame_age_s: 2.0
+    vision.max_long_edge_px: 1280
+    vision.max_payload_bytes: 2500000
 
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
 /**/interaction_log:

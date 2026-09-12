@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from guide_robot_llm.dialog.turn import run_turn
 from guide_robot_llm.llm_client import CompletionResult
 from guide_robot_llm.tools.schema import allowed_tools
-
 from guide_robot_msgs.msg import MissionState
 
 

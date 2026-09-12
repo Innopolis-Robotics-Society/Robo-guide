@@ -422,6 +422,45 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
 `semantic_map` (см. `guide_robot_mission_control/README.md`, «Известные
 грабли»), регистрация отложена до ручной проверки живого стека.
 
+## Визуальная pipeline (камера, Taiga #2)
+
+`dialog_agent` берёт визуальный снимок хода из кольцевого буфера сжатых
+кадров. Pipeline полностью опционален: при `vision.enabled=false`
+(дефолт) подписка не создаётся и ключа `frames` в снимке хода нет вообще —
+робот без камеры работает text-only без изменений.
+
+- **Источник**: `/camera/image_raw/compressed`
+  (`sensor_msgs/CompressedImage`), `QOS_VISION_COMPRESSED` в `lib/qos.py` —
+  BEST_EFFORT/KEEP_LAST(1): сенсорное QoS плагина
+  `compressed_image_transport`; RELIABLE-подписчик к нему молча не
+  подключится (несовпадение QoS не является ошибкой).
+- **Буфер** — `lib/frame_buffer.py`, чистый Python (без rclpy), кольцо до
+  64 кадров. `offer()`: валидация JPEG (заголовок + PIL-decode), даунскейл
+  длинной стороны выше `vision.max_long_edge_px` с перекодированием q80,
+  потолок payload на кадр; отбросы (коррупт/oversize) считаются.
+  `freeze(now)` — в моменте транскрипта, НЕ деструктивно: до
+  `vision.frame_count` кадров с равным шагом по окну `vision.lookback_s`,
+  не старше `vision.max_frame_age_s`, совокупный payload ≤
+  `vision.max_payload_bytes` (при превышении выкидывают с самого
+  старого). Без свежих кадров возвращает `[]` — ход идёт text-only.
+- **Контракт для ЛЛМ**: `snap["frames"]` — список data-URL
+  `data:image/jpeg;base64,...`, форма, ожидаемая `build_content()` из
+  Taiga #3 (мультимодальный контент) и консумируемая промпт-путём из
+  #4. До слияния #4 кадры не уезжают в модель — они только фиксируются в
+  поле `snapshot` записи interaction-лога.
+- **Bringup**: `guide_robot_bringup/launch/camera.launch.py`
+  (`v4l2_camera`; сжатый транспорт создаётся плагином
+  `compressed_image_transport` автоматически). Из `hardware.launch.py`
+  включается за `use_vision:=true` (который же пробрасывает
+  `vision.enabled:=true` в `llm.launch.py`). Камеры в
+  `robot_description` нет: `frame_id=camera` — метаданные кадра, TF до
+  `base_footprint` добавляется вместе с реальным кронштейном (pipeline
+  потребляет пиксели, а не геометрию).
+- **Параметры** (`vision.*` в `config/llm.yaml`): `enabled`,
+  `compressed_topic`, `frame_count` (3), `lookback_s` (2.0),
+  `max_frame_age_s` (2.0), `max_long_edge_px` (1280),
+  `max_payload_bytes` (2 500 000 B).
+
 ## Известные пробелы
 
 - **`content_version` в `interaction_log` -- `null` для `tell_about`/`say`.**
@@ -494,7 +533,9 @@ ruff check .
 
 Без ROS-железа — rclpy + моки (`test/mocks/`: `mock_llm_server.py` —
 голый `http.server`, chunked SSE, различает фазы по `grammar` в теле
-запроса; `mock_nav_server.py`/`mock_say_server.py`/`mock_semantic_map.py`/
+запроса, fault-режимы (malformed JSON / disconnect / delayed first token /
+mid-stream failure) и redacted-метаданные запроса для ассертов (Taiga #3);
+`mock_nav_server.py`/`mock_say_server.py`/`mock_semantic_map.py`/
 `sim_clock.py` — переиспользованы из `guide_robot_mission_control` тем
 же приёмом «копия, не импорт»). `test/mocks/harness.py` поднимает
 РЕАЛЬНЫЕ `mission_fsm`/`narration_server` (не мок поверх мока) +
@@ -517,9 +558,11 @@ ruff check .
 | `test_interaction_log.py` | Сборка jsonl-записи схемы v5 из `TurnResult`, включая сырой ввод/вывод ЛЛМ (`llm_messages`, `*_raw_text`, `*_finish_reason`) и `references` (`content_id`/`chunk_id`/`score`/`source`) |
 | `test_tool_gating.py` | Полный тур/пауза/стоп/barge-in/`noop`/кэш whitelist ТОЛЬКО через `call_tool()` |
 | `test_voice_confirm.py` | `AWAITING_CONFIRM`/`ANSWERING` закрываются голосом мимо ЛЛМ |
+| `test_frame_buffer.py` | Кольцевой буфер кадров (Taiga #2): выборка из окна, age-rejection, отброс коррупта/oversize, даунскейл >1280 px, payload-бюджет при freeze, ограниченная память, конкурентные offer/freeze |
 | `test_dialog_agent_e2e.py` | Транскрипт → ход «действие → реплика» (мок) → `~/call_tool`, barge-in abort, очередь транскриптов, fast-path, wake-слово, события истории, автосправка в `user_content` + `references` в логе |
 | `test_interaction_log_e2e.py` | Ход через `dialog_agent` → jsonl-запись схемы v5 на диске |
 | `test_answering_closes.py` | Регресс: в `ANSWERING` ход не может выбрать `say` как действие |
+| `test_vision_pipeline_e2e.py` | Камера e2e (Taiga #2): дефолт без `frames`, text-only с включённой камерой без потока, синтетический кадр → `snapshot.frames` в записи хода |
 
 `scripts/eval_turns.py`/`scripts/extract_golden.py` — не тесты в CI,
 ручные скрипты для прогона golden-набора против живого `llm_server`
