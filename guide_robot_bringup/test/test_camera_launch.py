@@ -45,24 +45,27 @@ def test_camera_launch_exists() -> None:
 
 
 def test_camera_launch_node_shape() -> None:
-    """camera.launch.py: ровно один v4l2_camera-узел `camera` с ключевыми параметрами."""
+    """camera.launch.py: ровно один v4l2_camera-узел `camera` с ключевыми параметрами.
+
+    Пакет/имя читаем из name-mangled полей `launch_ros.actions.Node` (публичных
+    свойств до выполнения действия нет); ключи параметров -- из исходника
+    (значения параметров в несобранном описании -- launch-подстановки, читать их
+    без выполнения действия нельзя).
+    """
     module = _load("camera_launch", CAMERA_LAUNCH)
     description = module.generate_launch_description()
     nodes: list = []
     _find_nodes(description, nodes)
 
-    camera_nodes = [n for n in nodes if getattr(n, "package", None) == "v4l2_camera"]
+    camera_nodes = [n for n in nodes if getattr(n, "_Node__package", None) == "v4l2_camera"]
     assert len(camera_nodes) == 1, f"ожидали один v4l2_camera, нашли {len(camera_nodes)}"
     node = camera_nodes[0]
-    assert getattr(node, "name", None) == "camera"
-    flat: dict = {}
-    for param in getattr(node, "parameters", []):
-        if isinstance(param, dict):
-            flat.update(param)
-    assert flat.get("camera_name") == "camera"
-    assert "camera_device" in flat
-    assert "image_width" in flat and "image_height" in flat
-    assert flat.get("frame_id") == "camera"
+    assert getattr(node, "_Node__node_name", None) == "camera"
+    assert getattr(node, "_Node__node_executable", None) == "v4l2_camera_node"
+
+    text = CAMERA_LAUNCH.read_text(encoding="utf-8")
+    for key in ("camera_device", "image_width", "image_height", "camera_name", "frame_id"):
+        assert f'"{key}"' in text, f"ключ параметра {key} не найден в camera.launch.py"
 
 
 def test_hardware_includes_camera_gated_by_use_vision() -> None:

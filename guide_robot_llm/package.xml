@@ -18,9 +18,11 @@
   <depend>std_srvs</depend>
   <depend>diagnostic_msgs</depend>
   <depend>action_msgs</depend>
+  <depend>sensor_msgs</depend>
   <depend>guide_robot_msgs</depend>
   <depend>lifecycle_msgs</depend>
   <depend>python3-requests</depend>
+  <depend>python3-pillow</depend>
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

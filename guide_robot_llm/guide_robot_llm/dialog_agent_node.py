@@ -673,7 +673,9 @@ class DialogAgentNode(LifecycleNode):
         """
         if self._frame_buffer is None:
             return
-        self._frame_buffer.offer(msg.data, self._now_s())
+        # msg.data приходит numpy-массивом uint8; буфер работает с bytes
+        # (BytesIO(numpy) упадёт и уйдёт в отброс как коррупт).
+        self._frame_buffer.offer(bytes(msg.data), self._now_s())
 
     def _on_wakeword(self, msg: Wakeword) -> None:
         """Открыть окно слушания на активацию.
