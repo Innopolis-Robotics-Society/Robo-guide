@@ -68,6 +68,18 @@
     # unused: ход к ЛЛМ только после «робот» или окна /speech/wakeword.
     wake_grace_s: 0.0
 
+    # Taiga #2: камера -- опционально. false по умолчанию: робот без камеры
+    # работает text-only без изменений; включение требует camera.launch.py
+    # (guide_robot_bringup) на той же машине. Контракт snap["frames"] -- в
+    # README.md раздел «Визуальная pipeline».
+    vision.enabled: false
+    vision.compressed_topic: "/camera/image_raw/compressed"
+    vision.frame_count: 3
+    vision.lookback_s: 2.0
+    vision.max_frame_age_s: 2.0
+    vision.max_long_edge_px: 1280
+    vision.max_payload_bytes: 2500000
+
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
 /**/interaction_log:
   ros__parameters:
