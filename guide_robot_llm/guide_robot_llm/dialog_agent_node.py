@@ -147,6 +147,8 @@ class DialogAgentNode(LifecycleNode):
         # stage5 п.3: только фаза реплики -- см. `_complete_answer` ниже.
         self.declare_parameter("llm.answer_frequency_penalty", 0.4)
         self.declare_parameter("llm.action_repair_attempts", 1)
+        # ADR-0001 §5: ниже порога действие -- safe abstention до брокера.
+        self.declare_parameter("llm.action_confidence_threshold", 0.5)
         self.declare_parameter("llm.raw", False)
 
         self.declare_parameter("system_prompt_path", "")
@@ -224,6 +226,9 @@ class DialogAgentNode(LifecycleNode):
         )
         self._temperature_action = float(self.get_parameter("llm.temperature_action").value)
         self._action_repair_attempts = int(self.get_parameter("llm.action_repair_attempts").value)
+        self._action_confidence_threshold = float(
+            self.get_parameter("llm.action_confidence_threshold").value
+        )
         self._raw_llm = bool(self.get_parameter("llm.raw").value)
 
         self._service_call_timeout_s = float(self.get_parameter("service_call_timeout_s").value)
@@ -1206,6 +1211,11 @@ class DialogAgentNode(LifecycleNode):
                     action_instruction=self._action_instruction,
                     answer_instruction=self._answer_instruction,
                     repair_attempts=self._action_repair_attempts,
+                    confidence_threshold=self._action_confidence_threshold,
+                    # Живые каталоги id (ADR-0001 §2): чужие id в args
+                    # режутся валидатором до брокера, не после.
+                    known_location_ids=frozenset(self._location_name_by_id),
+                    known_tour_ids=frozenset(self._tour_name_by_id),
                     check_aborted=abort_event.is_set,
                     answer_max_chars=self._answer_max_chars,
                     read_only_tools=self._read_only_tool_names,

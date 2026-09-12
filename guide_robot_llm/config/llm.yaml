@@ -26,9 +26,9 @@
     llm.max_attempts_per_backend: 2
     llm.backoff_s: 0.5
     llm.max_tokens_answer: 160
-    # Без think в GBNF хватает короткого {"tool","args"}; 64 -- потолок на
-    # args у guide_to/ask_visitor, не на рассуждения.
-    llm.max_tokens_action: 64
+    # Контракт ADR-0001: 4 поля {"tool","args","confidence","abstain"} --
+    # ~60 токенов на guide_to/ask_visitor с длинными id; запас 96.
+    llm.max_tokens_action: 96
     llm.temperature_answer: 0.6
     llm.temperature_action: 0.0
     # stage5 п.3: только фаза реплики -- фаза действия идёт под грамматикой
@@ -37,6 +37,9 @@
     # ../llm_server/README.md.
     llm.answer_frequency_penalty: 0.4
     llm.action_repair_attempts: 1
+    # ADR-0001 §5: confidence ниже порога -- safe abstention до брокера
+    # (ни один инструмент не исполняется, реплика-уточнение).
+    llm.action_confidence_threshold: 0.5
 
     system_prompt_path: "$(find-pkg-share guide_robot_llm)/config/system_prompt.txt"
     tool_broker_ns: "/tool_broker"

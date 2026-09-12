@@ -33,8 +33,10 @@ completions`), не ROS-нода и не зависимость этого па�
    │     messages = [system] + history
    │                + [user: СОБЫТИЕ:*, [состояние: ...], СПРАВКА, реплика]
    │                + [user: action_instruction]
-   │     → {"think": "...", "tool": "...", "args": {...}}
-   │       (think — короткое явное рассуждение, ReAct-Thought; уезжает в jsonl)
+   │     → {"tool": "...", "args": {...}, "confidence": <0..1>, "abstain": <bool>}
+   │       (ровно 4 поля, контракт ADR-0001: docs/adr/0001-remote-vlm-action-contract.md;
+   │        `think` из контракта УБРАН; допуск в брокер решает детерминированный
+   │        валидатор tools/validate.py, не промпт)
    │
    ├─ исполнение через ~/call_tool (barge-in до исполнения — действие отменяется)
    │     ok:false → одна попытка починки (`llm.action_repair_attempts`),
@@ -158,7 +160,10 @@ Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
 ### `dialog_agent`
 
 Ход «действие → реплика» (см. выше): транскрипт → снимок состояния →
-фаза действия (GBNF, форма `{"think":..,"tool":..,"args":{...}}`) →
+фаза действия (GBNF, строгий 4-полевой контракт действия ADR-0001:
+`{"tool", "args", "confidence", "abstain"}`; `abstain=true` и
+confidence ниже `llm.action_confidence_threshold` не исполняются никогда —
+safe fallback: короткое уточнение, см. `docs/adr/0001-remote-vlm-action-contract.md`) →
 `~/call_tool` → фаза реплики (свободный текст, знает итог действия) →
 `speak()` → история. Провалившийся вызов действия (`ok:false`) не
 заканчивает ход молча — одна попытка починки
@@ -224,10 +229,12 @@ turn.run_answer_phase`, без повторной фазы действия); «
 **Параметры**: `llm.base_urls`, `llm.connect_timeout_s`(2.0),
 `llm.read_timeout_s`(30.0), `llm.api_key`(""),
 `llm.max_attempts_per_backend`(2), `llm.backoff_s`(0.5),
-`llm.max_tokens_answer`(160), `llm.max_tokens_action`(128),
-`llm.temperature_answer`(0.6), `llm.temperature_action`(0.0),
+`llm.max_tokens_answer`(160), `llm.max_tokens_action`(96 -- 4-полевой
+контракт ADR-0001), `llm.temperature_answer`(0.6), `llm.temperature_action`(0.0),
 `llm.answer_frequency_penalty`(0.4 -- только фаза реплики, см. «Известные
-пробелы»), `llm.action_repair_attempts`(1), `system_prompt_path`,
+пробелы»), `llm.action_repair_attempts`(1),
+`llm.action_confidence_threshold`(0.5 -- safe abstention до брокера, ADR-0001 §5),
+`system_prompt_path`,
 `tool_broker_ns`(`/tool_broker`), `service_call_timeout_s`(2.0),
 `catalog_ns_timeout_s`(5.0), `history.max_entries`(16),
 `history.trim_to`(8), `history.cap_visitor_chars`(200),
@@ -266,11 +273,11 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
   "answer_chars": 96,
   "answer_raw_text": "Это макет университетского кампуса...",
   "answer_finish_reason": "stop",
-  "action_raw_text": "{\"think\": \"...\", \"tool\": \"noop\", \"args\": {}}",
+  "action_raw_text": "{\"tool\": \"reply\", \"args\": {}, \"confidence\": 0.9, \"abstain\": false}",
   "action_finish_reason": "stop",
   "verbatim_overlap_words": 3,
   "say_ok": true,
-  "action": {"tool": "noop", "args": {}, "think": "светская реплика",
+  "action": {"tool": "reply", "args": {}, "think": "",
              "ok": true, "message": "", "content_version": null},
   "repair_used": false,
   "history_entries": 9,
