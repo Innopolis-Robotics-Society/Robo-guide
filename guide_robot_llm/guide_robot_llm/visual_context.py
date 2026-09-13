@@ -204,7 +204,8 @@ def parse_observation(
     (грамма может быть проигнорирована сервером): `people_count` int
     0..20; `pointing_evidence` ровно из {none,yes,uncertain};
     `exhibit_candidates` -- список строк, в котором ОСТАВЛЯЮТСЯ только
-    id из `candidate_ids` (порядок модели сохраняется); `scene_facts`
+    id из `candidate_ids` (порядок модели сохраняется, дубликаты режутся);
+    `scene_facts`
     обрезается до `max_chars`. `NaN`/`Infinity` JSON-литералы Python'ом
     парсятся -- отбрасываются проверками типов.
     """
@@ -231,7 +232,13 @@ def parse_observation(
         isinstance(item, str) for item in raw_candidates
     ):
         return None
-    kept_candidates = tuple(item for item in raw_candidates if item in candidate_ids)
+    # Дубликаты режутся (инструкция их запрещает, грамма не пиннит -- host
+    # остаётся последней линией защиты).
+    kept: list[str] = []
+    for item in raw_candidates:
+        if item in candidate_ids and item not in kept:
+            kept.append(item)
+    kept_candidates = tuple(kept)
 
     pointing = data["pointing_evidence"]
     if not isinstance(pointing, str) or pointing not in _POINTING_VALUES:

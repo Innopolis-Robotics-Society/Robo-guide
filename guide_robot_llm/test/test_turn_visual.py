@@ -373,6 +373,74 @@ def test_answer_phase_images_flag_off_never_gets_frames() -> None:
     assert isinstance(captured[0][-1]["content"], str)
 
 
+# -- наследуемое визуальное сообщение в фазе реплики (путь ноды) --------------
+#
+# Реальная нода передаёт action_frames == answer_frames и visual_suffix --
+# визуальное сообщение фазы действия (с кадрами) наследуется в список
+# сообщений фазы реплики. Контракт: кадры в фазе реплики видны ТОЛЬКО при
+# answer_phase_images=true и action != reply -- иначе из наследуемого
+# сообщения image-parts уходят, текст (кандидаты/наблюдение) остаётся.
+
+
+def _count_images(messages: list[dict]) -> int:
+    total = 0
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list):
+            total += sum(1 for part in content if part.get("type") == "image_url")
+    return total
+
+
+def test_inherited_visual_message_strips_frames_for_reply() -> None:
+    _complete_answer, captured = _capture_answer()
+
+    _run(
+        _reply(),
+        complete_answer=_complete_answer,
+        action_frames=(_FRAME_A,),
+        visual_suffix=_SUFFIX,
+        answer_frames=(_FRAME_A,),
+        answer_phase_images=True,  # даже при включённом флаге reply без кадров
+    )
+
+    assert _count_images(captured[0]) == 0
+    assert any(_SUFFIX in str(m.get("content")) for m in captured[0])
+
+
+def test_inherited_visual_message_strips_frames_when_flag_off() -> None:
+    _complete_answer, captured = _capture_answer()
+
+    _run(
+        _guide(),
+        complete_answer=_complete_answer,
+        known_location_ids=frozenset({"cafe"}),
+        action_frames=(_FRAME_A,),
+        visual_suffix=_SUFFIX,
+        answer_frames=(_FRAME_A,),
+        answer_phase_images=False,
+    )
+
+    assert _count_images(captured[0]) == 0
+    assert any(_SUFFIX in str(m.get("content")) for m in captured[0])
+
+
+def test_inherited_visual_message_keeps_frames_when_contract_allows() -> None:
+    _complete_answer, captured = _capture_answer()
+
+    _run(
+        _guide(),
+        complete_answer=_complete_answer,
+        known_location_ids=frozenset({"cafe"}),
+        action_frames=(_FRAME_A,),
+        visual_suffix=_SUFFIX,
+        answer_frames=(_FRAME_A,),
+        answer_phase_images=True,
+    )
+
+    # Наследуемое визуальное сообщение (1 кадр) + кадр в сообщении реплики.
+    assert _count_images(captured[0]) == 2
+
+
 # -- TurnResult вёзёт поля наблюдения -------------------------------------------
 
 

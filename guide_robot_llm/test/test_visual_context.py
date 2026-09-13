@@ -213,6 +213,19 @@ def test_parse_observation_empty_known_ids_kept_empty() -> None:
     assert observation.exhibit_candidates == ()
 
 
+def test_parse_observation_dedupes_repeated_candidate_ids() -> None:
+    # Грамма дубликаты не пиннит (модель может повторить id) -- host режет.
+    text = (
+        '{"people_count": 1, "exhibit_candidates": ["lab105a", "lab105a"], '
+        '"pointing_evidence": "none", "scene_facts": ""}'
+    )
+    observation = parse_observation(
+        text, candidate_ids=frozenset({"lab105a"}), max_chars=400
+    )
+    assert observation is not None
+    assert observation.exhibit_candidates == ("lab105a",)
+
+
 def test_parse_observation_truncates_scene_facts() -> None:
     text = (
         '{"people_count": 0, "exhibit_candidates": [], '
@@ -309,6 +322,12 @@ def test_observation_grammar_pins_only_known_ids() -> None:
     assert "lab105a" in grammar and "lidar_stand" in grammar
     assert "kandinsky" not in grammar
     assert build_observation_grammar([]) == build_observation_grammar([])
+
+
+def test_observation_grammar_empty_candidates_has_no_dead_rule() -> None:
+    # Пустые кандидаты: правило candidate-id не объявляется (мёртвое правило
+    # с пустой альтернативой не должно попадать в GBNF).
+    assert "candidate-id" not in build_observation_grammar([])
 
 
 if __name__ == "__main__":

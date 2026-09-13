@@ -158,8 +158,9 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("llm.backoff_s", 0.5)
         self.declare_parameter("llm.max_tokens_answer", 160)
         self.declare_parameter("llm.max_tokens_action", 64)
-        # Таига #4: фаза наблюдения observe_then_decide (строго JSON, ~100 токенов).
-        self.declare_parameter("llm.max_tokens_observation", 192)
+        # Таига #4: фаза наблюдения observe_then_decide (строго JSON; 320 --
+        # запас под observation_max_chars=400, см. config/llm.yaml).
+        self.declare_parameter("llm.max_tokens_observation", 320)
         self.declare_parameter("llm.temperature_answer", 0.6)
         self.declare_parameter("llm.temperature_action", 0.0)
         # stage5 п.3: только фаза реплики -- см. `_complete_answer` ниже.
@@ -437,6 +438,18 @@ class DialogAgentNode(LifecycleNode):
                 f"{str(self.get_parameter('vision.compressed_topic').value)} "
                 f"(кадров на ход: {int(self.get_parameter('vision.frame_count').value)})"
             )
+            # Таига #4: capability статична за активацию. Если ни один
+            # бэкенд не принимает image-parts, ходы с кадрами идут в
+            # text-only варианте (failure handling из issue #4) --
+            # предупреждаем при запуске, не молчим.
+            if not any(backend.config.multimodal_enabled for backend in self._backends):
+                self.get_logger().warn(
+                    "vision.enabled=true, но ни один бэкенд не имеет "
+                    "llm.multimodal_enabled=true: ходы с кадрами будут идти "
+                    "в text-only варианте (кадры не попадают в промпт-путь, "
+                    "наблюдение не прогоняется)"
+                )
+            self._vision_text_only_degraded_turns = 0
 
         # Таига #4: параметры визуального контекста хода. Стратегия --
         # fail-fast: неизвестное значение не должно тихо работать как
@@ -1123,7 +1136,8 @@ class DialogAgentNode(LifecycleNode):
         здесь) + экспонаты той же зоны в порядке каталога (детерминированно).
         Координат в списке НЕТ (то же правило, что системный промпт: в промпт
         координаты не идут) -- только id/имя/зона. Обрезка по
-        `vision.max_candidates` -- в `build_visual_context` (ближайшие первые).
+        `vision.max_candidates` -- в `build_visual_context` (стопка первой,
+        дальше каталог).
         """
         stop_id = mission.stop_id
         stop_zone = self._location_zone_by_id.get(stop_id, "") if stop_id else ""
@@ -1430,6 +1444,15 @@ class DialogAgentNode(LifecycleNode):
                     stale_age_s=self._vision_max_frame_age_s,
                 )
                 frame_urls = tuple(frame.data_url for frame in frozen)
+                if frame_urls and not any(
+                    backend.config.multimodal_enabled for backend in self._backends
+                ):
+                    # Ни один бэкенд не принимает image-parts: стратегия
+                    # идёт в text-only варианте (failure handling issue #4) --
+                    # кадры из промпт-пути, наблюдение не прогоняется,
+                    # метаданные в снимке хода сохраняются.
+                    self._vision_text_only_degraded_turns += 1
+                    frame_urls = ()
                 visual_suffix = render_visual_context(visual_context, utterance=text)
                 if frame_urls:
                     action_frames = list(frame_urls)

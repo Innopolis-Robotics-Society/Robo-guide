@@ -402,15 +402,16 @@ def run_turn(
     # Таига #4: волатильное визуальное сообщение фазы действия -- ПОСЛЕ
     # стабильной инструкции (кэш-префикс не страдает). Пусто -- нет
     # сообщений вообще, ход байт-в-байт прежний (text-only).
+    visual_message: dict | None = None
+    visual_text_only = ""
     if visual_suffix or action_frames or observation_text:
         visual_parts = [part for part in (visual_suffix, observation_text) if part]
-        messages = [
-            *messages,
-            {
-                "role": "user",
-                "content": build_content("\n\n".join(visual_parts), tuple(action_frames)),
-            },
-        ]
+        visual_text_only = "\n\n".join(visual_parts)
+        visual_message = {
+            "role": "user",
+            "content": build_content(visual_text_only, tuple(action_frames)),
+        }
+        messages = [*messages, visual_message]
 
     def _abstain_record(reason: str) -> ToolCallRecord:
         # Safe fallback (ADR-0001 §4): действие не исполняется, в запись
@@ -583,6 +584,20 @@ def run_turn(
 
     if on_action_resolved is not None:
         on_action_resolved(record)
+
+    if (
+        visual_message is not None
+        and isinstance(visual_message["content"], list)
+        and not (answer_phase_images and record.name != "reply")
+    ):
+        # Контракт фазы реплики (Taiga #4): кадры видит только при
+        # `answer_phase_images=true` И action != reply. Наследуемое от
+        # фазы действия визуальное сообщение содержит те же кадры --
+        # убираем из него image-parts, оставляя текст (кандидаты,
+        # наблюдение) -- иначе флаг/исключение reply не имеют силы.
+        old_visual_message = visual_message
+        visual_message = {"role": "user", "content": visual_text_only}
+        messages = [visual_message if m is old_visual_message else m for m in messages]
 
     return run_answer_phase(
         messages=messages,

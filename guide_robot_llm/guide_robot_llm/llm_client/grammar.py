@@ -106,21 +106,19 @@ def build_observation_grammar(candidate_ids: list[str]) -> str:
     `string` (свободный текст, обрезается host-стороной в
     `visual_context.parse_observation`).
     """
-    id_rule = " | ".join(f'"\\"{name}\\""' for name in candidate_ids) or '""'
     if candidate_ids:
+        id_rule = " | ".join(f'"\\"{name}\\""' for name in candidate_ids)
         candidate_array = (
             'candidate-array ::= "[" ws (candidate-id ("," ws candidate-id)*)? "]" ws'
         )
+        candidate_id_rule = f"candidate-id ::= ({id_rule}) ws"
     else:
-        # Пустые кандидаты: единственный допустимый массив -- пустой.
+        # Пустые кандидаты: единственный допустимый массив -- пустой;
+        # правило candidate-id не объявляется вовсе (мёртвое правило с
+        # пустой альтернативой не нужно).
         candidate_array = 'candidate-array ::= "[" ws "]" ws'
-    return "\n".join(
-        [
-            _OBSERVATION_ROOT,
-            _PEOPLE_COUNT_RULE,
-            _POINTING_RULE,
-            candidate_array,
-            f"candidate-id ::= ({id_rule}) ws",
-            *_JSON_RULES.splitlines(),
-        ]
-    )
+        candidate_id_rule = None
+    rules = [_OBSERVATION_ROOT, _PEOPLE_COUNT_RULE, _POINTING_RULE, candidate_array]
+    if candidate_id_rule is not None:
+        rules.append(candidate_id_rule)
+    return "\n".join([*rules, *_JSON_RULES.splitlines()])

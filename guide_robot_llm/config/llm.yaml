@@ -29,9 +29,12 @@
     # Контракт ADR-0001: 4 поля {"tool","args","confidence","abstain"} --
     # ~60 токенов на guide_to/ask_visitor с длинными id; запас 96.
     llm.max_tokens_action: 96
-    # Taiga #4: фаза наблюдения observe_then_decide -- строго JSON под GBNF,
-    # ~100 токенов максимум; 192 -- запас на переполнение строк.
-    llm.max_tokens_observation: 192
+    # Taiga #4: фаза наблюдения observe_then_decide -- строго JSON под GBNF.
+    # Бюджет (оценка, BPE ~1.5-1.8 символа/токен для кириллицы): 400 символов
+    # scene_facts + JSON-обвязка ~= 250-300 токенов; 320 покрывает реалистичный
+    # максимум. Патологическое переполнение -- безопасно: JSON режется,
+    # host парсит malformed, наблюдение отбрасывается, ход идёт без него.
+    llm.max_tokens_observation: 320
     llm.temperature_answer: 0.6
     llm.temperature_action: 0.0
     # stage5 п.3: только фаза реплики -- фаза действия идёт под грамматикой

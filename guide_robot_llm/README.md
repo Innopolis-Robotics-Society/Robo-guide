@@ -257,7 +257,7 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
 **Параметры**: `log_dir` (`~/.guide_robot/llm_turns`) — файл
 `interaction_YYYYmmdd_HHMMSS.jsonl` на сессию активации.
 
-**Формат записи** (схема v5, `dialog/interaction_log.py`):
+**Формат записи** (схема v6, `dialog/interaction_log.py`):
 
 ```json
 {
@@ -463,7 +463,7 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
   `max_frame_age_s` (2.0), `max_long_edge_px` (1280),
   `max_payload_bytes` (2 500 000 B), `prompt_strategy` ("direct_action"),
   `answer_phase_images` (false), `max_candidates` (5),
-  `observation_max_chars` (400); плюс `llm.max_tokens_observation` (192).
+  `observation_max_chars` (400); плюс `llm.max_tokens_observation` (320).
 
 ### Промпт-путь визуального хода (Taiga #4)
 
@@ -498,12 +498,37 @@ strict-парсинг наблюдения с host-фильтром id (всё �
     прерывание, а не деградация.
 - **Кадры в фазе реплики**: `vision.answer_phase_images` (дефолт false) +
   выбранное действие ≠ `reply` — иначе реплика строковая, как раньше.
+  Контракт действует на ВЕСЬ список сообщений фазы реплики, включая
+  наследуемое от фазы действия визуальное сообщение: когда кадры не
+  разрешены, из него уходят image-parts, текст (кандидаты/наблюдение)
+  остаётся.
+- **Text-only вариант без мультимодального бэкенда**: если ни один
+  бэкенд не имеет `llm.multimodal_enabled=true`, ход с кадрами не падает
+  с `action_backend_error` — кадры выключаются из промпт-пути
+  (наблюдение не прогоняется), метаданные кадров в снимке хода
+  сохраняются; warn при активации, счётчик деградаций —
+  `dialog_agent._vision_text_only_degraded_turns`.
 - **Стабильность инструкций** (CACHE_REUSE): `build_observation_instruction()`
   и `build_action_instruction()` строятся один раз на `on_activate`, побайтово
   одинаковы между ходами; волатильная часть хода — только последние
   сообщения.
 - **Схема interaction-лога** — v6: опциональный блок `observation`
-  (`raw`/`text`/`error`), `llm_messages` замаскированы.
+  (`raw`/`text`/`error`), `snapshot.frames` — метаданные без base64
+  (`captured_at`/`age_s`/`payload_bytes`/`sha256_16`), `llm_messages`
+  замаскированы (base64 image-parts — только маска с размером).
+- **Бюджет промпт-пути визуального хода** (оценка под Qwen3-токенизатор,
+  BPE ~1.5–1.8 символа/токен для кириллицы):
+  - `direct_action`: системная инструкция ~1.5–2 КБ; визуальное сообщение
+    ~150–250 байт + до 3 кадров JPEG (даунскейл до `max_long_edge_px`=
+    1280, суммарный payload ≤ `max_payload_bytes` ≈ 2.5 МБ);
+  - `observe_then_decide`: наблюдение ≤ ~300 токенов
+    (`llm.max_tokens_observation=320`; 400 символов `scene_facts`
+    + JSON-обвязка); действие — компактный JSON ~30–60 токенов;
+  - кадр как image-part: ~150–1 500 токенов на кадр у VLM (зависит от
+    разрешения) — поэтому на ход берётся ≤ `vision.frame_count` (3).
+  Замер на живом VLM-эндпоинте не проводился; значения консервативны,
+  переполнение бюджета наблюдения безопасно деградирует до
+  `observation_error=malformed`.
 
 ## Известные пробелы
 

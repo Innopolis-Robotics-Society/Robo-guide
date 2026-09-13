@@ -74,7 +74,7 @@ def build_interaction_record(
     total_ms: float,
     now_s: float,
 ) -> dict:
-    """Собрать одну jsonl-запись хода диалога (схема v5).
+    """Собрать одну jsonl-запись хода диалога (схема v6).
 
     `references` -- все чанки, что модель видела в ходу: автосправка перед
     фазой действия (`source: "auto"`) + явный read_only-вызов, если модель
