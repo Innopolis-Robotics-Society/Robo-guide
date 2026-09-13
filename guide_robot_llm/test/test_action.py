@@ -192,6 +192,34 @@ def test_unknown_tour_id_is_unknown_id() -> None:
     assert verdict.reason == REASON_UNKNOWN_ID
 
 
+def test_resolve_pointing_unknown_exhibit_id_is_unknown_id() -> None:
+    """Taiga #7: content_id вне каталога экспонатов -> unknown_id, не исполняется."""
+    parsed = parse_action(
+        '{"tool": "resolve_pointing", "args": {"content_id": "ghost_exhibit"}, '
+        '"confidence": 0.9, "abstain": false}'
+    )
+    verdict = verify_action(
+        parsed,
+        tools_allowed=[*_TOOLS, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robo_guide"}),
+    )
+    assert verdict.ok is False
+    assert verdict.reason == REASON_UNKNOWN_ID
+
+
+def test_resolve_pointing_known_exhibit_id_passes() -> None:
+    parsed = parse_action(
+        '{"tool": "resolve_pointing", "args": {"content_id": "robo_guide"}, '
+        '"confidence": 0.9, "abstain": false}'
+    )
+    verdict = verify_action(
+        parsed,
+        tools_allowed=[*_TOOLS, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robo_guide"}),
+    )
+    assert verdict.ok is True
+
+
 def test_empty_whitelist_skips_membership_check() -> None:
     """Пустой каталог = whitelist не подгружен: членство не проверяется
     (совпадает с семантикой validate_call, не блокирует узлы без семантической карты)."""

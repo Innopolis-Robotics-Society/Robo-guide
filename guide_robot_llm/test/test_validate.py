@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from guide_robot_llm.tools.validate import ValidationError, validate_call
+from guide_robot_llm.tools.validate import REASONS, ValidationError, validate_call
 
 
 def test_tool_not_in_allowed_list_rejected() -> None:
@@ -132,6 +132,51 @@ def test_resolve_location_valid_accepted() -> None:
     validate_call(
         "resolve_location", {"query": "лидар"}, tools_allowed=["resolve_location"]
     )
+
+
+def test_resolve_pointing_missing_content_id_rejected() -> None:
+    """Taiga #7: content_id обязателен -- пустой/отсутствующий не уходит в content service."""
+    with pytest.raises(ValidationError, match="экспонат"):
+        validate_call("resolve_pointing", {}, tools_allowed=["resolve_pointing"])
+
+
+def test_resolve_pointing_unknown_exhibit_id_rejected() -> None:
+    """Taiga #7: выдуманное/неизвестное id отклоняется ДО брокера (unknown_id)."""
+    with pytest.raises(ValidationError, match="не найдена"):
+        validate_call(
+            "resolve_pointing",
+            {"content_id": "ghost_exhibit"},
+            tools_allowed=["resolve_pointing"],
+            known_exhibit_ids=frozenset({"robo_guide", "promobot_m13_artist"}),
+        )
+
+
+def test_resolve_pointing_known_exhibit_id_accepted() -> None:
+    validate_call(
+        "resolve_pointing",
+        {"content_id": "robo_guide"},
+        tools_allowed=["resolve_pointing"],
+        known_exhibit_ids=frozenset({"robo_guide", "promobot_m13_artist"}),
+    )
+
+
+def test_resolve_pointing_empty_whitelist_skips_strict_membership_check() -> None:
+    """Whitelist экспонатов не подгружен вызывающим -- проверку пропускаем (как у локаций)."""
+    validate_call(
+        "resolve_pointing", {"content_id": "robo_guide"}, tools_allowed=["resolve_pointing"]
+    )
+
+
+def test_input_quality_reason_codes_are_final_set_members() -> None:
+    """Taiga #7: коды качества ВВОДА входят в финальный набор REASONS."""
+    from guide_robot_llm.tools.validate import (
+        REASON_AMBIGUOUS_TARGET,
+        REASON_NO_CANDIDATE,
+        REASON_STALE_FRAMES,
+    )
+
+    for code in (REASON_STALE_FRAMES, REASON_NO_CANDIDATE, REASON_AMBIGUOUS_TARGET):
+        assert code in REASONS
 
 
 def test_ask_visitor_empty_question_rejected() -> None:
