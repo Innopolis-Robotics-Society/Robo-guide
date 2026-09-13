@@ -9,8 +9,8 @@
 Три AC issue:
 1. vision.enabled=false (по умолчанию) -- ключа `frames` в снимке нет;
 2. vision.enabled=true без камеры -- ключ есть, список пуст (text-only ход);
-3. свежий кадр -> `snapshot.frames` в записи хода несёт наш data-URL.
-"""
+3. свежий кадр -> `snapshot.frames` в записи хода несёт метаданные кадра
+   (Taiga #4, схема v6: без base64-контента)."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from rclpy.parameter import Parameter
 from sensor_msgs.msg import CompressedImage
 
 from guide_robot_llm.lib.qos import QOS_VISION_COMPRESSED
+from guide_robot_llm.visual_context import frame_sha256_16
 from guide_robot_msgs.msg import Transcript
 from test.mocks.harness import ToolBrokerTestHarness, wait_until
 
@@ -112,11 +113,15 @@ def test_vision_enabled_without_camera_turn_is_text_only() -> None:
 
 
 def test_vision_enabled_frozen_frame_lands_in_snapshot() -> None:
-    """AC #2.3: свежий синтетический кадр -> data-URL в `snapshot.frames` записи хода."""
+    """AC #2.3 (v6): свежий синтетический кадр -> метаданные в `snapshot.frames`,
+    base64-контент в текстовой записи хода не попадает."""
     harness = ToolBrokerTestHarness(
         dialog_agent_overrides=(
             Parameter("vision.enabled", value=True),
             Parameter("vision.frame_count", value=1),
+            # llm.multimodal_enabled не трогаем: harness'ный бэкенд text-only,
+            # ход с кадрами идёт в text-only варианте -- метаданные в снимке
+            # сохраняются в обоих случаях (AC #2.3 проверяет именно это).
         )
     )
     try:
@@ -129,8 +134,17 @@ def test_vision_enabled_frozen_frame_lands_in_snapshot() -> None:
 
         frames = record["snapshot"]["frames"]
         assert len(frames) == 1
-        assert frames[0].startswith(_PREFIX)
+        meta = frames[0]
+        # Метаданные, а не payload: base64-контент кадра в лог не идёт.
+        assert set(meta) == {"captured_at", "age_s", "payload_bytes", "sha256_16"}
+        assert meta["age_s"] >= 0
         # 320 px < 1280 -- даунскейл не срабатывает, байты прошли без перекодирования.
-        assert base64.b64decode(frames[0][len(_PREFIX) :]) == jpeg
+        assert meta["payload_bytes"] == len(jpeg)
+        assert meta["sha256_16"] == frame_sha256_16(
+            _PREFIX + base64.b64encode(jpeg).decode("ascii")
+        )
+        # Acceptance issue #4: ни строка base64-контента в текстовой записи.
+        payload_b64 = base64.b64encode(jpeg).decode("ascii")
+        assert payload_b64 not in json.dumps(record, ensure_ascii=False)
     finally:
         harness.shutdown()

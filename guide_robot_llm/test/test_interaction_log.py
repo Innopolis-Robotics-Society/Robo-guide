@@ -1,6 +1,8 @@
-"""`dialog.interaction_log.build_interaction_record()` -- схема v5 (DIALOG_REWORK_PLAN.md §8)."""
+"""`dialog.interaction_log.build_interaction_record()` -- схема v6 (DIALOG_REWORK_PLAN.md §8)."""
 
 from __future__ import annotations
+
+import json
 
 from guide_robot_llm.dialog.interaction_log import build_interaction_record
 from guide_robot_llm.dialog.turn import ToolCallRecord, TurnResult
@@ -53,7 +55,7 @@ def _base_kwargs(**overrides) -> dict:
 def test_record_carries_core_fields_verbatim() -> None:
     record = build_interaction_record(**_base_kwargs(turn_id=42, mission_state_name="IDLE"))
 
-    assert record["schema_version"] == 5
+    assert record["schema_version"] == 6
     assert record["turn_id"] == 42
     assert record["session_id"] == "abc123def456"
     assert record["utterance_ts"] == 1729999999.5
@@ -242,3 +244,85 @@ def test_degraded_flag_and_reason_propagate_verbatim() -> None:
     assert record["degraded"] is True
     assert record["degrade_reason"] == "aborted"
     assert record["stopped_reason"] == "aborted"
+
+
+# Таига #4: в текстовый лог не попадает base64-контент кадров -----------------
+
+
+_DATA_URL = "data:image/jpeg;base64,QUJDREVG" * 50
+
+
+def test_llm_messages_are_redacted_no_base64_in_log() -> None:
+    messages = [
+        {"role": "system", "content": "s"},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "[Визуальный контекст]"},
+                {"type": "image_url", "image_url": {"url": _DATA_URL}},
+            ],
+        },
+        {"role": "assistant", "content": '{"tool": "reply", "args": {}}'},
+    ]
+    record = build_interaction_record(**_base_kwargs(result=_result(messages=messages)))
+
+    dumped = json.dumps(record, ensure_ascii=False)
+    # Payload-строка base64 и её хвосты в записи НЕТ -- только маска с размером.
+    assert ("QUJDREVG" * 5) not in dumped
+    assert "QUJDREFG" not in dumped
+    assert "<<REDACTED" in dumped
+    # Структура сообщений сохранена 1:1 (сопоставимость с реальным запросом).
+    masked_user = record["llm_messages"][1]["content"]
+    assert masked_user[0] == {"type": "text", "text": "[Визуальный контекст]"}
+    assert masked_user[1]["type"] == "image_url"
+    assert masked_user[1]["image_url"]["url"].startswith("data:image/jpeg;base64,<<REDACTED")
+
+
+def test_snapshot_frames_metadata_only() -> None:
+    """Снимок хода в записи: метаданные (время/возраст/отпечаток), не base64."""
+    snapshot = {
+        "mission": {"state": "NARRATING"},
+        "frames": [
+            {
+                "captured_at": 1730000000.0,
+                "age_s": 0.4,
+                "sha256_16": "0123456789abcdef",
+                "payload_bytes": 123456,
+            }
+        ],
+    }
+    record = build_interaction_record(**_base_kwargs(snapshot=snapshot))
+
+    assert record["snapshot"]["frames"][0]["sha256_16"] == "0123456789abcdef"
+    assert "base64" not in json.dumps(record, ensure_ascii=False)
+
+
+# Таига #4: опциональный блок наблюдения (observe_then_decide) ---------------
+
+
+def test_observation_block_absent_when_not_run() -> None:
+    record = build_interaction_record(**_base_kwargs())
+
+    assert record["observation"] is None
+
+
+def test_observation_block_carries_raw_text_and_error() -> None:
+    result = _result(
+        observation_raw_text='{"people_count": 1, "exhibit_candidates": [], '
+        '"pointing_evidence": "none", "scene_facts": "человек"}',
+        observation_text="[Визуальное наблюдение]\nлюдей в кадре: 1",
+    )
+    record = build_interaction_record(**_base_kwargs(result=result))
+
+    assert record["observation"] == {
+        "raw": result.observation_raw_text,
+        "text": result.observation_text,
+        "error": "",
+    }
+
+
+def test_observation_block_carries_error_only() -> None:
+    result = _result(observation_error="malformed")
+    record = build_interaction_record(**_base_kwargs(result=result))
+
+    assert record["observation"] == {"raw": "", "text": "", "error": "malformed"}

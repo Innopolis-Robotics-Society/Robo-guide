@@ -257,7 +257,7 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
 **Параметры**: `log_dir` (`~/.guide_robot/llm_turns`) — файл
 `interaction_YYYYmmdd_HHMMSS.jsonl` на сессию активации.
 
-**Формат записи** (схема v5, `dialog/interaction_log.py`):
+**Формат записи** (схема v6, `dialog/interaction_log.py`):
 
 ```json
 {
@@ -443,11 +443,13 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
   не старше `vision.max_frame_age_s`, совокупный payload ≤
   `vision.max_payload_bytes` (при превышении выкидывают с самого
   старого). Без свежих кадров возвращает `[]` — ход идёт text-only.
-- **Контракт для ЛЛМ**: `snap["frames"]` — список data-URL
-  `data:image/jpeg;base64,...`, форма, ожидаемая `build_content()` из
-  Taiga #3 (мультимодальный контент) и консумируемая промпт-путём из
-  #4. До слияния #4 кадры не уезжают в модель — они только фиксируются в
-  поле `snapshot` записи interaction-лога.
+- **Контракт для ЛЛМ** (Taiga #4): `snap["frames"]` в interaction-логе —
+  список МЕТАДАННЫХ `{captured_at, age_s, sha256_16, payload_bytes}`
+  (текстовый лог не содержит base64; отпечаток — sha256 payload'а, 16 hex). Сам
+  data-URL живёт только в локальной переменной хода и уезжает в модель через
+  `build_content()` из Taiga #3 (мультимодальный контент), см. промпт-путь ниже.
+  `llm_messages` записи маскируются `redact_messages` (data-URL →
+  `<<REDACTED n bytes>>`), структура сообщений сохраняется 1:1.
 - **Bringup**: `guide_robot_bringup/launch/camera.launch.py`
   (`v4l2_camera`; сжатый транспорт создаётся плагином
   `compressed_image_transport` автоматически). Из `hardware.launch.py`
@@ -459,7 +461,74 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
 - **Параметры** (`vision.*` в `config/llm.yaml`): `enabled`,
   `compressed_topic`, `frame_count` (3), `lookback_s` (2.0),
   `max_frame_age_s` (2.0), `max_long_edge_px` (1280),
-  `max_payload_bytes` (2 500 000 B).
+  `max_payload_bytes` (2 500 000 B), `prompt_strategy` ("direct_action"),
+  `answer_phase_images` (false), `max_candidates` (5),
+  `observation_max_chars` (400); плюс `llm.max_tokens_observation` (320).
+
+### Промпт-путь визуального хода (Taiga #4)
+
+Чистая логика в `visual_context.py` (без rclpy): `build_visual_context()`
+собирает из замороженных кадров `FrameMeta` (время, возраст, отпечаток,
+размер, флаг устарелости: возраст ≥ `vision.max_frame_age_s` → `stale`) и
+список кандидатов; `render_visual_context()` рендерит волатильное текстовое
+сообщение хода (реплика, метаданные кадров БЕЗ base64, кандидаты; пустые
+кадры/кандидаты → явный text-only/abstention-текст); `parse_observation()` —
+strict-парсинг наблюдения с host-фильтром id (всё вне списка кандидатов
+выбрасывается, чужие ключи/типы → `None`).
+
+- **Кандидаты-экспонаты** — только из каталога семантической карты,
+  стянутого на `on_activate` (`_visual_candidates`): текущая остановка +
+  экспонаты той же зоны, детерминированный порядок каталога, обрезка по
+  `vision.max_candidates`. id вне этого списка в промпт НЕ попадают
+  (принцип "не вставляй id, которых нет в списке", из issue).
+- **Стратегии** (`vision.prompt_strategy`):
+  - `direct_action` (дефолт): волатильное визуальное сообщение (кадры +
+    кандидаты + реплика) прикрепляется к фазе действия ПОСЛЕ стабильной
+    инструкции (кэш-префикс не страдает); без кадров сообщение строковое.
+  - `observe_then_decide`: ПЕРЕД фазой действия отдельный LLM-вызов под
+    GBNF-грамматикой (`build_observation_grammar` пиннит `exhibit_candidates`
+    на точный список id) выдаёт структурированное наблюдение
+    (people_count / exhibit_candidates / pointing_evidence / scene_facts);
+    host парсит, режет id и рендерит блок `[Визуальное наблюдение]`, который
+    фаза действия получает вместе с кадрами. Наблюдение — side-channel:
+    malformed-вывод или `BackendError` НЕ рвёт ход (метрика
+    `observation_error` в записи), фаза действия идёт без наблюдения; без
+    кадров вызов не делается (text-only вариант стратегии).
+  - `BackendAborted` (barge-in) из любой фазы пробрасывается наружу —
+    прерывание, а не деградация.
+- **Кадры в фазе реплики**: `vision.answer_phase_images` (дефолт false) +
+  выбранное действие ≠ `reply` — иначе реплика строковая, как раньше.
+  Контракт действует на ВЕСЬ список сообщений фазы реплики, включая
+  наследуемое от фазы действия визуальное сообщение: когда кадры не
+  разрешены, из него уходят image-parts, текст (кандидаты/наблюдение)
+  остаётся.
+- **Text-only вариант без мультимодального бэкенда**: если ни один
+  бэкенд не имеет `llm.multimodal_enabled=true`, ход с кадрами не падает
+  с `action_backend_error` — кадры выключаются из промпт-пути
+  (наблюдение не прогоняется), метаданные кадров в снимке хода
+  сохраняются; warn при активации, счётчик деградаций —
+  `dialog_agent._vision_text_only_degraded_turns`.
+- **Стабильность инструкций** (CACHE_REUSE): `build_observation_instruction()`
+  и `build_action_instruction()` строятся один раз на `on_activate`, побайтово
+  одинаковы между ходами; волатильная часть хода — только последние
+  сообщения.
+- **Схема interaction-лога** — v6: опциональный блок `observation`
+  (`raw`/`text`/`error`), `snapshot.frames` — метаданные без base64
+  (`captured_at`/`age_s`/`payload_bytes`/`sha256_16`), `llm_messages`
+  замаскированы (base64 image-parts — только маска с размером).
+- **Бюджет промпт-пути визуального хода** (оценка под Qwen3-токенизатор,
+  BPE ~1.5–1.8 символа/токен для кириллицы):
+  - `direct_action`: системная инструкция ~1.5–2 КБ; визуальное сообщение
+    ~150–250 байт + до 3 кадров JPEG (даунскейл до `max_long_edge_px`=
+    1280, суммарный payload ≤ `max_payload_bytes` ≈ 2.5 МБ);
+  - `observe_then_decide`: наблюдение ≤ ~300 токенов
+    (`llm.max_tokens_observation=320`; 400 символов `scene_facts`
+    + JSON-обвязка); действие — компактный JSON ~30–60 токенов;
+  - кадр как image-part: ~150–1 500 токенов на кадр у VLM (зависит от
+    разрешения) — поэтому на ход берётся ≤ `vision.frame_count` (3).
+  Замер на живом VLM-эндпоинте не проводился; значения консервативны,
+  переполнение бюджета наблюдения безопасно деградирует до
+  `observation_error=malformed`.
 
 ## Известные пробелы
 

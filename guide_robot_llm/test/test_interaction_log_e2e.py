@@ -37,7 +37,7 @@ def test_turn_produces_interaction_log_record() -> None:
 
         assert len(lines) == 1
         record = lines[0]
-        assert record["schema_version"] == 5
+        assert record["schema_version"] == 6
         assert record["utterance"] == "привет"
         assert isinstance(record["session_id"], str) and record["session_id"]
         assert record["utterance_ts"] > 0
