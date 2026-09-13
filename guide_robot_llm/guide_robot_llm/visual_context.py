@@ -165,12 +165,18 @@ class Observation:
     `exhibit_candidates` -- ОТФИЛЬТРОВАННЫЕ по списку кандидатов id:
     модель могла «увидеть» что угодно, в промпт-путь попадает только то,
     что есть в семантической карте (инвариант issue #4).
+
+    `pointing_box` (Taiga #7) -- нормированный бокс [x0, y0, x1, y1]
+    жеста-указания в долях кадра; заполнен ТОЛЬКО когда
+    `pointing_evidence == "yes"` и бокс валиден, иначе `None` (жест есть,
+    но без координат / жест не подтверждён).
     """
 
     people_count: int
     exhibit_candidates: tuple[str, ...]
     pointing_evidence: str
     scene_facts: str
+    pointing_box: tuple[float, float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -194,31 +200,67 @@ class ObservationRequest:
     max_chars: int
 
 
+_POINTING_BOX_KEYS = {"pointing_box"}
+_OBSERVATION_REQUIRED_KEYS = {
+    "people_count",
+    "exhibit_candidates",
+    "pointing_evidence",
+    "scene_facts",
+}
+
+
+def _parse_pointing_box(raw: object) -> tuple[float, float, float, float] | None:
+    """Разобрать нормированный бокс [x0, y0, x1, y1]; `None` -- нет/некорректен.
+
+    Taiga #7: некорректный бокс НЕ отбрасывает всё наблюдение (остальные
+    поля -- люди/кандидаты/сцены -- остаются полезными), а означает
+    «жест есть, но без координат» -- деградированный режим геометрического
+    резолютора (box=None). Валидность: ровно 4 числа, каждое в [0, 1],
+    x0 < x1 и y0 < y1.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or len(raw) != 4:
+        return None
+    coords: list[float] = []
+    for value in raw:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        value = float(value)
+        if not 0.0 <= value <= 1.0:
+            return None
+        coords.append(value)
+    x0, y0, x1, y1 = coords
+    if not (x0 < x1 and y0 < y1):
+        return None
+    return (x0, y0, x1, y1)
+
+
 def parse_observation(
     text: str, *, candidate_ids: frozenset[str], max_chars: int
 ) -> Observation | None:
     """Строго разобрать наблюдение; `None` -- malformed (фаза деградирует).
 
-    Форма: ровно 4 ключа `people_count`/`exhibit_candidates`/
-    `pointing_evidence`/`scene_facts`, без чужих. Правила host-стороны
-    (грамма может быть проигнорирована сервером): `people_count` int
-    0..20; `pointing_evidence` ровно из {none,yes,uncertain};
-    `exhibit_candidates` -- список строк, в котором ОСТАВЛЯЮТСЯ только
-    id из `candidate_ids` (порядок модели сохраняется, дубликаты режутся);
-    `scene_facts`
-    обрезается до `max_chars`. `NaN`/`Infinity` JSON-литералы Python'ом
-    парсятся -- отбрасываются проверками типов.
+    Форма: 4 обязательных ключа `people_count`/`exhibit_candidates`/
+    `pointing_evidence`/`scene_facts` + опциональный `pointing_box` (Taiga
+    #7), без чужих. Правила host-стороны (грамма может быть проигнорирована
+    сервером): `people_count` int 0..20; `pointing_evidence` ровно из
+    {none,yes,uncertain}; `exhibit_candidates` -- список строк, в котором
+    ОСТАВЛЯЮТСЯ только id из `candidate_ids` (порядок модели сохраняется,
+    дубликаты режутся); `scene_facts` обрезается до `max_chars`;
+    `pointing_box` -- нормированный бокс жеста (см. `_parse_pointing_box`),
+    заполнен ТОЛЬКО при `pointing_evidence == "yes"`. `NaN`/`Infinity`
+    JSON-литералы Python'ом парсятся -- отбрасываются проверками типов.
     """
     try:
         data = json.loads(text)
     except (json.JSONDecodeError, ValueError):
         return None
-    if not isinstance(data, dict) or set(data) != {
-        "people_count",
-        "exhibit_candidates",
-        "pointing_evidence",
-        "scene_facts",
-    }:
+    if not isinstance(data, dict):
+        return None
+    if not _OBSERVATION_REQUIRED_KEYS.issubset(data):
+        return None
+    if set(data) - _OBSERVATION_REQUIRED_KEYS - _POINTING_BOX_KEYS:
         return None
 
     people_count = data["people_count"]
@@ -247,11 +289,18 @@ def parse_observation(
     scene_facts = data["scene_facts"]
     if not isinstance(scene_facts, str):
         return None
+
+    pointing_box = _parse_pointing_box(data.get("pointing_box"))
+    # Бокс осмысленен только для подтверждённого жеста; иначе -- None.
+    if pointing != POINTING_YES:
+        pointing_box = None
+
     return Observation(
         people_count=people_count,
         exhibit_candidates=kept_candidates,
         pointing_evidence=pointing,
         scene_facts=scene_facts[:max_chars],
+        pointing_box=pointing_box,
     )
 
 
@@ -329,9 +378,11 @@ def render_observation(observation: Observation, *, quality: str, max_chars: int
         )
     else:
         lines.append("видимые экспонаты: не удалось уверенно определить")
-    lines.append(
-        f"указательный жест: {_POINTING_RU.get(observation.pointing_evidence, 'непонятно')}"
-    )
+    pointing_ru = _POINTING_RU.get(observation.pointing_evidence, "непонятно")
+    if observation.pointing_box is not None:
+        x0, y0, x1, y1 = observation.pointing_box
+        pointing_ru += f", бокс [{x0:.2f}, {y0:.2f}, {x1:.2f}, {y1:.2f}]"
+    lines.append(f"указательный жест: {pointing_ru}")
     lines.append(f"качество входных кадров: {_QUALITY_RU.get(quality, quality)}")
     scene = observation.scene_facts[:max_chars].strip()
     if scene:

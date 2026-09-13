@@ -237,6 +237,79 @@ def test_parse_observation_truncates_scene_facts() -> None:
     assert observation.scene_facts == "абвг"
 
 
+# -- Taiga #7: pointing_box (нормированный бокс жеста-указания) -----------------
+
+
+def test_parse_observation_with_valid_pointing_box() -> None:
+    text = (
+        '{"people_count": 1, "exhibit_candidates": ["lab105a"], '
+        '"pointing_evidence": "yes", "pointing_box": [0.45, 0.69, 0.55, 0.79], '
+        '"scene_facts": "жест на стойку"}'
+    )
+    observation = parse_observation(text, candidate_ids=_CANDIDATES, max_chars=400)
+
+    assert observation is not None
+    assert observation.pointing_box == (0.45, 0.69, 0.55, 0.79)
+
+
+def test_parse_observation_box_only_kept_for_confirmed_gesture() -> None:
+    """Бокс осмысленен только при pointing_evidence == \"yes\"; иначе -- None."""
+    for evidence in ("none", "uncertain"):
+        text = (
+            '{"people_count": 1, "exhibit_candidates": ["lab105a"], '
+            f'"pointing_evidence": "{evidence}", '
+            '"pointing_box": [0.1, 0.2, 0.3, 0.4], "scene_facts": ""}'
+        )
+        observation = parse_observation(text, candidate_ids=_CANDIDATES, max_chars=400)
+        assert observation is not None
+        assert observation.pointing_box is None
+
+
+def test_parse_observation_null_pointing_box_is_none() -> None:
+    text = (
+        '{"people_count": 1, "exhibit_candidates": ["lab105a"], '
+        '"pointing_evidence": "yes", "pointing_box": null, "scene_facts": ""}'
+    )
+    observation = parse_observation(text, candidate_ids=_CANDIDATES, max_chars=400)
+
+    assert observation is not None
+    assert observation.pointing_box is None
+
+
+@pytest.mark.parametrize(
+    "bad_box",
+    [
+        "[0.9, 0.2, 0.3, 0.4]",  # x0 > x1
+        "[0.2, 0.9, 0.4, 0.3]",  # y0 > y1
+        "[0.0, 0.0, 1.5, 0.4]",  # вне [0, 1]
+        "[0.1, 0.2, 0.3]",  # 3 числа
+        "[0.1, 0.2, 0.3, 0.4, 0.5]",  # 5 чисел
+        "[0.1, \"x\", 0.3, 0.4]",  # не число
+        "0.5",  # не массив
+    ],
+)
+def test_parse_observation_malformed_box_degrades_to_none(bad_box: str) -> None:
+    """Некорректный бокс НЕ отбрасывает наблюдение -- просто box=None (жест есть)."""
+    text = (
+        '{"people_count": 1, "exhibit_candidates": ["lab105a"], '
+        f'"pointing_evidence": "yes", "pointing_box": {bad_box}, "scene_facts": "жест"}}'
+    )
+    observation = parse_observation(text, candidate_ids=_CANDIDATES, max_chars=400)
+
+    assert observation is not None
+    assert observation.people_count == 1
+    assert observation.pointing_box is None
+
+
+def test_parse_observation_four_field_still_valid() -> None:
+    """Обратная совместимость: наблюдение БЕЗ pointing_box (4 поля) валидно."""
+    observation = parse_observation(
+        _VALID_OBSERVATION, candidate_ids=_CANDIDATES, max_chars=400
+    )
+    assert observation is not None
+    assert observation.pointing_box is None
+
+
 @pytest.mark.parametrize(
     "mutated",
     [
@@ -306,12 +379,27 @@ def test_render_observation_empty_and_quality_variants() -> None:
     assert "факты сцены: абвг" in truncated
 
 
+def test_render_observation_with_pointing_box() -> None:
+    """Taiga #7: бокс жеста рендерится в строке «указательный жест»."""
+    observation = Observation(1, ("lab105a",), "yes", "жест на стойку", (0.45, 0.69, 0.55, 0.79))
+
+    rendered = render_observation(observation, quality=QUALITY_OK, max_chars=400)
+
+    assert "указательный жест: есть, бокс [0.45, 0.69, 0.55, 0.79]" in rendered
+
+
 # -- стабильность инструкций и грамматика (CACHE_REUSE, id-пиннинг) --------------
 
 
 def test_observation_instruction_stable() -> None:
     assert build_observation_instruction() == build_observation_instruction()
-    for key in ("people_count", "exhibit_candidates", "pointing_evidence", "scene_facts"):
+    for key in (
+        "people_count",
+        "exhibit_candidates",
+        "pointing_evidence",
+        "pointing_box",
+        "scene_facts",
+    ):
         assert key in build_observation_instruction()
 
 
@@ -328,6 +416,15 @@ def test_observation_grammar_empty_candidates_has_no_dead_rule() -> None:
     # Пустые кандидаты: правило candidate-id не объявляется (мёртвое правило
     # с пустой альтернативой не должно попадать в GBNF).
     assert "candidate-id" not in build_observation_grammar([])
+
+
+def test_observation_grammar_has_pointing_box_rule() -> None:
+    """Taiga #7: грамма наблюдения фиксирует бокс жеста (null или 4 координаты)."""
+    grammar = build_observation_grammar(["lab105a"])
+
+    assert "pointing-box" in grammar
+    assert "pointing-coord" in grammar
+    assert '"pointing_box"' in grammar
 
 
 if __name__ == "__main__":
