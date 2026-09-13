@@ -32,7 +32,9 @@ from guide_robot_llm.pointing import (
     STATUS_NO_CANDIDATE,
     STATUS_RESOLVED,
     STATUS_UNUSABLE_FRAMES,
+    PointingBaseContext,
     PointingContext,
+    PointingEvidence,
     resolve_pointing,
 )
 from guide_robot_llm.tools.validate import (
@@ -46,6 +48,8 @@ from guide_robot_llm.tools.validate import (
     verify_action,
 )
 from guide_robot_llm.visual_context import (
+    POINTING_YES,
+    Observation,
     ObservationRequest,
     parse_observation,
     render_observation,
@@ -273,7 +277,7 @@ def run_turn(
     # Таiga #7: замороженный контекст жеста-указания (кандидаты видимой карты,
     # поза робота, геометрия камеры, указание, реплика, качество кадров).
     # `None` = визуального контекста хода нет -- resolve_pointing невозможен.
-    pointing_context: PointingContext | None = None,
+    pointing_base: PointingBaseContext | None = None,
 ) -> TurnResult:
     """Прогнать один ход диалога (контракт действия ADR-0001).
 
@@ -351,18 +355,22 @@ def run_turn(
     не `reply` (выбирающего skill'а у reply нет, будущие визуальные skill'ы
     #6/#7 определят своё).
 
-    Таига #7 (resolve_pointing): `pointing_context` -- замороженный на границе
-    хода контекст жеста-указания (кандидаты видимой карты с координатами,
-    поза робота, геометрия камеры, указание/бокс, реплика, качество кадров,
-    видимые id). Когда фаза действия выбирает `resolve_pointing` и действие
-    прошло валидатор (content_id из каталога), host ДО `execute_tool`
-    детерминированно сверяет выбор с геометрией (`pointing.resolve_pointing`):
-    неоднозначно / нет правдоподобных / кадры устарели -> safe abstention с
-    кодом качества ввода (stale_frames / no_candidate / ambiguous_target),
-    инструмент НЕ исполняется, фаза реплики уточняет у посетителя.
-    `pointing_context is None` (нет кадров) -- resolve_pointing невозможен:
-    тот же safe fallback со `stale_frames`. Чистая логика -- бэкенды и контекст
-    инжектируются, ROS здесь не нужен.
+    Таига #7 (resolve_pointing): `pointing_base` -- статический базис
+    контекста жеста, замороженный на границе хода (`dialog_agent_node`):
+    кандидаты видимой карты с координатами, поза робота, геометрия камеры,
+    реплика, качество кадров. Динамическая часть -- сам жест (pointing_box)
+    и реально видимые id -- сообщает наблюдение VLM, которое считается
+    ВНУТРИ run_turn ДО фазы действия; host складывает базис и наблюдение в
+    полный `PointingContext` один раз (наблюдение не прогоняется дважды --
+    оно же рендерится в промпт). Когда фаза действия выбирает
+    `resolve_pointing` и действие прошло валидатор (content_id из каталога),
+    host ДО `execute_tool` детерминированно сверяет выбор с геометрией
+    (`pointing.resolve_pointing`): неоднозначно / нет правдоподобных / кадры
+    устарели -> safe abstention с кодом качества ввода (stale_frames /
+    no_candidate / ambiguous_target), инструмент НЕ исполняется, фаза
+    реплики уточняет у посетителя. `pointing_base is None` (нет кадров/позы)
+    -- resolve_pointing невозможен: тот же safe fallback со `stale_frames`.
+    Чистая логика -- бэкенды и базис инжектируются, ROS здесь не нужен.
     """
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
@@ -382,10 +390,13 @@ def run_turn(
 
     # Таига #4: фаза наблюдения ПЕРЕД фазой действия (observe_then_decide).
     # Только когда есть и запрос, и бэкенд, и кадры (без кадров наблюдать
-    # нечего -- text-only вариант стратегии).
+    # нечего -- text-only вариант стратегии). `parsed_observation` вынесен на
+    # уровень функции: кроме рендера в промпт он нужен геометрическому гейту
+    # resolve_pointing (Taiga #7) -- жест/бокс и видимые id.
     observation_raw_text = ""
     observation_text = ""
     observation_error = ""
+    parsed_observation: Observation | None = None
     if (
         observation_request is not None
         and complete_observation is not None
@@ -439,6 +450,32 @@ def run_turn(
                     quality=observation_request.quality,
                     max_chars=observation_request.max_chars,
                 )
+
+    # Таига #7: складываем полный PointingContext из статического базиса
+    # (pointing_base) и наблюдения (жест/бокс + видимые id). Если наблюдения
+    # нет (текстовый ход / наблюдение сломалось) -- жест отсутствует
+    # (present=False, box=None), видимых id нет: геометрический гейт даст
+    # no_candidate/устарело и уточнит, не угадывая. `pointing_base is None`
+    # (нет базиса) -- pointing_context=None, гейт сразу stale_frames.
+    pointing_context: PointingContext | None = None
+    if pointing_base is not None:
+        pointing = PointingEvidence(present=False, box=None)
+        visible_ids: frozenset[str] = frozenset()
+        if parsed_observation is not None:
+            pointing = PointingEvidence(
+                present=(parsed_observation.pointing_evidence == POINTING_YES),
+                box=parsed_observation.pointing_box,
+            )
+            visible_ids = frozenset(parsed_observation.exhibit_candidates)
+        pointing_context = PointingContext(
+            candidates=pointing_base.candidates,
+            robot_pose=pointing_base.robot_pose,
+            camera=pointing_base.camera,
+            pointing=pointing,
+            utterance=pointing_base.utterance,
+            frame_quality=pointing_base.frame_quality,
+            visible_ids=visible_ids,
+        )
 
     # Таига #4: волатильное визуальное сообщение фазы действия -- ПОСЛЕ
     # стабильной инструкции (кэш-префикс не страдает). Пусто -- нет
@@ -579,8 +616,8 @@ def run_turn(
         # (ADR-0001 §4), фаза реплики уточняет у посетителя.
         if name == "resolve_pointing":
             if pointing_context is None:
-                # Нет замороженного контекста хода (кадров нет/не заморозить):
-                # геометрию сверить невозможно -- не угадываем.
+                # Нет базиса хода (кадров/позы нет, не заморозить): геометрию
+                # сверить невозможно -- не угадываем.
                 record = _abstain_record(REASON_STALE_FRAMES)
                 action_reason_code = REASON_STALE_FRAMES
                 break

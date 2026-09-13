@@ -17,8 +17,7 @@ from guide_robot_llm.llm_client.errors import BackendAborted, BackendTimeout
 from guide_robot_llm.pointing import (
     CameraGeometry,
     Candidate,
-    PointingContext,
-    PointingEvidence,
+    PointingBaseContext,
     RobotPose,
 )
 from guide_robot_llm.tools.validate import (
@@ -26,6 +25,7 @@ from guide_robot_llm.tools.validate import (
     REASON_NO_CANDIDATE,
     REASON_STALE_FRAMES,
 )
+from guide_robot_llm.visual_context import ObservationRequest
 
 _TOOL_NAMES = ["guide_to", "reply"]
 _ACTION_INSTRUCTION = "ACTION_INSTRUCTION_TEXT"
@@ -111,24 +111,46 @@ def _pt_cand(cid: str, name: str, x: float, y: float) -> Candidate:
     return Candidate(id=cid, name=name, x=x, y=y, aliases=())
 
 
-def _pt_ctx(
-    cands: list[Candidate],
-    *,
-    box=None,
-    present: bool = True,
-    quality: str = "ok",
-    visible=(),
-    utterance: str = "",
-) -> PointingContext:
-    return PointingContext(
+def _pt_base(cands: list[Candidate], *, quality: str = "ok", utterance: str = ""):
+    """Статический базис контекста жеста (известен до наблюдения)."""
+    return PointingBaseContext(
         candidates=tuple(cands),
         robot_pose=_PT_POSE,
         camera=_PT_CAM,
-        pointing=PointingEvidence(present=present, box=box),
         utterance=utterance,
         frame_quality=quality,
-        visible_ids=frozenset(visible),
     )
+
+
+def _pt_obs(all_cand_ids: list[str], *, visible=(), box=None, pointing: str = "yes") -> dict:
+    """kwargs наблюдения: фейковый complete_observation возвращает VLM-
+    наблюдение (жест pointing_box + реально видимые id). Наблюдение считается
+    внутри run_turn и складывается с базисом в полный PointingContext."""
+    obs = {
+        "people_count": 1,
+        "exhibit_candidates": list(visible),
+        "pointing_evidence": pointing,
+        "pointing_box": box,
+        "scene_facts": "посетитель указывает",
+    }
+    obs_json = json.dumps(obs)
+
+    def _complete(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
+        del messages, grammar
+        return CompletionResult(text=obs_json)
+
+    return {
+        "observation_request": ObservationRequest(
+            instruction="obs",
+            context_text="ctx",
+            frames=("data:image/png;base64,AAAA",),
+            grammar="root ::= \"x\" ws",
+            candidate_ids=frozenset(all_cand_ids),
+            quality="ok",
+            max_chars=400,
+        ),
+        "complete_observation": _complete,
+    }
 
 
 def _pt_call(content_id: str = "robot", confidence: float = 0.9) -> str:
@@ -139,45 +161,6 @@ def _pt_call(content_id: str = "robot", confidence: float = 0.9) -> str:
             "confidence": confidence,
             "abstain": False,
         }
-    )
-
-
-# Сцены (см. test_pointing.py): резолвится / неоднозначно / без кандидата.
-def _pt_ctx_resolved() -> PointingContext:
-    return _pt_ctx(
-        [_pt_cand("robot", "робот", 3.0, 0.0)],
-        box=(0.45, 0.69, 0.55, 0.79),
-        visible=("robot",),
-        utterance="расскажи про этот",
-    )
-
-
-def _pt_ctx_ambiguous() -> PointingContext:
-    return _pt_ctx(
-        [
-            _pt_cand("left", "синий робот", 3.0, -0.2),
-            _pt_cand("right", "красный робот", 3.0, 0.2),
-        ],
-        box=(0.45, 0.70, 0.55, 0.80),
-        visible=("left", "right"),
-    )
-
-
-def _pt_ctx_stale() -> PointingContext:
-    return _pt_ctx(
-        [_pt_cand("robot", "робот", 3.0, 0.0)],
-        box=(0.45, 0.69, 0.55, 0.79),
-        visible=("robot",),
-        quality="stale",
-    )
-
-
-def _pt_ctx_no_candidate() -> PointingContext:
-    # Жест есть, но правдоподобных видимых кандидатов нет (все вне кадра).
-    return _pt_ctx(
-        [_pt_cand("far", "далёкий", 50.0, 0.0)],
-        box=(0.45, 0.69, 0.55, 0.79),
-        visible=("far",),
     )
 
 
@@ -1117,12 +1100,14 @@ def test_resolve_pointing_resolved_executes_tool() -> None:
         executed.append((name, args))
         return _FakeResult(ok=True, data={"chunks": ["текст"]})
 
+    cands = [_pt_cand("robot", "робот", 3.0, 0.0)]
     result = _run(
         complete_action=_actions(_pt_call("robot")),
         execute_tool=execute_tool,
         tool_names=[*_TOOL_NAMES, "resolve_pointing"],
         known_exhibit_ids=frozenset({"robot"}),
-        pointing_context=_pt_ctx_resolved(),
+        pointing_base=_pt_base(cands, utterance="расскажи про этот"),
+        **_pt_obs(["robot"], visible=("robot",), box=(0.45, 0.69, 0.55, 0.79)),
     )
 
     assert executed == [("resolve_pointing", {"content_id": "robot"})]
@@ -1131,8 +1116,8 @@ def test_resolve_pointing_resolved_executes_tool() -> None:
     assert result.action_reason_code == ""
 
 
-def test_resolve_pointing_no_context_abstains_stale() -> None:
-    """Нет замороженного контекста (кадров нет) -- не исполняем, stale_frames."""
+def test_resolve_pointing_no_base_abstains_stale() -> None:
+    """Нет базиса хода (кадров/позы нет) -- не исполняем, stale_frames."""
     executed: list[str] = []
 
     result = _run(
@@ -1140,7 +1125,7 @@ def test_resolve_pointing_no_context_abstains_stale() -> None:
         execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
         tool_names=[*_TOOL_NAMES, "resolve_pointing"],
         known_exhibit_ids=frozenset({"robot"}),
-        pointing_context=None,
+        pointing_base=None,
         repair_attempts=0,
     )
 
@@ -1155,12 +1140,17 @@ def test_resolve_pointing_ambiguous_abstains() -> None:
     """Два похожих рядом -- неоднозначно, уточняем, не угадываем."""
     executed: list[str] = []
 
+    cands = [
+        _pt_cand("left", "синий робот", 3.0, -0.2),
+        _pt_cand("right", "красный робот", 3.0, 0.2),
+    ]
     result = _run(
         complete_action=_actions(_pt_call("left")),
         execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
         tool_names=[*_TOOL_NAMES, "resolve_pointing"],
         known_exhibit_ids=frozenset({"left", "right"}),
-        pointing_context=_pt_ctx_ambiguous(),
+        pointing_base=_pt_base(cands),
+        **_pt_obs(["left", "right"], visible=("left", "right"), box=(0.45, 0.70, 0.55, 0.80)),
         repair_attempts=0,
     )
 
@@ -1175,12 +1165,14 @@ def test_resolve_pointing_stale_frames_abstains() -> None:
     """Кадры устарели -- качество ввода, stale_frames, не исполняем."""
     executed: list[str] = []
 
+    cands = [_pt_cand("robot", "робот", 3.0, 0.0)]
     result = _run(
         complete_action=_actions(_pt_call("robot")),
         execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
         tool_names=[*_TOOL_NAMES, "resolve_pointing"],
         known_exhibit_ids=frozenset({"robot"}),
-        pointing_context=_pt_ctx_stale(),
+        pointing_base=_pt_base(cands, quality="stale"),
+        **_pt_obs(["robot"], visible=("robot",), box=(0.45, 0.69, 0.55, 0.79)),
         repair_attempts=0,
     )
 
@@ -1194,12 +1186,36 @@ def test_resolve_pointing_no_candidate_abstains() -> None:
     """Нет правдоподобных видимых кандидатов -- no_candidate, уточняем."""
     executed: list[str] = []
 
+    cands = [_pt_cand("far", "далёкий", 50.0, 0.0)]
     result = _run(
         complete_action=_actions(_pt_call("far")),
         execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
         tool_names=[*_TOOL_NAMES, "resolve_pointing"],
         known_exhibit_ids=frozenset({"far"}),
-        pointing_context=_pt_ctx_no_candidate(),
+        pointing_base=_pt_base(cands),
+        **_pt_obs(["far"], visible=("far",), box=(0.45, 0.69, 0.55, 0.79)),
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.think == REASON_NO_CANDIDATE
+    assert result.action_reason_code == REASON_NO_CANDIDATE
+
+
+def test_resolve_pointing_no_gesture_in_observation_abstains() -> None:
+    """Базис есть, но в наблюдении нет жеста (pointing_evidence none) --
+    no_candidate, не угадываем (жест -- входное качество)."""
+    executed: list[str] = []
+
+    cands = [_pt_cand("robot", "робот", 3.0, 0.0)]
+    result = _run(
+        complete_action=_actions(_pt_call("robot")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_base=_pt_base(cands),
+        **_pt_obs(["robot"], visible=("robot",), box=None, pointing="none"),
         repair_attempts=0,
     )
 
@@ -1214,13 +1230,15 @@ def test_resolve_pointing_unknown_id_never_reaches_execute() -> None:
     ни разу (даже при попытке починки модель снова шлёт чужой id)."""
     executed: list[str] = []
 
+    cands = [_pt_cand("robot", "робот", 3.0, 0.0)]
     # Модель упрямо шлёт выдуманный id на каждой попытке.
     result = _run(
         complete_action=_actions(_pt_call("ghost"), _pt_call("ghost")),
         execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
         tool_names=[*_TOOL_NAMES, "resolve_pointing"],
         known_exhibit_ids=frozenset({"robot"}),
-        pointing_context=_pt_ctx_resolved(),
+        pointing_base=_pt_base(cands),
+        **_pt_obs(["robot"], visible=("robot",), box=(0.45, 0.69, 0.55, 0.79)),
         repair_attempts=1,
     )
 

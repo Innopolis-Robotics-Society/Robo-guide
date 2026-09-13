@@ -25,6 +25,7 @@ ROS-события (транскрипт, переходы `/mission/state`, bar
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 import uuid
@@ -37,6 +38,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.task import Future
 from sensor_msgs.msg import CompressedImage
+from tf2_ros import Buffer, TransformListener
 
 from guide_robot_llm import matching, snapshot
 from guide_robot_llm.dialog.history import DialogHistory
@@ -73,6 +75,7 @@ from guide_robot_llm.llm_client import (
     complete_with_fallback,
 )
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
+from guide_robot_llm.pointing import CameraGeometry, Candidate, PointingBaseContext, RobotPose
 from guide_robot_llm.tools import schema
 from guide_robot_llm.visual_context import (
     ExhibitCandidate,
@@ -223,6 +226,20 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("vision.max_candidates", 5)
         # Потолок scene_facts наблюдения (host-обрезка, детерминированная).
         self.declare_parameter("vision.observation_max_chars", 400)
+        # Таига #7: геометрия камеры для резолюции жеста-указания. Камера
+        # не привязана к TF (см. README «Визуальная pipeline»): модель
+        # задаётся явными параметрами (разрешение, углы обзора, монтаж в
+        # base-кадре), а не вычисляется. Дефолты -- типичная широкоугольная
+        # камера на стойке; для конкретного робота калибровать в llm.yaml.
+        self.declare_parameter("vision.camera.width_px", 1280)
+        self.declare_parameter("vision.camera.height_px", 720)
+        self.declare_parameter("vision.camera.hfov_deg", 60.0)
+        self.declare_parameter("vision.camera.vfov_deg", 34.0)
+        self.declare_parameter("vision.camera.mount_x", 0.0)
+        self.declare_parameter("vision.camera.mount_y", 0.0)
+        self.declare_parameter("vision.camera.mount_z", 1.0)
+        self.declare_parameter("vision.camera.yaw_deg", 0.0)
+        self.declare_parameter("vision.camera.pitch_deg", 10.0)
 
         self._active = False
         self._state_lock = threading.Lock()
@@ -475,6 +492,31 @@ class DialogAgentNode(LifecycleNode):
             self.get_parameter("llm.max_tokens_observation").value
         )
 
+        # Таига #7: геометрия жеста-указания нужна только при кадрах (без
+        # vision.enabled наблюдения не прогоняется и резолвить нечего).
+        # Камера -- явной геометрией из параметров (см. declare выше), поза
+        # робота -- TF `map -> base_footprint` (единственный TF в пакете;
+        # слушатель создаём здесь, уничтожаем в `_teardown`). Если TF не
+        # публикуется/не локализован -- база хода `None`, resolve_pointing
+        # воздержится со stale_frames (не угадываем).
+        self._camera_geometry: CameraGeometry | None = None
+        self._tf_buffer: Buffer | None = None
+        self._tf_listener: TransformListener | None = None
+        if self._frame_buffer is not None:
+            self._camera_geometry = CameraGeometry(
+                width_px=int(self.get_parameter("vision.camera.width_px").value),
+                height_px=int(self.get_parameter("vision.camera.height_px").value),
+                hfov_deg=float(self.get_parameter("vision.camera.hfov_deg").value),
+                vfov_deg=float(self.get_parameter("vision.camera.vfov_deg").value),
+                mount_x=float(self.get_parameter("vision.camera.mount_x").value),
+                mount_y=float(self.get_parameter("vision.camera.mount_y").value),
+                mount_z=float(self.get_parameter("vision.camera.mount_z").value),
+                yaw_deg=float(self.get_parameter("vision.camera.yaw_deg").value),
+                pitch_deg=float(self.get_parameter("vision.camera.pitch_deg").value),
+            )
+            self._tf_buffer = Buffer()
+            self._tf_listener = TransformListener(self._tf_buffer, self)
+
         if self._raw_llm:
             self.get_logger().warning("llm.raw=true — чат без system/GBNF/инструментов")
 
@@ -519,6 +561,22 @@ class DialogAgentNode(LifecycleNode):
         self._tour_name_by_id = {
             tour["id"]: tour.get("name", tour["id"]) for tour in self._tours_catalog
         }
+        # Таига #7: кандидаты жеста-указания -- ТОЛЬКО публичные экспонаты
+        # (category=="exhibit" и is_public) с координатами из каталога.
+        # id локации == ключ content service (тот же id, что в
+        # tool_broker._known_exhibit_ids и в lookup_content.content_id).
+        self._pointing_candidates = tuple(
+            Candidate(
+                id=str(loc["id"]),
+                name=self._location_name_by_id.get(str(loc["id"]), str(loc["id"])),
+                x=float(loc.get("x", 0.0)),
+                y=float(loc.get("y", 0.0)),
+                aliases=tuple(loc.get("aliases", ())),
+            )
+            for loc in self._locations_catalog
+            if loc.get("category") == "exhibit" and loc.get("is_public")
+        )
+        self._known_exhibit_ids = frozenset(c.id for c in self._pointing_candidates)
 
         # Каталог инструментов НЕ идёт в системный промпт (CLAUDE_CODE_TASK.md
         # п.2) -- реплика иначе зачитывала вслух описания инструментов. Он
@@ -604,6 +662,12 @@ class DialogAgentNode(LifecycleNode):
                 self.destroy_subscription(sub)
                 setattr(self, attr, None)
         self._frame_buffer = None
+        # Таига #7: TF-слушатель держит подписку на /tf -- без явного
+        # уничтожения cleanup -> configure оставил бы вторую копию (тот же
+        # живой баг, что у подписок выше).
+        self._tf_listener = None
+        self._tf_buffer = None
+        self._camera_geometry = None
         client = getattr(self, "_call_tool_client", None)
         if client is not None:
             self.destroy_client(client)
@@ -1168,6 +1232,47 @@ class DialogAgentNode(LifecycleNode):
                 )
         return candidates
 
+    def _pointing_base(self, text: str, frame_quality: str) -> PointingBaseContext | None:
+        """Таига #7: база контекста жеста-указания на границе хода.
+
+        Статическая часть (`pointing.PointingBaseContext`): кандидаты из
+        каталога, поза робота (TF `map -> base_footprint` СЕЙЧАС), геометрия
+        камеры из параметров, реплика, качество кадров. Динамическую часть
+        (сам жест + видимые id) добавит наблюдение внутри `run_turn`.
+        `None` = геометрию сверить невозможно (TF нет/не локализован) --
+        resolve_pointing воздержится со stale_frames, не угадывая.
+        """
+        if self._camera_geometry is None or self._tf_buffer is None:
+            return None
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                "map", "base_footprint", rclpy.time.Time()
+            )
+        except Exception:  # noqa: BLE001 -- любой сбой TF = «позы нет»
+            # БУФЕР пуст (TF не публикуется), локализация не поднималась
+            # или транзиентный сбой: геометрию сверить нельзя.
+            self.get_logger().debug("TF map->base_footprint недоступен: жест не резолвится")
+            return None
+        t = transform.transform
+        # Yaw из кватерниона (без scipy/tf_transformations): только вращение
+        # вокруг z нужно (камера на плоской базе).
+        r = t.rotation
+        yaw = math.atan2(
+            2.0 * (r.w * r.z + r.x * r.y),
+            1.0 - 2.0 * (r.y * r.y + r.z * r.z),
+        )
+        return PointingBaseContext(
+            candidates=self._pointing_candidates,
+            robot_pose=RobotPose(
+                x=float(t.translation.x),
+                y=float(t.translation.y),
+                yaw=yaw,
+            ),
+            camera=self._camera_geometry,
+            utterance=text,
+            frame_quality=frame_quality,
+        )
+
     def _run_turn(
         self,
         turn_id: int,
@@ -1435,6 +1540,7 @@ class DialogAgentNode(LifecycleNode):
             visual_suffix = ""
             answer_frames: list[str] = []
             observation_request: ObservationRequest | None = None
+            pointing_base: PointingBaseContext | None = None
             if self._frame_buffer is not None and pending_answer is None and not self._raw_llm:
                 visual_context = build_visual_context(
                     frozen,
@@ -1472,6 +1578,11 @@ class DialogAgentNode(LifecycleNode):
                         quality=visual_context.quality,
                         max_chars=self._vision_observation_max_chars,
                     )
+                # Таига #7: база жеста-указания -- всегда, когда есть кадры
+                # (не зависит от стратегии: геометрический гейт работает и в
+                # direct_action). Качество -- из того же visual_context (он
+                # заморожен на now_s, тот же логический момент, что кадры).
+                pointing_base = self._pointing_base(text, visual_context.quality)
 
             if pending_answer is not None:
                 result = self._run_pending_answer_phase(
@@ -1507,6 +1618,9 @@ class DialogAgentNode(LifecycleNode):
                     # режутся валидатором до брокера, не после.
                     known_location_ids=frozenset(self._location_name_by_id),
                     known_tour_ids=frozenset(self._tour_name_by_id),
+                    # Таига #7: id публичных экспонатов -- валидация
+                    # resolve_pointing.content_id до брокера.
+                    known_exhibit_ids=self._known_exhibit_ids,
                     check_aborted=abort_event.is_set,
                     answer_max_chars=self._answer_max_chars,
                     read_only_tools=self._read_only_tool_names,
@@ -1520,6 +1634,8 @@ class DialogAgentNode(LifecycleNode):
                     complete_observation=_complete_observation,
                     answer_frames=answer_frames,
                     answer_phase_images=self._vision_answer_phase_images,
+                    # Таига #7: база жеста-указания (None, если TF/камеры нет).
+                    pointing_base=pointing_base,
                 )
             if result.action is not None and result.action.read_only and result.action.result_ok:
                 # Явный read_only-вызов модели (фаза 1) -- те же чанки, что

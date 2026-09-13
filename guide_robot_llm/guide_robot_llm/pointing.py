@@ -40,6 +40,7 @@ __all__ = [
     "Candidate",
     "PointingEvidence",
     "PointingContext",
+    "PointingBaseContext",
     "ScoredCandidate",
     "PointingResolution",
     "PointingCase",
@@ -148,6 +149,26 @@ class PointingContext:
     utterance: str
     frame_quality: str  # visual_context.QUALITY_OK/STALE/NONE
     visible_ids: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class PointingBaseContext:
+    """Статическая часть контекста жеста-указания, известная ДО наблюдения.
+
+    Taiga #7: камера/поза/кандидаты/реплика/качество кадров заморожены на
+    границе хода (`dialog_agent_node`) и приходят в `run_turn` как базис.
+    Динамическая часть -- сам жест (`PointingEvidence`) и реально видимые id --
+    сообщает наблюдение (VLM), которое считается ВНУТРИ `run_turn` ДО фазы
+    действия; `run_turn` складывает базис и наблюдение в полный
+    `PointingContext` для геометрического гейта. Так наблюдение
+    прогоняется один раз (оно же рендерится в промпт), а не дважды.
+    """
+
+    candidates: tuple[Candidate, ...]
+    robot_pose: RobotPose
+    camera: CameraGeometry
+    utterance: str
+    frame_quality: str  # visual_context.QUALITY_OK/STALE/NONE
 
 
 @dataclass(frozen=True)
