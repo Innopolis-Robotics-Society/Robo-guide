@@ -73,6 +73,10 @@ def build_interaction_record(
     degrade_reason: str | None,
     total_ms: float,
     now_s: float,
+    endpoint: str = "",
+    model_name: str = "",
+    prompt_strategy: str = "",
+    episode_id: str | None = None,
 ) -> dict:
     """Собрать одну jsonl-запись хода диалога (схема v6).
 
@@ -152,11 +156,7 @@ def build_interaction_record(
                 "text": result.observation_text,
                 "error": result.observation_error,
             }
-            if (
-                result.observation_raw_text
-                or result.observation_text
-                or result.observation_error
-            )
+            if (result.observation_raw_text or result.observation_text or result.observation_error)
             else None
         ),
         "repair_used": result.repair_used,
@@ -171,4 +171,10 @@ def build_interaction_record(
         "degraded": degraded,
         "degrade_reason": degrade_reason,
         "total_ms": total_ms,
+        "endpoint": {"base_url": endpoint, "model": model_name},
+        "prompt_strategy": prompt_strategy,
+        "frame_count": len(snapshot.get("frames", [])),
+        "schema_valid_raw": result.action_first_attempt_valid,
+        "validator_reason": result.action_reason_code,
+        "episode_id": episode_id,
     }

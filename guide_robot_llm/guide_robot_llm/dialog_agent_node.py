@@ -477,12 +477,8 @@ class DialogAgentNode(LifecycleNode):
         self._vision_observation_max_chars = int(
             self.get_parameter("vision.observation_max_chars").value
         )
-        self._vision_max_frame_age_s = float(
-            self.get_parameter("vision.max_frame_age_s").value
-        )
-        self._max_tokens_observation = int(
-            self.get_parameter("llm.max_tokens_observation").value
-        )
+        self._vision_max_frame_age_s = float(self.get_parameter("vision.max_frame_age_s").value)
+        self._max_tokens_observation = int(self.get_parameter("llm.max_tokens_observation").value)
 
         if self._raw_llm:
             self.get_logger().warning("llm.raw=true — чат без system/GBNF/инструментов")
@@ -1639,6 +1635,10 @@ class DialogAgentNode(LifecycleNode):
                 degrade_reason=degrade_reason,
                 total_ms=(time.monotonic() - turn_start) * 1000,
                 now_s=now,
+                endpoint=self._backends[0].config.base_url if self._backends else "",
+                model_name=self._backends[0].config.model_name if self._backends else "",
+                prompt_strategy=self._vision_prompt_strategy,
+                episode_id=None,
             )
             interaction_pub = getattr(self, "_interaction_pub", None)
             if interaction_pub is not None:
