@@ -11,10 +11,21 @@ import json
 from dataclasses import dataclass, field
 
 import pytest
-
 from guide_robot_llm.dialog.turn import render_action_outcome, run_turn
 from guide_robot_llm.llm_client import CompletionResult
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendTimeout
+from guide_robot_llm.pointing import (
+    CameraGeometry,
+    Candidate,
+    PointingContext,
+    PointingEvidence,
+    RobotPose,
+)
+from guide_robot_llm.tools.validate import (
+    REASON_AMBIGUOUS_TARGET,
+    REASON_NO_CANDIDATE,
+    REASON_STALE_FRAMES,
+)
 
 _TOOL_NAMES = ["guide_to", "reply"]
 _ACTION_INSTRUCTION = "ACTION_INSTRUCTION_TEXT"
@@ -82,6 +93,92 @@ def _run(**overrides):
     }
     kwargs.update(overrides)
     return run_turn(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Таига #7: resolve_pointing -- host-side геометрия ДО execute_tool
+# ---------------------------------------------------------------------------
+
+# Та же сцена, что в test_pointing.py: камера 1 м, смотрит вперёд (yaw 0 = +x),
+# наклон 10°. Экспонаты на ~3 м впереди.
+_PT_CAM = CameraGeometry(
+    width_px=1280, height_px=720, hfov_deg=60, vfov_deg=34, mount_z=1.0, pitch_deg=10
+)
+_PT_POSE = RobotPose(x=0.0, y=0.0, yaw=0.0)
+
+
+def _pt_cand(cid: str, name: str, x: float, y: float) -> Candidate:
+    return Candidate(id=cid, name=name, x=x, y=y, aliases=())
+
+
+def _pt_ctx(
+    cands: list[Candidate],
+    *,
+    box=None,
+    present: bool = True,
+    quality: str = "ok",
+    visible=(),
+    utterance: str = "",
+) -> PointingContext:
+    return PointingContext(
+        candidates=tuple(cands),
+        robot_pose=_PT_POSE,
+        camera=_PT_CAM,
+        pointing=PointingEvidence(present=present, box=box),
+        utterance=utterance,
+        frame_quality=quality,
+        visible_ids=frozenset(visible),
+    )
+
+
+def _pt_call(content_id: str = "robot", confidence: float = 0.9) -> str:
+    return json.dumps(
+        {
+            "tool": "resolve_pointing",
+            "args": {"content_id": content_id},
+            "confidence": confidence,
+            "abstain": False,
+        }
+    )
+
+
+# Сцены (см. test_pointing.py): резолвится / неоднозначно / без кандидата.
+def _pt_ctx_resolved() -> PointingContext:
+    return _pt_ctx(
+        [_pt_cand("robot", "робот", 3.0, 0.0)],
+        box=(0.45, 0.69, 0.55, 0.79),
+        visible=("robot",),
+        utterance="расскажи про этот",
+    )
+
+
+def _pt_ctx_ambiguous() -> PointingContext:
+    return _pt_ctx(
+        [
+            _pt_cand("left", "синий робот", 3.0, -0.2),
+            _pt_cand("right", "красный робот", 3.0, 0.2),
+        ],
+        box=(0.45, 0.70, 0.55, 0.80),
+        visible=("left", "right"),
+    )
+
+
+def _pt_ctx_stale() -> PointingContext:
+    return _pt_ctx(
+        [_pt_cand("robot", "робот", 3.0, 0.0)],
+        box=(0.45, 0.69, 0.55, 0.79),
+        visible=("robot",),
+        quality="stale",
+    )
+
+
+def _pt_ctx_no_candidate() -> PointingContext:
+    # Жест есть, но правдоподобных видимых кандидатов нет (все вне кадра).
+    return _pt_ctx(
+        [_pt_cand("far", "далёкий", 50.0, 0.0)],
+        box=(0.45, 0.69, 0.55, 0.79),
+        visible=("far",),
+    )
 
 
 def test_action_selected_and_executed_before_answer_is_generated() -> None:
@@ -1005,3 +1102,129 @@ def test_override_start_tour_bypasses_verdict() -> None:
     assert result.action is not None
     assert result.action.name == "start_tour"
     assert result.action_reason_code == ""
+
+
+# ---------------------------------------------------------------------------
+# Таига #7: resolve_pointing -- host-side геометрия ДО execute_tool
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_pointing_resolved_executes_tool() -> None:
+    """Уникальный видимый кандидат + жест на нём + выбор модели -- исполняется."""
+    executed: list[tuple[str, dict]] = []
+
+    def execute_tool(name: str, args: dict) -> _FakeResult:
+        executed.append((name, args))
+        return _FakeResult(ok=True, data={"chunks": ["текст"]})
+
+    result = _run(
+        complete_action=_actions(_pt_call("robot")),
+        execute_tool=execute_tool,
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_context=_pt_ctx_resolved(),
+    )
+
+    assert executed == [("resolve_pointing", {"content_id": "robot"})]
+    assert result.action is not None
+    assert result.action.name == "resolve_pointing"
+    assert result.action_reason_code == ""
+
+
+def test_resolve_pointing_no_context_abstains_stale() -> None:
+    """Нет замороженного контекста (кадров нет) -- не исполняем, stale_frames."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(_pt_call("robot")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_context=None,
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action.think == REASON_STALE_FRAMES
+    assert result.action_reason_code == REASON_STALE_FRAMES
+
+
+def test_resolve_pointing_ambiguous_abstains() -> None:
+    """Два похожих рядом -- неоднозначно, уточняем, не угадываем."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(_pt_call("left")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"left", "right"}),
+        pointing_context=_pt_ctx_ambiguous(),
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action.think == REASON_AMBIGUOUS_TARGET
+    assert result.action_reason_code == REASON_AMBIGUOUS_TARGET
+
+
+def test_resolve_pointing_stale_frames_abstains() -> None:
+    """Кадры устарели -- качество ввода, stale_frames, не исполняем."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(_pt_call("robot")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_context=_pt_ctx_stale(),
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.think == REASON_STALE_FRAMES
+    assert result.action_reason_code == REASON_STALE_FRAMES
+
+
+def test_resolve_pointing_no_candidate_abstains() -> None:
+    """Нет правдоподобных видимых кандидатов -- no_candidate, уточняем."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(_pt_call("far")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"far"}),
+        pointing_context=_pt_ctx_no_candidate(),
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.think == REASON_NO_CANDIDATE
+    assert result.action_reason_code == REASON_NO_CANDIDATE
+
+
+def test_resolve_pointing_unknown_id_never_reaches_execute() -> None:
+    """content_id вне каталога -- unknown_id ДО брокера, execute_tool не зовётся
+    ни разу (даже при попытке починки модель снова шлёт чужой id)."""
+    executed: list[str] = []
+
+    # Модель упрямо шлёт выдуманный id на каждой попытке.
+    result = _run(
+        complete_action=_actions(_pt_call("ghost"), _pt_call("ghost")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_context=_pt_ctx_resolved(),
+        repair_attempts=1,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action_reason_code == "unknown_id"
