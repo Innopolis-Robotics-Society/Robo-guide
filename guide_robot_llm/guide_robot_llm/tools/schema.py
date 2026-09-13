@@ -163,6 +163,16 @@ TOOLS: tuple[ToolSpec, ...] = (
         read_only=True,
     ),
     ToolSpec(
+        "describe_scene",
+        "Опишите то, что видно на замороженных кадрах камеры. "
+        "Read-only grounding skill: отвечает на вопросы 'что видишь?' "
+        "без выдумывания фактов из каталога. Когда требуются факты экспоната "
+        "— вызывайте lookup_content или search_content. "
+        "Аргумент: focus (необязательная короткая строка-указание, макс. 120 символов).",
+        ALL_STATES,
+        read_only=True,
+    ),
+    ToolSpec(
         "list_locations",
         "Список локаций (read-only, только публичные).",
         ALL_STATES,

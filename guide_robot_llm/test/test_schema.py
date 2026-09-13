@@ -100,6 +100,7 @@ def test_guide_to_description_points_to_ask_visitor_not_explicit_request() -> No
 
 def test_read_only_tools_allowed_in_every_state() -> None:
     for name in (
+        "describe_scene",
         "list_locations",
         "list_tours",
         "estimate_route",
@@ -120,6 +121,7 @@ def test_read_only_flag_set_for_catalog_and_content_tools() -> None:
         "lookup_content",
         "search_content",
         "resolve_location",
+        "describe_scene",
         "list_locations",
         "list_tours",
         "estimate_route",
@@ -144,6 +146,7 @@ def test_allowed_tools_idle_matches_expected_set() -> None:
         "lookup_content",
         "search_content",
         "resolve_location",
+        "describe_scene",
         "list_locations",
         "list_tours",
         "estimate_route",
@@ -187,5 +190,20 @@ def test_llm_only_still_gates_by_state() -> None:
         "lookup_content",
         "search_content",
         "resolve_location",
+        "describe_scene",
         "guide_to",
     ]
+
+
+def test_describe_scene_read_only_visible_in_every_state() -> None:
+    """Taiga #6: describe_scene -- read-only grounding skill: разрешён во
+    всех состояниях, помечен read_only (фаза реплики видит полный рендер
+    визуального контекста) и ВИДИМ модели в llm_only-каталоге."""
+    spec = tool_spec("describe_scene")
+    assert spec is not None
+    assert spec.read_only is True
+    assert spec.llm_visible is True
+    for state in range(9):
+        assert is_tool_allowed("describe_scene", state)
+    visible = set(allowed_tools(_S.STATE_IDLE, llm_only=True))
+    assert "describe_scene" in visible

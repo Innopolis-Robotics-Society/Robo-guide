@@ -353,3 +353,59 @@ def test_tell_about_gated_outside_tour_only() -> None:
         assert "недоступен" in during_tour.message
     finally:
         harness.shutdown()
+
+
+# -- describe_scene: брокер -- минимальный стаб диспетчеризации (Taiga #6) ---------
+
+
+def test_describe_scene_stub_dispatch_via_call_tool() -> None:
+    """describe_scene доходит через брокер как read-only стаб: ok, focus
+    прозрачно прокидывается в data, визуального контекста в брокере НЕТ --
+    его строит dialog_agent на замороженных кадрах хода."""
+    harness = ToolBrokerTestHarness()
+    try:
+        result = harness.broker.call_tool("describe_scene", {"focus": "что видишь?"})
+        assert result.ok, result.message
+        assert result.data["focus"] == "что видишь?"
+        assert result.data["visual_context"] == ""
+        assert result.data["quality"] == ""
+        assert "exhibit_candidates" not in result.data
+    finally:
+        harness.shutdown()
+
+
+def test_describe_scene_invalid_args_rejected_via_call_tool() -> None:
+    """Валидация -- до стаба: нестроковый focus и чужие аргументы режет
+    validate_call (ok=False, внятное сообщение), стаб не исполняется."""
+    harness = ToolBrokerTestHarness()
+    try:
+        bad_focus = harness.broker.call_tool("describe_scene", {"focus": 7})
+        assert not bad_focus.ok
+        assert "focus" in bad_focus.message
+
+        extra_args = harness.broker.call_tool("describe_scene", {"focus": "x", "frames": 3})
+        assert not extra_args.ok
+        assert "неожиданные аргументы" in extra_args.message
+    finally:
+        harness.shutdown()
+
+
+def test_describe_scene_allowed_in_every_mission_state() -> None:
+    """Read-only grounding: describe_scene проходит брокер и в IDLE, и
+    посреди тура (NAVIGATING) -- гейт по состоянию его не режет."""
+    harness = ToolBrokerTestHarness()
+    try:
+        idle = harness.broker.call_tool("describe_scene", {})
+        assert idle.ok, idle.message
+
+        harness.fixtures.add_exhibit("lab105a", ["Раз.", "Два."], version="rev1")
+        harness.fixtures.add_location("lab105a", x=1.0, y=2.0)
+        harness.nav.duration_s = 5.0
+        tour = harness.broker.call_tool("guide_to", {"location_id": "lab105a"})
+        assert tour.ok, tour.message
+        wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
+
+        during_tour = harness.broker.call_tool("describe_scene", {"focus": "экспонат"})
+        assert during_tour.ok, during_tour.message
+    finally:
+        harness.shutdown()

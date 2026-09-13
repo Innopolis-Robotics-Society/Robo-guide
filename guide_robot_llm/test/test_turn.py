@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from guide_robot_llm.dialog.turn import render_action_outcome, run_turn
+from guide_robot_llm.dialog.turn import ToolCallRecord, render_action_outcome, run_turn
 from guide_robot_llm.llm_client import CompletionResult
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendTimeout
 
@@ -1005,3 +1005,86 @@ def test_override_start_tour_bypasses_verdict() -> None:
     assert result.action is not None
     assert result.action.name == "start_tour"
     assert result.action_reason_code == ""
+
+
+# -- describe_scene: read-only рендер визуального контекста (Taiga #6) -------------
+
+
+def test_describe_scene_outcome_renders_visual_context_and_candidates() -> None:
+    record = ToolCallRecord(
+        name="describe_scene",
+        args={"focus": "что в кадре"},
+        result_ok=True,
+        result_message="",
+        result_data={
+            "visual_context": "В кадре человек указывает на экспонат.",
+            "quality": "ok",
+            "exhibit_candidates": ("lab105a", "lidar_stand"),
+        },
+        read_only=True,
+    )
+
+    rendered = render_action_outcome(record)
+
+    assert rendered == (
+        "В кадре человек указывает на экспонат. "
+        "видимые экспонаты: lab105a, lidar_stand"
+    )
+
+
+def test_describe_scene_outcome_keeps_quality_line_when_not_ok() -> None:
+    record = ToolCallRecord(
+        name="describe_scene",
+        args={},
+        result_ok=True,
+        result_message="",
+        result_data={"visual_context": "В кадре робот.", "quality": "stale"},
+        read_only=True,
+    )
+
+    assert render_action_outcome(record) == "В кадре робот. качество кадров: stale"
+
+
+def test_describe_scene_outcome_abstains_without_frozen_frames() -> None:
+    """quality=none -- внятное воздержание фазе реплики, не пустой блок."""
+    record = ToolCallRecord(
+        name="describe_scene",
+        args={},
+        result_ok=True,
+        result_message="",
+        result_data={"visual_context": "", "quality": "none", "exhibit_candidates": ()},
+        read_only=True,
+    )
+
+    assert render_action_outcome(record) == (
+        "не удалось: describe_scene — нет замороженных кадров"
+    )
+
+
+def test_describe_scene_outcome_unavailable_when_context_empty() -> None:
+    record = ToolCallRecord(
+        name="describe_scene",
+        args={},
+        result_ok=True,
+        result_message="",
+        result_data={"visual_context": "", "quality": ""},
+        read_only=True,
+    )
+
+    assert render_action_outcome(record) == "визуальный контекст недоступен"
+
+
+def test_describe_scene_failed_execution_shown_to_answer_phase() -> None:
+    record = ToolCallRecord(
+        name="describe_scene",
+        args={"focus": "x"},
+        result_ok=False,
+        result_message="нет замороженных кадров — описание сцены невозможно",
+        result_data={},
+        read_only=True,
+    )
+
+    assert render_action_outcome(record) == (
+        "не удалось: describe_scene — "
+        "нет замороженных кадров — описание сцены невозможно"
+    )
