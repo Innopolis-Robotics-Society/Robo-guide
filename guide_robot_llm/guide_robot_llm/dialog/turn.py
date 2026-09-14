@@ -142,11 +142,10 @@ class TurnResult:
     # Код причины safe fallback (abstain/low_confidence/исчерпанная
     # починка) либо "" -- обычный ход.
     action_reason_code: str = ""
+    # True, если ПЕРВАЯ попытка фазы действия была схема-валидной.
     action_first_attempt_valid: bool = False
     action_confidence: float | None = None
     action_abstain: bool | None = None
-    # True, если ПЕРВАЯ попытка фазы действия была схема-валидной.
-    action_first_attempt_valid: bool = False
     # Фаза наблюдения (Taiga #4): сырой вывод / рендер для промпта /
     # причина деградации (см. docstring).
     observation_raw_text: str = ""

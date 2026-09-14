@@ -1259,6 +1259,8 @@ class DialogAgentNode(LifecycleNode):
                         "age_s": max(0.0, round(now_s - frame.captured_at, 1)),
                         "sha256_16": frame_sha256_16(frame.data_url),
                         "payload_bytes": frame.payload_bytes,
+                        "width": int(frame.width),
+                        "height": int(frame.height),
                     }
                     for frame in frozen
                 ]
