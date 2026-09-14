@@ -11,6 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+
 from guide_robot_llm.dialog.prompt import build_observation_instruction
 from guide_robot_llm.llm_client.grammar import build_observation_grammar
 from guide_robot_llm.visual_context import (
@@ -105,7 +106,7 @@ def test_render_text_only_snapshot() -> None:
 
     assert rendered == (
         "[Визуальный контекст]\n"
-        'Реплика посетителя: «покажи кандинского»\n'
+        "Реплика посетителя: «покажи кандинского»\n"
         "Кадры с камеры: нет (text-only) -- визуальных данных не существует.\n"
         "Кандидаты-экспонаты: нет. id экспонатов/локаций ВЫДУМЫВАТЬ ЗАПРЕЩЕНО -- "
         "действуй только по справке и статусу, при необходимости уточни вопросом."
@@ -186,9 +187,7 @@ _VALID_OBSERVATION = (
 def test_parse_observation_valid() -> None:
     observation = parse_observation(_VALID_OBSERVATION, candidate_ids=_CANDIDATES, max_chars=400)
 
-    assert observation == Observation(
-        2, ("lab105a",), "yes", "человек указывает на стойку"
-    )
+    assert observation == Observation(2, ("lab105a",), "yes", "человек указывает на стойку")
 
 
 def test_parse_observation_filters_foreign_ids_keeps_order() -> None:
@@ -219,9 +218,7 @@ def test_parse_observation_dedupes_repeated_candidate_ids() -> None:
         '{"people_count": 1, "exhibit_candidates": ["lab105a", "lab105a"], '
         '"pointing_evidence": "none", "scene_facts": ""}'
     )
-    observation = parse_observation(
-        text, candidate_ids=frozenset({"lab105a"}), max_chars=400
-    )
+    observation = parse_observation(text, candidate_ids=frozenset({"lab105a"}), max_chars=400)
     assert observation is not None
     assert observation.exhibit_candidates == ("lab105a",)
 
@@ -343,6 +340,14 @@ def test_candidates_capped_to_custom_max() -> None:
     )
 
     assert [c.id for c in context.candidates] == ["loc_0", "loc_1"]
+
+
+def test_frame_meta_carries_dimensions() -> None:
+    frame = _frame(_URL_1, captured_at=99.0, payload_bytes=1000)
+    frame.width, frame.height = 640, 480  # SimpleNamespace: просто присвоить
+    ctx = _context([frame], candidates=[])
+    fm = ctx.frames[0]
+    assert fm.width == 640 and fm.height == 480
 
 
 def test_custom_stale_age_s_marks_frame_stale() -> None:

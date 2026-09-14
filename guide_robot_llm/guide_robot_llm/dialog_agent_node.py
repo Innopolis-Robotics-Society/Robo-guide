@@ -24,6 +24,7 @@ ROS-события (транскрипт, переходы `/mission/state`, bar
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -73,6 +74,7 @@ from guide_robot_llm.llm_client import (
     complete_with_fallback,
 )
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
+from guide_robot_llm.llm_client.telemetry import ClientTelemetry
 from guide_robot_llm.tools import schema
 from guide_robot_llm.visual_context import (
     ExhibitCandidate,
@@ -535,6 +537,18 @@ class DialogAgentNode(LifecycleNode):
             locations=self._locations_catalog,
             tours=self._tours_catalog,
         )
+        self._prompt_hash = hashlib.sha256(self._system_prompt.encode("utf-8")).hexdigest()[:16]
+        self._preproc_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "frame_count": int(self.get_parameter("vision.frame_count").value),
+                    "lookback_s": float(self.get_parameter("vision.lookback_s").value),
+                    "max_long_edge_px": int(self.get_parameter("vision.max_long_edge_px").value),
+                    "max_payload_bytes": int(self.get_parameter("vision.max_payload_bytes").value),
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()[:16]
         self._action_instruction = build_action_instruction(schema.TOOLS)
         self._answer_instruction = build_answer_instruction()
         # Таига #4: стабильная инструкция наблюдения -- только для
@@ -1186,6 +1200,7 @@ class DialogAgentNode(LifecycleNode):
             abort_event = self._abort_event
         turn_start = time.monotonic()
         stage_timings: list[dict] = []
+        turn_telemetry = ClientTelemetry()
         snap: dict = {"mission": {"state": "UNKNOWN"}}
         references: list[dict] = []
         corpus_texts: list[str] = []
@@ -1339,6 +1354,7 @@ class DialogAgentNode(LifecycleNode):
                         abort_event=abort_event,
                         max_attempts_per_backend=self._max_attempts_per_backend,
                         backoff_s=self._backoff_s,
+                        telemetry=turn_telemetry,
                     )
                 finally:
                     stage_timings.append(
@@ -1358,6 +1374,7 @@ class DialogAgentNode(LifecycleNode):
                         stop_when=stop_when,
                         max_attempts_per_backend=self._max_attempts_per_backend,
                         backoff_s=self._backoff_s,
+                        telemetry=turn_telemetry,
                     )
                 finally:
                     stage_timings.append(
@@ -1380,6 +1397,7 @@ class DialogAgentNode(LifecycleNode):
                         stop_when=stop_when,
                         max_attempts_per_backend=self._max_attempts_per_backend,
                         backoff_s=self._backoff_s,
+                        telemetry=turn_telemetry,
                     )
                 finally:
                     stage_timings.append(
@@ -1638,7 +1656,10 @@ class DialogAgentNode(LifecycleNode):
                 endpoint=self._backends[0].config.base_url if self._backends else "",
                 model_name=self._backends[0].config.model_name if self._backends else "",
                 prompt_strategy=self._vision_prompt_strategy,
+                prompt_hash=self._prompt_hash,
+                preproc_hash=self._preproc_hash,
                 episode_id=None,
+                client_telemetry=turn_telemetry.snapshot(),
             )
             interaction_pub = getattr(self, "_interaction_pub", None)
             if interaction_pub is not None:

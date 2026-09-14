@@ -102,7 +102,10 @@ def build_interaction_record(
     endpoint: str = "",
     model_name: str = "",
     prompt_strategy: str = "",
+    prompt_hash: str = "",
+    preproc_hash: str = "",
     episode_id: str | None = None,
+    client_telemetry: dict | None = None,
 ) -> dict:
     """Собрать одну jsonl-запись хода диалога (схема v6).
 
@@ -145,6 +148,8 @@ def build_interaction_record(
             "ok": result.action.result_ok,
             "message": result.action.result_message,
             "content_version": result.action.result_data.get("version"),
+            "confidence": result.action_confidence,
+            "abstain": result.action_abstain,
         }
 
     return {
@@ -199,8 +204,11 @@ def build_interaction_record(
         "total_ms": total_ms,
         "endpoint": {"base_url": endpoint, "model": model_name},
         "prompt_strategy": prompt_strategy,
+        "prompt_hash": prompt_hash,
+        "preproc_hash": preproc_hash,
         "frame_count": len(snapshot.get("frames", [])),
         "schema_valid_raw": result.action_first_attempt_valid,
         "validator_reason": result.action_reason_code,
         "episode_id": episode_id,
+        "client_telemetry": client_telemetry,
     }

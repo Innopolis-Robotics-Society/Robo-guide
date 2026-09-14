@@ -53,8 +53,8 @@ __all__ = [
 # дословно, чтобы модель не «докладывала» про формат.
 _MALFORMED_REPAIR_HINT = (
     "Предыдущий ответ не соответствует контракту. Ответь ТОЛЬКО одним "
-    "JSON-объектом {\"tool\": \"<имя>\", \"args\": {...}, "
-    "\"confidence\": <число 0..1>, \"abstain\": true|false} -- ровно эти 4 "
+    'JSON-объектом {"tool": "<имя>", "args": {...}, '
+    '"confidence": <число 0..1>, "abstain": true|false} -- ровно эти 4 '
     "поля, без чужих ключей и без текста до или после JSON."
 )
 
@@ -142,6 +142,9 @@ class TurnResult:
     # Код причины safe fallback (abstain/low_confidence/исчерпанная
     # починка) либо "" -- обычный ход.
     action_reason_code: str = ""
+    action_first_attempt_valid: bool = False
+    action_confidence: float | None = None
+    action_abstain: bool | None = None
     # True, если ПЕРВАЯ попытка фазы действия была схема-валидной.
     action_first_attempt_valid: bool = False
     # Фаза наблюдения (Taiga #4): сырой вывод / рендер для промпта /
@@ -357,6 +360,8 @@ def run_turn(
     action_raw_text = ""
     action_finish_reason = ""
     action_reason_code = ""
+    action_confidence: float | None = None
+    action_abstain: bool | None = None
     first_attempt_valid = False
 
     # Таига #4: фаза наблюдения ПЕРЕД фазой действия (observe_then_decide).
@@ -498,6 +503,8 @@ def run_turn(
 
         name = parsed.tool
         args = parsed.args
+        action_confidence = parsed.confidence
+        action_abstain = parsed.abstain
         overridden = False
 
         # «начни экскурсию» + reply от модели -- детерминированное
@@ -633,6 +640,8 @@ def run_turn(
         utterance=utterance,
         action_reason_code=action_reason_code,
         action_first_attempt_valid=first_attempt_valid,
+        action_confidence=action_confidence,
+        action_abstain=action_abstain,
         observation_raw_text=observation_raw_text,
         observation_text=observation_text,
         observation_error=observation_error,
@@ -655,6 +664,8 @@ def run_answer_phase(
     repair_used: bool = False,
     utterance: str = "",
     action_reason_code: str = "",
+    action_confidence: float | None = None,
+    action_abstain: bool | None = None,
     action_first_attempt_valid: bool = False,
     observation_raw_text: str = "",
     observation_text: str = "",
@@ -690,9 +701,7 @@ def run_answer_phase(
     if utterance:
         answer_message += f"\n\nРеплика посетителя: «{utterance}»\nОтветь именно на неё."
     answer_image_frames = (
-        tuple(answer_frames)
-        if (answer_phase_images and record.name != "reply")
-        else ()
+        tuple(answer_frames) if (answer_phase_images and record.name != "reply") else ()
     )
     messages = [
         *messages,
@@ -712,6 +721,8 @@ def run_answer_phase(
             repair_used=repair_used,
             action_reason_code=action_reason_code,
             action_first_attempt_valid=action_first_attempt_valid,
+            action_confidence=action_confidence,
+            action_abstain=action_abstain,
             observation_raw_text=observation_raw_text,
             observation_text=observation_text,
             observation_error=observation_error,
@@ -738,6 +749,8 @@ def run_answer_phase(
                 repair_used=repair_used,
                 action_reason_code=action_reason_code,
                 action_first_attempt_valid=action_first_attempt_valid,
+                action_confidence=action_confidence,
+                action_abstain=action_abstain,
                 observation_raw_text=observation_raw_text,
                 observation_text=observation_text,
                 observation_error=observation_error,
@@ -760,6 +773,8 @@ def run_answer_phase(
         repair_used=repair_used,
         action_reason_code=action_reason_code,
         action_first_attempt_valid=action_first_attempt_valid,
+        action_confidence=action_confidence,
+        action_abstain=action_abstain,
         observation_raw_text=observation_raw_text,
         observation_text=observation_text,
         observation_error=observation_error,

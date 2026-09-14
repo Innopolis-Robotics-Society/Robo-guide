@@ -130,6 +130,8 @@ def test_action_serialized_with_content_version_none_when_absent() -> None:
         "ok": True,
         "message": "",
         "content_version": None,
+        "confidence": None,
+        "abstain": None,
     }
 
 
@@ -404,3 +406,39 @@ def test_load_record_rejects_missing_version() -> None:
 
     with pytest.raises(SchemaVersionError):
         load_record({"turn_id": 1})
+
+
+def test_client_telemetry_passes_through() -> None:
+    tele = {
+        "attempts": 3,
+        "retries": 1,
+        "fallbacks": 1,
+        "timeouts": 0,
+        "http_failures": 0,
+        "failure_stages": {},
+        "last_failure": None,
+        "timings": [],
+    }
+    record = build_interaction_record(**_base_kwargs(), client_telemetry=tele)
+    assert record["client_telemetry"]["fallbacks"] == 1
+    assert record["client_telemetry"]["retries"] == 1
+
+
+def test_client_telemetry_defaults_none() -> None:
+    assert build_interaction_record(**_base_kwargs())["client_telemetry"] is None
+
+
+def test_action_confidence_and_abstain_in_record() -> None:
+    call = ToolCallRecord(name="reply", args={}, result_ok=True, result_message="", result_data={})
+    result = _result(action=call, action_confidence=0.82, action_abstain=False)
+    record = build_interaction_record(**_base_kwargs(result=result))
+    assert record["action"]["confidence"] == 0.82
+    assert record["action"]["abstain"] is False
+
+
+def test_prompt_and_preproc_hashes_pass_through() -> None:
+    record = build_interaction_record(
+        **_base_kwargs(), prompt_hash="abc123", preproc_hash="def456"
+    )
+    assert record["prompt_hash"] == "abc123"
+    assert record["preproc_hash"] == "def456"
