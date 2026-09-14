@@ -1,0 +1,198 @@
+........................s............................................... [ 13%]
+........................................................................ [ 27%]
+......F................................................................. [ 40%]
+........................................................................ [ 54%]
+........................................................................ [ 67%]
+Fatal Python error: Segmentation fault
+
+Thread 0x00007fccfffff640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fccbffff640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fccfeffd640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fcd1b7fe640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fcd53fff640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fcdd8ff9640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fcecbdbf640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fcdf7fff640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fce137fe640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fceca535640 (most recent call first):
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 86 in _poll_loop
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/base.py", line 63 in run
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/fsm/root_sm.py", line 245 in run_tour
+  File "/ws/install/guide_robot_mission_control/lib/python3.10/site-packages/guide_robot_mission_control/mission_fsm_node.py", line 481 in _execute_run_tour
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110 in await_or_execute
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 337 in _execute_goal
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272 in _execute_coroutine_step
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 256 in __call__
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 58 in run
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 83 in _worker
+  File "/usr/lib/python3.10/threading.py", line 953 in run
+  File "/usr/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/usr/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x00007fcf22d841c0 (most recent call first):
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1468 in create_service
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/parameter_service.py", line 45 in __init__
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 228 in __init__
+  File "/ws/guide_robot_llm/test/mocks/mock_nav_server.py", line 31 in __init__
+  File "/ws/guide_robot_llm/test/mocks/harness.py", line 100 in __init__
+  File "/ws/guide_robot_llm/test/test_tool_gating.py", line 235 in test_finish_answer_skip_stop_via_broker_advances_tour
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/python.py", line 157 in pytest_pyfunc_call
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/python.py", line 1671 in runtest
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/runner.py", line 178 in pytest_runtest_call
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/runner.py", line 246 in <lambda>
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/runner.py", line 344 in from_call
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/runner.py", line 245 in call_and_report
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/runner.py", line 136 in runtestprotocol
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/runner.py", line 117 in pytest_runtest_protocol
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/main.py", line 367 in pytest_runtestloop
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/main.py", line 343 in _main
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/main.py", line 289 in wrap_session
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/main.py", line 336 in pytest_cmdline_main
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/fabian/.local/lib/python3.10/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/config/__init__.py", line 175 in main
+  File "/home/fabian/.local/lib/python3.10/site-packages/_pytest/config/__init__.py", line 201 in console_main
+  File "/home/fabian/.local/lib/python3.10/site-packages/pytest/__main__.py", line 9 in <module>
+  File "/usr/lib/python3.10/runpy.py", line 86 in _run_code
+  File "/usr/lib/python3.10/runpy.py", line 196 in _run_module_as_main
+
+Extension modules: yaml._yaml, markupsafe._speedups, charset_normalizer.md, charset_normalizer.cd, requests.packages.charset_normalizer.md, requests.packages.chardet.md, requests.packages.charset_normalizer.cd, requests.packages.chardet.cd, psutil._psutil_linux, psutil._psutil_posix, numpy.core._multiarray_umath, numpy.core._multiarray_tests, numpy.linalg._umath_linalg, numpy.fft._pocketfft_internal, numpy.random._common, numpy.random.bit_generator, numpy.random._bounded_integers, numpy.random._mt19937, numpy.random.mtrand, numpy.random._philox, numpy.random._pcg64, numpy.random._sfc64, numpy.random._generator, PIL._imaging, rcl_interfaces.rcl_interfaces_s__rosidl_typesupport_c, builtin_interfaces.builtin_interfaces_s__rosidl_typesupport_c, rosgraph_msgs.rosgraph_msgs_s__rosidl_typesupport_c, guide_robot_msgs.guide_robot_msgs_s__rosidl_typesupport_c, action_msgs.action_msgs_s__rosidl_typesupport_c, unique_identifier_msgs.unique_identifier_msgs_s__rosidl_typesupport_c, nav2_msgs.nav2_msgs_s__rosidl_typesupport_c, geometry_msgs.geometry_msgs_s__rosidl_typesupport_c, std_msgs.std_msgs_s__rosidl_typesupport_c, lifecycle_msgs.lifecycle_msgs_s__rosidl_typesupport_c, std_srvs.std_srvs_s__rosidl_typesupport_c, PIL._imagingmath, PIL._avif, PIL._webp (total: 38)

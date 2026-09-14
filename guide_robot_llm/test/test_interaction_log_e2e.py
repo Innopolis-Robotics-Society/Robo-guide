@@ -52,6 +52,9 @@ def test_turn_produces_interaction_log_record() -> None:
             "ok": True,
             "message": "",
             "content_version": None,
+            # Таига #8: confidence/abstain из распарсенного действия.
+            "confidence": 0.9,
+            "abstain": False,
         }
         assert record["repair_used"] is False
         assert record["references"] == []

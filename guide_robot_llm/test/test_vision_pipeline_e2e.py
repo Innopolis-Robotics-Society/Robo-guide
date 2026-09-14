@@ -136,10 +136,19 @@ def test_vision_enabled_frozen_frame_lands_in_snapshot() -> None:
         assert len(frames) == 1
         meta = frames[0]
         # Метаданные, а не payload: base64-контент кадра в лог не идёт.
-        assert set(meta) == {"captured_at", "age_s", "payload_bytes", "sha256_16"}
+        assert set(meta) == {
+            "captured_at",
+            "age_s",
+            "payload_bytes",
+            "sha256_16",
+            "width",
+            "height",
+        }
         assert meta["age_s"] >= 0
         # 320 px < 1280 -- даунскейл не срабатывает, байты прошли без перекодирования.
         assert meta["payload_bytes"] == len(jpeg)
+        # Таига #8: размерность кадра попадает в лог (JPEG 320x240, без даунскейла).
+        assert (meta["width"], meta["height"]) == (320, 240)
         assert meta["sha256_16"] == frame_sha256_16(
             _PREFIX + base64.b64encode(jpeg).decode("ascii")
         )
