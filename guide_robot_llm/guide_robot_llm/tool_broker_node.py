@@ -121,6 +121,10 @@ class ToolBrokerNode(LifecycleNode):
         # при недоступном сервисе на разовом вызове.
         self._known_location_ids_cache: frozenset[str] = frozenset()
         self._known_tour_ids_cache: frozenset[str] = frozenset()
+        # Taiga #7: кэш id публичных экспонатов (category=="exhibit" и
+        # is_public) для валидации resolve_pointing.content_id -- тот же
+        # whitelist-механизм, что у локаций/туров.
+        self._known_exhibit_ids_cache: frozenset[str] = frozenset()
 
         self._cb_reentrant = ReentrantCallbackGroup()
 
@@ -233,9 +237,10 @@ class ToolBrokerNode(LifecycleNode):
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
-        """Разрешить обработку вызовов инструментов; загрузить кэш whitelist локаций/туров."""
+        """Разрешить обработку вызовов; загрузить кэш whitelist локаций/туров/экспонатов."""
         self._known_location_ids_cache = self._known_location_ids()
         self._known_tour_ids_cache = self._known_tour_ids()
+        self._known_exhibit_ids_cache = self._known_exhibit_ids()
         self._active = True
         return super().on_activate(state)
 
@@ -244,6 +249,7 @@ class ToolBrokerNode(LifecycleNode):
         self._active = False
         self._known_location_ids_cache = frozenset()
         self._known_tour_ids_cache = frozenset()
+        self._known_exhibit_ids_cache = frozenset()
         return super().on_deactivate(state)
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
@@ -385,6 +391,11 @@ class ToolBrokerNode(LifecycleNode):
             self._known_location_ids_cache if _needs_location_whitelist(name) else frozenset()
         )
         known_tours = self._known_tour_ids_cache if name == "start_tour" else frozenset()
+        # Taiga #7: resolve_pointing.content_id валидируется по каталогу
+        # публичных экспонатов -- выдуманное id не доходит до content service.
+        known_exhibits = (
+            self._known_exhibit_ids_cache if name == "resolve_pointing" else frozenset()
+        )
         try:
             validate.validate_call(
                 name,
@@ -392,6 +403,7 @@ class ToolBrokerNode(LifecycleNode):
                 tools_allowed=tools_allowed,
                 known_location_ids=known_locations,
                 known_tour_ids=known_tours,
+                known_exhibit_ids=known_exhibits,
             )
         except validate.ValidationError as error:
             return ToolResult(ok=False, message=str(error))
@@ -790,6 +802,39 @@ class ToolBrokerNode(LifecycleNode):
             },
         )
 
+    def _tool_resolve_pointing(self, args: dict) -> ToolResult:
+        """Taiga #7: fetch контента экспоната, на который указал посетитель.
+
+        Инварианты выдержаны ДОЗДЕСЬ: `content_id` отфильтрован
+        `validate_call` (known_exhibit_ids, выдуманное id не дошло сюда) и
+        host-side сверен с геометрией жеста (`dialog/turn.py`, неоднозначно/
+        нет/устарело -- safe abstention, не исполнение). Здесь -- только
+        read_only-фетч текста (read_only-данные: chunks/chunk_ids/title/
+        kind/version), тот же вид, что у lookup_content.
+        """
+        response = self._call_sync(
+            self._get_exhibit_content_client,
+            GetExhibitContent.Request(
+                exhibit_id=str(args["content_id"]),
+                mode="full",
+                language="",
+            ),
+        )
+        if response is None:
+            return ToolResult(ok=False, message="content_server недоступен")
+        if not response.chunks:
+            return ToolResult(ok=False, message="контент не найден", data={"chunks": []})
+        return ToolResult(
+            ok=True,
+            data={
+                "chunks": [chunk.text for chunk in response.chunks],
+                "chunk_ids": [chunk.chunk_id for chunk in response.chunks],
+                "title": response.title,
+                "kind": response.kind,
+                "version": response.version,
+            },
+        )
+
     _HANDLERS = {
         "start_tour": _tool_start_tour,
         "guide_to": _tool_guide_to,
@@ -815,6 +860,8 @@ class ToolBrokerNode(LifecycleNode):
         "search_content": _tool_search_content,
         "resolve_location": _tool_resolve_location,
         "describe_scene": _tool_describe_scene,
+        # Taiga #7: read_only-композитный skill (жест -> контент экспоната).
+        "resolve_pointing": _tool_resolve_pointing,
     }
 
     # -- whitelist для validate.py --------------------------------------------
@@ -830,6 +877,23 @@ class ToolBrokerNode(LifecycleNode):
         if response is None:
             return frozenset()
         return frozenset(tour.id for tour in response.tours)
+
+    def _known_exhibit_ids(self) -> frozenset[str]:
+        """Taiga #7: id публичных экспонатов (category=="exhibit" и is_public).
+
+        Ключ content service = id локации-экспоната (тот же id, что в
+        визуальных кандидатах и в `lookup_content.content_id`). Приватные
+        (is_public=False) и не-экспонаты (waypoint/service) не входят:
+        на них указывать/рассказывать публично нельзя.
+        """
+        response = self._call_sync(self._list_locations_client, ListLocations.Request())
+        if response is None:
+            return frozenset()
+        return frozenset(
+            loc.id
+            for loc in response.locations
+            if loc.category == "exhibit" and loc.is_public
+        )
 
     # -- общий синхронный вызов сервиса с таймаутом ---------------------------
 

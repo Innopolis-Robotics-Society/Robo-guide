@@ -1,0 +1,81 @@
+{
+  "objects": {
+    "column-01": {
+      "box_px": [
+        700,
+        400,
+        770,
+        830
+      ],
+      "color": [
+        190,
+        186,
+        180
+      ],
+      "shape": "rect"
+    },
+    "cabinet-02": {
+      "box_px": [
+        1150,
+        430,
+        1440,
+        830
+      ],
+      "color": [
+        70,
+        60,
+        55
+      ],
+      "shape": "rect"
+    }
+  },
+  "people": [
+    {
+      "person_id": "p1",
+      "box_px": [
+        313,
+        520,
+        447,
+        840
+      ],
+      "visible_fraction": 1.0,
+      "occluded_by": null,
+      "counts_as_person": true,
+      "note": null
+    },
+    {
+      "person_id": "p2",
+      "box_px": [
+        725,
+        530,
+        855,
+        840
+      ],
+      "visible_fraction": 0.665,
+      "occluded_by": "column-01",
+      "counts_as_person": true,
+      "note": null
+    },
+    {
+      "person_id": "p3",
+      "box_px": [
+        1097,
+        540,
+        1223,
+        840
+      ],
+      "visible_fraction": 0.44,
+      "occluded_by": "cabinet-02",
+      "counts_as_person": true,
+      "note": null
+    }
+  ],
+  "pointing": null,
+  "scene_id": "AUD-CC-002",
+  "size": [
+    1600,
+    900
+  ],
+  "seed": 20260914,
+  "venue": "synthetic (PIL, deterministic spec)"
+}

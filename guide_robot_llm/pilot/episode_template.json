@@ -1,0 +1,62 @@
+{
+  "episode_id": "POI-SR-001",
+  "track": "pointing",
+  "source_family": "surrogate_real",
+  "media": {
+    "media_id": "IMG_20260913_0042",
+    "uri": "pilot/media/pointing/IMG_20260913_0042.jpg",
+    "sha256": "<64 hex — computed at ingest, never edited by hand>",
+    "captured_at": "2026-09-13T12:00:00+07:00",
+    "venue": "staged, office floor (surrogate real — NOT robot-view/museum-view)",
+    "rights": {
+      "status": "approved",
+      "consent_ref": "consent-2026-09-13-07",
+      "identifiable_people": ["pointer (consented)", "no bystanders"],
+      "license_note": "self-captured / pre-approved; no public dataset"
+    }
+  },
+  "split_group_id": "g-img-IMG_20260913_0042",
+  "utterance": {
+    "text": "Это что за прибор?",
+    "language": "ru",
+    "provenance": "staged"
+  },
+  "mission_snapshot": {
+    "state": "IDLE",
+    "allowed_tools": [
+      "reply", "tell_about", "ask_visitor", "lookup_content", "search_content",
+      "resolve_location", "start_tour", "guide_to", "tour_by_points"
+    ],
+    "visible_candidate_ids": ["cand-voltmeter-01", "cand-gauge-02"],
+    "catalog_fixture": "pilot/fixtures/catalog_volt.json",
+    "robot_pose": "not_observed",
+    "sensors": "not_observed",
+    "counterfactual": true
+  },
+  "gold": {
+    "type": "target_box",
+    "target": {
+      "candidate_id": "cand-voltmeter-01",
+      "box_px": [x0, y0, x1, y1],
+      "distractors": ["cand-gauge-02"]
+    },
+    "provenance": "human-annotated 2026-09-14, annotators [a1, a2]",
+    "annotated_by": ["a1", "a2"],
+    "adjudicated_by": null,
+    "adjudication": null
+  },
+  "review": {
+    "status": "pending",
+    "answerable": null,
+    "ambiguous": null,
+    "safe": null,
+    "notes": ""
+  },
+  "not_observed": {
+    "robot_pose": true,
+    "lidar": true,
+    "sonar": true,
+    "camera_calibration": true,
+    "latency": true
+  }
+}

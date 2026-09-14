@@ -100,6 +100,20 @@
     vision.answer_phase_images: false
     vision.max_candidates: 5
     vision.observation_max_chars: 400
+    # Taiga #7: геометрия камеры для резолюции жеста-указания (resolve_pointing).
+    # Камера НЕ привязана к TF (см. README «Визуальная pipeline»): модель
+    # задаётся явно. Дефолты -- типичная широкоугольная камера на стойке
+    # (1280x720, HFOV 60 / VFOV 34, зенит 1.0 м, смотрит вперёд чуть вниз);
+    # под конкретный монтаж робота прокалибровать ЗДЕСЬ, не в коде.
+    vision.camera.width_px: 1280
+    vision.camera.height_px: 720
+    vision.camera.hfov_deg: 60.0
+    vision.camera.vfov_deg: 34.0
+    vision.camera.mount_x: 0.0
+    vision.camera.mount_y: 0.0
+    vision.camera.mount_z: 1.0
+    vision.camera.yaw_deg: 0.0
+    vision.camera.pitch_deg: 10.0
 
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
 /**/interaction_log:

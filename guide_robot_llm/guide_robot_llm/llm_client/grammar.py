@@ -91,10 +91,21 @@ _OBSERVATION_ROOT = (
     'root ::= "{" ws "people_count" ws ":" ws people-count ws "," ws '
     '"exhibit_candidates" ws ":" ws candidate-array ws "," ws '
     '"pointing_evidence" ws ":" ws pointing ws "," ws '
+    '"pointing_box" ws ":" ws pointing-box ws "," ws '
     '"scene_facts" ws ":" ws string ws "}" ws'
 )
 _PEOPLE_COUNT_RULE = "people-count ::= [0-9]{1,2} ws"
 _POINTING_RULE = 'pointing ::= ("none" | "yes" | "uncertain") ws'
+# Taiga #7: бокс жеста-указания в НОРМИРОВАННЫХ координатах кадра
+# [x0, y0, x1, y1], каждое число в [0, 1]. Всегда присутствует как ключ:
+# массив -- когда жест есть, `null` -- когда нет (none/uncertain). Хост
+# (visual_context.parse_observation) остаётся последней линией защиты и
+# принимает наблюдение И без ключа (4 поля -- сервер проигнорировал грамма).
+_POINTING_BOX_RULE = (
+    'pointing-box ::= '
+    '("[" ws pointing-coord ("," ws pointing-coord){3} ws "]" | "null") ws'
+)
+_POINTING_COORD_RULE = 'pointing-coord ::= ("0" ("." [0-9]{1,12})? | "1" ("." "0")?)'
 
 
 def build_observation_grammar(candidate_ids: list[str]) -> str:
@@ -118,7 +129,14 @@ def build_observation_grammar(candidate_ids: list[str]) -> str:
         # пустой альтернативой не нужно).
         candidate_array = 'candidate-array ::= "[" ws "]" ws'
         candidate_id_rule = None
-    rules = [_OBSERVATION_ROOT, _PEOPLE_COUNT_RULE, _POINTING_RULE, candidate_array]
+    rules = [
+        _OBSERVATION_ROOT,
+        _PEOPLE_COUNT_RULE,
+        _POINTING_RULE,
+        _POINTING_BOX_RULE,
+        _POINTING_COORD_RULE,
+        candidate_array,
+    ]
     if candidate_id_rule is not None:
         rules.append(candidate_id_rule)
     return "\n".join([*rules, *_JSON_RULES.splitlines()])

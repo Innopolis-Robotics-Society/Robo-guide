@@ -1,0 +1,136 @@
+{
+  "exhibits": [
+    {
+      "content_id": "mirror-01",
+      "title": "Mirror 01"
+    },
+    {
+      "content_id": "pedestal-02",
+      "title": "Pedestal 02"
+    },
+    {
+      "content_id": "column-01",
+      "title": "Column 01"
+    },
+    {
+      "content_id": "cabinet-02",
+      "title": "Cabinet 02"
+    },
+    {
+      "content_id": "cabinet-01",
+      "title": "Cabinet 01"
+    },
+    {
+      "content_id": "frame-02",
+      "title": "Frame 02"
+    },
+    {
+      "content_id": "poster-03",
+      "title": "Poster 03"
+    },
+    {
+      "content_id": "globe-01",
+      "title": "Globe 01"
+    },
+    {
+      "content_id": "display-02",
+      "title": "Display 02"
+    },
+    {
+      "content_id": "vase-03",
+      "title": "Vase 03"
+    },
+    {
+      "content_id": "table-04",
+      "title": "Table 04"
+    },
+    {
+      "content_id": "plaque-01",
+      "title": "Plaque 01"
+    },
+    {
+      "content_id": "tank-02",
+      "title": "Tank 02"
+    },
+    {
+      "content_id": "screen-03",
+      "title": "Screen 03"
+    },
+    {
+      "content_id": "shelf-04",
+      "title": "Shelf 04"
+    },
+    {
+      "content_id": "vase-05",
+      "title": "Vase 05"
+    },
+    {
+      "content_id": "map-06",
+      "title": "Map 06"
+    },
+    {
+      "content_id": "redbox-01",
+      "title": "Redbox 01"
+    },
+    {
+      "content_id": "shelf-02",
+      "title": "Shelf 02"
+    },
+    {
+      "content_id": "cabinet-03",
+      "title": "Cabinet 03"
+    },
+    {
+      "content_id": "vase-04",
+      "title": "Vase 04"
+    },
+    {
+      "content_id": "table-05",
+      "title": "Table 05"
+    },
+    {
+      "content_id": "poster-01",
+      "title": "Poster 01"
+    },
+    {
+      "content_id": "plant-02",
+      "title": "Plant 02"
+    },
+    {
+      "content_id": "frame-03",
+      "title": "Frame 03"
+    },
+    {
+      "content_id": "chair-01",
+      "title": "Chair 01"
+    },
+    {
+      "content_id": "plaque-01",
+      "title": "Plaque 01"
+    }
+  ],
+  "locations": [
+    {
+      "location_id": "loc-cafe",
+      "name": "Кафе"
+    },
+    {
+      "location_id": "loc-lab-01",
+      "name": "Лаборатория"
+    },
+    {
+      "location_id": "loc-hall-01",
+      "name": "Основной зал"
+    }
+  ],
+  "tours": [
+    {
+      "tour_id": "tour-lab-01",
+      "name": "Лабораторный тур",
+      "stops": [
+        "loc-lab-01",
+        "loc-hall-01"
+      ]
+    }
+  ]
+}

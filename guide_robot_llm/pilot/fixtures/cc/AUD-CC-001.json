@@ -1,0 +1,94 @@
+{
+  "objects": {
+    "mirror-01": {
+      "box_px": [
+        1180,
+        240,
+        1420,
+        640
+      ],
+      "color": [
+        188,
+        214,
+        228
+      ],
+      "shape": "mirror"
+    },
+    "pedestal-02": {
+      "box_px": [
+        300,
+        640,
+        460,
+        820
+      ],
+      "color": [
+        150,
+        140,
+        130
+      ],
+      "shape": "rect"
+    }
+  },
+  "people": [
+    {
+      "person_id": "p1",
+      "box_px": [
+        491,
+        520,
+        629,
+        850
+      ],
+      "visible_fraction": 1.0,
+      "occluded_by": null,
+      "counts_as_person": true,
+      "note": null
+    },
+    {
+      "person_id": "p2",
+      "box_px": [
+        797,
+        540,
+        923,
+        840
+      ],
+      "visible_fraction": 1.0,
+      "occluded_by": null,
+      "counts_as_person": true,
+      "note": null
+    },
+    {
+      "person_id": "refl-1",
+      "box_px": [
+        1250,
+        380,
+        1340,
+        600
+      ],
+      "visible_fraction": 1.0,
+      "occluded_by": null,
+      "counts_as_person": false,
+      "note": "reflection in mirror-01"
+    },
+    {
+      "person_id": "mannequin-1",
+      "box_px": [
+        330,
+        470,
+        430,
+        640
+      ],
+      "visible_fraction": 1.0,
+      "occluded_by": null,
+      "counts_as_person": false,
+      "note": "mannequin on pedestal-02"
+    }
+  ],
+  "pointing": null,
+  "scene_id": "AUD-CC-001",
+  "size": [
+    1600,
+    900
+  ],
+  "seed": 20260914,
+  "venue": "synthetic (PIL, deterministic spec)"
+}

@@ -13,8 +13,9 @@
 - `validate_call(...)` -- прежняя публичная проверка вызова (брокер и
   тесты): поведение и сообщения не меняются (llm_plam.md §3/§4).
 
-Whitelist локаций/туров приходит уже посчитанным (ответственность
-`tool_broker_node.py`): пустой whitelist = членство не проверяется.
+Whitelist локаций/туров/экспонатов приходит уже посчитанным
+(ответственность `tool_broker_node.py`): пустой whitelist = членство не
+проверяется.
 """
 
 from __future__ import annotations
@@ -37,6 +38,9 @@ __all__ = [
     "REASON_ILLEGAL_STATE",
     "REASON_ABSTAIN_FROM_MODEL",
     "REASON_INVALID_ARGS",
+    "REASON_STALE_FRAMES",
+    "REASON_NO_CANDIDATE",
+    "REASON_AMBIGUOUS_TARGET",
     "REASONS",
 ]
 
@@ -45,14 +49,20 @@ __all__ = [
 # докстринг `validate_call`, регулярка/has_motion_intent отсюда убраны).
 MOTION_TOOLS = frozenset({"start_tour", "guide_to", "tour_by_points"})
 
-# Коды причин финальные (ADR-0001 §6): единственный источник «почему»
-# действия вместо свободного текста.
+# Коды причин (ADR-0001 §6): единственный источник «почему» действия
+# вместо свободного текста. Базовый набор (ADR-0001) дополнен кодами
+# качества ВВОДА (Taiga #7, resolve_pointing): действие формально валидно,
+# но визуальный ввод не позволяет его исполнить -- host-side детерминированно
+# превращается в safe abstention с уточнением.
 REASON_MALFORMED_OUTPUT = "malformed_output"
 REASON_LOW_CONFIDENCE = "low_confidence"
 REASON_UNKNOWN_ID = "unknown_id"
 REASON_ILLEGAL_STATE = "illegal_state"
 REASON_ABSTAIN_FROM_MODEL = "abstain_from_model"
 REASON_INVALID_ARGS = "invalid_args"
+REASON_STALE_FRAMES = "stale_frames"
+REASON_NO_CANDIDATE = "no_candidate"
+REASON_AMBIGUOUS_TARGET = "ambiguous_target"
 
 REASONS = (
     REASON_MALFORMED_OUTPUT,
@@ -61,6 +71,9 @@ REASONS = (
     REASON_ILLEGAL_STATE,
     REASON_ABSTAIN_FROM_MODEL,
     REASON_INVALID_ARGS,
+    REASON_STALE_FRAMES,
+    REASON_NO_CANDIDATE,
+    REASON_AMBIGUOUS_TARGET,
 )
 
 
@@ -75,6 +88,7 @@ def validate_call(
     tools_allowed: list[str],
     known_location_ids: frozenset[str] = frozenset(),
     known_tour_ids: frozenset[str] = frozenset(),
+    known_exhibit_ids: frozenset[str] = frozenset(),
 ) -> None:
     """Бросить `ValidationError`, если вызов нельзя отправлять в ROS.
 
@@ -97,10 +111,15 @@ def validate_call(
             tools_allowed=tools_allowed,
             known_location_ids=known_location_ids,
             known_tour_ids=known_tour_ids,
+            known_exhibit_ids=known_exhibit_ids,
         )
         return
     _validate_args(
-        name, args, known_location_ids=known_location_ids, known_tour_ids=known_tour_ids
+        name,
+        args,
+        known_location_ids=known_location_ids,
+        known_tour_ids=known_tour_ids,
+        known_exhibit_ids=known_exhibit_ids,
     )
 
 
@@ -110,6 +129,7 @@ def _validate_ask_visitor(
     tools_allowed: list[str],
     known_location_ids: frozenset[str],
     known_tour_ids: frozenset[str],
+    known_exhibit_ids: frozenset[str],
 ) -> None:
     """`on_yes` гоняется через обычный `validate_call` -- рекурсия глубиной 1.
 
@@ -131,13 +151,19 @@ def _validate_ask_visitor(
         tools_allowed=tools_allowed,
         known_location_ids=known_location_ids,
         known_tour_ids=known_tour_ids,
+        known_exhibit_ids=known_exhibit_ids,
     )
     if not isinstance(args.get("on_no", ""), str):
         raise ValidationError("ask_visitor: on_no должен быть строкой")
 
 
 def _validate_args(
-    name: str, args: dict, *, known_location_ids: frozenset[str], known_tour_ids: frozenset[str]
+    name: str,
+    args: dict,
+    *,
+    known_location_ids: frozenset[str],
+    known_tour_ids: frozenset[str],
+    known_exhibit_ids: frozenset[str],
 ) -> None:
     if name == "start_tour":
         _require_known(args.get("tour_id"), known_tour_ids, "тур")
@@ -175,6 +201,14 @@ def _validate_args(
             raise ValidationError("lookup_content: content_id обязателен")
         if args.get("mode", "full") not in ("short", "full"):
             raise ValidationError("lookup_content: mode должен быть short или full")
+    elif name == "resolve_pointing":
+        # content_id -- ТОЛЬКО из видимых кандидатов: каталог id публичных
+        # экспонатов считает брокер (tool_broker_node._known_exhibit_ids);
+        # выдуманное/неизвестное id здесь же превращается в unknown_id и НИКОГДА
+        # не доходит до content service (Taiga #7). Пустой whitelist = whitelist
+        # не подгружен вызывающим -- членство не проверяется (семантика
+        # `_require_known`, как у локаций/туров).
+        _require_known(args.get("content_id"), known_exhibit_ids, "экспонат")
     elif name in ("search_content", "resolve_location"):
         if not str(args.get("query", "")).strip():
             raise ValidationError(f"{name}: query обязателен")
@@ -283,6 +317,7 @@ def verify_action(
     tools_allowed: list[str],
     known_location_ids: frozenset[str] = frozenset(),
     known_tour_ids: frozenset[str] = frozenset(),
+    known_exhibit_ids: frozenset[str] = frozenset(),
     confidence_threshold: float = 0.5,
 ) -> ActionVerdict:
     """Детерминированный валидатор МЕЖДУ выходом модели и `tool_broker`.
@@ -294,6 +329,11 @@ def verify_action(
     гонятся прежней `validate_call` (та же семантика, что у брокера);
     её `ValidationError` классифицируется: чужой id из каталога --
     `unknown_id`, всё остальное -- `invalid_args`.
+
+    `known_exhibit_ids` (Taiga #7) -- каталог id публичных экспонатов для
+    `resolve_pointing`: content_id вне каталога отклоняется как `unknown_id`
+    ДО брокера, на content service не уходит. Пустой каталог = членство не
+    проверяется (та же семантика, что у `known_location_ids`/`known_tour_ids`).
     """
     base: dict = {
         "tool": action.tool,
@@ -333,6 +373,7 @@ def verify_action(
             tools_allowed=tools_allowed,
             known_location_ids=known_location_ids,
             known_tour_ids=known_tour_ids,
+            known_exhibit_ids=known_exhibit_ids,
         )
     except ValidationError as error:
         # `_require_known` -- единственный источник «не найдена»; всё

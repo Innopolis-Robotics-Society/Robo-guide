@@ -21,6 +21,7 @@
   <depend>sensor_msgs</depend>
   <depend>guide_robot_msgs</depend>
   <depend>lifecycle_msgs</depend>
+  <depend>tf2_ros</depend>
   <depend>python3-requests</depend>
   <depend>python3-pillow</depend>
 

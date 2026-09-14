@@ -1,0 +1,76 @@
+{
+  "objects": {
+    "cabinet-01": {
+      "box_px": [
+        120,
+        470,
+        380,
+        800
+      ],
+      "color": [
+        52,
+        84,
+        140
+      ],
+      "shape": "rect"
+    },
+    "frame-02": {
+      "box_px": [
+        1240,
+        260,
+        1430,
+        470
+      ],
+      "color": [
+        146,
+        94,
+        52
+      ],
+      "shape": "rect"
+    },
+    "poster-03": {
+      "box_px": [
+        690,
+        230,
+        920,
+        470
+      ],
+      "color": [
+        84,
+        140,
+        96
+      ],
+      "shape": "rect"
+    }
+  },
+  "people": [
+    {
+      "person_id": "p1",
+      "box_px": [
+        937,
+        560,
+        1063,
+        860
+      ],
+      "visible_fraction": 1.0,
+      "occluded_by": null,
+      "counts_as_person": true,
+      "note": null
+    }
+  ],
+  "pointing": {
+    "person": "p1",
+    "target_id": "cabinet-01",
+    "tip_px": [
+      400,
+      560
+    ]
+  },
+  "scene_id": "POI-CC-001",
+  "size": [
+    1600,
+    900
+  ],
+  "seed": 20260914,
+  "venue": "synthetic (PIL, deterministic spec)"
+}

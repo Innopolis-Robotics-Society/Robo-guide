@@ -1,0 +1,90 @@
+{
+  "objects": {
+    "globe-01": {
+      "box_px": [
+        220,
+        520,
+        420,
+        760
+      ],
+      "color": [
+        60,
+        120,
+        160
+      ],
+      "shape": "sphere"
+    },
+    "display-02": {
+      "box_px": [
+        1150,
+        430,
+        1420,
+        790
+      ],
+      "color": [
+        200,
+        225,
+        235
+      ],
+      "shape": "glass"
+    },
+    "vase-03": {
+      "box_px": [
+        760,
+        560,
+        860,
+        760
+      ],
+      "color": [
+        210,
+        190,
+        120
+      ],
+      "shape": "rect"
+    },
+    "table-04": {
+      "box_px": [
+        700,
+        740,
+        1000,
+        830
+      ],
+      "color": [
+        120,
+        90,
+        60
+      ],
+      "shape": "rect"
+    }
+  },
+  "people": [
+    {
+      "person_id": "p1",
+      "box_px": [
+        497,
+        560,
+        623,
+        860
+      ],
+      "visible_fraction": 1.0,
+      "occluded_by": null,
+      "counts_as_person": true,
+      "note": null
+    }
+  ],
+  "pointing": {
+    "person": "p1",
+    "target_id": "display-02",
+    "tip_px": [
+      1130,
+      560
+    ]
+  },
+  "scene_id": "POI-CC-002",
+  "size": [
+    1600,
+    900
+  ],
+  "seed": 20260914,
+  "venue": "synthetic (PIL, deterministic spec)"
+}

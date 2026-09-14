@@ -27,18 +27,43 @@ from guide_robot_llm.dialog.sanitize import sanitize_answer
 from guide_robot_llm.llm_client import CompletionResult, build_action_grammar, build_content
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
 from guide_robot_llm.matching import looks_like_chit_chat, match_start_tour
+from guide_robot_llm.pointing import (
+    STATUS_AMBIGUOUS,
+    STATUS_NO_CANDIDATE,
+    STATUS_RESOLVED,
+    STATUS_UNUSABLE_FRAMES,
+    PointingBaseContext,
+    PointingContext,
+    PointingEvidence,
+    resolve_pointing,
+)
 from guide_robot_llm.tools.validate import (
     MOTION_TOOLS,
     REASON_ABSTAIN_FROM_MODEL,
+    REASON_AMBIGUOUS_TARGET,
     REASON_LOW_CONFIDENCE,
+    REASON_NO_CANDIDATE,
+    REASON_STALE_FRAMES,
     parse_action,
     verify_action,
 )
 from guide_robot_llm.visual_context import (
+    POINTING_YES,
+    Observation,
     ObservationRequest,
     parse_observation,
     render_observation,
 )
+
+# Taiga #7: статус pointing.resolve_pointing -> код причины (validate.REASONS).
+# Все статусы кроме `resolved` означают «не исполняем, уточняем»: действие
+# формально валидно (catalog/состояние/аргументы прошли), но визуальный ввод
+# не позволяет уверенно выбрать экспонат.
+_POINTING_STATUS_TO_REASON = {
+    STATUS_UNUSABLE_FRAMES: REASON_STALE_FRAMES,
+    STATUS_NO_CANDIDATE: REASON_NO_CANDIDATE,
+    STATUS_AMBIGUOUS: REASON_AMBIGUOUS_TARGET,
+}
 
 __all__ = [
     "ToolCallRecord",
@@ -261,6 +286,9 @@ def run_turn(
     confidence_threshold: float = 0.5,
     known_location_ids: frozenset[str] = frozenset(),
     known_tour_ids: frozenset[str] = frozenset(),
+    # Таiga #7: каталог id публичных экспонатов для валидации resolve_pointing
+    # (content_id вне каталога -> unknown_id до брокера).
+    known_exhibit_ids: frozenset[str] = frozenset(),
     # Таiga #4: визуальный контекст хода (см. docstring ниже).
     action_frames: Sequence[str] = (),
     visual_suffix: str = "",
@@ -268,6 +296,10 @@ def run_turn(
     complete_observation: Callable[..., CompletionResult] | None = None,
     answer_frames: Sequence[str] = (),
     answer_phase_images: bool = False,
+    # Таiga #7: замороженный контекст жеста-указания (кандидаты видимой карты,
+    # поза робота, геометрия камеры, указание, реплика, качество кадров).
+    # `None` = визуального контекста хода нет -- resolve_pointing невозможен.
+    pointing_base: PointingBaseContext | None = None,
 ) -> TurnResult:
     """Прогнать один ход диалога (контракт действия ADR-0001).
 
@@ -344,6 +376,23 @@ def run_turn(
     фазе реплики: прикрепляются только если флаг включен И выбранное действие
     не `reply` (выбирающего skill'а у reply нет, будущие визуальные skill'ы
     #6/#7 определят своё).
+
+    Таига #7 (resolve_pointing): `pointing_base` -- статический базис
+    контекста жеста, замороженный на границе хода (`dialog_agent_node`):
+    кандидаты видимой карты с координатами, поза робота, геометрия камеры,
+    реплика, качество кадров. Динамическая часть -- сам жест (pointing_box)
+    и реально видимые id -- сообщает наблюдение VLM, которое считается
+    ВНУТРИ run_turn ДО фазы действия; host складывает базис и наблюдение в
+    полный `PointingContext` один раз (наблюдение не прогоняется дважды --
+    оно же рендерится в промпт). Когда фаза действия выбирает
+    `resolve_pointing` и действие прошло валидатор (content_id из каталога),
+    host ДО `execute_tool` детерминированно сверяет выбор с геометрией
+    (`pointing.resolve_pointing`): неоднозначно / нет правдоподобных / кадры
+    устарели -> safe abstention с кодом качества ввода (stale_frames /
+    no_candidate / ambiguous_target), инструмент НЕ исполняется, фаза
+    реплики уточняет у посетителя. `pointing_base is None` (нет кадров/позы)
+    -- resolve_pointing невозможен: тот же safe fallback со `stale_frames`.
+    Чистая логика -- бэкенды и базис инжектируются, ROS здесь не нужен.
     """
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
@@ -365,10 +414,13 @@ def run_turn(
 
     # Таига #4: фаза наблюдения ПЕРЕД фазой действия (observe_then_decide).
     # Только когда есть и запрос, и бэкенд, и кадры (без кадров наблюдать
-    # нечего -- text-only вариант стратегии).
+    # нечего -- text-only вариант стратегии). `parsed_observation` вынесен на
+    # уровень функции: кроме рендера в промпт он нужен геометрическому гейту
+    # resolve_pointing (Taiga #7) -- жест/бокс и видимые id.
     observation_raw_text = ""
     observation_text = ""
     observation_error = ""
+    parsed_observation: Observation | None = None
     if (
         observation_request is not None
         and complete_observation is not None
@@ -422,6 +474,32 @@ def run_turn(
                     quality=observation_request.quality,
                     max_chars=observation_request.max_chars,
                 )
+
+    # Таига #7: складываем полный PointingContext из статического базиса
+    # (pointing_base) и наблюдения (жест/бокс + видимые id). Если наблюдения
+    # нет (текстовый ход / наблюдение сломалось) -- жест отсутствует
+    # (present=False, box=None), видимых id нет: геометрический гейт даст
+    # no_candidate/устарело и уточнит, не угадывая. `pointing_base is None`
+    # (нет базиса) -- pointing_context=None, гейт сразу stale_frames.
+    pointing_context: PointingContext | None = None
+    if pointing_base is not None:
+        pointing = PointingEvidence(present=False, box=None)
+        visible_ids: frozenset[str] = frozenset()
+        if parsed_observation is not None:
+            pointing = PointingEvidence(
+                present=(parsed_observation.pointing_evidence == POINTING_YES),
+                box=parsed_observation.pointing_box,
+            )
+            visible_ids = frozenset(parsed_observation.exhibit_candidates)
+        pointing_context = PointingContext(
+            candidates=pointing_base.candidates,
+            robot_pose=pointing_base.robot_pose,
+            camera=pointing_base.camera,
+            pointing=pointing,
+            utterance=pointing_base.utterance,
+            frame_quality=pointing_base.frame_quality,
+            visible_ids=visible_ids,
+        )
 
     # Таига #4: волатильное визуальное сообщение фазы действия -- ПОСЛЕ
     # стабильной инструкции (кэш-префикс не страдает). Пусто -- нет
@@ -526,6 +604,7 @@ def run_turn(
                 tools_allowed=tool_names,
                 known_location_ids=known_location_ids,
                 known_tour_ids=known_tour_ids,
+                known_exhibit_ids=known_exhibit_ids,
                 confidence_threshold=confidence_threshold,
             )
             if verdict.reason in (REASON_ABSTAIN_FROM_MODEL, REASON_LOW_CONFIDENCE):
@@ -553,6 +632,28 @@ def run_turn(
                     continue
                 record = _abstain_record(verdict.reason)
                 action_reason_code = verdict.reason
+                break
+
+        # Таига #7: resolve_pointing -- host-side сверка выбора модели с
+        # геометрией (pointing.resolve_pointing) ДО execute_tool. Action
+        # уже прошёл валидатор (content_id из каталога); дальше -- только
+        # «видимо ли, однозначно ли, не устарели ли кадры». Любое «нет» --
+        # safe abstention с кодом качества ввода, инструмент не исполняется
+        # (ADR-0001 §4), фаза реплики уточняет у посетителя.
+        if name == "resolve_pointing":
+            if pointing_context is None:
+                # Нет базиса хода (кадров/позы нет, не заморозить): геометрию
+                # сверить невозможно -- не угадываем.
+                record = _abstain_record(REASON_STALE_FRAMES)
+                action_reason_code = REASON_STALE_FRAMES
+                break
+            resolution = resolve_pointing(
+                pointing_context, model_content_id=args.get("content_id") or ""
+            )
+            if resolution.status != STATUS_RESOLVED:
+                reason = _POINTING_STATUS_TO_REASON[resolution.status]
+                record = _abstain_record(reason)
+                action_reason_code = reason
                 break
 
         if name == "reply":

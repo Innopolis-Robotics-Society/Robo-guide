@@ -1,0 +1,27 @@
+{
+  "objects": {
+    "chair-01": {
+      "box_px": [
+        720,
+        560,
+        900,
+        820
+      ],
+      "color": [
+        140,
+        95,
+        55
+      ],
+      "shape": "chair"
+    }
+  },
+  "people": [],
+  "pointing": null,
+  "scene_id": "SCN-CC-003",
+  "size": [
+    1600,
+    900
+  ],
+  "seed": 20260914,
+  "venue": "synthetic (PIL, deterministic spec)"
+}

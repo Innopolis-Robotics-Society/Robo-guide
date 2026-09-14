@@ -118,6 +118,27 @@ broker is even consulted.
 propagated on the turn result, logged per turn. They replace any
 free-form "why" in execution records.
 
+**Input-quality extension (Taiga #7, `resolve_pointing`).** The
+`resolve_pointing` visual skill adds three *input-quality* reason codes,
+emitted by the host geometric gate in `dialog/turn.py` (not the
+validator) when the pointing gesture cannot be resolved to a single
+exhibit. They are a deliberate, bounded extension of the set above: they
+signal *why the input was insufficient to act safely* (as opposed to the
+action itself being illegal), and they drive the same safe fallback — a
+short clarification, never a guess.
+
+| trigger | reason code |
+| --- | --- |
+| frames stale/absent, or robot pose (TF) unavailable | `stale_frames` |
+| no plausible visible candidate for the gesture | `no_candidate` |
+| ≥2 plausible candidates (or language/gesture conflict) | `ambiguous_target` |
+
+All three are read-only abstentions: the `resolve_pointing` tool is
+**never executed** on them, and the candidate `content_id` is still
+catalog-validated (`unknown_id` takes precedence if it is foreign). The
+single source of truth for the full code set remains
+`tools/validate.py` (`REASONS`).
+
 ### 7. Backward compatibility with the text-only path
 
 The text-only dialog keeps working unchanged in behavior: the same

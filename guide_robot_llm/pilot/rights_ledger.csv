@@ -1,0 +1,11 @@
+media_id,uri,source,consent_ref,identifiable_people,license_status,reviewer
+CC-AUD-CC-001,pilot/media/cc/AUD-CC-001.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent
+CC-AUD-CC-002,pilot/media/cc/AUD-CC-002.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent
+CC-POI-CC-001,pilot/media/cc/POI-CC-001.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent
+CC-POI-CC-002,pilot/media/cc/POI-CC-002.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent
+CC-POI-CC-003,pilot/media/cc/POI-CC-003.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent
+CC-SCN-CC-001,pilot/media/cc/SCN-CC-001.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent
+CC-SCN-CC-002,pilot/media/cc/SCN-CC-002.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent
+CC-SCN-CC-003,pilot/media/cc/SCN-CC-003.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent
+CC-TOL-CC-007,pilot/media/cc/TOL-CC-007.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent
+CC-TOL-NEUTRAL,pilot/media/cc/TOL-NEUTRAL.png,synthetic,"n/a (synthetic, no real persons)",none (stylized figures),approved (self-generated),pi-agent

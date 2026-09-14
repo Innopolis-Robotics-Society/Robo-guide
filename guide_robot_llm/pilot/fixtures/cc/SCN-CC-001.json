@@ -1,0 +1,97 @@
+{
+  "objects": {
+    "redbox-01": {
+      "box_px": [
+        300,
+        380,
+        480,
+        500
+      ],
+      "color": [
+        178,
+        60,
+        50
+      ],
+      "shape": "rect"
+    },
+    "shelf-02": {
+      "box_px": [
+        240,
+        490,
+        540,
+        530
+      ],
+      "color": [
+        120,
+        90,
+        60
+      ],
+      "shape": "rect"
+    },
+    "cabinet-03": {
+      "box_px": [
+        1200,
+        470,
+        1450,
+        810
+      ],
+      "color": [
+        52,
+        84,
+        140
+      ],
+      "shape": "rect"
+    },
+    "vase-04": {
+      "box_px": [
+        760,
+        580,
+        850,
+        760
+      ],
+      "color": [
+        245,
+        240,
+        232
+      ],
+      "shape": "rect"
+    },
+    "table-05": {
+      "box_px": [
+        690,
+        740,
+        990,
+        830
+      ],
+      "color": [
+        120,
+        90,
+        60
+      ],
+      "shape": "rect"
+    }
+  },
+  "people": [
+    {
+      "person_id": "p1",
+      "box_px": [
+        960,
+        570,
+        1080,
+        860
+      ],
+      "visible_fraction": 1.0,
+      "occluded_by": null,
+      "counts_as_person": true,
+      "note": null
+    }
+  ],
+  "pointing": null,
+  "scene_id": "SCN-CC-001",
+  "size": [
+    1600,
+    900
+  ],
+  "seed": 20260914,
+  "venue": "synthetic (PIL, deterministic spec)"
+}

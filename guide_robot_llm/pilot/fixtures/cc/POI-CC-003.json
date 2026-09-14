@@ -1,0 +1,118 @@
+{
+  "objects": {
+    "plaque-01": {
+      "box_px": [
+        1330,
+        240,
+        1500,
+        330
+      ],
+      "color": [
+        240,
+        235,
+        220
+      ],
+      "shape": "rect"
+    },
+    "tank-02": {
+      "box_px": [
+        180,
+        480,
+        560,
+        800
+      ],
+      "color": [
+        70,
+        100,
+        90
+      ],
+      "shape": "rect"
+    },
+    "screen-03": {
+      "box_px": [
+        760,
+        420,
+        1120,
+        640
+      ],
+      "color": [
+        40,
+        40,
+        48
+      ],
+      "shape": "rect"
+    },
+    "shelf-04": {
+      "box_px": [
+        1240,
+        560,
+        1480,
+        800
+      ],
+      "color": [
+        140,
+        100,
+        70
+      ],
+      "shape": "rect"
+    },
+    "vase-05": {
+      "box_px": [
+        620,
+        620,
+        700,
+        800
+      ],
+      "color": [
+        190,
+        140,
+        90
+      ],
+      "shape": "rect"
+    },
+    "map-06": {
+      "box_px": [
+        380,
+        200,
+        640,
+        420
+      ],
+      "color": [
+        200,
+        180,
+        120
+      ],
+      "shape": "rect"
+    }
+  },
+  "people": [
+    {
+      "person_id": "p1",
+      "box_px": [
+        887,
+        580,
+        1013,
+        880
+      ],
+      "visible_fraction": 1.0,
+      "occluded_by": null,
+      "counts_as_person": true,
+      "note": null
+    }
+  ],
+  "pointing": {
+    "person": "p1",
+    "target_id": "plaque-01",
+    "tip_px": [
+      1310,
+      300
+    ]
+  },
+  "scene_id": "POI-CC-003",
+  "size": [
+    1600,
+    900
+  ],
+  "seed": 20260914,
+  "venue": "synthetic (PIL, deterministic spec)"
+}
