@@ -58,6 +58,8 @@ class FrozenFrame:
     data_url: str
     captured_at: float
     payload_bytes: int
+    width: int = 0
+    height: int = 0
 
 
 class FrameBuffer:
@@ -162,9 +164,19 @@ class FrameBuffer:
                     data_url=_DATA_URL_PREFIX + base64.b64encode(jpeg).decode("ascii"),
                     captured_at=ts,
                     payload_bytes=len(jpeg),
+                    width=self._dims(jpeg)[0],
+                    height=self._dims(jpeg)[1],
                 )
                 for jpeg, ts in selected
             ]
+
+    @staticmethod
+    def _dims(jpeg: bytes) -> tuple[int, int]:
+        try:
+            with Image.open(io.BytesIO(jpeg)) as image:
+                return int(image.width), int(image.height)
+        except Exception:  # noqa: BLE001 -- размер не критичен для лога
+            return 0, 0
 
     def _sample(self, eligible: list[tuple[bytes, float]]) -> list[tuple[bytes, float]]:
         """До `frame_count` кадров с равным шагом по времени (крайние включительно)."""

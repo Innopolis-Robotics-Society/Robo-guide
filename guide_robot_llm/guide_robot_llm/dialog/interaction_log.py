@@ -16,6 +16,7 @@ per-call breakdown: ход может остановиться на `action_pars
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -25,7 +26,7 @@ from guide_robot_llm.llm_client.redact import redact_messages
 if TYPE_CHECKING:
     from guide_robot_llm.dialog.turn import TurnResult
 
-__all__ = ["SCHEMA_VERSION", "build_interaction_record"]
+__all__ = ["SCHEMA_VERSION", "SchemaVersionError", "build_interaction_record", "load_record"]
 
 # v3: добавлены `llm_messages` (полный обмен с ЛЛМ за ход) и
 # `answer_raw_text`/`answer_finish_reason`/`action_raw_text`/
@@ -54,6 +55,31 @@ __all__ = ["SCHEMA_VERSION", "build_interaction_record"]
 SCHEMA_VERSION = 6
 
 
+class SchemaVersionError(ValueError):
+    """Запись лога несовместимой версии схемы."""
+
+
+def load_record(line: str | dict) -> dict:
+    """Разобрать запись лога и проверить версию схемы.
+
+    `line` -- jsonl-строка или уже распарсенный dict. При
+    `schema_version != SCHEMA_VERSION` бросает `SchemaVersionError` с
+    внятным сообщением (какая версия в записи, какая поддерживается) вместо
+    тихого чтения несовместимых полей (acceptance issue #8: старый ридер
+    падает понятно, а не молча).
+    """
+    record = json.loads(line) if isinstance(line, str) else line
+    if not isinstance(record, dict):
+        raise SchemaVersionError("запись лога не является JSON-объектом")
+    version = record.get("schema_version")
+    if version != SCHEMA_VERSION:
+        raise SchemaVersionError(
+            f"несовместимая версия схемы лога: запись v{version}, "
+            f"поддерживается v{SCHEMA_VERSION}"
+        )
+    return record
+
+
 def build_interaction_record(
     *,
     turn_id: int,
@@ -73,6 +99,13 @@ def build_interaction_record(
     degrade_reason: str | None,
     total_ms: float,
     now_s: float,
+    endpoint: str = "",
+    model_name: str = "",
+    prompt_strategy: str = "",
+    prompt_hash: str = "",
+    preproc_hash: str = "",
+    episode_id: str | None = None,
+    client_telemetry: dict | None = None,
 ) -> dict:
     """Собрать одну jsonl-запись хода диалога (схема v6).
 
@@ -115,6 +148,8 @@ def build_interaction_record(
             "ok": result.action.result_ok,
             "message": result.action.result_message,
             "content_version": result.action.result_data.get("version"),
+            "confidence": result.action_confidence,
+            "abstain": result.action_abstain,
         }
 
     return {
@@ -152,11 +187,7 @@ def build_interaction_record(
                 "text": result.observation_text,
                 "error": result.observation_error,
             }
-            if (
-                result.observation_raw_text
-                or result.observation_text
-                or result.observation_error
-            )
+            if (result.observation_raw_text or result.observation_text or result.observation_error)
             else None
         ),
         "repair_used": result.repair_used,
@@ -171,4 +202,13 @@ def build_interaction_record(
         "degraded": degraded,
         "degrade_reason": degrade_reason,
         "total_ms": total_ms,
+        "endpoint": {"base_url": endpoint, "model": model_name},
+        "prompt_strategy": prompt_strategy,
+        "prompt_hash": prompt_hash,
+        "preproc_hash": preproc_hash,
+        "frame_count": len(snapshot.get("frames", [])),
+        "schema_valid_raw": result.action_first_attempt_valid,
+        "validator_reason": result.action_reason_code,
+        "episode_id": episode_id,
+        "client_telemetry": client_telemetry,
     }

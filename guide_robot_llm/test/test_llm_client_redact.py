@@ -75,3 +75,20 @@ def test_redact_messages_multimodal_content_array() -> None:
     assert masked_url == f"data:image/jpeg;base64,<<REDACTED {len(_PAYLOAD)} bytes>>"
     # Исходный payload остался в входных сообщениях -- копия, а не мутация.
     assert messages[0]["content"][1]["image_url"]["url"].endswith(_PAYLOAD)
+
+
+def test_redact_record_for_export_masks_utterance_by_default() -> None:
+    from guide_robot_llm.llm_client.redact import redact_record_for_export
+
+    rec = {"schema_version": 6, "utterance": "меня зовут Иван", "answer_text": "ок"}
+    out = redact_record_for_export(rec)
+    assert out["utterance"] == "<redacted>"
+    assert out["answer_text"] == "ок"
+    assert rec["utterance"] == "меня зовут Иван"  # вход не мутируется
+
+
+def test_redact_record_for_export_can_keep_utterance() -> None:
+    from guide_robot_llm.llm_client.redact import redact_record_for_export
+
+    rec = {"schema_version": 6, "utterance": "привет"}
+    assert redact_record_for_export(rec, redact_utterance=False)["utterance"] == "привет"

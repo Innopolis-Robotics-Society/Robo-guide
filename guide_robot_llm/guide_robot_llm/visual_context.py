@@ -73,6 +73,8 @@ class FrozenFrameLike(Protocol):
     data_url: str
     captured_at: float
     payload_bytes: int
+    width: int
+    height: int
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,8 @@ class FrameMeta:
     sha256_16: str
     payload_bytes: int
     stale: bool
+    width: int = 0
+    height: int = 0
 
 
 @dataclass(frozen=True)
@@ -149,6 +153,8 @@ def build_visual_context(
             sha256_16=frame_sha256_16(frame.data_url),
             payload_bytes=int(frame.payload_bytes),
             stale=(now_s - frame.captured_at) >= stale_age_s,
+            width=int(getattr(frame, "width", 0)),
+            height=int(getattr(frame, "height", 0)),
         )
         for frame in frozen
     )
@@ -270,13 +276,12 @@ def render_visual_context(context: VisualTurnContext, *, utterance: str) -> str:
     """
     lines = ["[Визуальный контекст]"]
     if utterance:
-        lines.append(f'Реплика посетителя: «{utterance}»')
+        lines.append(f"Реплика посетителя: «{utterance}»")
 
     if context.frames:
         frame_parts = ", ".join(
             f"t={frame.captured_at:.1f} возраст {frame.age_s:.1f} с sha16={frame.sha256_16} "
-            f"{frame.payload_bytes} Б"
-            + (" (устарел)" if frame.stale else "")
+            f"{frame.payload_bytes} Б" + (" (устарел)" if frame.stale else "")
             for frame in context.frames
         )
         lines.append(f"Кадры с камеры: {len(context.frames)} -- {frame_parts}")
@@ -324,8 +329,7 @@ def render_observation(observation: Observation, *, quality: str, max_chars: int
     lines.append(f"людей в кадре: {observation.people_count}")
     if observation.exhibit_candidates:
         lines.append(
-            "видимые экспонаты (id из кандидатов): "
-            + ", ".join(observation.exhibit_candidates)
+            "видимые экспонаты (id из кандидатов): " + ", ".join(observation.exhibit_candidates)
         )
     else:
         lines.append("видимые экспонаты: не удалось уверенно определить")

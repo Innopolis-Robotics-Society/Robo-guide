@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from guide_robot_llm.dialog.interaction_log import build_interaction_record
 from guide_robot_llm.dialog.turn import ToolCallRecord, TurnResult
 
@@ -23,6 +25,8 @@ def _result(**overrides) -> TurnResult:
         "action": None,
         "repair_used": False,
         "stopped_reason": "ok",
+        "action_first_attempt_valid": True,
+        "action_reason_code": "",
     }
     defaults.update(overrides)
     return TurnResult(**defaults)
@@ -116,9 +120,7 @@ def test_action_none_when_turn_result_has_no_action() -> None:
 
 
 def test_action_serialized_with_content_version_none_when_absent() -> None:
-    call = ToolCallRecord(
-        name="reply", args={}, result_ok=True, result_message="", result_data={}
-    )
+    call = ToolCallRecord(name="reply", args={}, result_ok=True, result_message="", result_data={})
     record = build_interaction_record(**_base_kwargs(result=_result(action=call)))
 
     assert record["action"] == {
@@ -128,6 +130,8 @@ def test_action_serialized_with_content_version_none_when_absent() -> None:
         "ok": True,
         "message": "",
         "content_version": None,
+        "confidence": None,
+        "abstain": None,
     }
 
 
@@ -326,3 +330,115 @@ def test_observation_block_carries_error_only() -> None:
     record = build_interaction_record(**_base_kwargs(result=result))
 
     assert record["observation"] == {"raw": "", "text": "", "error": "malformed"}
+
+
+def test_provenance_endpoint_and_prompt_strategy() -> None:
+    record = build_interaction_record(
+        **_base_kwargs(),
+        endpoint="http://127.0.0.1:18080/v1",
+        model_name="qwen2-vl-7b",
+        prompt_strategy="observe_then_decide",
+    )
+    assert record["endpoint"] == {"base_url": "http://127.0.0.1:18080/v1", "model": "qwen2-vl-7b"}
+    assert record["prompt_strategy"] == "observe_then_decide"
+
+
+def test_provenance_defaults_empty_when_not_supplied() -> None:
+    record = build_interaction_record(**_base_kwargs())
+    assert record["endpoint"] == {"base_url": "", "model": ""}
+    assert record["prompt_strategy"] == ""
+    assert record["episode_id"] is None
+
+
+def test_schema_validity_and_validator_reason_from_turn_result() -> None:
+    result = _result(action_first_attempt_valid=False, action_reason_code="low_confidence")
+    record = build_interaction_record(**_base_kwargs(result=result))
+    assert record["schema_valid_raw"] is False
+    assert record["validator_reason"] == "low_confidence"
+
+
+def test_schema_validity_true_reason_empty_on_clean_turn() -> None:
+    record = build_interaction_record(**_base_kwargs())
+    assert record["schema_valid_raw"] is True
+    assert record["validator_reason"] == ""
+
+
+def test_frame_count_from_snapshot_frames() -> None:
+    snapshot = {"mission": {"state": "IDLE"}, "frames": [{"sha256_16": "a"}, {"sha256_16": "b"}]}
+    record = build_interaction_record(**_base_kwargs(snapshot=snapshot))
+    assert record["frame_count"] == 2
+
+
+def test_frame_count_zero_when_no_frames() -> None:
+    assert build_interaction_record(**_base_kwargs())["frame_count"] == 0
+
+
+def test_episode_id_passes_through_for_replay() -> None:
+    record = build_interaction_record(**_base_kwargs(), episode_id="ep_0042")
+    assert record["episode_id"] == "ep_0042"
+
+
+def test_load_record_accepts_current_version_dict() -> None:
+    from guide_robot_llm.dialog.interaction_log import load_record
+
+    record = build_interaction_record(**_base_kwargs())
+    assert load_record(record) is record
+
+
+def test_load_record_parses_jsonl_line() -> None:
+    import json as _json
+
+    from guide_robot_llm.dialog.interaction_log import load_record
+
+    line = _json.dumps(build_interaction_record(**_base_kwargs()), ensure_ascii=False)
+    assert load_record(line)["schema_version"] == 6
+
+
+def test_load_record_rejects_old_version_with_clear_message() -> None:
+    from guide_robot_llm.dialog.interaction_log import SchemaVersionError, load_record
+
+    with pytest.raises(SchemaVersionError, match="v5"):
+        load_record({"schema_version": 5})
+
+
+def test_load_record_rejects_missing_version() -> None:
+    from guide_robot_llm.dialog.interaction_log import SchemaVersionError, load_record
+
+    with pytest.raises(SchemaVersionError):
+        load_record({"turn_id": 1})
+
+
+def test_client_telemetry_passes_through() -> None:
+    tele = {
+        "attempts": 3,
+        "retries": 1,
+        "fallbacks": 1,
+        "timeouts": 0,
+        "http_failures": 0,
+        "failure_stages": {},
+        "last_failure": None,
+        "timings": [],
+    }
+    record = build_interaction_record(**_base_kwargs(), client_telemetry=tele)
+    assert record["client_telemetry"]["fallbacks"] == 1
+    assert record["client_telemetry"]["retries"] == 1
+
+
+def test_client_telemetry_defaults_none() -> None:
+    assert build_interaction_record(**_base_kwargs())["client_telemetry"] is None
+
+
+def test_action_confidence_and_abstain_in_record() -> None:
+    call = ToolCallRecord(name="reply", args={}, result_ok=True, result_message="", result_data={})
+    result = _result(action=call, action_confidence=0.82, action_abstain=False)
+    record = build_interaction_record(**_base_kwargs(result=result))
+    assert record["action"]["confidence"] == 0.82
+    assert record["action"]["abstain"] is False
+
+
+def test_prompt_and_preproc_hashes_pass_through() -> None:
+    record = build_interaction_record(
+        **_base_kwargs(), prompt_hash="abc123", preproc_hash="def456"
+    )
+    assert record["prompt_hash"] == "abc123"
+    assert record["preproc_hash"] == "def456"
