@@ -64,8 +64,13 @@ def generate_launch_description():
     )
     declare_map = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg_navigation, "map", "lab_105_full.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited.yaml"),
         description="Готовая карта для режима slam:=false (map_server + AMCL)",
+    )
+    declare_keepout_mask_file = DeclareLaunchArgument(
+        "keepout_mask_file",
+        default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited_keepout.yaml"),
+        description="Keepout costmap-filter mask, must match `map`. Empty -- filter off.",
     )
     declare_nav_params = DeclareLaunchArgument(
         "nav_params_file",
@@ -125,6 +130,7 @@ def generate_launch_description():
     nav = LaunchConfiguration("nav")
     slam = LaunchConfiguration("slam")
     map_yaml_file = LaunchConfiguration("map")
+    keepout_mask_file = LaunchConfiguration("keepout_mask_file")
     nav_params_file = LaunchConfiguration("nav_params_file")
     slam_params_file = LaunchConfiguration("slam_params_file")
     autostart_nav = LaunchConfiguration("autostart_nav")
@@ -206,6 +212,7 @@ def generate_launch_description():
             "map": map_yaml_file,
             "nav_params_file": nav_params_file,
             "slam_params_file": slam_params_file,
+            "keepout_mask_file": keepout_mask_file,
             "autostart_nav": autostart_nav,
             "launch_supervisor": "true",
             "autostart_supervisor": autostart_supervisor,
@@ -279,6 +286,7 @@ def generate_launch_description():
             declare_nav,
             declare_slam,
             declare_map,
+            declare_keepout_mask_file,
             declare_nav_params,
             declare_slam_params,
             declare_autostart_nav,
