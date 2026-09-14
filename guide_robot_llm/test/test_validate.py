@@ -219,3 +219,51 @@ def test_ask_visitor_valid_accepted() -> None:
         },
         tools_allowed=["ask_visitor", "reply"],
     )
+
+
+# -- describe_scene (Taiga #6) ----------------------------------------------------
+
+
+def test_describe_scene_empty_args_accepted() -> None:
+    validate_call("describe_scene", {}, tools_allowed=["describe_scene"])
+
+
+def test_describe_scene_valid_focus_accepted() -> None:
+    validate_call("describe_scene", {"focus": "лидар"}, tools_allowed=["describe_scene"])
+
+
+def test_describe_scene_focus_at_length_limit_accepted() -> None:
+    validate_call("describe_scene", {"focus": "а" * 120}, tools_allowed=["describe_scene"])
+
+
+def test_describe_scene_focus_overlong_rejected() -> None:
+    with pytest.raises(ValidationError, match="слишком длинный"):
+        validate_call("describe_scene", {"focus": "а" * 121}, tools_allowed=["describe_scene"])
+
+
+def test_describe_scene_focus_non_string_rejected() -> None:
+    with pytest.raises(ValidationError, match="строкой"):
+        validate_call("describe_scene", {"focus": 7}, tools_allowed=["describe_scene"])
+
+
+def test_describe_scene_focus_nested_rejected() -> None:
+    with pytest.raises(ValidationError, match="строкой"):
+        validate_call(
+            "describe_scene",
+            {"focus": {"text": "х"}},
+            tools_allowed=["describe_scene"],
+        )
+
+
+def test_describe_scene_unexpected_args_rejected() -> None:
+    with pytest.raises(ValidationError, match="неожиданные аргументы"):
+        validate_call(
+            "describe_scene",
+            {"focus": "x", "frames": 3},
+            tools_allowed=["describe_scene"],
+        )
+
+
+def test_describe_scene_not_allowed_state_rejected() -> None:
+    with pytest.raises(ValidationError, match="describe_scene сейчас недоступен"):
+        validate_call("describe_scene", {}, tools_allowed=["reply"])

@@ -769,6 +769,27 @@ class ToolBrokerNode(LifecycleNode):
             },
         )
 
+    def _tool_describe_scene(self, args: dict) -> ToolResult:
+        """Read-only grounding skill: acknowledge describe_scene call.
+
+        The actual visual context is built by
+        `dialog_agent_node._tool_describe_scene` which has access
+        to the local FrameBuffer and location catalog. The broker
+        validates and forwards; dialog_agent enriches the result
+        with the frozen-frame visual description before it reaches
+        the answer phase.
+        """
+        focus = str(args.get("focus", ""))
+        return ToolResult(
+            ok=True,
+            message="describe_scene: визуальный контекст формируется на этапе реплики",
+            data={
+                "focus": focus,
+                "visual_context": "",
+                "quality": "",
+            },
+        )
+
     _HANDLERS = {
         "start_tour": _tool_start_tour,
         "guide_to": _tool_guide_to,
@@ -793,6 +814,7 @@ class ToolBrokerNode(LifecycleNode):
         "lookup_content": _tool_lookup_content,
         "search_content": _tool_search_content,
         "resolve_location": _tool_resolve_location,
+        "describe_scene": _tool_describe_scene,
     }
 
     # -- whitelist для validate.py --------------------------------------------

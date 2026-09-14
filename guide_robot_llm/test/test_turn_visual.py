@@ -452,5 +452,140 @@ def test_result_carries_observation_fields_when_absent() -> None:
     assert result.observation_error == ""
 
 
+# -- describe_scene: итог read-only вызова доходит до фазы реплики (Taiga #6) ------
+
+
+def _describe(focus: str = "что это?") -> str:
+    return json.dumps(
+        {"tool": "describe_scene", "args": {"focus": focus}, "confidence": 0.9, "abstain": False}
+    )
+
+
+_DESCRIBE_RESULT = _FakeResult(
+    ok=True,
+    message="describe_scene: визуальный контекст сформирован",
+    data={
+        "focus": "что это?",
+        "visual_context": "В кадре человек указывает на экспонат.",
+        "quality": "stale",
+        "exhibit_candidates": ("lab105a",),
+        "observation_instruction": "Опишите сцену кратко (2-3 предложения). Фокус: что это?",
+    },
+)
+
+
+def test_describe_scene_answer_phase_sees_visual_context() -> None:
+    """read_only-итог describe_scene фаза реплики видит ПОЛНЫМ текстом
+    (визуальный контекст + качество + кандидаты), не `выполнено: ...`."""
+    _complete_answer, captured = _capture_answer()
+
+    result = _run(
+        _describe(),
+        complete_answer=_complete_answer,
+        execute_tool=lambda name, args: _DESCRIBE_RESULT,
+        tool_names=("describe_scene", "reply"),
+        read_only_tools=frozenset({"describe_scene"}),
+    )
+
+    assert result.stopped_reason == "ok"
+    assert result.action is not None
+    assert result.action.name == "describe_scene"
+    joined = "\n".join(str(m.get("content")) for m in captured[0])
+    assert "В кадре человек указывает на экспонат." in joined
+    assert "качество кадров: stale" in joined
+    assert "видимые экспонаты: lab105a" in joined
+
+
+def test_describe_scene_observation_instruction_reaches_answer_phase() -> None:
+    """Taiga #6: observation_instruction, построенный в _tool_describe_scene,
+    не мёртвые данные -- фаза реплики читает его из полного read-only итога."""
+    _complete_answer, captured = _capture_answer()
+
+    result = _run(
+        _describe(),
+        complete_answer=_complete_answer,
+        execute_tool=lambda name, args: _DESCRIBE_RESULT,
+        tool_names=("describe_scene", "reply"),
+        read_only_tools=frozenset({"describe_scene"}),
+    )
+
+    assert result.stopped_reason == "ok"
+    joined = "\n".join(str(m.get("content")) for m in captured[0])
+    assert "Опишите сцену кратко (2-3 предложения). Фокус: что это?" in joined
+
+
+def test_describe_scene_answer_frames_used_when_flag_on() -> None:
+    _complete_answer, captured = _capture_answer()
+
+    result = _run(
+        _describe(),
+        complete_answer=_complete_answer,
+        execute_tool=lambda name, args: _DESCRIBE_RESULT,
+        tool_names=("describe_scene", "reply"),
+        read_only_tools=frozenset({"describe_scene"}),
+        answer_frames=(_FRAME_A,),
+        answer_phase_images=True,
+    )
+
+    assert result.stopped_reason == "ok"
+    last = captured[0][-1]
+    assert last["role"] == "user"
+    content = last["content"]
+    assert isinstance(content, list)
+    assert content[-1] == {"type": "image_url", "image_url": {"url": _FRAME_A}}
+
+
+def test_describe_scene_answer_frames_absent_when_flag_off() -> None:
+    _complete_answer, captured = _capture_answer()
+
+    _run(
+        _describe(),
+        complete_answer=_complete_answer,
+        execute_tool=lambda name, args: _DESCRIBE_RESULT,
+        tool_names=("describe_scene", "reply"),
+        read_only_tools=frozenset({"describe_scene"}),
+        answer_frames=(_FRAME_A,),
+        answer_phase_images=False,
+    )
+
+    last = captured[0][-1]
+    assert isinstance(last["content"], str)
+
+
+def test_describe_scene_failed_execution_reports_failure_to_answer_phase() -> None:
+    _complete_answer, captured = _capture_answer()
+
+    result = _run(
+        _describe(),
+        complete_answer=_complete_answer,
+        execute_tool=lambda name, args: _FakeResult(
+            ok=False, message="нет замороженных кадров — описание сцены невозможно", data={}
+        ),
+        tool_names=("describe_scene", "reply"),
+        read_only_tools=frozenset({"describe_scene"}),
+    )
+
+    assert result.stopped_reason == "action_invalid"
+    joined = "\n".join(str(m.get("content")) for m in captured[0])
+    assert "не удалось: describe_scene — нет замороженных кадров" in joined
+
+
+def test_mutating_tool_outcome_unchanged_alongside_describe_scene() -> None:
+    """Появление describe_scene в read_only_tools не меняет рендер мутрующих
+    инструментов: guide_to остаётся короткой строкой `выполнено: ...`."""
+    _complete_answer, captured = _capture_answer()
+
+    _run(
+        _guide(),
+        complete_answer=_complete_answer,
+        known_location_ids=frozenset({"cafe"}),
+        tool_names=("guide_to", "describe_scene", "reply"),
+        read_only_tools=frozenset({"describe_scene"}),
+    )
+
+    joined = "\n".join(str(m.get("content")) for m in captured[0])
+    assert "выполнено: guide_to(location_id='cafe')" in joined
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

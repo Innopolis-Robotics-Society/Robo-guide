@@ -245,6 +245,15 @@ class DialogAgentNode(LifecycleNode):
         # бы её. Мьютекс с _pending_text: последний голос побеждает,
         # какого бы рода он ни был -- см. оба места записи ниже.
         self._pending_answer_replay: tuple[str, dict] | None = None
+        # describe_scene (C3): кадры, замороженные `_run_turn`'ом на старте
+        # хода -- ровно один freeze на ход. tuple(frozen) + now_s внутри
+        # хода; None вне хода (тогда describe_scene морозит кадры сама).
+        self._turn_frozen_frames: tuple | None = None
+        self._turn_frozen_now_s: float | None = None
+        # Снимок миссии ТОГО ЖЕ хода (стешуется рядом с кадрами):
+        # кандидаты describe_scene обязаны смотреть на ту же остановку,
+        # что и замороженные кадры -- не на живое /mission/state.
+        self._turn_frozen_mission: MissionState | None = None
 
         self._cb_reentrant = ReentrantCallbackGroup()
 
@@ -1227,6 +1236,10 @@ class DialogAgentNode(LifecycleNode):
             # остаются локальными переменными для промпт-пути (build_content).
             frozen: list = []
             now_s = self._now_s()
+            # describe_scene (C3): снимок миссии хода стешуется вне условия
+            # vision -- кадры без vision не нужны, а вот «какая остановка
+            # была в этот ход» нужен любому читателю стэша.
+            self._turn_frozen_mission = mission
             if self._frame_buffer is not None:
                 frozen = self._frame_buffer.freeze(now_s)
                 snap["frames"] = [
@@ -1241,6 +1254,11 @@ class DialogAgentNode(LifecycleNode):
                 discarded = self._frame_buffer.stats
                 if any(discarded.values()):
                     self.get_logger().info(f"vision: отброшено кадров: {discarded}")
+                # describe_scene (C3): ровно один freeze на ход -- этот же
+                # набор кадров (и тот же now_s) реюзнет _tool_describe_scene
+                # в фазе действия, если модель выберет её.
+                self._turn_frozen_frames = tuple(frozen)
+                self._turn_frozen_now_s = now_s
 
             # Автосправка ДО фазы действия (CLAUDE_CODE_TASK_stage1_knowledge.md
             # п.7.1): текущая остановка целиком (если есть) + поиск по
@@ -1570,6 +1588,12 @@ class DialogAgentNode(LifecycleNode):
                 self._pending_answer_replay = None
                 self._turn_in_flight = False
                 self._abort_event = None
+                # describe_scene (C3): стэш хода (кадры + now_s + миссия)
+                # живёт только внутри хода; вне него describe_scene
+                # морозит кадры сама и берёт живое состояние миссии.
+                self._turn_frozen_frames = None
+                self._turn_frozen_now_s = None
+                self._turn_frozen_mission = None
             if pending_text is None and pending_answer_replay is None:
                 self._disarm_listen()
             self._arm_wake_grace()
@@ -1668,6 +1692,10 @@ class DialogAgentNode(LifecycleNode):
         ListLocations), tool_broker гейтит по-старому, живым состоянием.
         """
         timeout = timeout_s if timeout_s is not None else self._service_call_timeout_s
+        if name == "describe_scene":
+            # Локальный обработчик: миссия хода и кадры стешены внутри
+            # узла; брокер здесь не нужен (см. _tool_describe_scene).
+            return self._tool_describe_scene(args)
         client = getattr(self, "_call_tool_client", None)
         if client is None:
             return _RemoteToolResult(ok=False, message="узел уже разобран", data={})
@@ -1696,6 +1724,98 @@ class DialogAgentNode(LifecycleNode):
             data = {}
         return _RemoteToolResult(ok=response.ok, message=response.message, data=data)
 
+    def _tool_describe_scene(self, args: dict) -> _RemoteToolResult:
+        """Описать сцену по замороженным кадрам и каталогу экспонатов.
+
+        Переиспользует визуальный конвейер visual_context: каталог
+        текущей остановки/зоны только через `_visual_candidates` (C1), а
+        во время хода -- кадры и снимок миссии, уже замороженные
+        `_run_turn`'ом (C3, ровно один freeze на ход). Каталог
+        используется только как список кандидатов для маркировки, а не
+        как источник фактов о сцене.
+        """
+        focus = str(args.get("focus", ""))
+        focus = focus[:120]
+
+        # C3: во время хода кандидаты строятся по ЗАМОРОЖЕННОМУ снимку
+        # миссии того же хода (стешен `_run_turn`'ом рядом с кадрами), не
+        # по живому `last_mission_state()`: пока LLM думал, /mission/state
+        # мог смениться (аривали на новую остановку) -- тогда кандидаты
+        # разъехались бы с кадрами (stage3 C1: снимок хода -- единый
+        # источник состояния хода). Вне хода (стэш сброшен в finally
+        # прошлого хода) -- живое состояние, как и раньше.
+        mission = (
+            self._turn_frozen_mission
+            if self._turn_frozen_mission is not None
+            else self.last_mission_state()
+        )
+        # C1: единственный источник кандидатов -- `_visual_candidates(mission)`
+        # (текущая остановка первой, затем экспонаты той же зоны в порядке
+        # каталога). Инлайн-копия этого цикла удалена: она дублировала
+        # логику и расходилась бы с ней при любой правке каталога.
+        candidates: list[ExhibitCandidate] = (
+            self._visual_candidates(mission) if mission is not None else []
+        )
+
+        # C3: во время хода реюзнем кадры, уже замороженные `_run_turn`'ом --
+        # ровно один freeze на ход и тот же now_s, чтобы возраст/качество
+        # кадров в визуальном контексте describe_scene совпадали с тем, что
+        # видели снимок хода и observation. Вне хода (стэш сброшен в finally
+        # прошлого хода) -- штатный freeze локального буфера.
+        if self._turn_frozen_frames is not None:
+            frames = list(self._turn_frozen_frames)
+            now_s = (
+                self._turn_frozen_now_s if self._turn_frozen_now_s is not None else self._now_s()
+            )
+        else:
+            now_s = self._now_s()
+            frames = self._frame_buffer.freeze(now_s) if self._frame_buffer is not None else []
+        if not frames:
+            return _RemoteToolResult(
+                ok=False,
+                message="нет замороженных кадров — описание сцены невозможно",
+                data={
+                    "focus": focus,
+                    "visual_context": "",
+                    "quality": "none",
+                    "exhibit_candidates": (),
+                },
+            )
+
+        visual_ctx = build_visual_context(
+            frames,
+            now_s=now_s,
+            candidates=candidates,
+            # C2: конфиг-параметры хода (vision.max_candidates /
+            # vision.max_frame_age_s), не хардкод -- те же пороги, что у
+            # визуального контекста самого хода.
+            max_candidates=self._vision_max_candidates,
+            stale_age_s=self._vision_max_frame_age_s,
+        )
+        context_text = render_visual_context(visual_ctx, utterance="")
+
+        observation_instruction = (
+            "Опишите сцену кратко (2-3 предложения), опираясь только на "
+            "видимое: люди, экспонаты, жесты, освещение/помехи. Не "
+            "выдумывайте факты из каталога — для фактов используйте "
+            "lookup_content или search_content. Если деталь не видна — "
+            "опустите или пометьте как неуверенность."
+        )
+        if focus:
+            observation_instruction += f" Фокус: {focus}."
+
+        return _RemoteToolResult(
+            ok=True,
+            message="describe_scene: визуальный контекст сформирован",
+            data={
+                "focus": focus,
+                "visual_context": context_text,
+                "quality": visual_ctx.quality,
+                "observation_instruction": observation_instruction,
+                "exhibit_candidates": tuple(c.id for c in visual_ctx.candidates),
+            },
+        )
+
 
 def _action_event_text(action: ToolCallRecord | None) -> str | None:
     """Собрать итог действия как событие истории.
@@ -1711,6 +1831,14 @@ def _action_event_text(action: ToolCallRecord | None) -> str | None:
     """
     if action is None or action.name == "reply":
         return None
+    if action.name == "describe_scene":
+        # describe_scene не читает справку -- "уточнил справку" вводил бы в
+        # заблуждение; история получает короткую подпись, а полный визуальный
+        # контекст остаётся только в промпте фазы реплики.
+        if not action.result_ok:
+            return f"не удалось: describe_scene — {action.result_message}"
+        focus = str(action.args.get("focus", "")).strip()
+        return f"описал сцену: {focus}" if focus else "описал сцену"
     if action.read_only:
         return f"уточнил справку: {_read_only_result_title(action)}"
     return render_action_outcome(action)

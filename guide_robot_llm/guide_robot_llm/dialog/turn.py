@@ -158,9 +158,9 @@ def render_action_outcome(record: ToolCallRecord | None) -> str:
     """Отрендерить итог действия для промпта фазы реплики.
 
     Для read_only-инструментов (`lookup_content`/`search_content`/
-    `resolve_location`/старый read-only каталог) -- полный найденный текст
-    (`chunks`/`hits`/`candidates`), а не `выполнено: name(...)`
-    (CLAUDE_CODE_TASK_stage1_knowledge.md п.7.2): фаза реплики обязана
+    `resolve_location`/`describe_scene`/старый read-only каталог) -- полный
+    найденный текст (`chunks`/`hits`/`candidates`/`visual_context`), а не
+    `выполнено: name(...)` (CLAUDE_CODE_TASK_stage1_knowledge.md п.7.2): фаза реплики обязана
     видеть сами факты, не только имя вызова. Для остальных (мутирующих)
     инструментов -- прежняя короткая строка; та же строка используется
     `dialog_agent_node._action_event_text` как событие истории, поэтому
@@ -214,6 +214,26 @@ def _render_read_only_result(data: dict) -> str:
         return "возможные локации: " + ", ".join(
             candidate.get("id", "") for candidate in data["candidates"]
         )
+    if "visual_context" in data:
+        visual_context = data.get("visual_context", "").strip()
+        if not visual_context:
+            if data.get("quality") == "none":
+                return "не удалось: describe_scene — нет замороженных кадров"
+            return "визуальный контекст недоступен"
+        parts = [visual_context]
+        quality = data.get("quality", "")
+        if quality and quality != "ok":
+            parts.append(f"качество кадров: {quality}")
+        candidates = data.get("exhibit_candidates", ())
+        if candidates:
+            parts.append("видимые экспонаты: " + ", ".join(candidates))
+        # Taiga #6: observation_instruction построен в _tool_describe_scene
+        # (dialog_agent_node) и обязан дойти до фазы реплики, иначе это
+        # мёртвые данные (раньше здесь терялся).
+        instruction = str(data.get("observation_instruction", "")).strip()
+        if instruction:
+            parts.append(instruction)
+        return " ".join(parts)
     return "готово"
 
 

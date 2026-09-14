@@ -330,6 +330,36 @@ def test_observation_grammar_empty_candidates_has_no_dead_rule() -> None:
     assert "candidate-id" not in build_observation_grammar([])
 
 
+# -- конфиг-пороги describe_scene (C2): произвольные max_candidates/stale_age_s ----
+
+
+def test_candidates_capped_to_custom_max() -> None:
+    context = build_visual_context(
+        [],
+        now_s=100.0,
+        candidates=[_candidate(i) for i in range(3)],
+        max_candidates=2,
+        stale_age_s=2.0,
+    )
+
+    assert [c.id for c in context.candidates] == ["loc_0", "loc_1"]
+
+
+def test_custom_stale_age_s_marks_frame_stale() -> None:
+    """vision.max_frame_age_s приходит конфигом (describe_scene C2) --
+    произвольный порог работает так же, как дефолтные 2.0 с."""
+    context = build_visual_context(
+        [_frame(_URL_1, captured_at=99.0)],
+        now_s=100.0,
+        candidates=[],
+        max_candidates=5,
+        stale_age_s=0.5,
+    )
+
+    assert context.frames[0].stale is True
+    assert context.quality == QUALITY_STALE
+
+
 if __name__ == "__main__":
     import sys
 

@@ -178,6 +178,21 @@ def _validate_args(
     elif name in ("search_content", "resolve_location"):
         if not str(args.get("query", "")).strip():
             raise ValidationError(f"{name}: query обязателен")
+    elif name == "describe_scene":
+        focus = args.get("focus")
+        if focus is not None:
+            if not isinstance(focus, str):
+                raise ValidationError("describe_scene: focus должен быть строкой")
+            if len(focus) > 120:
+                raise ValidationError(
+                    f"describe_scene: focus слишком длинный (макс. 120 символов, "
+                    f"сейчас {len(focus)})"
+                )
+        unexpected = set(args) - {"focus"}
+        if unexpected:
+            raise ValidationError(
+                f"describe_scene: неожиданные аргументы: " f"{', '.join(sorted(unexpected))}"
+            )
 
 
 def _require_known(value: object, known: frozenset[str], kind: str) -> None:
