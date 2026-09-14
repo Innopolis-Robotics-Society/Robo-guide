@@ -26,9 +26,15 @@
     llm.max_attempts_per_backend: 2
     llm.backoff_s: 0.5
     llm.max_tokens_answer: 160
-    # Без think в GBNF хватает короткого {"tool","args"}; 64 -- потолок на
-    # args у guide_to/ask_visitor, не на рассуждения.
-    llm.max_tokens_action: 64
+    # Контракт ADR-0001: 4 поля {"tool","args","confidence","abstain"} --
+    # ~60 токенов на guide_to/ask_visitor с длинными id; запас 96.
+    llm.max_tokens_action: 96
+    # Taiga #4: фаза наблюдения observe_then_decide -- строго JSON под GBNF.
+    # Бюджет (оценка, BPE ~1.5-1.8 символа/токен для кириллицы): 400 символов
+    # scene_facts + JSON-обвязка ~= 250-300 токенов; 320 покрывает реалистичный
+    # максимум. Патологическое переполнение -- безопасно: JSON режется,
+    # host парсит malformed, наблюдение отбрасывается, ход идёт без него.
+    llm.max_tokens_observation: 320
     llm.temperature_answer: 0.6
     llm.temperature_action: 0.0
     # stage5 п.3: только фаза реплики -- фаза действия идёт под грамматикой
@@ -37,6 +43,18 @@
     # ../llm_server/README.md.
     llm.answer_frequency_penalty: 0.4
     llm.action_repair_attempts: 1
+    # ADR-0001 §5: confidence ниже порога -- safe abstention до брокера
+    # (ни один инструмент не исполняется, реплика-уточнение).
+    llm.action_confidence_threshold: 0.5
+    # Taiga #3: capability-конфигурация эндпоинтов. Индекс -- по llm.base_urls;
+    # короткий список -- дефолт для остальных (text-only, без model, без лимита
+    # кадров). Кадры к сообщениям прикрепляет turn context (#4); здесь только то,
+    # какой эндпоинт их принимает. Текущие два llama.cpp-эндпоинта -- text-only.
+    llm.models: ["", ""]
+    llm.multimodal_enabled: [false, false]
+    llm.max_images: [0, 0]
+    # Заголовки -- JSON-объект (у ROS-параметров нет dict-типа); пусто -- не шлём.
+    llm.request_headers: ""
 
     system_prompt_path: "$(find-pkg-share guide_robot_llm)/config/system_prompt.txt"
     tool_broker_ns: "/tool_broker"
@@ -58,6 +76,44 @@
 
     # unused: ход к ЛЛМ только после «робот» или окна /speech/wakeword.
     wake_grace_s: 0.0
+
+    # Taiga #2: камера -- опционально. false по умолчанию: робот без камеры
+    # работает text-only без изменений; включение требует camera.launch.py
+    # (guide_robot_bringup) на той же машине. Контракт snap["frames"] -- в
+    # README.md раздел «Визуальная pipeline».
+    vision.enabled: false
+    vision.compressed_topic: "/camera/image_raw/compressed"
+    vision.frame_count: 3
+    vision.lookback_s: 2.0
+    vision.max_frame_age_s: 2.0
+    vision.max_long_edge_px: 1280
+    vision.max_payload_bytes: 2500000
+    # Taiga #4: промпт-стратегии. direct_action -- кадры и кандидаты сразу к
+    # фазе действия (дефолт, один LLM-вызов на ход); observe_then_decide --
+    # сначала структурированное наблюдение под GBNF (id только из кандидатов),
+    # затем фаза действия видит его рендер + кадры. Кандидаты -- только из
+    # каталога семантической карты; id вне списка в промпт не попадают.
+    vision.prompt_strategy: "direct_action"
+    # Кадры в фазу реплики: false по умолчанию; reply кадров никогда не
+    # получает (выбранного skill'а нет). Будущие визуальные skill'ы #6/#7
+    # определят своё по-своему.
+    vision.answer_phase_images: false
+    vision.max_candidates: 5
+    vision.observation_max_chars: 400
+    # Taiga #7: геометрия камеры для резолюции жеста-указания (resolve_pointing).
+    # Камера НЕ привязана к TF (см. README «Визуальная pipeline»): модель
+    # задаётся явно. Дефолты -- типичная широкоугольная камера на стойке
+    # (1280x720, HFOV 60 / VFOV 34, зенит 1.0 м, смотрит вперёд чуть вниз);
+    # под конкретный монтаж робота прокалибровать ЗДЕСЬ, не в коде.
+    vision.camera.width_px: 1280
+    vision.camera.height_px: 720
+    vision.camera.hfov_deg: 60.0
+    vision.camera.vfov_deg: 34.0
+    vision.camera.mount_x: 0.0
+    vision.camera.mount_y: 0.0
+    vision.camera.mount_z: 1.0
+    vision.camera.yaw_deg: 0.0
+    vision.camera.pitch_deg: 10.0
 
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
 /**/interaction_log:

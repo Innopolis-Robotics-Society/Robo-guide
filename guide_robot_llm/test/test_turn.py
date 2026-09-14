@@ -11,10 +11,21 @@ import json
 from dataclasses import dataclass, field
 
 import pytest
-
 from guide_robot_llm.dialog.turn import render_action_outcome, run_turn
 from guide_robot_llm.llm_client import CompletionResult
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendTimeout
+from guide_robot_llm.pointing import (
+    CameraGeometry,
+    Candidate,
+    PointingBaseContext,
+    RobotPose,
+)
+from guide_robot_llm.tools.validate import (
+    REASON_AMBIGUOUS_TARGET,
+    REASON_NO_CANDIDATE,
+    REASON_STALE_FRAMES,
+)
+from guide_robot_llm.visual_context import ObservationRequest
 
 _TOOL_NAMES = ["guide_to", "reply"]
 _ACTION_INSTRUCTION = "ACTION_INSTRUCTION_TEXT"
@@ -46,12 +57,25 @@ def _actions(*responses: str):
     return _complete_action
 
 
-def _reply_call(think: str = "поболтать") -> str:
-    return json.dumps({"think": think, "tool": "reply", "args": {}})
+def _reply_call(confidence: float = 0.9, abstain: bool = False) -> str:
+    return json.dumps(
+        {"tool": "reply", "args": {}, "confidence": confidence, "abstain": abstain}
+    )
 
 
-def _guide_call(location_id: object = "cafe", think: str = "просит отвести") -> str:
-    return json.dumps({"think": think, "tool": "guide_to", "args": {"location_id": location_id}})
+def _guide_call(
+    location_id: object = "cafe",
+    confidence: float = 0.9,
+    abstain: bool = False,
+) -> str:
+    return json.dumps(
+        {
+            "tool": "guide_to",
+            "args": {"location_id": location_id},
+            "confidence": confidence,
+            "abstain": abstain,
+        }
+    )
 
 
 def _run(**overrides):
@@ -69,6 +93,75 @@ def _run(**overrides):
     }
     kwargs.update(overrides)
     return run_turn(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Таига #7: resolve_pointing -- host-side геометрия ДО execute_tool
+# ---------------------------------------------------------------------------
+
+# Та же сцена, что в test_pointing.py: камера 1 м, смотрит вперёд (yaw 0 = +x),
+# наклон 10°. Экспонаты на ~3 м впереди.
+_PT_CAM = CameraGeometry(
+    width_px=1280, height_px=720, hfov_deg=60, vfov_deg=34, mount_z=1.0, pitch_deg=10
+)
+_PT_POSE = RobotPose(x=0.0, y=0.0, yaw=0.0)
+
+
+def _pt_cand(cid: str, name: str, x: float, y: float) -> Candidate:
+    return Candidate(id=cid, name=name, x=x, y=y, aliases=())
+
+
+def _pt_base(cands: list[Candidate], *, quality: str = "ok", utterance: str = ""):
+    """Статический базис контекста жеста (известен до наблюдения)."""
+    return PointingBaseContext(
+        candidates=tuple(cands),
+        robot_pose=_PT_POSE,
+        camera=_PT_CAM,
+        utterance=utterance,
+        frame_quality=quality,
+    )
+
+
+def _pt_obs(all_cand_ids: list[str], *, visible=(), box=None, pointing: str = "yes") -> dict:
+    """kwargs наблюдения: фейковый complete_observation возвращает VLM-
+    наблюдение (жест pointing_box + реально видимые id). Наблюдение считается
+    внутри run_turn и складывается с базисом в полный PointingContext."""
+    obs = {
+        "people_count": 1,
+        "exhibit_candidates": list(visible),
+        "pointing_evidence": pointing,
+        "pointing_box": box,
+        "scene_facts": "посетитель указывает",
+    }
+    obs_json = json.dumps(obs)
+
+    def _complete(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
+        del messages, grammar
+        return CompletionResult(text=obs_json)
+
+    return {
+        "observation_request": ObservationRequest(
+            instruction="obs",
+            context_text="ctx",
+            frames=("data:image/png;base64,AAAA",),
+            grammar="root ::= \"x\" ws",
+            candidate_ids=frozenset(all_cand_ids),
+            quality="ok",
+            max_chars=400,
+        ),
+        "complete_observation": _complete,
+    }
+
+
+def _pt_call(content_id: str = "robot", confidence: float = 0.9) -> str:
+    return json.dumps(
+        {
+            "tool": "resolve_pointing",
+            "args": {"content_id": content_id},
+            "confidence": confidence,
+            "abstain": False,
+        }
+    )
 
 
 def test_action_selected_and_executed_before_answer_is_generated() -> None:
@@ -106,18 +199,32 @@ def test_action_selected_and_executed_before_answer_is_generated() -> None:
     assert result.say_ok is True
 
 
-def test_think_is_parsed_into_action_record() -> None:
-    result = _run(complete_action=_actions(_guide_call(think="хочет к кафе")))
-    assert result.action is not None
-    assert result.action.think == "хочет к кафе"
+def test_extra_think_key_is_malformed_and_repaired() -> None:
+    """ADR-0001 §3: `think` из контракта убран -- чужой ключ = malformed."""
+    bad = json.dumps(
+        {"think": "хочет к кафе", "tool": "guide_to", "args": {"location_id": "cafe"}}
+    )
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(bad, _guide_call()),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+    )
+
+    assert executed == ["guide_to"]
+    assert result.repair_used is True
+    assert result.stopped_reason == "ok"
+    assert result.action_first_attempt_valid is False
 
 
-def test_missing_think_is_tolerated_as_empty() -> None:
+def test_legacy_two_field_action_is_malformed() -> None:
+    """Старый 2-полевой формат ({tool, args}) без confidence/abstain -- malformed."""
     legacy = json.dumps({"tool": "reply", "args": {}})
-    result = _run(complete_action=_actions(legacy))
+    result = _run(complete_action=_actions(legacy, _reply_call()), repair_attempts=1)
+
     assert result.action is not None
     assert result.action.name == "reply"
-    assert result.action.think == ""
+    assert result.repair_used is True
 
 
 def test_answer_prompt_contains_action_outcome_after_static_instruction() -> None:
@@ -252,14 +359,14 @@ def test_successful_action_is_terminal() -> None:
 
 
 def test_repair_happens_exactly_once_then_succeeds() -> None:
+    """ADR-0001 §2: кривые аргументы режет ВАЛИДАТОР до брокера --
+    `execute_tool` не видит invalid-вызов вовсе."""
     bad = _guide_call(location_id=1)
     good = _guide_call(location_id="cafe")
     executed: list[dict] = []
 
     def execute_tool(name: str, args: dict) -> _FakeResult:
         executed.append(args)
-        if args.get("location_id") == 1:
-            return _FakeResult(ok=False, message="location_id: не задан(а)")
         return _FakeResult(ok=True, message="ok")
 
     result = _run(
@@ -267,12 +374,15 @@ def test_repair_happens_exactly_once_then_succeeds() -> None:
         complete_answer=_answer("иду"),
         execute_tool=execute_tool,
         repair_attempts=1,
+        known_location_ids=frozenset({"cafe"}),
     )
 
-    assert len(executed) == 2
+    assert executed == [{"location_id": "cafe"}]
     assert result.repair_used is True
     assert result.stopped_reason == "ok"
     assert result.action.result_ok is True
+    # Первая попытка была СХЕМА-валидна (отклонены аргументы, не конверт).
+    assert result.action_first_attempt_valid is True
 
 
 def test_repair_is_invisible_to_speak() -> None:
@@ -282,8 +392,6 @@ def test_repair_is_invisible_to_speak() -> None:
     spoken: list[str] = []
 
     def execute_tool(name: str, args: dict) -> _FakeResult:
-        if args.get("location_id") == 1:
-            return _FakeResult(ok=False, message="location_id: не задан(а)")
         return _FakeResult(ok=True)
 
     _run(
@@ -292,13 +400,16 @@ def test_repair_is_invisible_to_speak() -> None:
         execute_tool=execute_tool,
         speak=lambda text: spoken.append(text) or _FakeResult(ok=True),
         repair_attempts=1,
+        known_location_ids=frozenset({"cafe"}),
     )
 
     assert spoken == ["веду"]
 
 
 def test_repair_exhausted_stops_with_action_invalid() -> None:
-    bad = _guide_call(location_id=1)
+    """Схема-валидное действие, но брокер отвечает ошибкой: после исчерпания
+    починки ход обрывается как `action_invalid` (реплика честно говорит о провале)."""
+    bad = _guide_call(location_id="cafe")
 
     result = _run(
         complete_action=_actions(bad, bad),
@@ -320,7 +431,7 @@ def test_repair_attempts_zero_means_no_second_try() -> None:
         return _FakeResult(ok=False, message="x")
 
     result = _run(
-        complete_action=_actions(json.dumps({"think": "", "tool": "guide_to", "args": {}})),
+        complete_action=_actions(_guide_call()),
         complete_answer=_answer("не вышло"),
         execute_tool=execute_tool,
         repair_attempts=0,
@@ -345,6 +456,7 @@ def test_action_parse_error_stops_turn_without_speech() -> None:
         complete_action=_actions(broken),
         complete_answer=complete_answer,
         speak=lambda text: spoken.append(text) or _FakeResult(ok=True),
+        repair_attempts=0,  # без починки malformed сразу обрывает ход
     )
 
     assert result.stopped_reason == "action_parse_error"
@@ -649,7 +761,12 @@ def test_render_action_outcome_read_only_failure_keeps_short_form() -> None:
 def test_run_turn_passes_read_only_tools_to_render_action_outcome() -> None:
     def complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
         del messages, grammar
-        call = {"think": "ищет факт", "tool": "search_content", "args": {"query": "x"}}
+        call = {
+            "tool": "search_content",
+            "args": {"query": "x"},
+            "confidence": 0.9,
+            "abstain": False,
+        }
         return CompletionResult(text=json.dumps(call))
 
     def execute_tool(name: str, args: dict) -> _FakeResult:
@@ -667,6 +784,7 @@ def test_run_turn_passes_read_only_tools_to_render_action_outcome() -> None:
         complete_action=complete_action,
         execute_tool=execute_tool,
         complete_answer=complete_answer,
+        tool_names=["reply", "search_content"],
         read_only_tools=frozenset({"search_content"}),
     )
 
@@ -694,30 +812,31 @@ def test_answer_spoken_as_single_utterance() -> None:
     assert spoken == ["Первое предложение. Второе."]
 
 
-def test_action_stream_stops_as_soon_as_reply_tool_seen() -> None:
-    """Не ждём полный JSON: stop_when на tool=reply, синтетический call."""
-    seen_stop = []
+def test_action_stream_stops_on_complete_action_json() -> None:
+    """ADR-0001 §2: раннего stop на `tool=reply` НЕТ -- `abstain` идёт в конце
+    объекта, и обрыв раньше него скрал бы сигнал воздержания. Стрим рвётся
+    только когда полный JSON становится схема-валидным."""
+    full = _reply_call()
 
     def complete_action(messages, grammar, *, stop_when=None):
         del messages, grammar
         assert stop_when is not None
-        partial = '{"tool":"reply","args":'
-        assert stop_when(partial) is True
-        seen_stop.append(partial)
-        return CompletionResult(text=partial, finish_reason="stop_when")
+        assert stop_when('{"tool":"reply","args":') is False
+        assert stop_when('{"tool":"reply","args":{},"confidence":0.9,') is False
+        assert stop_when(full) is True
+        return CompletionResult(text=full, finish_reason="stop_when")
 
     result = _run(complete_action=complete_action)
     assert result.action is not None
     assert result.action.name == "reply"
-    assert result.action_raw_text == '{"tool":"reply","args":{}}'
-    assert seen_stop
+    assert result.action_raw_text == full
 
 
 def test_action_stream_stops_on_complete_non_reply_json() -> None:
     def complete_action(messages, grammar, *, stop_when=None):
         del messages, grammar
         assert stop_when is not None
-        text = '{"tool":"guide_to","args":{"location_id":"cafe"}}'
+        text = _guide_call()
         assert stop_when(text) is True
         assert stop_when('{"tool":"guide_to","args":{') is False
         return CompletionResult(text=text, finish_reason="stop_when")
@@ -736,9 +855,7 @@ def test_chit_chat_overrides_guide_to_to_reply() -> None:
         return _FakeResult(ok=True)
 
     result = _run(
-        complete_action=_actions(
-            json.dumps({"tool": "guide_to", "args": {"location_id": "cafe"}})
-        ),
+        complete_action=_actions(_guide_call()),
         execute_tool=execute_tool,
         utterance="привет",
         complete_answer=_answer("Привет!"),
@@ -767,3 +884,365 @@ def test_start_tour_phrase_overrides_reply() -> None:
     assert executed == [("start_tour", {"tour_id": "lab_demo"})]
     assert result.action is not None
     assert result.action.name == "start_tour"
+
+
+# -- ADR-0001: strict contract, abstention, safe fallback -------------------
+
+
+def test_model_abstain_never_executes_any_tool() -> None:
+    """abstain=true -- ни один инструмент (включая моторный) не исполняется."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(_guide_call(confidence=0.9, abstain=True)),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action.think == "abstain_from_model"
+    assert result.action_reason_code == "abstain_from_model"
+    assert result.stopped_reason == "ok"
+    assert result.repair_used is False
+
+
+def test_low_confidence_motor_action_cannot_execute() -> None:
+    """Ключевой тест ишью #5: guide_to с confidence ниже порога не доезжает до
+    execute_tool -- safe abstention ДО брокера."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(_guide_call(confidence=0.3)),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        confidence_threshold=0.5,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action.think == "low_confidence"
+    assert result.action_reason_code == "low_confidence"
+    assert result.stopped_reason == "ok"
+
+
+def test_confidence_equal_to_threshold_is_allowed() -> None:
+    """Порог включительный: confidence == threshold -- действие исполняется."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(_guide_call(confidence=0.5)),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        confidence_threshold=0.5,
+    )
+
+    assert executed == ["guide_to"]
+    assert result.action_reason_code == ""
+
+
+def test_confidence_above_threshold_is_not_trust() -> None:
+    """confidence не авторизует: чужой id отклоняется даже при confidence=1.0."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(_guide_call(location_id="ghost", confidence=1.0)),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        known_location_ids=frozenset({"cafe"}),
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action_reason_code == "unknown_id"
+    assert result.action is not None
+    assert result.action.name == "reply"
+
+
+def test_unknown_id_goes_to_repair_then_fallback() -> None:
+    """Чужой id: сначала repair-попытка, затем действие исполняется."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(
+            _guide_call(location_id="ghost"),
+            _guide_call(location_id="cafe"),
+        ),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        known_location_ids=frozenset({"cafe"}),
+        repair_attempts=1,
+    )
+
+    assert executed == ["guide_to"]
+    assert result.repair_used is True
+    assert result.action_reason_code == ""
+
+
+def test_illegal_state_tool_goes_to_repair_then_fallback() -> None:
+    """Инструмент вне tools_allowed: repair, затем safe fallback, брокер не видит."""
+    executed: list[str] = []
+
+    def complete_action(messages: list[dict], grammar: str, **_kwargs) -> CompletionResult:
+        del messages, grammar
+        return CompletionResult(
+            text=json.dumps(
+                {
+                    "tool": "start_tour",
+                    "args": {"tour_id": "lab_demo"},
+                    "confidence": 0.9,
+                    "abstain": False,
+                }
+            )
+        )
+
+    result = _run(
+        complete_action=complete_action,
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=["reply"],  # start_tour недоступен в этом состоянии
+        repair_attempts=1,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action.think == "illegal_state"
+    assert result.action_reason_code == "illegal_state"
+    assert result.stopped_reason == "ok"
+    assert result.repair_used is True
+
+
+def test_malformed_action_goes_to_repair_then_fallback() -> None:
+    """Malformed (чужой ключ) -> repair -> снова malformed -> action_parse_error."""
+    executed: list[str] = []
+    malformed = (
+        '{"tool": "reply", "args": {}, "confidence": 0.9, '
+        '"abstain": false, "think": "лишнее поле"}'
+    )
+
+    result = _run(
+        complete_action=_actions(malformed, malformed),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        repair_attempts=1,
+    )
+
+    assert executed == []
+    assert result.action is None
+    assert result.stopped_reason == "action_parse_error"
+    assert result.repair_used is True
+
+
+def test_action_first_attempt_valid_metric() -> None:
+    """Метрика #11: first-attempt schema validity в обе стороны."""
+    ok_result = _run(complete_action=_actions(_guide_call()))
+    assert ok_result.action_first_attempt_valid is True
+
+    fixed = _run(
+        complete_action=_actions('not json at all', _guide_call()),
+        repair_attempts=1,
+    )
+    assert fixed.action_first_attempt_valid is False
+
+
+def test_safe_fallback_answer_phase_is_told_the_reason() -> None:
+    """При abstention фаза реплики получает инструкцию прояснить/сказать о
+    неопределённости, а не описывать несуществующее действие."""
+    answer_messages: list[dict] = []
+
+    def complete_answer(
+        messages: list[dict], grammar: str | None = None, **_kwargs
+    ) -> CompletionResult:
+        answer_messages.extend(messages)
+        return CompletionResult(text="уточняющий ответ")
+
+    _run(
+        complete_action=_actions(_guide_call(confidence=0.3)),
+        complete_answer=complete_answer,
+    )
+
+    joined = "\n".join(str(m.get("content", "")) for m in answer_messages)
+    assert "low_confidence" in joined
+    assert "уточняющим" in joined
+    assert "НЕ было исполнено" in joined
+
+
+def test_override_start_tour_bypasses_verdict() -> None:
+    """host-override стартует тур даже по low-confidence reply (override =
+    намерение посетителя, а не доверие к модели)."""
+    executed: list[tuple[str, dict]] = []
+
+    def execute_tool(name: str, args: dict) -> _FakeResult:
+        executed.append((name, args))
+        return _FakeResult(ok=True)
+
+    result = _run(
+        complete_action=_actions(_reply_call(confidence=0.2)),
+        execute_tool=execute_tool,
+        tool_names=["reply", "start_tour"],
+        utterance="начни экскурсию",
+        default_tour_id="lab_demo",
+        complete_answer=_answer("Начинаем."),
+    )
+
+    assert executed == [("start_tour", {"tour_id": "lab_demo"})]
+    assert result.action is not None
+    assert result.action.name == "start_tour"
+    assert result.action_reason_code == ""
+
+
+# ---------------------------------------------------------------------------
+# Таига #7: resolve_pointing -- host-side геометрия ДО execute_tool
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_pointing_resolved_executes_tool() -> None:
+    """Уникальный видимый кандидат + жест на нём + выбор модели -- исполняется."""
+    executed: list[tuple[str, dict]] = []
+
+    def execute_tool(name: str, args: dict) -> _FakeResult:
+        executed.append((name, args))
+        return _FakeResult(ok=True, data={"chunks": ["текст"]})
+
+    cands = [_pt_cand("robot", "робот", 3.0, 0.0)]
+    result = _run(
+        complete_action=_actions(_pt_call("robot")),
+        execute_tool=execute_tool,
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_base=_pt_base(cands, utterance="расскажи про этот"),
+        **_pt_obs(["robot"], visible=("robot",), box=(0.45, 0.69, 0.55, 0.79)),
+    )
+
+    assert executed == [("resolve_pointing", {"content_id": "robot"})]
+    assert result.action is not None
+    assert result.action.name == "resolve_pointing"
+    assert result.action_reason_code == ""
+
+
+def test_resolve_pointing_no_base_abstains_stale() -> None:
+    """Нет базиса хода (кадров/позы нет) -- не исполняем, stale_frames."""
+    executed: list[str] = []
+
+    result = _run(
+        complete_action=_actions(_pt_call("robot")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_base=None,
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action.think == REASON_STALE_FRAMES
+    assert result.action_reason_code == REASON_STALE_FRAMES
+
+
+def test_resolve_pointing_ambiguous_abstains() -> None:
+    """Два похожих рядом -- неоднозначно, уточняем, не угадываем."""
+    executed: list[str] = []
+
+    cands = [
+        _pt_cand("left", "синий робот", 3.0, -0.2),
+        _pt_cand("right", "красный робот", 3.0, 0.2),
+    ]
+    result = _run(
+        complete_action=_actions(_pt_call("left")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"left", "right"}),
+        pointing_base=_pt_base(cands),
+        **_pt_obs(["left", "right"], visible=("left", "right"), box=(0.45, 0.70, 0.55, 0.80)),
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action.think == REASON_AMBIGUOUS_TARGET
+    assert result.action_reason_code == REASON_AMBIGUOUS_TARGET
+
+
+def test_resolve_pointing_stale_frames_abstains() -> None:
+    """Кадры устарели -- качество ввода, stale_frames, не исполняем."""
+    executed: list[str] = []
+
+    cands = [_pt_cand("robot", "робот", 3.0, 0.0)]
+    result = _run(
+        complete_action=_actions(_pt_call("robot")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_base=_pt_base(cands, quality="stale"),
+        **_pt_obs(["robot"], visible=("robot",), box=(0.45, 0.69, 0.55, 0.79)),
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.think == REASON_STALE_FRAMES
+    assert result.action_reason_code == REASON_STALE_FRAMES
+
+
+def test_resolve_pointing_no_candidate_abstains() -> None:
+    """Нет правдоподобных видимых кандидатов -- no_candidate, уточняем."""
+    executed: list[str] = []
+
+    cands = [_pt_cand("far", "далёкий", 50.0, 0.0)]
+    result = _run(
+        complete_action=_actions(_pt_call("far")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"far"}),
+        pointing_base=_pt_base(cands),
+        **_pt_obs(["far"], visible=("far",), box=(0.45, 0.69, 0.55, 0.79)),
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.think == REASON_NO_CANDIDATE
+    assert result.action_reason_code == REASON_NO_CANDIDATE
+
+
+def test_resolve_pointing_no_gesture_in_observation_abstains() -> None:
+    """Базис есть, но в наблюдении нет жеста (pointing_evidence none) --
+    no_candidate, не угадываем (жест -- входное качество)."""
+    executed: list[str] = []
+
+    cands = [_pt_cand("robot", "робот", 3.0, 0.0)]
+    result = _run(
+        complete_action=_actions(_pt_call("robot")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_base=_pt_base(cands),
+        **_pt_obs(["robot"], visible=("robot",), box=None, pointing="none"),
+        repair_attempts=0,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.think == REASON_NO_CANDIDATE
+    assert result.action_reason_code == REASON_NO_CANDIDATE
+
+
+def test_resolve_pointing_unknown_id_never_reaches_execute() -> None:
+    """content_id вне каталога -- unknown_id ДО брокера, execute_tool не зовётся
+    ни разу (даже при попытке починки модель снова шлёт чужой id)."""
+    executed: list[str] = []
+
+    cands = [_pt_cand("robot", "робот", 3.0, 0.0)]
+    # Модель упрямо шлёт выдуманный id на каждой попытке.
+    result = _run(
+        complete_action=_actions(_pt_call("ghost"), _pt_call("ghost")),
+        execute_tool=lambda name, args: executed.append(name) or _FakeResult(ok=True),
+        tool_names=[*_TOOL_NAMES, "resolve_pointing"],
+        known_exhibit_ids=frozenset({"robot"}),
+        pointing_base=_pt_base(cands),
+        **_pt_obs(["robot"], visible=("robot",), box=(0.45, 0.69, 0.55, 0.79)),
+        repair_attempts=1,
+    )
+
+    assert executed == []
+    assert result.action is not None
+    assert result.action.name == "reply"
+    assert result.action_reason_code == "unknown_id"

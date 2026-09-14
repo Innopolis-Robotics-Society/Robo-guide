@@ -106,9 +106,27 @@ def test_read_only_tools_allowed_in_every_state() -> None:
         "lookup_content",
         "search_content",
         "resolve_location",
+        "resolve_pointing",
     ):
         for state in range(9):
             assert is_tool_allowed(name, state)
+
+
+def test_resolve_pointing_allowed_in_every_state() -> None:
+    """Taiga #7: read-only composite tool -- legal in all mission states."""
+    for state in range(9):
+        assert is_tool_allowed("resolve_pointing", state)
+
+
+def test_resolve_pointing_is_read_only_and_llm_visible() -> None:
+    spec = tool_spec("resolve_pointing")
+    assert spec.read_only is True
+    assert spec.llm_visible is True
+
+
+def test_resolve_pointing_in_llm_only_catalog() -> None:
+    visible = set(allowed_tools(_S.STATE_IDLE, llm_only=True))
+    assert "resolve_pointing" in visible
 
 
 def test_unknown_tool_never_allowed() -> None:
@@ -120,6 +138,7 @@ def test_read_only_flag_set_for_catalog_and_content_tools() -> None:
         "lookup_content",
         "search_content",
         "resolve_location",
+        "resolve_pointing",
         "list_locations",
         "list_tours",
         "estimate_route",
@@ -144,6 +163,7 @@ def test_allowed_tools_idle_matches_expected_set() -> None:
         "lookup_content",
         "search_content",
         "resolve_location",
+        "resolve_pointing",
         "list_locations",
         "list_tours",
         "estimate_route",
@@ -187,5 +207,6 @@ def test_llm_only_still_gates_by_state() -> None:
         "lookup_content",
         "search_content",
         "resolve_location",
+        "resolve_pointing",
         "guide_to",
     ]

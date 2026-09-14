@@ -25,6 +25,7 @@ ROS-события (транскрипт, переходы `/mission/state`, bar
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 import uuid
@@ -36,6 +37,8 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.task import Future
+from sensor_msgs.msg import CompressedImage
+from tf2_ros import Buffer, TransformListener
 
 from guide_robot_llm import matching, snapshot
 from guide_robot_llm.dialog.history import DialogHistory
@@ -43,6 +46,7 @@ from guide_robot_llm.dialog.interaction_log import build_interaction_record
 from guide_robot_llm.dialog.prompt import (
     build_action_instruction,
     build_answer_instruction,
+    build_observation_instruction,
     build_system_prompt,
 )
 from guide_robot_llm.dialog.sanitize import sanitize_answer
@@ -53,6 +57,7 @@ from guide_robot_llm.dialog.turn import (
     run_answer_phase,
     run_turn,
 )
+from guide_robot_llm.lib.frame_buffer import FrameBuffer
 from guide_robot_llm.lib.qos import (
     QOS_ASR_TRANSCRIPT,
     QOS_CANCEL_ALL,
@@ -60,11 +65,25 @@ from guide_robot_llm.lib.qos import (
     QOS_INTERACTION_EVENT,
     QOS_MISSION_PRESENCE,
     QOS_MISSION_STATE,
+    QOS_VISION_COMPRESSED,
     QOS_WAKEWORD,
 )
-from guide_robot_llm.llm_client import Backend, BackendConfig, complete_with_fallback
+from guide_robot_llm.llm_client import (
+    Backend,
+    BackendConfig,
+    build_observation_grammar,
+    complete_with_fallback,
+)
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
+from guide_robot_llm.pointing import CameraGeometry, Candidate, PointingBaseContext, RobotPose
 from guide_robot_llm.tools import schema
+from guide_robot_llm.visual_context import (
+    ExhibitCandidate,
+    ObservationRequest,
+    build_visual_context,
+    frame_sha256_16,
+    render_visual_context,
+)
 from guide_robot_msgs.msg import (
     CancelAll,
     DialogPhase,
@@ -142,12 +161,24 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("llm.backoff_s", 0.5)
         self.declare_parameter("llm.max_tokens_answer", 160)
         self.declare_parameter("llm.max_tokens_action", 64)
+        # Таига #4: фаза наблюдения observe_then_decide (строго JSON; 320 --
+        # запас под observation_max_chars=400, см. config/llm.yaml).
+        self.declare_parameter("llm.max_tokens_observation", 320)
         self.declare_parameter("llm.temperature_answer", 0.6)
         self.declare_parameter("llm.temperature_action", 0.0)
         # stage5 п.3: только фаза реплики -- см. `_complete_answer` ниже.
         self.declare_parameter("llm.answer_frequency_penalty", 0.4)
         self.declare_parameter("llm.action_repair_attempts", 1)
+        # ADR-0001 §5: ниже порога действие -- safe abstention до брокера.
+        self.declare_parameter("llm.action_confidence_threshold", 0.5)
         self.declare_parameter("llm.raw", False)
+        # Taiga #3: capability-конфиг эндпоинтов, индекс -- по llm.base_urls
+        # (короткий список -- дефолт для остальных: text-only, без model).
+        self.declare_parameter("llm.models", [])
+        self.declare_parameter("llm.multimodal_enabled", [])
+        self.declare_parameter("llm.max_images", [])
+        # JSON-строка (у ROS-параметров нет dict-типа): '{"X-Client": "..."}'
+        self.declare_parameter("llm.request_headers", "")
 
         self.declare_parameter("system_prompt_path", "")
         self.declare_parameter("tool_broker_ns", "/tool_broker")
@@ -171,6 +202,44 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("answer.max_chars", 400)
         self.declare_parameter("wake_grace_s", 0.0)
         self.declare_parameter("ask_visitor_ttl_s", 30.0)
+
+        # Taiga #2: камера -- полностью опциональная (робот без камеры
+        # работает text-only без изменений). Кольцевой буфер сжатых кадров
+        # живёт в lib/frame_buffer.py (чистый Python), замораживается на
+        # моменте транскрипта и уезжает в снимок хода snap["frames"].
+        self.declare_parameter("vision.enabled", False)
+        self.declare_parameter("vision.compressed_topic", "/camera/image_raw/compressed")
+        self.declare_parameter("vision.frame_count", 3)
+        self.declare_parameter("vision.lookback_s", 2.0)
+        self.declare_parameter("vision.max_frame_age_s", 2.0)
+        self.declare_parameter("vision.max_long_edge_px", 1280)
+        self.declare_parameter("vision.max_payload_bytes", 2_500_000)
+        # Таига #4: промпт-стратегии. direct_action -- кадры прямо к фазе
+        # действия (дефолт: поведение хода без observation-вызова);
+        # observe_then_decide -- сначала структурированное наблюдение под
+        # GBNF, затем фаза действия видит его рендер (и кадры).
+        self.declare_parameter("vision.prompt_strategy", "direct_action")
+        # Кадры в фазу реплики -- только если флаг и действие не reply
+        # (выбранного skill'а у reply нет; визуальные #6/#7 определят своё).
+        self.declare_parameter("vision.answer_phase_images", False)
+        # Потолок кандидатов-экспонатов в визуальном контексте хода.
+        self.declare_parameter("vision.max_candidates", 5)
+        # Потолок scene_facts наблюдения (host-обрезка, детерминированная).
+        self.declare_parameter("vision.observation_max_chars", 400)
+        # Таига #7: геометрия камеры для резолюции жеста-указания. Камера
+        # не привязана к TF (см. README «Визуальная pipeline»): модель
+        # задаётся явными параметрами (разрешение, углы обзора, монтаж в
+        # base-кадре), а не вычисляется. Дефолты -- типичная широкоугольная
+        # камера на стойке; для конкретного робота калибровать в llm.yaml.
+        self.declare_parameter("vision.camera.width_px", 1280)
+        self.declare_parameter("vision.camera.height_px", 720)
+        self.declare_parameter("vision.camera.hfov_deg", 60.0)
+        self.declare_parameter("vision.camera.vfov_deg", 34.0)
+        self.declare_parameter("vision.camera.mount_x", 0.0)
+        self.declare_parameter("vision.camera.mount_y", 0.0)
+        self.declare_parameter("vision.camera.mount_z", 1.0)
+        self.declare_parameter("vision.camera.yaw_deg", 0.0)
+        self.declare_parameter("vision.camera.pitch_deg", 10.0)
 
         self._active = False
         self._state_lock = threading.Lock()
@@ -224,7 +293,19 @@ class DialogAgentNode(LifecycleNode):
         )
         self._temperature_action = float(self.get_parameter("llm.temperature_action").value)
         self._action_repair_attempts = int(self.get_parameter("llm.action_repair_attempts").value)
+        self._action_confidence_threshold = float(
+            self.get_parameter("llm.action_confidence_threshold").value
+        )
         self._raw_llm = bool(self.get_parameter("llm.raw").value)
+        # Taiga #3: capability-конфиг; кадры к сообщениям прикрепляет turn
+        # context (#4), здесь только то, какой эндпоинт что принимает.
+        llm_models = list(self.get_parameter("llm.models").value)
+        llm_multimodal_enabled = list(self.get_parameter("llm.multimodal_enabled").value)
+        llm_max_images = list(self.get_parameter("llm.max_images").value)
+        llm_request_headers_json = str(self.get_parameter("llm.request_headers").value)
+        llm_request_headers = (
+            dict(json.loads(llm_request_headers_json)) if llm_request_headers_json else {}
+        )
 
         self._service_call_timeout_s = float(self.get_parameter("service_call_timeout_s").value)
         self._say_result_timeout_s = float(self.get_parameter("say_result_timeout_s").value)
@@ -259,6 +340,10 @@ class DialogAgentNode(LifecycleNode):
 
         self._answer_max_chars = int(self.get_parameter("answer.max_chars").value)
 
+        def _per_endpoint(index: int, values: list, default: object) -> object:
+            # Индекс -- по llm.base_urls; короткий список -- дефолт для хвоста.
+            return values[index] if index < len(values) else default
+
         self._backends = [
             Backend(
                 BackendConfig(
@@ -266,9 +351,13 @@ class DialogAgentNode(LifecycleNode):
                     api_key=api_key,
                     connect_timeout_s=connect_timeout_s,
                     read_timeout_s=read_timeout_s,
+                    model_name=str(_per_endpoint(i, llm_models, "")),
+                    multimodal_enabled=bool(_per_endpoint(i, llm_multimodal_enabled, False)),
+                    max_images=int(_per_endpoint(i, llm_max_images, 0)),
+                    extra_headers=llm_request_headers,
                 )
             )
-            for url in base_urls
+            for i, url in enumerate(base_urls)
         ]
 
         # Преамбул -- из файла (та же копия должна греть
@@ -280,6 +369,7 @@ class DialogAgentNode(LifecycleNode):
         self._system_prompt = self._preamble
         self._action_instruction = ""
         self._answer_instruction = ""
+        self._observation_instruction = ""
         self._read_only_tool_names: frozenset[str] = frozenset()
         self._locations_catalog: list[dict] = []
         self._tours_catalog: list[dict] = []
@@ -340,6 +430,93 @@ class DialogAgentNode(LifecycleNode):
             callback_group=self._cb_reentrant,
         )
 
+        # Taiga #2: подписка на камеру создаётся только при vision.enabled.
+        # Отсутствие камеры не блокирует активацию: подписка не проверяет
+        # соединение, а ход без свежих кадров просто идёт text-only.
+        self._frame_buffer: FrameBuffer | None = None
+        self._vision_sub: object | None = None
+        if bool(self.get_parameter("vision.enabled").value):
+            self._frame_buffer = FrameBuffer(
+                frame_count=int(self.get_parameter("vision.frame_count").value),
+                lookback_s=float(self.get_parameter("vision.lookback_s").value),
+                max_frame_age_s=float(self.get_parameter("vision.max_frame_age_s").value),
+                max_long_edge_px=int(self.get_parameter("vision.max_long_edge_px").value),
+                max_payload_bytes=int(self.get_parameter("vision.max_payload_bytes").value),
+            )
+            self._vision_sub = self.create_subscription(
+                CompressedImage,
+                str(self.get_parameter("vision.compressed_topic").value),
+                self._on_compressed_image,
+                QOS_VISION_COMPRESSED,
+                callback_group=self._cb_reentrant,
+            )
+            self.get_logger().info(
+                "vision: подписка на "
+                f"{str(self.get_parameter('vision.compressed_topic').value)} "
+                f"(кадров на ход: {int(self.get_parameter('vision.frame_count').value)})"
+            )
+            # Таига #4: capability статична за активацию. Если ни один
+            # бэкенд не принимает image-parts, ходы с кадрами идут в
+            # text-only варианте (failure handling из issue #4) --
+            # предупреждаем при запуске, не молчим.
+            if not any(backend.config.multimodal_enabled for backend in self._backends):
+                self.get_logger().warn(
+                    "vision.enabled=true, но ни один бэкенд не имеет "
+                    "llm.multimodal_enabled=true: ходы с кадрами будут идти "
+                    "в text-only варианте (кадры не попадают в промпт-путь, "
+                    "наблюдение не прогоняется)"
+                )
+            self._vision_text_only_degraded_turns = 0
+
+        # Таига #4: параметры визуального контекста хода. Стратегия --
+        # fail-fast: неизвестное значение не должно тихо работать как
+        # direct_action, лучше не подняться (тот же принцип, что каталог).
+        self._vision_prompt_strategy = str(self.get_parameter("vision.prompt_strategy").value)
+        if self._vision_prompt_strategy not in ("direct_action", "observe_then_decide"):
+            msg = (
+                f"неизвестный vision.prompt_strategy: {self._vision_prompt_strategy!r} "
+                "(допустимо: direct_action, observe_then_decide)"
+            )
+            raise ValueError(msg)
+        self._vision_answer_phase_images = bool(
+            self.get_parameter("vision.answer_phase_images").value
+        )
+        self._vision_max_candidates = int(self.get_parameter("vision.max_candidates").value)
+        self._vision_observation_max_chars = int(
+            self.get_parameter("vision.observation_max_chars").value
+        )
+        self._vision_max_frame_age_s = float(
+            self.get_parameter("vision.max_frame_age_s").value
+        )
+        self._max_tokens_observation = int(
+            self.get_parameter("llm.max_tokens_observation").value
+        )
+
+        # Таига #7: геометрия жеста-указания нужна только при кадрах (без
+        # vision.enabled наблюдения не прогоняется и резолвить нечего).
+        # Камера -- явной геометрией из параметров (см. declare выше), поза
+        # робота -- TF `map -> base_footprint` (единственный TF в пакете;
+        # слушатель создаём здесь, уничтожаем в `_teardown`). Если TF не
+        # публикуется/не локализован -- база хода `None`, resolve_pointing
+        # воздержится со stale_frames (не угадываем).
+        self._camera_geometry: CameraGeometry | None = None
+        self._tf_buffer: Buffer | None = None
+        self._tf_listener: TransformListener | None = None
+        if self._frame_buffer is not None:
+            self._camera_geometry = CameraGeometry(
+                width_px=int(self.get_parameter("vision.camera.width_px").value),
+                height_px=int(self.get_parameter("vision.camera.height_px").value),
+                hfov_deg=float(self.get_parameter("vision.camera.hfov_deg").value),
+                vfov_deg=float(self.get_parameter("vision.camera.vfov_deg").value),
+                mount_x=float(self.get_parameter("vision.camera.mount_x").value),
+                mount_y=float(self.get_parameter("vision.camera.mount_y").value),
+                mount_z=float(self.get_parameter("vision.camera.mount_z").value),
+                yaw_deg=float(self.get_parameter("vision.camera.yaw_deg").value),
+                pitch_deg=float(self.get_parameter("vision.camera.pitch_deg").value),
+            )
+            self._tf_buffer = Buffer()
+            self._tf_listener = TransformListener(self._tf_buffer, self)
+
         if self._raw_llm:
             self.get_logger().warning("llm.raw=true — чат без system/GBNF/инструментов")
 
@@ -384,6 +561,22 @@ class DialogAgentNode(LifecycleNode):
         self._tour_name_by_id = {
             tour["id"]: tour.get("name", tour["id"]) for tour in self._tours_catalog
         }
+        # Таига #7: кандидаты жеста-указания -- ТОЛЬКО публичные экспонаты
+        # (category=="exhibit" и is_public) с координатами из каталога.
+        # id локации == ключ content service (тот же id, что в
+        # tool_broker._known_exhibit_ids и в lookup_content.content_id).
+        self._pointing_candidates = tuple(
+            Candidate(
+                id=str(loc["id"]),
+                name=self._location_name_by_id.get(str(loc["id"]), str(loc["id"])),
+                x=float(loc.get("x", 0.0)),
+                y=float(loc.get("y", 0.0)),
+                aliases=tuple(loc.get("aliases", ())),
+            )
+            for loc in self._locations_catalog
+            if loc.get("category") == "exhibit" and loc.get("is_public")
+        )
+        self._known_exhibit_ids = frozenset(c.id for c in self._pointing_candidates)
 
         # Каталог инструментов НЕ идёт в системный промпт (CLAUDE_CODE_TASK.md
         # п.2) -- реплика иначе зачитывала вслух описания инструментов. Он
@@ -397,6 +590,13 @@ class DialogAgentNode(LifecycleNode):
         )
         self._action_instruction = build_action_instruction(schema.TOOLS)
         self._answer_instruction = build_answer_instruction()
+        # Таига #4: стабильная инструкция наблюдения -- только для
+        # observe_then_decide; побайтово одинакова между ходами (CACHE_REUSE).
+        self._observation_instruction = (
+            build_observation_instruction()
+            if self._vision_prompt_strategy == "observe_then_decide"
+            else ""
+        )
         self._read_only_tool_names = frozenset(
             spec.name for spec in schema.TOOLS if spec.read_only
         )
@@ -455,11 +655,19 @@ class DialogAgentNode(LifecycleNode):
             "_mission_state_sub",
             "_presence_sub",
             "_cancel_all_sub",
+            "_vision_sub",
         ):
             sub = getattr(self, attr, None)
             if sub is not None:
                 self.destroy_subscription(sub)
                 setattr(self, attr, None)
+        self._frame_buffer = None
+        # Таига #7: TF-слушатель держит подписку на /tf -- без явного
+        # уничтожения cleanup -> configure оставил бы вторую копию (тот же
+        # живой баг, что у подписок выше).
+        self._tf_listener = None
+        self._tf_buffer = None
+        self._camera_geometry = None
         client = getattr(self, "_call_tool_client", None)
         if client is not None:
             self.destroy_client(client)
@@ -614,6 +822,25 @@ class DialogAgentNode(LifecycleNode):
         if abort_event is not None:
             self.get_logger().info("barge-in получен -- прерываю текущий ход")
             abort_event.set()
+
+    # -- камера: кольцевой буфер сжатых кадров (Taiga #2) ----------------------
+
+    def _now_s(self) -> float:
+        """Текущий момент в секундах (симуляционный-aware) -- часы буфера кадров."""
+        return self.get_clock().now().nanoseconds / 1e9
+
+    def _on_compressed_image(self, msg: CompressedImage) -> None:
+        """Кадр от камеры в кольцо; время -- из часов ноды, не из msg.header.
+
+        `msg.header.stamp` у v4l2_camera заполняется теми же часами, но
+        в sim-тестах публикуемый синтетика может идти с нулевым stamp'ом --
+        доверяем только своей `get_clock()`.
+        """
+        if self._frame_buffer is None:
+            return
+        # msg.data приходит numpy-массивом uint8; буфер работает с bytes
+        # (BytesIO(numpy) упадёт и уйдёт в отброс как коррупт).
+        self._frame_buffer.offer(bytes(msg.data), self._now_s())
 
     def _on_wakeword(self, msg: Wakeword) -> None:
         """Открыть окно слушания на активацию.
@@ -965,6 +1192,87 @@ class DialogAgentNode(LifecycleNode):
             utterance=utterance,
         )
 
+    def _visual_candidates(self, mission: MissionState) -> list[ExhibitCandidate]:
+        """Кандидаты-экспонаты для визуального контекста (Taiga #4).
+
+        Единственный источник id -- каталог семантической карты, стянутый на
+        `on_activate`: текущая остановка (любого типа -- робот реально стоит
+        здесь) + экспонаты той же зоны в порядке каталога (детерминированно).
+        Координат в списке НЕТ (то же правило, что системный промпт: в промпт
+        координаты не идут) -- только id/имя/зона. Обрезка по
+        `vision.max_candidates` -- в `build_visual_context` (стопка первой,
+        дальше каталог).
+        """
+        stop_id = mission.stop_id
+        stop_zone = self._location_zone_by_id.get(stop_id, "") if stop_id else ""
+        candidates: list[ExhibitCandidate] = []
+        for loc in self._locations_catalog:
+            loc_id = str(loc["id"])
+            if loc_id == stop_id:
+                candidates.append(
+                    ExhibitCandidate(
+                        id=loc_id,
+                        name=self._location_name_by_id.get(loc_id, loc_id),
+                        zone=str(loc.get("zone", "")),
+                    )
+                )
+        if stop_zone:
+            for loc in self._locations_catalog:
+                loc_id = str(loc["id"])
+                if loc_id == stop_id or str(loc.get("zone", "")) != stop_zone:
+                    continue
+                if loc.get("category") != "exhibit":
+                    continue
+                candidates.append(
+                    ExhibitCandidate(
+                        id=loc_id,
+                        name=self._location_name_by_id.get(loc_id, loc_id),
+                        zone=stop_zone,
+                    )
+                )
+        return candidates
+
+    def _pointing_base(self, text: str, frame_quality: str) -> PointingBaseContext | None:
+        """Таига #7: база контекста жеста-указания на границе хода.
+
+        Статическая часть (`pointing.PointingBaseContext`): кандидаты из
+        каталога, поза робота (TF `map -> base_footprint` СЕЙЧАС), геометрия
+        камеры из параметров, реплика, качество кадров. Динамическую часть
+        (сам жест + видимые id) добавит наблюдение внутри `run_turn`.
+        `None` = геометрию сверить невозможно (TF нет/не локализован) --
+        resolve_pointing воздержится со stale_frames, не угадывая.
+        """
+        if self._camera_geometry is None or self._tf_buffer is None:
+            return None
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                "map", "base_footprint", rclpy.time.Time()
+            )
+        except Exception:  # noqa: BLE001 -- любой сбой TF = «позы нет»
+            # БУФЕР пуст (TF не публикуется), локализация не поднималась
+            # или транзиентный сбой: геометрию сверить нельзя.
+            self.get_logger().debug("TF map->base_footprint недоступен: жест не резолвится")
+            return None
+        t = transform.transform
+        # Yaw из кватерниона (без scipy/tf_transformations): только вращение
+        # вокруг z нужно (камера на плоской базе).
+        r = t.rotation
+        yaw = math.atan2(
+            2.0 * (r.w * r.z + r.x * r.y),
+            1.0 - 2.0 * (r.y * r.y + r.z * r.z),
+        )
+        return PointingBaseContext(
+            candidates=self._pointing_candidates,
+            robot_pose=RobotPose(
+                x=float(t.translation.x),
+                y=float(t.translation.y),
+                yaw=yaw,
+            ),
+            camera=self._camera_geometry,
+            utterance=text,
+            frame_quality=frame_quality,
+        )
+
     def _run_turn(
         self,
         turn_id: int,
@@ -1013,6 +1321,31 @@ class DialogAgentNode(LifecycleNode):
                 pending_question=pending_answer["question"] if pending_answer else None,
             )
             status_line = snapshot.render_status_line(snap)
+
+            # Taiga #2/#4: визуальный снимок замораживается НА МОМЕНТЕ ХОДА
+            # (транскрипт уже получен -- см. _handle_transcript), в тот же
+            # логический момент, что миссия-снимок. Ключ присутствует всегда,
+            # когда vision.enabled (возможно пустой -- тогда ход идёт
+            # text-only, failure handling из issue). Форма snap["frames"] --
+            # МЕТАДАННЫЕ БЕЗ base64 (время/возраст/отпечаток/размер): текстовый
+            # лог обязан оставаться без base64 (acceptance #4); data-URL'ы
+            # остаются локальными переменными для промпт-пути (build_content).
+            frozen: list = []
+            now_s = self._now_s()
+            if self._frame_buffer is not None:
+                frozen = self._frame_buffer.freeze(now_s)
+                snap["frames"] = [
+                    {
+                        "captured_at": frame.captured_at,
+                        "age_s": max(0.0, round(now_s - frame.captured_at, 1)),
+                        "sha256_16": frame_sha256_16(frame.data_url),
+                        "payload_bytes": frame.payload_bytes,
+                    }
+                    for frame in frozen
+                ]
+                discarded = self._frame_buffer.stats
+                if any(discarded.values()):
+                    self.get_logger().info(f"vision: отброшено кадров: {discarded}")
 
             # Автосправка ДО фазы действия (CLAUDE_CODE_TASK_stage1_knowledge.md
             # п.7.1): текущая остановка целиком (если есть) + поиск по
@@ -1122,6 +1455,28 @@ class DialogAgentNode(LifecycleNode):
                         {"stage": "llm_action", "ms": (time.monotonic() - start) * 1000}
                     )
 
+            # Таига #4: фаза наблюдения -- тот же бэкенд-лестница и grammar-
+            # режим, что фаза действия (temperature 0), только свои
+            # max_tokens и свой stage в таймингах.
+            def _complete_observation(messages: list[dict], grammar: str, *, stop_when=None):
+                start = time.monotonic()
+                try:
+                    return complete_with_fallback(
+                        self._backends,
+                        messages,
+                        grammar=grammar,
+                        max_tokens=self._max_tokens_observation,
+                        temperature=self._temperature_action,
+                        abort_event=abort_event,
+                        stop_when=stop_when,
+                        max_attempts_per_backend=self._max_attempts_per_backend,
+                        backoff_s=self._backoff_s,
+                    )
+                finally:
+                    stage_timings.append(
+                        {"stage": "llm_observation", "ms": (time.monotonic() - start) * 1000}
+                    )
+
             def _speak(spoken_text: str) -> _RemoteToolResult:
                 start = time.monotonic()
                 try:
@@ -1177,6 +1532,58 @@ class DialogAgentNode(LifecycleNode):
                     )
                 self._arm_wake_grace()
 
+            # Таига #4: визуальный контекст хода (только обычный ход: у
+            # pending_answer нет выбранного skill'а, у raw -- ни промпта).
+            # Кадры заморозились выше в тот же момент (now_s), кандидаты --
+            # детерминированно из каталога по текущей остановке/зоне.
+            action_frames: list[str] = []
+            visual_suffix = ""
+            answer_frames: list[str] = []
+            observation_request: ObservationRequest | None = None
+            pointing_base: PointingBaseContext | None = None
+            if self._frame_buffer is not None and pending_answer is None and not self._raw_llm:
+                visual_context = build_visual_context(
+                    frozen,
+                    now_s=now_s,
+                    candidates=self._visual_candidates(mission),
+                    max_candidates=self._vision_max_candidates,
+                    stale_age_s=self._vision_max_frame_age_s,
+                )
+                frame_urls = tuple(frame.data_url for frame in frozen)
+                if frame_urls and not any(
+                    backend.config.multimodal_enabled for backend in self._backends
+                ):
+                    # Ни один бэкенд не принимает image-parts: стратегия
+                    # идёт в text-only варианте (failure handling issue #4) --
+                    # кадры из промпт-пути, наблюдение не прогоняется,
+                    # метаданные в снимке хода сохраняются.
+                    self._vision_text_only_degraded_turns += 1
+                    frame_urls = ()
+                visual_suffix = render_visual_context(visual_context, utterance=text)
+                if frame_urls:
+                    action_frames = list(frame_urls)
+                    answer_frames = list(frame_urls)
+                if self._vision_prompt_strategy == "observe_then_decide" and frame_urls:
+                    # observe_then_decide: сначала наблюдение под GBNF (id
+                    # ТОЛЬКО из кандидатов), фаза действия получит его
+                    # рендер; без кадров наблюдение нечего прогонять --
+                    # text-only вариант стратегии (прямое действие).
+                    candidate_ids = [candidate.id for candidate in visual_context.candidates]
+                    observation_request = ObservationRequest(
+                        instruction=self._observation_instruction,
+                        context_text=visual_suffix,
+                        frames=frame_urls,
+                        grammar=build_observation_grammar(candidate_ids),
+                        candidate_ids=frozenset(candidate_ids),
+                        quality=visual_context.quality,
+                        max_chars=self._vision_observation_max_chars,
+                    )
+                # Таига #7: база жеста-указания -- всегда, когда есть кадры
+                # (не зависит от стратегии: геометрический гейт работает и в
+                # direct_action). Качество -- из того же visual_context (он
+                # заморожен на now_s, тот же логический момент, что кадры).
+                pointing_base = self._pointing_base(text, visual_context.quality)
+
             if pending_answer is not None:
                 result = self._run_pending_answer_phase(
                     pending_answer,
@@ -1206,12 +1613,29 @@ class DialogAgentNode(LifecycleNode):
                     action_instruction=self._action_instruction,
                     answer_instruction=self._answer_instruction,
                     repair_attempts=self._action_repair_attempts,
+                    confidence_threshold=self._action_confidence_threshold,
+                    # Живые каталоги id (ADR-0001 §2): чужие id в args
+                    # режутся валидатором до брокера, не после.
+                    known_location_ids=frozenset(self._location_name_by_id),
+                    known_tour_ids=frozenset(self._tour_name_by_id),
+                    # Таига #7: id публичных экспонатов -- валидация
+                    # resolve_pointing.content_id до брокера.
+                    known_exhibit_ids=self._known_exhibit_ids,
                     check_aborted=abort_event.is_set,
                     answer_max_chars=self._answer_max_chars,
                     read_only_tools=self._read_only_tool_names,
                     on_action_resolved=_on_action_resolved,
                     utterance=text,
                     default_tour_id=next(iter(self._tour_name_by_id), ""),
+                    # Таига #4: визуальный контекст (кадры/кандидаты/наблюдение).
+                    action_frames=action_frames,
+                    visual_suffix=visual_suffix,
+                    observation_request=observation_request,
+                    complete_observation=_complete_observation,
+                    answer_frames=answer_frames,
+                    answer_phase_images=self._vision_answer_phase_images,
+                    # Таига #7: база жеста-указания (None, если TF/камеры нет).
+                    pointing_base=pointing_base,
                 )
             if result.action is not None and result.action.read_only and result.action.result_ok:
                 # Явный read_only-вызов модели (фаза 1) -- те же чанки, что

@@ -33,8 +33,10 @@ completions`), не ROS-нода и не зависимость этого па�
    │     messages = [system] + history
    │                + [user: СОБЫТИЕ:*, [состояние: ...], СПРАВКА, реплика]
    │                + [user: action_instruction]
-   │     → {"think": "...", "tool": "...", "args": {...}}
-   │       (think — короткое явное рассуждение, ReAct-Thought; уезжает в jsonl)
+   │     → {"tool": "...", "args": {...}, "confidence": <0..1>, "abstain": <bool>}
+   │       (ровно 4 поля, контракт ADR-0001: docs/adr/0001-remote-vlm-action-contract.md;
+   │        `think` из контракта УБРАН; допуск в брокер решает детерминированный
+   │        валидатор tools/validate.py, не промпт)
    │
    ├─ исполнение через ~/call_tool (barge-in до исполнения — действие отменяется)
    │     ok:false → одна попытка починки (`llm.action_repair_attempts`),
@@ -158,7 +160,10 @@ Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
 ### `dialog_agent`
 
 Ход «действие → реплика» (см. выше): транскрипт → снимок состояния →
-фаза действия (GBNF, форма `{"think":..,"tool":..,"args":{...}}`) →
+фаза действия (GBNF, строгий 4-полевой контракт действия ADR-0001:
+`{"tool", "args", "confidence", "abstain"}`; `abstain=true` и
+confidence ниже `llm.action_confidence_threshold` не исполняются никогда —
+safe fallback: короткое уточнение, см. `docs/adr/0001-remote-vlm-action-contract.md`) →
 `~/call_tool` → фаза реплики (свободный текст, знает итог действия) →
 `speak()` → история. Провалившийся вызов действия (`ok:false`) не
 заканчивает ход молча — одна попытка починки
@@ -224,10 +229,12 @@ turn.run_answer_phase`, без повторной фазы действия); «
 **Параметры**: `llm.base_urls`, `llm.connect_timeout_s`(2.0),
 `llm.read_timeout_s`(30.0), `llm.api_key`(""),
 `llm.max_attempts_per_backend`(2), `llm.backoff_s`(0.5),
-`llm.max_tokens_answer`(160), `llm.max_tokens_action`(128),
-`llm.temperature_answer`(0.6), `llm.temperature_action`(0.0),
+`llm.max_tokens_answer`(160), `llm.max_tokens_action`(96 -- 4-полевой
+контракт ADR-0001), `llm.temperature_answer`(0.6), `llm.temperature_action`(0.0),
 `llm.answer_frequency_penalty`(0.4 -- только фаза реплики, см. «Известные
-пробелы»), `llm.action_repair_attempts`(1), `system_prompt_path`,
+пробелы»), `llm.action_repair_attempts`(1),
+`llm.action_confidence_threshold`(0.5 -- safe abstention до брокера, ADR-0001 §5),
+`system_prompt_path`,
 `tool_broker_ns`(`/tool_broker`), `service_call_timeout_s`(2.0),
 `catalog_ns_timeout_s`(5.0), `history.max_entries`(16),
 `history.trim_to`(8), `history.cap_visitor_chars`(200),
@@ -250,7 +257,7 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
 **Параметры**: `log_dir` (`~/.guide_robot/llm_turns`) — файл
 `interaction_YYYYmmdd_HHMMSS.jsonl` на сессию активации.
 
-**Формат записи** (схема v5, `dialog/interaction_log.py`):
+**Формат записи** (схема v6, `dialog/interaction_log.py`):
 
 ```json
 {
@@ -266,11 +273,11 @@ jsonl-sink: одна строка на ход (`InteractionSink`, flush на к�
   "answer_chars": 96,
   "answer_raw_text": "Это макет университетского кампуса...",
   "answer_finish_reason": "stop",
-  "action_raw_text": "{\"think\": \"...\", \"tool\": \"noop\", \"args\": {}}",
+  "action_raw_text": "{\"tool\": \"reply\", \"args\": {}, \"confidence\": 0.9, \"abstain\": false}",
   "action_finish_reason": "stop",
   "verbatim_overlap_words": 3,
   "say_ok": true,
-  "action": {"tool": "noop", "args": {}, "think": "светская реплика",
+  "action": {"tool": "reply", "args": {}, "think": "",
              "ok": true, "message": "", "content_version": null},
   "repair_used": false,
   "history_entries": 9,
@@ -346,6 +353,7 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | `lookup_content` | `GetExhibitContent(exhibit_id=content_id)` | любое | да | **да** |
 | `search_content` | `SearchContent(query, boost=stop_id)` | любое | да | **да** |
 | `resolve_location` | `ResolveLocation(query)` | любое | да | **да** |
+| `resolve_pointing` | `GetExhibitContent(exhibit_id=content_id, mode="full")` (Taiga #7); content_id — только из публичных экспонатов, host-гейт геометрии ДО исполнения | любое | да | **да** |
 | `list_locations` / `list_tours` / `estimate_route` | read-only, `semantic_map` | любое | **нет** — каталог в промпте | **да** |
 
 ## Чистая логика без ROS
@@ -365,7 +373,9 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | `llm_client/ladder.py` | Список бэкендов, retry/backoff, без stateful circuit breaker |
 | `dialog/history.py` | Память диалога между ходами: append-only, обрезка по символам/половинам |
 | `dialog/sanitize.py` | Санитайзер фазы реплики: markdown/самопредставление/tool-call JSON (в т.ч. приклеенный к тексту)/обрезка по границе предложения |
-| `dialog/turn.py` | Двухфазный ход: действие → исполнение → реплика → `speak()`, с починкой; read_only-итог рендерится фазе реплики целиком |
+| `dialog/turn.py` | Двухфазный ход: действие → исполнение → реплика → `speak()`, с починкой; read_only-итог рендерится фазе реплики целиком; геометрический гейт `resolve_pointing` (Taiga #7) |
+| `visual_context.py` | Визуальный контекст хода (Taiga #4): `FrameMeta` + кандидаты → блок промпта; strict-парсинг/рендер наблюдения (в т.ч. `pointing_box`, Taiga #7) |
+| `pointing.py` | Совместная геометрическая резолюция жеста-указания (Taiga #7): язык + жест + геометрия камеры + поза → один `content_id` или воздержание; метрики golden replay |
 | `dialog/prompt.py` | Системный промпт (преамбул + каталог локаций/туров) и инструкции фаз (`build_action_instruction`: каталог инструментов + правила выбора; `build_answer_instruction`: правила реплики) |
 | `dialog/interaction_log.py` | Сборка одной jsonl-записи хода (схема v4) |
 | `dialog/verbatim.py` | Длина самой длинной общей последовательности слов (метрика цитирования) |
@@ -383,6 +393,7 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | `/mission/state`, `/mission/presence` | `MissionState`/`Presence` (sub, TRANSIENT_LOCAL) | tool_broker, dialog_agent (независимо) |
 | `/asr/transcript` | `Transcript` (sub, RELIABLE depth 10) | tool_broker, dialog_agent (независимо) |
 | `/speech/cancel_all` | `CancelAll` (sub, RELIABLE/VOLATILE) | dialog_agent (abort хода) |
+| `/tf`, `/tf_static` | TF (sub, `tf2_ros`) | dialog_agent (поза `map -> base_footprint` для `resolve_pointing`, только при `vision.enabled`) |
 
 QoS-профили — `lib/qos.py`.
 
@@ -415,6 +426,161 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
 `semantic_map` (см. `guide_robot_mission_control/README.md`, «Известные
 грабли»), регистрация отложена до ручной проверки живого стека.
 
+## Визуальная pipeline (камера, Taiga #2)
+
+`dialog_agent` берёт визуальный снимок хода из кольцевого буфера сжатых
+кадров. Pipeline полностью опционален: при `vision.enabled=false`
+(дефолт) подписка не создаётся и ключа `frames` в снимке хода нет вообще —
+робот без камеры работает text-only без изменений.
+
+- **Источник**: `/camera/image_raw/compressed`
+  (`sensor_msgs/CompressedImage`), `QOS_VISION_COMPRESSED` в `lib/qos.py` —
+  BEST_EFFORT/KEEP_LAST(1): сенсорное QoS плагина
+  `compressed_image_transport`; RELIABLE-подписчик к нему молча не
+  подключится (несовпадение QoS не является ошибкой).
+- **Буфер** — `lib/frame_buffer.py`, чистый Python (без rclpy), кольцо до
+  64 кадров. `offer()`: валидация JPEG (заголовок + PIL-decode), даунскейл
+  длинной стороны выше `vision.max_long_edge_px` с перекодированием q80,
+  потолок payload на кадр; отбросы (коррупт/oversize) считаются.
+  `freeze(now)` — в моменте транскрипта, НЕ деструктивно: до
+  `vision.frame_count` кадров с равным шагом по окну `vision.lookback_s`,
+  не старше `vision.max_frame_age_s`, совокупный payload ≤
+  `vision.max_payload_bytes` (при превышении выкидывают с самого
+  старого). Без свежих кадров возвращает `[]` — ход идёт text-only.
+- **Контракт для ЛЛМ** (Taiga #4): `snap["frames"]` в interaction-логе —
+  список МЕТАДАННЫХ `{captured_at, age_s, sha256_16, payload_bytes}`
+  (текстовый лог не содержит base64; отпечаток — sha256 payload'а, 16 hex). Сам
+  data-URL живёт только в локальной переменной хода и уезжает в модель через
+  `build_content()` из Taiga #3 (мультимодальный контент), см. промпт-путь ниже.
+  `llm_messages` записи маскируются `redact_messages` (data-URL →
+  `<<REDACTED n bytes>>`), структура сообщений сохраняется 1:1.
+- **Bringup**: `guide_robot_bringup/launch/camera.launch.py`
+  (`v4l2_camera`; сжатый транспорт создаётся плагином
+  `compressed_image_transport` автоматически). Из `hardware.launch.py`
+  включается за `use_vision:=true` (который же пробрасывает
+  `vision.enabled:=true` в `llm.launch.py`). Камеры в
+  `robot_description` нет: `frame_id=camera` — метаданные кадра, TF до
+  `base_footprint` добавляется вместе с реальным кронштейном. Гейт
+  `resolve_pointing` (Taiga #7) уже использует геометрию: позу робота из TF
+  `map -> base_footprint` и монтаж камеры из параметров `vision.camera.*`
+  (пока не TF-ссылкой), см. «Резолюция жеста-указания».
+- **Параметры** (`vision.*` в `config/llm.yaml`): `enabled`,
+  `compressed_topic`, `frame_count` (3), `lookback_s` (2.0),
+  `max_frame_age_s` (2.0), `max_long_edge_px` (1280),
+  `max_payload_bytes` (2 500 000 B), `prompt_strategy` ("direct_action"),
+  `answer_phase_images` (false), `max_candidates` (5),
+  `observation_max_chars` (400); плюс `llm.max_tokens_observation` (320)
+  и блок `vision.camera.*` (геометрия камеры для `resolve_pointing`, Taiga #7:
+  `width_px`/`height_px`/`hfov_deg`/`vfov_deg`/`mount_x`/`mount_y`/`mount_z`/
+  `yaw_deg`/`pitch_deg`).
+
+### Промпт-путь визуального хода (Taiga #4)
+
+Чистая логика в `visual_context.py` (без rclpy): `build_visual_context()`
+собирает из замороженных кадров `FrameMeta` (время, возраст, отпечаток,
+размер, флаг устарелости: возраст ≥ `vision.max_frame_age_s` → `stale`) и
+список кандидатов; `render_visual_context()` рендерит волатильное текстовое
+сообщение хода (реплика, метаданные кадров БЕЗ base64, кандидаты; пустые
+кадры/кандидаты → явный text-only/abstention-текст); `parse_observation()` —
+strict-парсинг наблюдения с host-фильтром id (всё вне списка кандидатов
+выбрасывается, чужие ключи/типы → `None`).
+
+- **Кандидаты-экспонаты** — только из каталога семантической карты,
+  стянутого на `on_activate` (`_visual_candidates`): текущая остановка +
+  экспонаты той же зоны, детерминированный порядок каталога, обрезка по
+  `vision.max_candidates`. id вне этого списка в промпт НЕ попадают
+  (принцип "не вставляй id, которых нет в списке", из issue).
+- **Стратегии** (`vision.prompt_strategy`):
+  - `direct_action` (дефолт): волатильное визуальное сообщение (кадры +
+    кандидаты + реплика) прикрепляется к фазе действия ПОСЛЕ стабильной
+    инструкции (кэш-префикс не страдает); без кадров сообщение строковое.
+  - `observe_then_decide`: ПЕРЕД фазой действия отдельный LLM-вызов под
+    GBNF-грамматикой (`build_observation_grammar` пиннит `exhibit_candidates`
+    на точный список id) выдаёт структурированное наблюдение
+    (people_count / exhibit_candidates / pointing_evidence / scene_facts);
+    host парсит, режет id и рендерит блок `[Визуальное наблюдение]`, который
+    фаза действия получает вместе с кадрами. Наблюдение — side-channel:
+    malformed-вывод или `BackendError` НЕ рвёт ход (метрика
+    `observation_error` в записи), фаза действия идёт без наблюдения; без
+    кадров вызов не делается (text-only вариант стратегии).
+  - `BackendAborted` (barge-in) из любой фазы пробрасывается наружу —
+    прерывание, а не деградация.
+- **Кадры в фазе реплики**: `vision.answer_phase_images` (дефолт false) +
+  выбранное действие ≠ `reply` — иначе реплика строковая, как раньше.
+  Контракт действует на ВЕСЬ список сообщений фазы реплики, включая
+  наследуемое от фазы действия визуальное сообщение: когда кадры не
+  разрешены, из него уходят image-parts, текст (кандидаты/наблюдение)
+  остаётся.
+- **Text-only вариант без мультимодального бэкенда**: если ни один
+  бэкенд не имеет `llm.multimodal_enabled=true`, ход с кадрами не падает
+  с `action_backend_error` — кадры выключаются из промпт-пути
+  (наблюдение не прогоняется), метаданные кадров в снимке хода
+  сохраняются; warn при активации, счётчик деградаций —
+  `dialog_agent._vision_text_only_degraded_turns`.
+- **Стабильность инструкций** (CACHE_REUSE): `build_observation_instruction()`
+  и `build_action_instruction()` строятся один раз на `on_activate`, побайтово
+  одинаковы между ходами; волатильная часть хода — только последние
+  сообщения.
+- **Схема interaction-лога** — v6: опциональный блок `observation`
+  (`raw`/`text`/`error`), `snapshot.frames` — метаданные без base64
+  (`captured_at`/`age_s`/`payload_bytes`/`sha256_16`), `llm_messages`
+  замаскированы (base64 image-parts — только маска с размером).
+- **Бюджет промпт-пути визуального хода** (оценка под Qwen3-токенизатор,
+  BPE ~1.5–1.8 символа/токен для кириллицы):
+  - `direct_action`: системная инструкция ~1.5–2 КБ; визуальное сообщение
+    ~150–250 байт + до 3 кадров JPEG (даунскейл до `max_long_edge_px`=
+    1280, суммарный payload ≤ `max_payload_bytes` ≈ 2.5 МБ);
+  - `observe_then_decide`: наблюдение ≤ ~300 токенов
+    (`llm.max_tokens_observation=320`; 400 символов `scene_facts`
+    + JSON-обвязка); действие — компактный JSON ~30–60 токенов;
+  - кадр как image-part: ~150–1 500 токенов на кадр у VLM (зависит от
+    разрешения) — поэтому на ход берётся ≤ `vision.frame_count` (3).
+  Замер на живом VLM-эндпоинте не проводился; значения консервативны,
+  переполнение бюджета наблюдения безопасно деградирует до
+  `observation_error=malformed`.
+
+### Резолюция жеста-указания `resolve_pointing` (Taiga #7)
+
+Read-only skill: посетитель указывает на видимый экспонат («расскажи про
+этот»), робот резолвит жест в `content_id` и получает про него контент.
+id **никогда не выдумывается** — трёхслойная защита:
+
+1. **Промпт** (Taiga #4): фаза действия видит кандидатов ТОЛЬКО из списка
+   [Визуальный контекст] (публичные экспонаты зоны); инструкция запрещает
+   выдумывать id.
+2. **Валидатор** (`tools/validate.py`): `content_id` сверяется с живым
+   каталогом публичных экспонатов (`known_exhibit_ids`, кэш `tool_broker`
+   на `on_activate`); чужой/приватный id → `unknown_id` ДО брокера,
+   инструмент не исполняется.
+3. **Геометрический гейт** (`dialog/turn.py` + `pointing.py`): host
+   детерминированно сверяет выбор модели с геометрией ДО `execute_tool`.
+   Контекст складывается из двух частей, замороженных на границе хода:
+   - **базис** (`PointingBaseContext`, `dialog_agent_node`): кандидаты с
+     координатами из каталога семантической карты, поза робота (TF
+     `map -> base_footprint`, `tf2_ros`), геометрия камеры
+     (`vision.camera.*`), реплика (язык), качество кадров;
+   - **наблюдение** (VLM, считается внутри `run_turn` один раз): жест
+     (`pointing_evidence` + нормализованный `pointing_box`) и реально
+     видимые id.
+   Совместный скоринг: `0.7*геометрия + 0.3*язык` (гауссиан проекции
+   кандидата в пиксели до box-указания; имя/алиас в реплике), жёсткий
+   гейт видимости (то, что не в кадре или что VLM не видит — не
+   разрешается). Политика неоднозначности (issue #7): ≥2 правдоподобных
+   с разрывом < 0.15 → `ambiguous`; конфликт языка/жеста → `ambiguous`;
+   модель не выбрала геометрического лидера → `ambiguous`; кадров нет/
+   устарели → `stale_frames`; правдоподобных нет → `no_candidate`. Во всех
+   этих случаях — safe abstention (короткое уточнение), инструмент НЕ
+   исполняется.
+   **Важно:** геометрический гейт требует наблюдения, т.е. работает
+   только при `vision.prompt_strategy: "observe_then_decide"`. В
+   `direct_action` (дефолт) наблюдение не прогоняется — жеста нет,
+   `resolve_pointing` всегда воздержится (`no_candidate`). Чтобы
+   использовать skill, включите `observe_then_decide`.
+   Доказательства ограничены: в резолюцию попадают только баллы/углы/IoU
+   (без кадров и base64), см. `pointing.ScoredCandidate`/`PointingResolution`.
+   Метрики golden replay — `pointing.compute_pointing_metrics`
+   (top-1, точность воздержания, high-confidence-wrong, IoU).
+
 ## Известные пробелы
 
 - **`content_version` в `interaction_log` -- `null` для `tell_about`/`say`.**
@@ -430,7 +596,17 @@ ros2 lifecycle set /interaction_log configure && ros2 lifecycle set /interaction
   поддерживает параметр (id ближайших локаций по координатам), но
   `dialog_agent` не подписан ни на одну публикацию текущей позы робота —
   посчитать «рядом» не из чего. Осознанный пробел этого захода, не
-  тихий пропуск.
+  тихий пропуск. (При `vision.enabled` поза из TF `map -> base_footprint`
+  есть — её читает только гейт `resolve_pointing`, см. ниже; расчёт
+  `nearby` на неё не развёрнут.)
+- **Камера `resolve_pointing` не привязана к TF и не прокалибрована по
+  умолчанию.** Модель камеры (разрешение/FOV/монтаж) — явные параметры
+  `vision.camera.*` в `config/llm.yaml` с дефолтами «типичная
+  широкоугольная камера на стойке». До калибровки под реальный
+  кронштейн баллы геометрического гейта приблизительны; политика
+  намеренно осторожная — при сомнении робот воздержится и уточнит,
+  а не угадает. TF-ссылка камеры на `base_footprint` добавится вместе
+  с реальным кронштейном (как в «Визуальная pipeline»).
 - **Мид-тур переадресация реализована для `guide_to`, не для
   `tour_by_points`** (stage2 B3): «отведи меня к X» во время тура
   маппится на `guide_robot_mission_control`'s `~/redirect`, а не на
@@ -487,7 +663,9 @@ ruff check .
 
 Без ROS-железа — rclpy + моки (`test/mocks/`: `mock_llm_server.py` —
 голый `http.server`, chunked SSE, различает фазы по `grammar` в теле
-запроса; `mock_nav_server.py`/`mock_say_server.py`/`mock_semantic_map.py`/
+запроса, fault-режимы (malformed JSON / disconnect / delayed first token /
+mid-stream failure) и redacted-метаданные запроса для ассертов (Taiga #3);
+`mock_nav_server.py`/`mock_say_server.py`/`mock_semantic_map.py`/
 `sim_clock.py` — переиспользованы из `guide_robot_mission_control` тем
 же приёмом «копия, не импорт»). `test/mocks/harness.py` поднимает
 РЕАЛЬНЫЕ `mission_fsm`/`narration_server` (не мок поверх мока) +
@@ -500,7 +678,7 @@ ruff check .
 | `test_snapshot.py` | Сборка компактного dict для промпта, включая `already_told`/`nearby` |
 | `test_history.py` | Память диалога: обрезка при записи, склейка событий, обрезка половинами |
 | `test_sanitize.py` | Санитайзер фазы реплики: markdown, самопредставление, tool-call JSON (хвост/начало/середина), граница предложения |
-| `test_turn.py` | Двухфазный ход на фейковых `complete_*`/`speak`/`execute_tool`, read_only-рендер итога (`chunks`/`hits`/`candidates`) |
+| `test_turn.py` | Двухфазный ход на фейковых `complete_*`/`speak`/`execute_tool`, read_only-рендер итога (`chunks`/`hits`/`candidates`); геометрический гейт `resolve_pointing` (Taiga #7: базис+наблюдение → resolved/`stale_frames`/`no_candidate`/`ambiguous_target`, чужой id не доходит до `execute_tool`) |
 | `test_verbatim.py` | Метрика самой длинной общей последовательности слов |
 | `test_llm_client_backend.py` | HTTP-механика: stream, timeout, HTTP-ошибка, abort |
 | `test_llm_client_ladder.py` | Порядок бэкендов, retry, abort не ретраится |
@@ -510,9 +688,14 @@ ruff check .
 | `test_interaction_log.py` | Сборка jsonl-записи схемы v5 из `TurnResult`, включая сырой ввод/вывод ЛЛМ (`llm_messages`, `*_raw_text`, `*_finish_reason`) и `references` (`content_id`/`chunk_id`/`score`/`source`) |
 | `test_tool_gating.py` | Полный тур/пауза/стоп/barge-in/`noop`/кэш whitelist ТОЛЬКО через `call_tool()` |
 | `test_voice_confirm.py` | `AWAITING_CONFIRM`/`ANSWERING` закрываются голосом мимо ЛЛМ |
+| `test_frame_buffer.py` | Кольцевой буфер кадров (Taiga #2): выборка из окна, age-rejection, отброс коррупта/oversize, даунскейл >1280 px, payload-бюджет при freeze, ограниченная память, конкурентные offer/freeze |
 | `test_dialog_agent_e2e.py` | Транскрипт → ход «действие → реплика» (мок) → `~/call_tool`, barge-in abort, очередь транскриптов, fast-path, wake-слово, события истории, автосправка в `user_content` + `references` в логе |
 | `test_interaction_log_e2e.py` | Ход через `dialog_agent` → jsonl-запись схемы v5 на диске |
 | `test_answering_closes.py` | Регресс: в `ANSWERING` ход не может выбрать `say` как действие |
+| `test_vision_pipeline_e2e.py` | Камера e2e (Taiga #2): дефолт без `frames`, text-only с включённой камерой без потока, синтетический кадр → `snapshot.frames` в записи хода |
+| `test_visual_context.py` | Визуальный контекст хода (Taiga #4/#7): сборка/рендер, strict-парсинг наблюдения (host-фильтр id), `pointing_box` (валидный/только при жесте/невалидный→`None`), GBNF-правила бокса, стабильность инструкции |
+| `test_pointing.py` | Совместная геометрическая резолюция жеста (Taiga #7): resolved/ambiguous/офскрин/устарело/нет кандидата, свойство «id не извне», метрики golden replay (top-1, воздержание, high-confidence-wrong, IoU) |
+| `test_turn_visual.py` | Визуальный путь хода в `run_turn` (Taiga #4): observe_then_decide рендер, text-only деградация, кадры в фазе реплики, side-channel наблюдения |
 
 `scripts/eval_turns.py`/`scripts/extract_golden.py` — не тесты в CI,
 ручные скрипты для прогона golden-набора против живого `llm_server`

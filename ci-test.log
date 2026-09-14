@@ -1,0 +1,96 @@
+Starting >>> guide_robot_msgs
+Starting >>> guide_robot_hardware
+Starting >>> guide_robot_sonar
+Starting >>> guide_robot_supervisor
+--- stderr: guide_robot_supervisor
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+OK
+---
+Finished <<< guide_robot_supervisor [0.20s]
+--- stderr: guide_robot_sonar
+Errors while running CTest
+Output from these tests are in: /ws/build/guide_robot_sonar/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.
+---
+Finished <<< guide_robot_sonar [5.55s]	[ with test failures ]
+Finished <<< guide_robot_msgs [5.56s]
+--- stderr: guide_robot_hardware
+Errors while running CTest
+Output from these tests are in: /ws/build/guide_robot_hardware/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.
+---
+Finished <<< guide_robot_hardware [5.56s]	[ with test failures ]
+Starting >>> guide_robot_description
+Starting >>> guide_robot_bt_nodes
+Starting >>> guide_robot_mission_control
+Starting >>> guide_robot_face
+Starting >>> guide_robot_semantic_map
+Starting >>> guide_robot_voice
+--- stderr: guide_robot_face
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+OK
+---
+Finished <<< guide_robot_face [0.67s]
+Finished <<< guide_robot_description [0.68s]
+Starting >>> guide_robot_simulation
+--- stderr: guide_robot_mission_control
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+OK
+---
+Finished <<< guide_robot_mission_control [0.68s]
+--- stderr: guide_robot_semantic_map
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+OK
+---
+Finished <<< guide_robot_semantic_map [0.68s]
+Starting >>> guide_robot_llm
+--- stderr: guide_robot_voice
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+OK
+---
+Finished <<< guide_robot_voice [0.82s]
+Finished <<< guide_robot_simulation [0.32s]
+--- stderr: guide_robot_llm
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+OK
+---
+Finished <<< guide_robot_llm [0.82s]
+--- stderr: guide_robot_bt_nodes
+Errors while running CTest
+Output from these tests are in: /ws/build/guide_robot_bt_nodes/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.
+---
+Finished <<< guide_robot_bt_nodes [2.16s]	[ with test failures ]
+Starting >>> guide_robot_navigation
+--- stderr: guide_robot_navigation
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+OK
+---
+Finished <<< guide_robot_navigation [0.26s]
+Starting >>> guide_robot_bringup
+Finished <<< guide_robot_bringup [0.57s]
+
+Summary: 14 packages finished [8.68s]
+  10 packages had stderr output: guide_robot_bt_nodes guide_robot_face guide_robot_hardware guide_robot_llm guide_robot_mission_control guide_robot_navigation guide_robot_semantic_map guide_robot_sonar guide_robot_supervisor guide_robot_voice
+  3 packages had test failures: guide_robot_bt_nodes guide_robot_hardware guide_robot_sonar

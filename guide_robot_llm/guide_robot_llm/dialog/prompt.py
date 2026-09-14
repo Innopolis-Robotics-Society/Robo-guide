@@ -2,7 +2,8 @@
 
 Порядок фаз ИНВЕРТИРОВАН против DIALOG_REWORK_PLAN.md §4.2 (живой баг:
 реплика «отвожу вас к кафе» + действие noop в том же ходу): сначала фаза
-действия -- `{"tool": ..., "args": ...}` под GBNF, затем
+действия -- `{"tool", "args", "confidence", "abstain"}` под GBNF
+(контракт ADR-0001), затем
 исполнение инструмента, и только потом фаза реплики -- свободный текст,
 который видит выбранное действие и его РЕАЛЬНЫЙ итог. Согласованность
 реплики с действием из «просьбы в промпте» стала структурным свойством хода.
@@ -29,7 +30,7 @@
 `CACHE_REUSE` префикса (DIALOG_REWORK_PLAN.md §1, правило 2). Каталог
 инструментов рендерится из ВСЕГО `tools.schema.TOOLS`, отфильтрованного
 только по `ToolSpec.llm_visible` (не по текущему `tools_allowed` состояния --
-та фильтрация уже есть в GBNF-грамматике `build_tool_call_grammar(tool_names)`,
+та фильтрация уже есть в GBNF-грамматике `build_action_grammar(tool_names)`,
 дублировать её текстом незачем и вредно для стабильности байтов инструкции).
 """
 
@@ -39,12 +40,23 @@ from collections.abc import Sequence
 
 from guide_robot_llm.tools.schema import ToolSpec
 
-__all__ = ["build_action_instruction", "build_answer_instruction", "build_system_prompt"]
+__all__ = [
+    "build_action_instruction",
+    "build_answer_instruction",
+    "build_observation_instruction",
+    "build_system_prompt",
+]
 
 _ACTION_HEADER = (
     "Выбери ровно одно действие робота по ПОСЛЕДНЕЙ реплике посетителя -- ответь "
-    'ТОЛЬКО одним JSON-объектом вида {"tool": "<имя>", "args": {...}}, '
-    "без какого-либо текста до или после него."
+    'ТОЛЬКО одним JSON-объектом вида '
+    '{"tool": "<имя>", "args": {...}, "confidence": <число 0..1>, "abstain": true|false}, '
+    "без какого-либо текста до или после него. Поля обязательны ВСЕ ЧЕТЫРЕ. "
+    "confidence -- насколько уверен, что выбранное действие совпадает с намерением "
+    "посетителя (0.0..1.0, одна цифра после точки достаточно). abstain=true -- когда "
+    "реплика не позволяет однозначно выбрать действие: тогда выбери "
+    'tool="reply", abstain=true и confidence на свой честный уровень уверенности; '
+    "робот переспросит, а не будет гадать."
 )
 
 _ACTION_NOOP_REASONS = (
@@ -128,6 +140,38 @@ def build_answer_instruction() -> str:
     ПОСЛЕ него (правило кэша: статика раньше волатильного).
     """
     return _ANSWER_INSTRUCTION
+
+
+_OBSERVATION_INSTRUCTION = (
+    "Перед выбором действия посмотри ПРИЛОЖЁННЫЕ кадры с камеры и ответь "
+    'ТОЛЬКО одним JSON-объектом вида '
+    '{"people_count": <целое 0..20>, "exhibit_candidates": ["<id>"], '
+    '"pointing_evidence": "none"|"yes"|"uncertain", '
+    '"pointing_box": [x0, y0, x1, y1] | null, "scene_facts": "<короткий текст>"} '
+    "без какого-либо текста до или после него. people_count -- сколько людей "
+    "в кадре. exhibit_candidates -- id ТОЛЬКО из списка кандидатов в "
+    "[Визуальный контекст] (внешние id не существует, лучше пусто, чем выдумка); "
+    'повторять id нельзя. pointing_evidence -- видит ли кто-то в кадре явный '
+    "жест-указание (на экспонат/направление): none/yes/uncertain. pointing_box -- "
+    "НОРМИРОВАННЫЙ бокс [x0, y0, x1, y1] (координаты в долях кадра, 0..1, "
+    "x0<x1, y0<y1), которым охвачен жест/указываемая зона; ставь его ТОЛЬКО "
+    "когда pointing_evidence \"yes\", иначе null. scene_facts -- одна-две фразы "
+    "по-русски: что реально видно (люди, экспонаты, жест, освещённость/помехи), "
+    "только устойчивые детали, без домысливания. Если кадров нет или их не "
+    'разобрать -- people_count 0, пустой список, pointing_evidence "uncertain", '
+    "pointing_box null, scene_facts \"кадры не разобрать\"."
+)
+
+
+def build_observation_instruction() -> str:
+    """Собрать СТАБИЛЬНУЮ инструкцию фазы наблюдения (Taiga #4).
+
+    Вызывается ОДИН раз на `on_activate` (как `build_action_instruction`):
+    побайтово одинакова между ходами, иначе теряется CACHE_REUSE префикса.
+    Волатильная часть хода (кандидаты, метаданные кадров, реплика) идёт
+    отдельным сообщением ПОСЛЕ неё -- `visual_context.render_visual_context`.
+    """
+    return _OBSERVATION_INSTRUCTION
 
 
 def build_system_prompt(

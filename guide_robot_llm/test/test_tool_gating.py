@@ -312,6 +312,77 @@ def test_lookup_content_renders_text_only_no_interruptible_or_pause_leak() -> No
         harness.shutdown()
 
 
+# -- Taiga #7: resolve_pointing ---------------------------------------------
+
+
+def test_resolve_pointing_renders_content_via_broker() -> None:
+    """Taiga #7: resolve_pointing доставляет контент известного экспоната
+    (read_only-данные: chunks/chunk_ids/title/kind/version). Пустой кэш
+    (локация добавлена после активации) -- строгую проверку пропускает,
+    как у guide_to, и хэндлер исполняется."""
+    harness = ToolBrokerTestHarness()
+    try:
+        harness.fixtures.add_location(
+            "robo_guide", x=4.6, y=4.1, category="exhibit", is_public=True
+        )
+        harness.fixtures.add_exhibit(
+            "robo_guide", ["Робот-экскурсовод.", "Рассказывает."], version="rev1"
+        )
+
+        result = harness.broker.call_tool("resolve_pointing", {"content_id": "robo_guide"})
+
+        assert result.ok, result.message
+        assert result.data["chunks"] == ["Робот-экскурсовод.", "Рассказывает."]
+        assert result.data["chunk_ids"] == ["c0", "c1"]
+        assert "kind" in result.data and "version" in result.data
+    finally:
+        harness.shutdown()
+
+
+def test_resolve_pointing_unknown_exhibit_id_rejected_by_validator() -> None:
+    """Taiga #7: content_id вне каталога экспонатов -- unknown_id ДО content
+    service: контент у "ghost" ЕСТЬ, но валидатор режет по заполненному
+    whitelist, хэндлер не исполняется."""
+    harness = ToolBrokerTestHarness()
+    try:
+        harness.fixtures.add_location(
+            "robo_guide", x=4.6, y=4.1, category="exhibit", is_public=True
+        )
+        harness.fixtures.add_exhibit("robo_guide", ["Текст."], version="rev1")
+        # Контент "ghost" существует, но id не в каталоге экспонатов.
+        harness.fixtures.add_exhibit("ghost", ["Ловушка."], version="rev1")
+        # Заполняем кэш напрямую: валидация становится строгой.
+        harness.broker._known_exhibit_ids_cache = frozenset({"robo_guide"})  # noqa: SLF001
+
+        result = harness.broker.call_tool("resolve_pointing", {"content_id": "ghost"})
+
+        assert not result.ok
+        assert "не найдена" in result.message
+        assert result.data == {}
+    finally:
+        harness.shutdown()
+
+
+def test_exhibit_whitelist_filters_category_and_public() -> None:
+    """Taiga #7: _known_exhibit_ids -- только публичные экспонаты
+    (category=="exhibit" И is_public); waypoint и приватный экспонат вне."""
+    harness = ToolBrokerTestHarness()
+    try:
+        harness.fixtures.add_location(
+            "robo_guide", x=4.6, y=4.1, category="exhibit", is_public=True
+        )
+        harness.fixtures.add_location(
+            "secret_exhibit", x=1.0, y=1.0, category="exhibit", is_public=False
+        )
+        harness.fixtures.add_location(
+            "entrance", x=4.5, y=7.6, category="waypoint", is_public=True
+        )
+
+        assert harness.broker._known_exhibit_ids() == frozenset({"robo_guide"})  # noqa: SLF001
+    finally:
+        harness.shutdown()
+
+
 def test_location_whitelist_cache_not_refreshed_after_activation() -> None:
     """DIALOG_REWORK_PLAN.md §7.2: whitelist локаций грузится один раз на on_activate,
     не на каждый call_tool() -- локация, добавленная ПОСЛЕ активации, не появляется

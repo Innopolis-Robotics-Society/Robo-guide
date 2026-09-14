@@ -25,7 +25,9 @@ def test_turn_produces_interaction_log_record() -> None:
     try:
         wait_until(lambda: harness.dialog_agent.last_mission_state() is not None, timeout_s=5.0)
         harness.llm_server.chunks_no_grammar = ["Привет!"]
-        harness.llm_server.chunks_with_grammar = ['{"tool": "reply", "args": {}}']
+        harness.llm_server.chunks_with_grammar = [
+            '{"tool": "reply", "args": {}, "confidence": 0.9, "abstain": false}'
+        ]
 
         client = harness.make_client_node()
         _publish_transcript(client, "робот, привет")
@@ -35,7 +37,7 @@ def test_turn_produces_interaction_log_record() -> None:
 
         assert len(lines) == 1
         record = lines[0]
-        assert record["schema_version"] == 5
+        assert record["schema_version"] == 6
         assert record["utterance"] == "привет"
         assert isinstance(record["session_id"], str) and record["session_id"]
         assert record["utterance_ts"] > 0
@@ -64,8 +66,13 @@ def test_turn_produces_interaction_log_record() -> None:
         # только то, что дошло до озвучки/действия.
         assert record["answer_raw_text"] == "Привет!"
         assert record["answer_finish_reason"] == "stop"
-        assert record["action_raw_text"] == '{"tool": "reply", "args": {}}'
-        assert record["action_finish_reason"] == "stop"
+        assert record["action_raw_text"] == (
+            '{"tool": "reply", "args": {}, "confidence": 0.9, "abstain": false}'
+        )
+        # Фаза действия идёт с `stop_when`-колбэком (ранняя остановка на
+        # готовом JSON), поэтому бэкенд сообщает finish_reason `stop_when`, а не
+        # `stop` (фаза ответа `stop_when` не использует).
+        assert record["action_finish_reason"] == "stop_when"
         assert record["llm_messages"][0]["role"] == "system"
         roles = [m["role"] for m in record["llm_messages"]]
         assert roles.count("assistant") == 2  # tool-call фазы действия + реплика
