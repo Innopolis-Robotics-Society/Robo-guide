@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from guide_robot_llm.dialog.interaction_log import build_interaction_record
 from guide_robot_llm.dialog.turn import ToolCallRecord, TurnResult
 
@@ -372,3 +374,33 @@ def test_frame_count_zero_when_no_frames() -> None:
 def test_episode_id_passes_through_for_replay() -> None:
     record = build_interaction_record(**_base_kwargs(), episode_id="ep_0042")
     assert record["episode_id"] == "ep_0042"
+
+
+def test_load_record_accepts_current_version_dict() -> None:
+    from guide_robot_llm.dialog.interaction_log import load_record
+
+    record = build_interaction_record(**_base_kwargs())
+    assert load_record(record) is record
+
+
+def test_load_record_parses_jsonl_line() -> None:
+    import json as _json
+
+    from guide_robot_llm.dialog.interaction_log import load_record
+
+    line = _json.dumps(build_interaction_record(**_base_kwargs()), ensure_ascii=False)
+    assert load_record(line)["schema_version"] == 6
+
+
+def test_load_record_rejects_old_version_with_clear_message() -> None:
+    from guide_robot_llm.dialog.interaction_log import SchemaVersionError, load_record
+
+    with pytest.raises(SchemaVersionError, match="v5"):
+        load_record({"schema_version": 5})
+
+
+def test_load_record_rejects_missing_version() -> None:
+    from guide_robot_llm.dialog.interaction_log import SchemaVersionError, load_record
+
+    with pytest.raises(SchemaVersionError):
+        load_record({"turn_id": 1})

@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-__all__ = ["redact_value", "redact_headers", "redact_messages"]
+__all__ = ["redact_value", "redact_headers", "redact_messages", "redact_record_for_export"]
 
 # `data:<mime>;base64,<payload>` -- маска с сохранением префикса и длины
 # payload (длина полезна для диагностики: "кадр 2 МБ не ушёл" -- видно,
@@ -104,3 +104,18 @@ def redact_messages(messages: list[dict]) -> list[dict]:
             masked_message["content"] = masked_parts
         redacted.append(masked_message)
     return redacted
+
+
+def redact_record_for_export(record: dict, *, redact_utterance: bool = True) -> dict:
+    """Копия записи лога для выгрузки бенчмарка (issue #8).
+
+    При `redact_utterance` маскирует реплику посетителя (`utterance`) --
+    PII не уходит в общий датасет. `llm_messages` уже редгированы на самой
+    записи (base64/секреты, `redact_messages`), поэтому здесь не трогаются.
+    Метрики, тайминги и id сохраняются для воспроизводимости прогона.
+    Вход не мутируется.
+    """
+    exported = dict(record)
+    if redact_utterance and "utterance" in exported:
+        exported["utterance"] = "<redacted>"
+    return exported

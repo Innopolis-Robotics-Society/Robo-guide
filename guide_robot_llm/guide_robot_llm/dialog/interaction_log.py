@@ -16,6 +16,7 @@ per-call breakdown: ход может остановиться на `action_pars
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -25,7 +26,7 @@ from guide_robot_llm.llm_client.redact import redact_messages
 if TYPE_CHECKING:
     from guide_robot_llm.dialog.turn import TurnResult
 
-__all__ = ["SCHEMA_VERSION", "build_interaction_record"]
+__all__ = ["SCHEMA_VERSION", "SchemaVersionError", "build_interaction_record", "load_record"]
 
 # v3: добавлены `llm_messages` (полный обмен с ЛЛМ за ход) и
 # `answer_raw_text`/`answer_finish_reason`/`action_raw_text`/
@@ -52,6 +53,31 @@ __all__ = ["SCHEMA_VERSION", "build_interaction_record"]
 # блок `observation` (фаза observe_then_decide: сырой вывод, рендер,
 # причина деградации).
 SCHEMA_VERSION = 6
+
+
+class SchemaVersionError(ValueError):
+    """Запись лога несовместимой версии схемы."""
+
+
+def load_record(line: str | dict) -> dict:
+    """Разобрать запись лога и проверить версию схемы.
+
+    `line` -- jsonl-строка или уже распарсенный dict. При
+    `schema_version != SCHEMA_VERSION` бросает `SchemaVersionError` с
+    внятным сообщением (какая версия в записи, какая поддерживается) вместо
+    тихого чтения несовместимых полей (acceptance issue #8: старый ридер
+    падает понятно, а не молча).
+    """
+    record = json.loads(line) if isinstance(line, str) else line
+    if not isinstance(record, dict):
+        raise SchemaVersionError("запись лога не является JSON-объектом")
+    version = record.get("schema_version")
+    if version != SCHEMA_VERSION:
+        raise SchemaVersionError(
+            f"несовместимая версия схемы лога: запись v{version}, "
+            f"поддерживается v{SCHEMA_VERSION}"
+        )
+    return record
 
 
 def build_interaction_record(
