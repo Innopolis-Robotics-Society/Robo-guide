@@ -15,7 +15,7 @@ chunks:
   - {id: m2, level: full, interruptible: false, pause_after_s: 1.0,
      text: "Добро пожаловать в Иннополис — город, где будущее уже наступило, а некоторые его жители до сих пор не поняли, что они живут в будущем."}
   - {id: m3a, level: full, interruptible: false,
-     text: "Меня зовут… Фирая."}
+     text: "Меня зовут Фирая."}
   - {id: m3b, level: full, interruptible: false,
      text: "Я робот. Но, пожалуйста, не пугайтесь."}
   - {id: m4, level: full, interruptible: false, pause_after_s: 1.0,

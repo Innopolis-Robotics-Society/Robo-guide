@@ -5,5 +5,6 @@ items:
   - { id: p1, kind: image, file: IMG_1.PNG, duration_s: 6.0, caption: "" }
   - { id: p2, kind: image, file: IMG_2.JPG, duration_s: 6.0, caption: "" }
   - { id: p3, kind: image, file: IMG_3.JPG, duration_s: 6.0, caption: "" }
-  - { id: p4, kind: image, file: IMG_4.JPG, duration_s: 6.0, caption: "" }
-  - { id: p5, kind: image, file: IMG_5.JPG, duration_s: 6.0, caption: "" }
+  - { id: p4, kind: image, file: IMG_4.PNG, duration_s: 6.0, caption: "" }
+  - { id: p5, kind: image, file: IMG_5.PNG, duration_s: 6.0, caption: "" }
+  - { id: p6, kind: image, file: IMG_6.JPG, duration_s: 6.0, caption: "" }
