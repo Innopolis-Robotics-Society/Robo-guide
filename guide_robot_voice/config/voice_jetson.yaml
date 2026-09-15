@@ -35,7 +35,7 @@
     barge_in_enabled: true
     barge_in_min_windows: 2
     # true: без AEC колонка в мик = VAD CancelAll, робот рвёт сам себя.
-    # Interrupt голосом во время TTS -- только «робот»/«стоп» (wakeword);
+    # Interrupt голосом во время TTS -- только «Фирая»/«стоп» (wakeword);
     # VAD barge-in после AEC.
     require_aec_for_barge_in: true
 
@@ -53,14 +53,16 @@
     short_path_max_ms: 0.0
     min_final_chars: 2
     gate_on_tts: true
-    # Партиалы во время TTS → wakeword («робот»/«стоп»), без финалов в диалог.
+    # Партиалы во время TTS → wakeword («Фирая»/«стоп»), без финалов в диалог.
     # VAD barge-in выключен (require_aec); иначе колонка рвёт речь сама.
     wakeword_listen_during_tts: true
 
 /**/wakeword_node:
   ros__parameters:
     backend: "asr_kws"
-    activation_phrases: ["робот", "слушай робот"]
+    # Имя робота + типичные ошибки ASR («фирайя», «фира я», «фи рая»):
+    # под TTS матч только точный и с начала фразы, поэтому варианты явно.
+    activation_phrases: ["фирая", "фирайя", "фира я", "фи рая", "эй фирая", "слушай фирая"]
     stop_phrases: ["стоп", "стой", "хватит", "замолчи"]
     fuzzy_max_distance: 1
     min_confidence: 0.5

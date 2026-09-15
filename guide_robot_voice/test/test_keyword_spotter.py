@@ -101,3 +101,40 @@ def test_phrase_longer_than_text_is_not_matched() -> None:
     """Фраза длиннее текста по словам не может совпасть -- без IndexError."""
     spotter = KeywordSpotter(["слушай меня робот пожалуйста"], max_distance=1)
     assert spotter.find("робот") is None
+
+
+ACTIVATION_PHRASES = ["фирая", "фирайя", "фира я", "фи рая", "эй фирая", "слушай фирая"]
+
+
+def test_robot_name_variants_are_matched() -> None:
+    """Типичные записи имени «Фирая» от ASR ловятся дефолтным списком активации."""
+    spotter = KeywordSpotter(ACTIVATION_PHRASES, max_distance=1)
+    for heard in (
+        "фирая",
+        "фирайя",
+        "фирае",
+        "фираю",
+        "фира я",
+        "фи рая",
+        "вирая",
+        "эй фирая",
+        "слушай фирая",
+        "фирая подойди",
+    ):
+        assert spotter.find(heard) is not None, heard
+
+
+def test_robot_name_variants_exact_under_tts() -> None:
+    """Под TTS (leading + порог 0.99) варианты должны совпадать точно, не через Левенштейн."""
+    spotter = KeywordSpotter(ACTIVATION_PHRASES, max_distance=1)
+    for heard in ("фирайя стоп", "фира я", "фи рая", "эй фирая"):
+        match = spotter.find(heard, leading=True)
+        assert match is not None and match.confidence >= 0.99, heard
+    assert spotter.find("меня зовут фирая", leading=True) is None
+
+
+def test_robot_name_does_not_match_common_words() -> None:
+    """Близкие по написанию обычные слова не активируют робота."""
+    spotter = KeywordSpotter(ACTIVATION_PHRASES, max_distance=1)
+    for heard in ("фирма", "серая", "сырая", "старая", "фара"):
+        assert spotter.find(heard) is None, heard

@@ -315,7 +315,7 @@ class VadNode(LifecycleNode):
             return
         if not self._is_current_speech_interruptible():
             # Непрерываемая связка ("сетап -> панч"): VAD CancelAll не шлём.
-            # «стоп»/«робот» (wakeword) и e-stop -- свой hard-путь в scheduler.
+            # «стоп»/«Фирая» (wakeword) и e-stop -- свой hard-путь в scheduler.
             return
 
         self._barge_in_armed = False

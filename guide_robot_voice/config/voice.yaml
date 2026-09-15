@@ -55,7 +55,9 @@
 /**/wakeword_node:
   ros__parameters:
     backend: "asr_kws"              # asr_kws (Stage 1) | oww (Stage 3, не реализован)
-    activation_phrases: ["робот", "слушай робот"]
+    # Имя робота + типичные ошибки ASR («фирайя», «фира я», «фи рая»):
+    # под TTS матч только точный и с начала фразы, поэтому варианты явно.
+    activation_phrases: ["фирая", "фирайя", "фира я", "фи рая", "эй фирая", "слушай фирая"]
     stop_phrases: ["стоп", "стой", "хватит", "замолчи"]
     fuzzy_max_distance: 1
     min_confidence: 0.5

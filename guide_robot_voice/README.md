@@ -131,7 +131,9 @@ mission). `backend=oww` объявлен, но при выборе бросае�
 `tts_active` метрика false-wake-under-TTS считается неверно).
 
 **Параметры**: `backend="asr_kws"`,
-`activation_phrases=["робот", "слушай робот"]`,
+`activation_phrases=["фирая", "фирайя", "фира я", "фи рая", "эй фирая", "слушай фирая"]`
+(имя робота + типичные варианты его записи GigaAM — под TTS совпадение
+только точное, поэтому варианты перечислены явно),
 `stop_phrases=["стоп", "стой", "хватит", "замолчи"]`,
 `fuzzy_max_distance=1`, `min_confidence=0.5`, `refractory_ms=1500.0`,
 `frame_id`.
