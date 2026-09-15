@@ -62,6 +62,7 @@ from guide_robot_voice.lib.audio_device import resolve_device
 __all__ = [
     "Emitter",
     "EpochFencedSink",
+    "KeepAliveTone",
     "MemoryEmitter",
     "PullCallable",
     "SharedPluginError",
@@ -325,6 +326,53 @@ class SoundDeviceEmitter:
         }
 
 
+class KeepAliveTone:
+    """Инфразвуковой «пилот» вместо цифровой тишины в паузах.
+
+    Зачем. Дешёвые USB-кодеки (на роботе -- Generic AB13X, 0020:0b21)
+    сами глушат выход, получив ~1 с ровных нулей, и «просыпаются»
+    250-400 мс: ровно столько речи пропадает в начале каждой реплики и
+    после любой паузы длиннее секунды. Ни Pulse, ни ALSA, ни сток об
+    этом не знают -- на monitor-выходе звук целый, теряется он уже в
+    железе. Измерено на роботе 15.09.2026 (см. README, «Известные
+    грабли»): порог детектора между -66 и -72 dBFS; ±4 LSB дизера
+    не хватает, 20 Гц на -60 dBFS держит выход открытым сколько угодно,
+    в том числе с самого старта потока.
+
+    Генератор фазово-непрерывен между вызовами: скачок фазы -- щелчок.
+    Работает из аудио-колбэка, поэтому таблица одного периода считается
+    один раз, в колбэке -- только срез и присваивание.
+    """
+
+    def __init__(self, sample_rate: int, hz: float = 20.0, dbfs: float = -60.0) -> None:
+        """Подготовить таблицу одного периода тона."""
+        if dbfs >= 0.0:
+            raise ValueError(f"keep-alive должен быть тише 0 dBFS, получено {dbfs}")
+        self.sample_rate = sample_rate
+        self.hz = hz
+        self.dbfs = dbfs
+        period = max(1, round(sample_rate / hz))
+        amplitude = 32767.0 * 10.0 ** (dbfs / 20.0)
+        t = np.arange(period, dtype=np.float64) / period
+        self._table = np.round(amplitude * np.sin(2.0 * np.pi * t)).astype(np.int16)
+        self._phase = 0
+
+    @property
+    def amplitude(self) -> int:
+        """Пиковая амплитуда в LSB -- для логов и тестов."""
+        return int(np.abs(self._table).max())
+
+    def fill(self, out: np.ndarray, start: int) -> None:
+        """Заполнить out[start:] тоном, продолжая фазу с прошлого вызова."""
+        count = int(out.shape[0]) - start
+        if count <= 0:
+            return
+        period = self._table.shape[0]
+        idx = (self._phase + np.arange(count)) % period
+        out[start:] = self._table[idx]
+        self._phase = (self._phase + count) % period
+
+
 class EpochFencedSink:
     """Очередь воспроизведения с отбрасыванием устаревших чанков."""
 
@@ -334,10 +382,17 @@ class EpochFencedSink:
         sample_rate: int,
         max_queue_ms: int = 600,
         fade_out_ms: int = 0,
+        idle_fill: KeepAliveTone | None = None,
     ) -> None:
-        """Создать сток. Устройство открывается методом start()."""
+        """Создать сток. Устройство открывается методом start().
+
+        idle_fill -- чем добивать кадры, на которые нет данных (None --
+        нулями). Речь и fade-хвост не трогаются, тон идёт только вместо
+        тишины: между репликами, в underrun и до первого Say.
+        """
         self._emitter = emitter
         self._sample_rate = sample_rate
+        self._idle_fill = idle_fill
         self._max_queue_frames = int(sample_rate * max_queue_ms / 1000)
         self._fade_out_frames = max(0, int(sample_rate * fade_out_ms / 1000))
         self._state = _State()
@@ -547,7 +602,7 @@ class EpochFencedSink:
     # -- колбэк -------------------------------------------------------------
 
     def _pull(self, frames: int) -> np.ndarray:
-        """Выдать ровно frames кадров, добивая нулями.
+        """Выдать ровно frames кадров, добивая нулями (или idle_fill).
 
         Вызывается из аудиопотока эмиттера. Никаких блокировок сверх
         одного короткого лока и никаких аллокаций сверх одного буфера.
@@ -580,4 +635,7 @@ class EpochFencedSink:
             if filled < frames:
                 self.underflows += 1
             self._cv.notify_all()
+        if filled < frames and self._idle_fill is not None:
+            # Вне лока: генератор принадлежит только аудиопотоку.
+            self._idle_fill.fill(out, filled)
         return out

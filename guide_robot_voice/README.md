@@ -165,9 +165,14 @@ latency).
 
 **Параметры**: `backend="silero"` (`silero`|`piper`|`null` — `null` синтезирует тон,
 режим измерений без модели), `model_path`, `speaker=xenia`, `config_path`, `speaker_id=0`
-(для piper), `length_scale=1.0`, `device`, `device_rate=0` (0 → частота бэкенда),
+(для piper), `length_scale=1.0`, `silero_rate="100%"` (SSML `<prosody rate>`,
+проценты или `fast`/`x-fast`), `sentence_pause_ms=0` (явный `<break>` между
+предложениями вместо модельной паузы ~400 мс), `trailing_silence_ms=-1`
+(обрезка тишины в конце клаузы, -1 -- не трогать), `device`, `device_rate=0` (0 → частота бэкенда),
 `block_ms=20`, `periods=3`, `channels=2`, `allow_shared=false`,
-`max_queue_ms=600`, `min_chars=40`, `max_clause_chars=180`,
+`max_queue_ms=600`, `fade_out_ms=80`, `keepalive_dbfs=0.0` (<0 → тон
+`keepalive_hz=20.0` вместо нулей в паузах, против авто-mute USB-кодека;
+см. «Известные грабли»), `min_chars=40`, `max_clause_chars=180`,
 `chars_per_second=14.0`, `heartbeat_hz=5.0`, `max_queue=8`,
 `warmup_text="Система готова"`, `default_priority=50` (подставляется,
 если `Say.Goal.priority == 0`).
@@ -289,6 +294,16 @@ mission_control) поднимается сразу через
   occurred` и разогрев Piper за 6+ секунд вместо ~150 мс. Лечится
   `voice_headset.yaml` (или любым оверлеем с явными разными `device`
   для входа и выхода).
+- **USB-кодек Generic AB13X (0020:0b21, на роботе с 14.09.2026) глушит
+  выход на цифровой тишине.** После ~1 с ровных нулей (800 мс ещё
+  терпит) он отключает выход и «просыпается» 250-400 мс: столько речи
+  пропадает в начале каждой реплики и после любой паузы длиннее
+  секунды. На monitor-выходе Pulse звук целый, теряется уже в железе --
+  одинаково через `pulse` и через `hw:2,0`. Тихий, но ненулевой сигнал
+  (-50 dBFS) его не усыпляет; порог детектора между -66 и -72 dBFS,
+  ±4 LSB дизера мало. Лечится `keepalive_dbfs: -60.0` (20 Гц в паузах,
+  `lib/sink.KeepAliveTone`) -- измерено 15.09.2026 микрофоном Fifine
+  при воспроизведении тональных пачек через паузы 0.3-6 с.
 - **PulseAudio держит `hw:` устройство.** См. §7 design-документа --
   `pactl suspend-sink`/`suspend-source` точечно, не `pasuspender` на всю
   машину.

@@ -8,7 +8,12 @@ import time
 import numpy as np
 import pytest
 
-from guide_robot_voice.lib.sink import EpochFencedSink, MemoryEmitter, SinkFailureError
+from guide_robot_voice.lib.sink import (
+    EpochFencedSink,
+    KeepAliveTone,
+    MemoryEmitter,
+    SinkFailureError,
+)
 
 SAMPLE_RATE = 16000
 BLOCK = 320
@@ -229,3 +234,35 @@ def test_callback_failure_is_visible() -> None:
             sink.raise_if_failed()
     finally:
         sink.close()
+
+
+def test_keepalive_fills_only_silence() -> None:
+    """Тон идёт вместо нулей в паузах и не трогает речь; фаза непрерывна."""
+    tone = KeepAliveTone(SAMPLE_RATE, hz=20.0, dbfs=-60.0)
+    assert 20 <= tone.amplitude <= 40  # -60 dBFS ~ 33 LSB: слышно кодеку, не человеку
+
+    emitter = MemoryEmitter(block=BLOCK, interval=0.002)
+    sink = EpochFencedSink(emitter, SAMPLE_RATE, max_queue_ms=10_000, idle_fill=tone)
+    sink.start()
+    try:
+        time.sleep(0.03)
+        idle = np.concatenate(emitter.writes[:8]).astype(np.int32)
+        assert np.abs(idle).max() == tone.amplitude
+        # Непрерывность: соседние сэмплы тона 20 Гц отличаются не больше чем
+        # на пару LSB -- скачок фазы дал бы разрыв величиной с амплитуду.
+        assert np.abs(np.diff(idle)).max() <= 2
+
+        epoch = sink.bump("prime")
+        sink.submit(epoch, tagged_chunk(epoch, frames=BLOCK * 4))
+        assert sink.wait_idle(epoch, timeout=2.0)
+        speech = [b for b in emitter.writes if np.any(b == epoch)]
+        assert speech, "речь не дошла до устройства"
+        assert all(int(v) == epoch for block in speech for v in np.unique(block) if abs(v) > 40)
+    finally:
+        sink.close()
+
+
+def test_keepalive_rejects_zero_level() -> None:
+    """0 dBFS и громче -- ошибка конфигурации, а не полномасштабный тон в колонку."""
+    with pytest.raises(ValueError):
+        KeepAliveTone(SAMPLE_RATE, dbfs=0.0)
