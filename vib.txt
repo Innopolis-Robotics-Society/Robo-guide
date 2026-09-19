@@ -1,0 +1,1132 @@
+mook@mook-ROG-Zephyrus-G16-GU605MI-GU605MI:~$ ssh jetson@172.20.10.5
+jetson@172.20.10.5's password: 
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 5.15.199-tegra aarch64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+This system has been minimized by removing packages and content that are
+not required on a system that users do not log into.
+
+To restore this content, you can run the 'unminimize' command.
+
+Expanded Security Maintenance for Applications is not enabled.
+
+410 updates can be applied immediately.
+133 of these updates are standard security updates.
+To see these additional updates run: apt list --upgradable
+
+140 additional security updates can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+Last login: Fri Sep 18 09:38:30 2026 from 172.20.10.2
+jetson@orin-nano:~$ cd Desktop/Projects/Robo-guide/
+jetson@orin-nano:~/Desktop/Projects/Robo-guide$ docker compose up jetson -d
+[+] up 1/1
+ ✔ Container robo-guide-jetson-1 Started                                    0.7s
+jetson@orin-nano:~/Desktop/Projects/Robo-guide$ docker compose exec jetson bash
+fabian@orin-nano:~/ros2_ws$ ros2 launch guide_robot_bringup hardware.launch.py slam:=True
+[INFO] [launch]: All log files can be found below /home/fabian/.ros/log/2026-09-18-09-46-57-487289-orin-nano-121
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [supervisor-23]: process started with pid [287]
+[INFO] [robot_state_publisher-1]: process started with pid [123]
+[INFO] [ros2_control_node-2]: process started with pid [125]
+[INFO] [spawner-3]: process started with pid [127]
+[INFO] [spawner-4]: process started with pid [129]
+[INFO] [sllidar_node-5]: process started with pid [131]
+[INFO] [laser_sector_blanker-6]: process started with pid [133]
+[INFO] [laser_sector_blanker-7]: process started with pid [135]
+[INFO] [dual_laser_merger_node-8]: process started with pid [137]
+[INFO] [sonar_node_mult.py-9]: process started with pid [160]
+[INFO] [async_slam_toolbox_node-10]: process started with pid [168]
+[INFO] [controller_server-11]: process started with pid [181]
+[INFO] [smoother_server-12]: process started with pid [185]
+[INFO] [planner_server-13]: process started with pid [190]
+[INFO] [behavior_server-14]: process started with pid [201]
+[INFO] [bt_navigator-15]: process started with pid [206]
+[INFO] [waypoint_follower-16]: process started with pid [223]
+[INFO] [velocity_smoother-17]: process started with pid [230]
+[INFO] [lifecycle_manager-18]: process started with pid [243]
+[INFO] [collision_monitor-19]: process started with pid [248]
+[INFO] [lifecycle_manager-20]: process started with pid [250]
+[INFO] [twist_mux-21]: process started with pid [259]
+[INFO] [twist_mux-22]: process started with pid [275]
+[INFO] [audio_frontend-24]: process started with pid [299]
+[INFO] [vad_node-25]: process started with pid [313]
+[INFO] [wakeword_node-26]: process started with pid [327]
+[INFO] [asr_node-27]: process started with pid [344]
+[INFO] [tts_node-28]: process started with pid [356]
+[INFO] [lifecycle_manager-29]: process started with pid [362]
+[INFO] [route_server-30]: process started with pid [367]
+[INFO] [content_server-31]: process started with pid [369]
+[INFO] [location_server-32]: process started with pid [372]
+[INFO] [route_planner-33]: process started with pid [374]
+[INFO] [lifecycle_manager-34]: process started with pid [377]
+[INFO] [presence_monitor-35]: process started with pid [381]
+[INFO] [mission_container-36]: process started with pid [385]
+[INFO] [lifecycle_manager-37]: process started with pid [397]
+[INFO] [face_node-38]: process started with pid [404]
+[INFO] [face_aggregator-39]: process started with pid [406]
+[INFO] [tool_broker-40]: process started with pid [409]
+[INFO] [dialog_agent-41]: process started with pid [432]
+[INFO] [interaction_log-42]: process started with pid [434]
+[INFO] [lifecycle_manager-43]: process started with pid [436]
+[robot_state_publisher-1] [INFO] [1789724819.291220261] [robot_state_publisher]: got segment base_footprint
+[robot_state_publisher-1] [INFO] [1789724819.291459780] [robot_state_publisher]: got segment base_link
+[robot_state_publisher-1] [INFO] [1789724819.291479529] [robot_state_publisher]: got segment imu_link
+[robot_state_publisher-1] [INFO] [1789724819.291489835] [robot_state_publisher]: got segment laser_frame_left
+[robot_state_publisher-1] [INFO] [1789724819.291498286] [robot_state_publisher]: got segment laser_frame_right
+[robot_state_publisher-1] [INFO] [1789724819.291505872] [robot_state_publisher]: got segment left_caster_link
+[robot_state_publisher-1] [INFO] [1789724819.291513170] [robot_state_publisher]: got segment left_lidar_mount_link
+[robot_state_publisher-1] [INFO] [1789724819.291521012] [robot_state_publisher]: got segment left_wheel_link
+[robot_state_publisher-1] [INFO] [1789724819.291528470] [robot_state_publisher]: got segment lidar_bar_link
+[robot_state_publisher-1] [INFO] [1789724819.291535896] [robot_state_publisher]: got segment right_caster_link
+[robot_state_publisher-1] [INFO] [1789724819.291543129] [robot_state_publisher]: got segment right_lidar_mount_link
+[robot_state_publisher-1] [INFO] [1789724819.291550235] [robot_state_publisher]: got segment right_wheel_link
+[robot_state_publisher-1] [INFO] [1789724819.291557309] [robot_state_publisher]: got segment sonar_sensor_1
+[robot_state_publisher-1] [INFO] [1789724819.291564319] [robot_state_publisher]: got segment sonar_sensor_2
+[robot_state_publisher-1] [INFO] [1789724819.291571585] [robot_state_publisher]: got segment sonar_sensor_4
+[robot_state_publisher-1] [INFO] [1789724819.291578595] [robot_state_publisher]: got segment sonar_sensor_5
+[robot_state_publisher-1] [INFO] [1789724819.291585669] [robot_state_publisher]: got segment sonar_sensor_6
+[robot_state_publisher-1] [INFO] [1789724819.291592646] [robot_state_publisher]: got segment sonar_sensor_8
+[robot_state_publisher-1] [INFO] [1789724819.291599528] [robot_state_publisher]: got segment sonar_sensor_9
+[ros2_control_node-2] [WARN] [1789724819.311785678] [controller_manager]: [Deprecated] Passing the robot description parameter directly to the control_manager node is deprecated. Use '~/robot_description' topic from 'robot_state_publisher' instead.
+[ros2_control_node-2] [INFO] [1789724819.312412402] [resource_manager]: Loading hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789724819.315842004] [resource_manager]: Initialize hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789724819.316365853] [GuideRobotSystem]: Параметры: port=/dev/tty_motors baud=115200 L_id=46 R_id=47 swap=0 coeff=0.00008802 offset=0.0437m/s trim_L=0.990 r=0.103m ticks_per_rev=131072.0 cmd_timeout=0.300s max_wheel_vel=7.31 рад/с encoder_timeout=3.000s accel=1000 poll_divider=5 wrap_ticks=65536
+[ros2_control_node-2] [INFO] [1789724819.316417195] [resource_manager]: Successful initialization of hardware 'GuideRobotSystem'
+[ros2_control_node-2] [INFO] [1789724819.316742784] [resource_manager]: 'configure' hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789724819.335685792] [GuideRobotSystem]: Serial порт открыт (O_SYNC, VMIN=0, 115200 бод): /dev/tty_motors
+[ros2_control_node-2] [INFO] [1789724819.335773527] [resource_manager]: Successful 'configure' of hardware 'GuideRobotSystem'
+[ros2_control_node-2] [INFO] [1789724819.335796733] [resource_manager]: 'activate' hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789724819.336072678] [GuideRobotSystem]: Сторожевой таймер запущен (cmd_timeout=0.300 с)
+[ros2_control_node-2] [INFO] [1789724819.336098700] [GuideRobotSystem]: GuideRobotSystem активирован (моторы L=46 R=47)
+[ros2_control_node-2] [INFO] [1789724819.336110736] [resource_manager]: Successful 'activate' of hardware 'GuideRobotSystem'
+[ros2_control_node-2] [INFO] [1789724819.405698781] [controller_manager]: update rate is 50 Hz
+[ros2_control_node-2] [INFO] [1789724819.405805977] [controller_manager]: Spawning controller_manager RT thread with scheduler priority: 50
+[ros2_control_node-2] [WARN] [1789724819.415349468] [controller_manager]: Could not enable FIFO RT scheduling policy: with error number <1>(Operation not permitted). See [https://control.ros.org/master/doc/ros2_control/controller_manager/doc/userdoc.html] for details on how to enable realtime scheduling.
+[sllidar_node-5] [INFO] [1789724819.255201933] [sllidar_left]: SLLidar running on ROS2 package SLLidar.ROS2 SDK Version:1.0.1, SLLIDAR SDK Version:2.1.0
+[sllidar_node-5] [INFO] [1789724819.789052923] [sllidar_left]: SLLidar S/N: B7B4E1F8C9E09CD3A7E79BF529614D1F
+[sllidar_node-5] [INFO] [1789724819.789162616] [sllidar_left]: Firmware Ver: 1.01
+[sllidar_node-5] [INFO] [1789724819.789181309] [sllidar_left]: Hardware Rev: 18
+[sllidar_node-5] [INFO] [1789724819.789761013] [sllidar_left]: SLLidar health status : 0
+[sllidar_node-5] [INFO] [1789724819.789806209] [sllidar_left]: SLLidar health status : OK.
+[sllidar_node-5] [INFO] [1789724820.025279324] [sllidar_left]: current scan mode: DenseBoost, sample rate: 5 Khz, max_distance: 40.0 m, scan frequency:10.0 Hz, 
+[dual_laser_merger_node-8] [INFO] [1789724819.260996603] [dual_laser_merger]: Target Frame: base_footprint
+[async_slam_toolbox_node-10] [INFO] [1789724819.467811654] [slam_toolbox]: Node using stack size 40000000
+[async_slam_toolbox_node-10] [INFO] [1789724820.493683512] [slam_toolbox]: Using solver plugin solver_plugins::CeresSolver
+[controller_server-11] [INFO] [1789724819.522564295] [controller_server]: 
+[controller_server-11] 	controller_server lifecycle node launched. 
+[controller_server-11] 	Waiting on external lifecycle transitions to activate
+[controller_server-11] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[controller_server-11] [INFO] [1789724819.663642036] [controller_server]: Creating controller server
+[smoother_server-12] [INFO] [1789724819.952793559] [smoother_server]: 
+[smoother_server-12] 	smoother_server lifecycle node launched. 
+[smoother_server-12] 	Waiting on external lifecycle transitions to activate
+[smoother_server-12] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[smoother_server-12] [INFO] [1789724819.957391563] [smoother_server]: Creating smoother server
+[planner_server-13] [INFO] [1789724819.488922846] [planner_server]: 
+[planner_server-13] 	planner_server lifecycle node launched. 
+[planner_server-13] 	Waiting on external lifecycle transitions to activate
+[planner_server-13] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[planner_server-13] [INFO] [1789724819.552686294] [planner_server]: Creating
+[planner_server-13] [INFO] [1789724819.826886638] [global_costmap.global_costmap]: 
+[planner_server-13] 	global_costmap lifecycle node launched. 
+[planner_server-13] 	Waiting on external lifecycle transitions to activate
+[planner_server-13] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[planner_server-13] [INFO] [1789724819.884265119] [global_costmap.global_costmap]: Creating Costmap
+[behavior_server-14] [INFO] [1789724820.173357202] [behavior_server]: 
+[behavior_server-14] 	behavior_server lifecycle node launched. 
+[behavior_server-14] 	Waiting on external lifecycle transitions to activate
+[behavior_server-14] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[bt_navigator-15] [INFO] [1789724820.448632611] [bt_navigator]: 
+[bt_navigator-15] 	bt_navigator lifecycle node launched. 
+[bt_navigator-15] 	Waiting on external lifecycle transitions to activate
+[bt_navigator-15] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[bt_navigator-15] [INFO] [1789724820.448961017] [bt_navigator]: Creating
+[waypoint_follower-16] [INFO] [1789724820.045637807] [waypoint_follower]: 
+[waypoint_follower-16] 	waypoint_follower lifecycle node launched. 
+[waypoint_follower-16] 	Waiting on external lifecycle transitions to activate
+[waypoint_follower-16] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[waypoint_follower-16] [INFO] [1789724820.060994180] [waypoint_follower]: Creating
+[velocity_smoother-17] [INFO] [1789724820.033505190] [velocity_smoother]: 
+[velocity_smoother-17] 	velocity_smoother lifecycle node launched. 
+[velocity_smoother-17] 	Waiting on external lifecycle transitions to activate
+[velocity_smoother-17] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[lifecycle_manager-18] [INFO] [1789724820.457327528] [lifecycle_manager_navigation]: Creating
+[collision_monitor-19] [INFO] [1789724820.092569936] [collision_monitor]: 
+[collision_monitor-19] 	collision_monitor lifecycle node launched. 
+[collision_monitor-19] 	Waiting on external lifecycle transitions to activate
+[collision_monitor-19] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[lifecycle_manager-20] [INFO] [1789724819.878173732] [lifecycle_manager_safety]: Creating
+[lifecycle_manager-20] [INFO] [1789724820.015904773] [lifecycle_manager_safety]: Creating and initializing lifecycle service clients
+[twist_mux-21] [INFO] [1789724820.344963673] [mux_safety]: Topic handler 'topics.nav2' subscribed to topic '/cmd_vel': timeout = 0.500000s , priority = 10.
+[twist_mux-21] [INFO] [1789724820.511236396] [mux_safety]: Topic handler 'topics.safety_teleop' subscribed to topic '/safety_cmd_vel': timeout = 0.500000s , priority = 20.
+[lifecycle_manager-29] [INFO] [1789724820.286252140] [lifecycle_manager_voice]: Creating
+[lifecycle_manager-29] [INFO] [1789724820.413828394] [lifecycle_manager_voice]: Creating and initializing lifecycle service clients
+[lifecycle_manager-34] [INFO] [1789724820.559571773] [lifecycle_manager_semantic_map]: Creating
+[lifecycle_manager-37] [INFO] [1789724820.500286137] [lifecycle_manager_mission]: Creating
+[lifecycle_manager-37] [INFO] [1789724820.521999886] [lifecycle_manager_mission]: Creating and initializing lifecycle service clients
+[async_slam_toolbox_node-10] [INFO] [1789724820.575314615] [slam_toolbox]: CeresSolver: Using SCHUR_JACOBI preconditioner.
+[route_server-30] [INFO] [1789724820.579231289] [route_server]: 
+[route_server-30] 	route_server lifecycle node launched. 
+[route_server-30] 	Waiting on external lifecycle transitions to activate
+[route_server-30] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[lifecycle_manager-18] [INFO] [1789724820.674905269] [lifecycle_manager_navigation]: Creating and initializing lifecycle service clients
+[twist_mux-22] [INFO] [1789724820.749445363] [mux_final]: Topic handler 'topics.admin' subscribed to topic '/admin_cmd_vel': timeout = 0.500000s , priority = 20.
+[twist_mux-22] [INFO] [1789724820.868468241] [mux_final]: Topic handler 'topics.collision_out' subscribed to topic '/cmd_vel_filtered': timeout = 0.500000s , priority = 10.
+[twist_mux-22] [INFO] [1789724820.956341043] [mux_final]: Topic handler 'locks.e_stop' subscribed to topic '/supervisor/estop': timeout = None , priority = 255.
+[lifecycle_manager-34] [INFO] [1789724820.797790246] [lifecycle_manager_semantic_map]: Creating and initializing lifecycle service clients
+[controller_server-11] [INFO] [1789724821.282135344] [local_costmap.local_costmap]: 
+[controller_server-11] 	local_costmap lifecycle node launched. 
+[controller_server-11] 	Waiting on external lifecycle transitions to activate
+[controller_server-11] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[controller_server-11] [INFO] [1789724821.283708204] [local_costmap.local_costmap]: Creating Costmap
+[lifecycle_manager-43] [INFO] [1789724821.388805740] [lifecycle_manager_llm]: Creating
+[lifecycle_manager-43] [INFO] [1789724821.616900762] [lifecycle_manager_llm]: Creating and initializing lifecycle service clients
+[lifecycle_manager-29] [INFO] [1789724822.503180450] [lifecycle_manager_voice]: Waiting for service tts_node/get_state...
+[lifecycle_manager-37] [INFO] [1789724822.525754681] [lifecycle_manager_mission]: Waiting for service presence_monitor/get_state...
+[lifecycle_manager-43] [INFO] [1789724823.718476848] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[INFO] [sllidar_node-44]: process started with pid [552]
+[lifecycle_manager-34] [INFO] [1789724824.159269868] [lifecycle_manager_semantic_map]: Waiting for service content_server/get_state...
+[lifecycle_manager-29] [INFO] [1789724824.503573110] [lifecycle_manager_voice]: Waiting for service tts_node/get_state...
+[lifecycle_manager-37] [INFO] [1789724824.526135370] [lifecycle_manager_mission]: Waiting for service presence_monitor/get_state...
+[sllidar_node-44] [INFO] [1789724825.662470706] [sllidar_right]: SLLidar running on ROS2 package SLLidar.ROS2 SDK Version:1.0.1, SLLIDAR SDK Version:2.1.0
+[lifecycle_manager-43] [INFO] [1789724825.718856830] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[lifecycle_manager-34] [INFO] [1789724826.160230705] [lifecycle_manager_semantic_map]: Waiting for service content_server/get_state...
+[laser_sector_blanker-7] [INFO] [1789724826.217602271] [laser_sector_blanker_right]: /scan_right -> /scan_right_filtered: blanking 1 sector(s) [-60.0, 85.0] deg
+[spawner-3] [INFO] [1789724826.318136436] [spawner_diff_drive_controller]: waiting for service /controller_manager/list_controllers to become available...
+[sllidar_node-44] [INFO] [1789724826.320154020] [sllidar_right]: SLLidar S/N: 42B6E1F8C9E09CD3A7E79BF5DC634D1F
+[sllidar_node-44] [INFO] [1789724826.320259648] [sllidar_right]: Firmware Ver: 1.01
+[sllidar_node-44] [INFO] [1789724826.320277892] [sllidar_right]: Hardware Rev: 18
+[sllidar_node-44] [INFO] [1789724826.320851355] [sllidar_right]: SLLidar health status : 0
+[sllidar_node-44] [INFO] [1789724826.320886660] [sllidar_right]: SLLidar health status : OK.
+[lifecycle_manager-29] [INFO] [1789724826.503967974] [lifecycle_manager_voice]: Waiting for service tts_node/get_state...
+[lifecycle_manager-37] [INFO] [1789724826.526516791] [lifecycle_manager_mission]: Waiting for service presence_monitor/get_state...
+[sllidar_node-44] [INFO] [1789724826.547666425] [sllidar_right]: current scan mode: DenseBoost, sample rate: 5 Khz, max_distance: 40.0 m, scan frequency:10.0 Hz, 
+[sonar_node_mult.py-9] [INFO] [1789724826.993319596] [sonar_node]: Sonar 0 -> sonar/range/sonar_sensor_1 (frame: sonar_sensor_1)
+[ros2_control_node-2] [INFO] [1789724826.993469747] [controller_manager]: Loading controller 'diff_drive_controller'
+[sonar_node_mult.py-9] [INFO] [1789724827.107793602] [sonar_node]: Sonar 1 -> sonar/range/sonar_sensor_2 (frame: sonar_sensor_2)
+[sonar_node_mult.py-9] [INFO] [1789724827.261433703] [sonar_node]: Sonar 2 -> sonar/range/sonar_sensor_4 (frame: sonar_sensor_4)
+[sonar_node_mult.py-9] [INFO] [1789724827.369522582] [sonar_node]: Sonar 3 -> sonar/range/sonar_sensor_5 (frame: sonar_sensor_5)
+[sonar_node_mult.py-9] [INFO] [1789724827.394704759] [sonar_node]: Sonar 4 -> sonar/range/sonar_sensor_6 (frame: sonar_sensor_6)
+[sonar_node_mult.py-9] [INFO] [1789724827.419458281] [sonar_node]: Sonar 5 -> sonar/range/sonar_sensor_8 (frame: sonar_sensor_8)
+[sonar_node_mult.py-9] [INFO] [1789724827.520190577] [sonar_node]: Sonar 6 -> sonar/range/sonar_sensor_9 (frame: sonar_sensor_9)
+[lifecycle_manager-43] [INFO] [1789724827.719284692] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[lifecycle_manager-34] [INFO] [1789724828.160638977] [lifecycle_manager_semantic_map]: Waiting for service content_server/get_state...
+[lifecycle_manager-29] [INFO] [1789724828.504185443] [lifecycle_manager_voice]: Waiting for service tts_node/get_state...
+[lifecycle_manager-37] [INFO] [1789724828.526931975] [lifecycle_manager_mission]: Waiting for service presence_monitor/get_state...
+[sonar_node_mult.py-9] [INFO] [1789724829.111864398] [sonar_node]: Starting C++ driver on /dev/tty_sonar @ 9600 baud...
+[sonar_node_mult.py-9] [INFO] [1789724829.119697777] [sonar_node]: Opened serial port: /dev/tty_sonar
+[laser_sector_blanker-6] [INFO] [1789724829.533262577] [laser_sector_blanker_left]: /scan_left -> /scan_left_filtered: blanking 1 sector(s) [-85.0, 45.0] deg
+[sonar_node_mult.py-9] [INFO] [1789724829.621129360] [sonar_node]: Sonar dome wake-up command sent on /dev/tty_sonar
+[sonar_node_mult.py-9] [INFO] [1789724829.622271259] [sonar_node]: Sonar node initialized: 7 sensors.
+[lifecycle_manager-43] [INFO] [1789724829.719727785] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[ros2_control_node-2] [INFO] [1789724830.150935188] [controller_manager]: Loading controller 'joint_state_broadcaster'
+[spawner-3] [INFO] [1789724830.156334106] [spawner_diff_drive_controller]: Loaded diff_drive_controller
+[lifecycle_manager-34] [INFO] [1789724830.161088759] [lifecycle_manager_semantic_map]: Waiting for service content_server/get_state...
+[lifecycle_manager-29] [INFO] [1789724830.504575849] [lifecycle_manager_voice]: Waiting for service tts_node/get_state...
+[async_slam_toolbox_node-10] [INFO] [1789724830.638884552] [slam_toolbox]: Message Filter dropping message: frame 'base_footprint' at time 1789724829.923 for reason 'discarding message because the queue is full'
+[lifecycle_manager-43] [INFO] [1789724831.720871665] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[lifecycle_manager-37] [INFO] [1789724832.072089579] [lifecycle_manager_mission]: Waiting for service narration_server/get_state...
+[lifecycle_manager-34] [INFO] [1789724832.161428907] [lifecycle_manager_semantic_map]: Waiting for service content_server/get_state...
+[ros2_control_node-2] [INFO] [1789724832.656610596] [controller_manager]: Configuring controller 'diff_drive_controller'
+[async_slam_toolbox_node-10] [INFO] [1789724833.202702542] [slam_toolbox]: Message Filter dropping message: frame 'base_footprint' at time 1789724832.754 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[spawner-4] [INFO] [1789724833.467486688] [spawner_joint_state_broadcaster]: Loaded joint_state_broadcaster
+[lifecycle_manager-37] [INFO] [1789724834.072897366] [lifecycle_manager_mission]: Waiting for service narration_server/get_state...
+[lifecycle_manager-34] [INFO] [1789724834.161893308] [lifecycle_manager_semantic_map]: Waiting for service content_server/get_state...
+[spawner-3] [INFO] [1789724835.404188247] [spawner_diff_drive_controller]: Configured and activated diff_drive_controller
+[async_slam_toolbox_node-10] [INFO] [1789724835.716818808] [slam_toolbox]: Message Filter dropping message: frame 'base_footprint' at time 1789724834.953 for reason 'discarding message because the queue is full'
+[supervisor-23] [INFO] [1789724835.727700185] [supervisor]: supervisor up: groups=['safety', 'voice', 'navigation', 'semantic_map', 'mission', 'llm'], watchdogs=['sonar_rate', 'scan_rate', 'slam_alive', 'tf_map', 'control_stack', 'safety_alive']
+[supervisor-23] [INFO] [1789724835.863642339] [supervisor]: state: INIT -> BRINGUP
+[supervisor-23] [INFO] [1789724835.942418774] [supervisor]: [safety] STARTUP -> /lifecycle_manager_safety
+[lifecycle_manager-20] [INFO] [1789724835.943659610] [lifecycle_manager_safety]: Starting managed nodes bringup...
+[lifecycle_manager-20] [INFO] [1789724835.944741526] [lifecycle_manager_safety]: Configuring collision_monitor
+[collision_monitor-19] [INFO] [1789724835.953639888] [collision_monitor]: Configuring
+[async_slam_toolbox_node-10] [WARN] [1789724836.037210665] [slam_toolbox]: minimum laser range setting (0.0 m) exceeds the capabilities of the used Lidar (0.1 m)
+[async_slam_toolbox_node-10] [WARN] [1789724836.037522747] [slam_toolbox]: maximum laser range setting (20.0 m) exceeds the capabilities of the used Lidar (12.0 m)
+[async_slam_toolbox_node-10] Registering sensor: [Custom Described Lidar]
+[lifecycle_manager-37] [INFO] [1789724836.073384617] [lifecycle_manager_mission]: Waiting for service narration_server/get_state...
+[collision_monitor-19] [INFO] [1789724836.334150365] [collision_monitor]: [FootprintApproach]: Creating Polygon
+[collision_monitor-19] [INFO] [1789724836.406175624] [collision_monitor]: [SonarStopFront]: Creating Polygon
+[lifecycle_manager-34] [INFO] [1789724836.536746964] [lifecycle_manager_semantic_map]: Waiting for service route_planner/get_state...
+[face_node-38] [INFO] [1789724836.661252139] [face_node]: face_node: http://0.0.0.0:8090, web_root=/home/fabian/ros2_ws/install/guide_robot_face/share/guide_robot_face/web
+[collision_monitor-19] [INFO] [1789724836.718441385] [collision_monitor]: [SonarSlow]: Creating Polygon
+[collision_monitor-19] [INFO] [1789724836.725583959] [collision_monitor]: [scan]: Creating Scan
+[collision_monitor-19] [INFO] [1789724836.766287481] [collision_monitor]: [sonar_1]: Creating Range
+[collision_monitor-19] [INFO] [1789724836.915616468] [collision_monitor]: [sonar_9]: Creating Range
+[collision_monitor-19] [INFO] [1789724836.921486933] [collision_monitor]: [sonar_2]: Creating Range
+[collision_monitor-19] [INFO] [1789724836.923108862] [collision_monitor]: [sonar_8]: Creating Range
+[collision_monitor-19] [INFO] [1789724836.932033438] [collision_monitor]: [sonar_4]: Creating Range
+[collision_monitor-19] [INFO] [1789724836.967265287] [collision_monitor]: [sonar_6]: Creating Range
+[collision_monitor-19] [INFO] [1789724837.077890796] [collision_monitor]: [sonar_5]: Creating Range
+[INFO] [spawner-3]: process has finished cleanly [pid 127]
+[ros2_control_node-2] [INFO] [1789724837.529801249] [controller_manager]: Configuring controller 'joint_state_broadcaster'
+[ros2_control_node-2] [INFO] [1789724837.530031613] [joint_state_broadcaster]: 'joints' or 'interfaces' parameter is empty. All available state interfaces will be published
+[lifecycle_manager-20] [INFO] [1789724837.623819818] [lifecycle_manager_safety]: Activating collision_monitor
+[collision_monitor-19] [INFO] [1789724837.634067493] [collision_monitor]: Activating
+[collision_monitor-19] [INFO] [1789724837.634312517] [collision_monitor]: Creating bond (collision_monitor) to lifecycle manager.
+[lifecycle_manager-20] [INFO] [1789724838.233655619] [lifecycle_manager_safety]: Server collision_monitor connected with bond.
+[lifecycle_manager-20] [INFO] [1789724838.233776515] [lifecycle_manager_safety]: Managed nodes are active
+[lifecycle_manager-20] [INFO] [1789724838.233799113] [lifecycle_manager_safety]: Creating bond timer...
+[spawner-4] [INFO] [1789724838.279412368] [spawner_joint_state_broadcaster]: Configured and activated joint_state_broadcaster
+[supervisor-23] [INFO] [1789724838.321457713] [supervisor]: [voice] STARTUP -> /lifecycle_manager_voice
+[lifecycle_manager-29] [INFO] [1789724838.323112226] [lifecycle_manager_voice]: Starting managed nodes bringup...
+[lifecycle_manager-29] [INFO] [1789724838.323260265] [lifecycle_manager_voice]: Configuring tts_node
+[tts_node-28] [INFO] [1789724838.847628248] [tts_node]: загружаю модель TTS...
+[INFO] [spawner-4]: process has finished cleanly [pid 129]
+[tts_node-28] /usr/local/lib/python3.10/dist-packages/torch/package/package_importer.py:261: UserWarning: TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class. This should only matter to you if you are using storages directly.  To access UntypedStorage directly, use tensor.untyped_storage() instead of tensor.storage()
+[tts_node-28]   dtype = storage_type.dtype
+[tts_node-28] /usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py:188: UserWarning: CUDA initialization: The NVIDIA driver on your system is too old (found version 12060). Please update your GPU driver by downloading and installing a new version from the URL: http://www.nvidia.com/Download/index.aspx Alternatively, go to: https://pytorch.org to install a PyTorch version that has been compiled with your version of the CUDA driver. (Triggered internally at /__w/pytorch/pytorch/c10/cuda/CUDAFunctions.cpp:119.)
+[tts_node-28]   return torch._C._cuda_getDeviceCount() > 0
+[tts_node-28] [INFO] [1789724848.264135423] [tts_node]: открываю устройство вывода: pulse
+[tts_node-28] [INFO] [1789724848.622437106] [tts_node]: keep-alive в паузах: 20 Гц на -60 dBFS (пик 33 LSB)
+[tts_node-28] [INFO] [1789724848.764438285] [tts_node]: tts_node сконфигурирован: бэкенд=silero, модель 48000 Гц, устройство 48000 Гц, блок 20 мс, темп 110%, пауза между предложениями 150 мс
+[lifecycle_manager-29] [INFO] [1789724848.770308910] [lifecycle_manager_voice]: Configuring audio_frontend
+[audio_frontend-24] [INFO] [1789724848.813691180] [audio_frontend]: открываю устройство захвата: USB PnP Audio Device
+[audio_frontend-24] [INFO] [1789724849.889050491] [audio_frontend]: ресемплинг 48000 -> 16000 Гц (scipy polyphase)
+[audio_frontend-24] [INFO] [1789724849.966717770] [audio_frontend]: audio_frontend сконфигурирован: запрошено 48000 Гц (фактическая частота проверяется на activate), выход 16000 Гц, кадр 16 мс (256 сэмплов)
+[lifecycle_manager-29] [INFO] [1789724849.968724919] [lifecycle_manager_voice]: Configuring vad_node
+[vad_node-25] [INFO] [1789724850.001928364] [vad_node]: загружаю модель VAD...
+[vad_node-25] 2026-09-18 09:47:30.070541401 [W:onnxruntime:Default, device_discovery.cc:211 DiscoverDevicesForPlatform] GPU device discovery failed: device_discovery.cc:91 ReadFileContents Failed to open file: "/sys/class/drm/card1/device/vendor"
+[vad_node-25] [INFO] [1789724850.330179971] [vad_node]: vad_node сконфигурирован
+[lifecycle_manager-29] [INFO] [1789724850.334104935] [lifecycle_manager_voice]: Configuring wakeword_node
+[wakeword_node-26] [INFO] [1789724850.520213725] [wakeword_node]: wakeword_node сконфигурирован: backend=asr_kws, активация=['фирая', 'фирайя', 'фира я', 'фи рая', 'эй фирая', 'слушай фирая'], стоп=['стоп', 'стой', 'хватит', 'замолчи']
+[lifecycle_manager-29] [INFO] [1789724850.526396432] [lifecycle_manager_voice]: Configuring asr_node
+[asr_node-27] [INFO] [1789724850.562400579] [asr_node]: загружаю модель ASR (GigaAM v3 CTC)...
+[asr_node-27] /project/sherpa-onnx/csrc/session.cc:GetSessionOptionsImpl:321 Please compile with -DSHERPA_ONNX_ENABLE_GPU=ON. Available providers: CPUExecutionProvider, . Fallback to cpu!
+[asr_node-27] [INFO] [1789724852.553774437] [asr_node]: модель ASR загружена за 2.0 с
+[asr_node-27] [INFO] [1789724852.554764840] [asr_node]: turn_policy TurnPolicyConfig(base_silence_ms=600.0, short_silence_ms=350.0, max_utterance_s=20.0, min_words_for_short=2, short_path_max_ms=0.0)
+[asr_node-27] [INFO] [1789724852.659571160] [asr_node]: asr_node сконфигурирован
+[lifecycle_manager-29] [INFO] [1789724852.662122740] [lifecycle_manager_voice]: Activating tts_node
+[tts_node-28] [INFO] [1789724855.073037890] [tts_node]: разогрев занял 2392 мс
+[lifecycle_manager-29] [INFO] [1789724855.077425531] [lifecycle_manager_voice]: Activating audio_frontend
+[audio_frontend-24] [INFO] [1789724857.172092785] [audio_frontend]: фактическая частота захвата подтверждена: 48363 Гц (заявлено 48000 Гц, окно 2.0с)
+[lifecycle_manager-29] [INFO] [1789724857.175282222] [lifecycle_manager_voice]: Activating vad_node
+[lifecycle_manager-29] [INFO] [1789724857.180510947] [lifecycle_manager_voice]: Activating wakeword_node
+[lifecycle_manager-29] [INFO] [1789724857.183637868] [lifecycle_manager_voice]: Activating asr_node
+[lifecycle_manager-29] [INFO] [1789724857.187714801] [lifecycle_manager_voice]: Managed nodes are active
+[supervisor-23] [INFO] [1789724857.233782717] [supervisor]: [navigation] STARTUP -> /lifecycle_manager_navigation
+[lifecycle_manager-18] [INFO] [1789724857.235954501] [lifecycle_manager_navigation]: Starting managed nodes bringup...
+[lifecycle_manager-18] [INFO] [1789724857.236160106] [lifecycle_manager_navigation]: Configuring controller_server
+[controller_server-11] [INFO] [1789724857.238589545] [controller_server]: Configuring controller interface
+[controller_server-11] [INFO] [1789724857.239405829] [controller_server]: getting goal checker plugins..
+[controller_server-11] [INFO] [1789724857.241454921] [controller_server]: Controller frequency set to 15.0000Hz
+[controller_server-11] [INFO] [1789724857.241930987] [local_costmap.local_costmap]: Configuring
+[controller_server-11] [INFO] [1789724857.293903892] [local_costmap.local_costmap]: Using plugin "obstacle_layer"
+[controller_server-11] [INFO] [1789724857.320127397] [local_costmap.local_costmap]: Subscribed to Topics: scan
+[controller_server-11] [INFO] [1789724857.356140438] [local_costmap.local_costmap]: Initialized plugin "obstacle_layer"
+[controller_server-11] [INFO] [1789724857.356244979] [local_costmap.local_costmap]: Using plugin "inflation_layer"
+[controller_server-11] [INFO] [1789724857.366445662] [local_costmap.local_costmap]: Initialized plugin "inflation_layer"
+[controller_server-11] [INFO] [1789724857.366561556] [local_costmap.local_costmap]: Using costmap filter "keepout_filter"
+[controller_server-11] [INFO] [1789724857.391044313] [local_costmap.local_costmap]: Initialized costmap filter "keepout_filter"
+[controller_server-11] [INFO] [1789724857.480727937] [controller_server]: Created progress_checker : progress_checker of type nav2_controller::SimpleProgressChecker
+[controller_server-11] [INFO] [1789724857.488693086] [controller_server]: Created goal checker : general_goal_checker of type nav2_controller::SimpleGoalChecker
+[controller_server-11] [INFO] [1789724857.489385508] [controller_server]: Controller Server has general_goal_checker  goal checkers available.
+[controller_server-11] [INFO] [1789724857.515655118] [controller_server]: Created controller : FollowPath of type dwb_core::DWBLocalPlanner
+[controller_server-11] [INFO] [1789724857.529808112] [controller_server]: Setting transform_tolerance to 0.200000
+[controller_server-11] [INFO] [1789724857.656086239] [controller_server]: Using critic "RotateToGoal" (dwb_critics::RotateToGoalCritic)
+[controller_server-11] [INFO] [1789724857.662022502] [controller_server]: Critic plugin initialized
+[controller_server-11] [INFO] [1789724857.663014130] [controller_server]: Using critic "Oscillation" (dwb_critics::OscillationCritic)
+[controller_server-11] [INFO] [1789724857.667726061] [controller_server]: Critic plugin initialized
+[controller_server-11] [INFO] [1789724857.669567176] [controller_server]: Using critic "BaseObstacle" (dwb_critics::BaseObstacleCritic)
+[controller_server-11] [INFO] [1789724857.671644348] [controller_server]: Critic plugin initialized
+[controller_server-11] [INFO] [1789724857.672476285] [controller_server]: Using critic "PreferForward" (dwb_critics::PreferForwardCritic)
+[controller_server-11] [INFO] [1789724857.683031638] [controller_server]: Critic plugin initialized
+[controller_server-11] [INFO] [1789724857.684556346] [controller_server]: Using critic "GoalAlign" (dwb_critics::GoalAlignCritic)
+[controller_server-11] [INFO] [1789724857.688113765] [controller_server]: Critic plugin initialized
+[controller_server-11] [INFO] [1789724857.689509424] [controller_server]: Using critic "PathAlign" (dwb_critics::PathAlignCritic)
+[controller_server-11] [INFO] [1789724857.695372736] [controller_server]: Critic plugin initialized
+[controller_server-11] [INFO] [1789724857.697917815] [controller_server]: Using critic "PathDist" (dwb_critics::PathDistCritic)
+[controller_server-11] [INFO] [1789724857.700706541] [controller_server]: Critic plugin initialized
+[controller_server-11] [INFO] [1789724857.702462024] [controller_server]: Using critic "GoalDist" (dwb_critics::GoalDistCritic)
+[controller_server-11] [INFO] [1789724857.704656639] [controller_server]: Critic plugin initialized
+[controller_server-11] [INFO] [1789724857.704758904] [controller_server]: Controller Server has FollowPath  controllers available.
+[lifecycle_manager-18] [INFO] [1789724857.802543746] [lifecycle_manager_navigation]: Configuring smoother_server
+[smoother_server-12] [INFO] [1789724857.803235061] [smoother_server]: Configuring smoother server
+[smoother_server-12] [INFO] [1789724857.872506127] [smoother_server]: Created smoother : simple_smoother of type nav2_smoother::SimpleSmoother
+[smoother_server-12] [INFO] [1789724857.885487534] [smoother_server]: Smoother Server has simple_smoother  smoothers available.
+[lifecycle_manager-18] [INFO] [1789724857.952963557] [lifecycle_manager_navigation]: Configuring planner_server
+[planner_server-13] [INFO] [1789724857.953928686] [planner_server]: Configuring
+[planner_server-13] [INFO] [1789724857.954054857] [global_costmap.global_costmap]: Configuring
+[planner_server-13] [INFO] [1789724858.008682726] [global_costmap.global_costmap]: Using plugin "static_layer"
+[planner_server-13] [INFO] [1789724858.021851221] [global_costmap.global_costmap]: Subscribing to the map topic (/map) with transient local durability
+[planner_server-13] [INFO] [1789724858.033390762] [global_costmap.global_costmap]: Initialized plugin "static_layer"
+[planner_server-13] [INFO] [1789724858.035362195] [global_costmap.global_costmap]: Using plugin "obstacle_layer"
+[planner_server-13] [INFO] [1789724858.041277444] [global_costmap.global_costmap]: Subscribed to Topics: scan
+[planner_server-13] [INFO] [1789724858.075950092] [global_costmap.global_costmap]: Initialized plugin "obstacle_layer"
+[planner_server-13] [INFO] [1789724858.076049083] [global_costmap.global_costmap]: Using plugin "inflation_layer"
+[planner_server-13] [INFO] [1789724858.088799510] [global_costmap.global_costmap]: Initialized plugin "inflation_layer"
+[planner_server-13] [INFO] [1789724858.089764025] [global_costmap.global_costmap]: Using costmap filter "keepout_filter"
+[planner_server-13] [INFO] [1789724858.112042976] [global_costmap.global_costmap]: Initialized costmap filter "keepout_filter"
+[planner_server-13] [INFO] [1789724858.192754657] [planner_server]: Created global planner plugin GridBased of type nav2_navfn_planner/NavfnPlanner
+[planner_server-13] [INFO] [1789724858.192867867] [planner_server]: Configuring plugin GridBased of type NavfnPlanner
+[planner_server-13] [INFO] [1789724858.195024932] [planner_server]: Planner Server has GridBased  planners available.
+[planner_server-13] [INFO] [1789724858.238316689] [global_costmap.global_costmap]: StaticLayer: Resizing costmap to 267 X 314 at 0.050000 m/pix
+[lifecycle_manager-18] [INFO] [1789724858.297031193] [lifecycle_manager_navigation]: Configuring behavior_server
+[behavior_server-14] [INFO] [1789724858.297970818] [behavior_server]: Configuring
+[behavior_server-14] [INFO] [1789724858.394795176] [behavior_server]: Creating behavior plugin spin of type nav2_behaviors/Spin
+[behavior_server-14] [INFO] [1789724858.398864964] [behavior_server]: Configuring spin
+[behavior_server-14] [INFO] [1789724858.486509895] [behavior_server]: Creating behavior plugin backup of type nav2_behaviors/BackUp
+[behavior_server-14] [INFO] [1789724858.490224220] [behavior_server]: Configuring backup
+[behavior_server-14] [INFO] [1789724858.536832564] [behavior_server]: Creating behavior plugin wait of type nav2_behaviors/Wait
+[behavior_server-14] [INFO] [1789724858.541743048] [behavior_server]: Configuring wait
+[lifecycle_manager-18] [INFO] [1789724858.612131014] [lifecycle_manager_navigation]: Configuring bt_navigator
+[bt_navigator-15] [INFO] [1789724858.613213425] [bt_navigator]: Configuring
+[lifecycle_manager-18] [INFO] [1789724859.284841787] [lifecycle_manager_navigation]: Configuring waypoint_follower
+[waypoint_follower-16] [INFO] [1789724859.290092128] [waypoint_follower]: Configuring
+[waypoint_follower-16] [INFO] [1789724859.439360236] [waypoint_follower]: Created waypoint_task_executor : wait_at_waypoint of type nav2_waypoint_follower::WaitAtWaypoint
+[lifecycle_manager-18] [INFO] [1789724859.452248684] [lifecycle_manager_navigation]: Configuring velocity_smoother
+[velocity_smoother-17] [INFO] [1789724859.454135010] [velocity_smoother]: Configuring velocity smoother
+[lifecycle_manager-18] [INFO] [1789724859.494599456] [lifecycle_manager_navigation]: Activating controller_server
+[controller_server-11] [INFO] [1789724859.495099502] [controller_server]: Activating
+[controller_server-11] [INFO] [1789724859.495248175] [local_costmap.local_costmap]: Activating
+[controller_server-11] [INFO] [1789724859.495432771] [local_costmap.local_costmap]: Checking transform
+[controller_server-11] [INFO] [1789724859.495836048] [local_costmap.local_costmap]: start
+[controller_server-11] [INFO] [1789724859.499560378] [local_costmap.local_costmap]: KeepoutFilter: Subscribing to "/costmap_filter_info" topic for filter info...
+[controller_server-11] [WARN] [1789724859.597092061] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724859.603019245] [controller_server]: Creating bond (controller_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789724859.721898624] [lifecycle_manager_navigation]: Server controller_server connected with bond.
+[lifecycle_manager-18] [INFO] [1789724859.722028272] [lifecycle_manager_navigation]: Activating smoother_server
+[smoother_server-12] [INFO] [1789724859.723014984] [smoother_server]: Activating
+[smoother_server-12] [INFO] [1789724859.723106521] [smoother_server]: Creating bond (smoother_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789724859.843387145] [lifecycle_manager_navigation]: Server smoother_server connected with bond.
+[lifecycle_manager-18] [INFO] [1789724859.843507345] [lifecycle_manager_navigation]: Activating planner_server
+[planner_server-13] [INFO] [1789724859.844769652] [planner_server]: Activating
+[planner_server-13] [INFO] [1789724859.845695170] [global_costmap.global_costmap]: Activating
+[planner_server-13] [INFO] [1789724859.845742317] [global_costmap.global_costmap]: Checking transform
+[planner_server-13] [INFO] [1789724859.845994037] [global_costmap.global_costmap]: start
+[planner_server-13] [INFO] [1789724859.854499829] [global_costmap.global_costmap]: KeepoutFilter: Subscribing to "/costmap_filter_info" topic for filter info...
+[planner_server-13] [WARN] [1789724860.854053717] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789724860.867649996] [planner_server]: Activating plugin GridBased of type NavfnPlanner
+[planner_server-13] [INFO] [1789724860.880071654] [planner_server]: Creating bond (planner_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789724861.009150742] [lifecycle_manager_navigation]: Server planner_server connected with bond.
+[lifecycle_manager-18] [INFO] [1789724861.009261561] [lifecycle_manager_navigation]: Activating behavior_server
+[behavior_server-14] [INFO] [1789724861.010318859] [behavior_server]: Activating
+[behavior_server-14] [INFO] [1789724861.010384722] [behavior_server]: Activating spin
+[behavior_server-14] [INFO] [1789724861.010414651] [behavior_server]: Activating backup
+[behavior_server-14] [INFO] [1789724861.010434540] [behavior_server]: Activating wait
+[behavior_server-14] [INFO] [1789724861.010458686] [behavior_server]: Creating bond (behavior_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789724861.139419575] [lifecycle_manager_navigation]: Server behavior_server connected with bond.
+[lifecycle_manager-18] [INFO] [1789724861.139544596] [lifecycle_manager_navigation]: Activating bt_navigator
+[bt_navigator-15] [INFO] [1789724861.141462335] [bt_navigator]: Activating
+[controller_server-11] [WARN] [1789724861.600952019] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [INFO] [1789724862.121903723] [bt_navigator]: Creating bond (bt_navigator) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789724862.255075040] [lifecycle_manager_navigation]: Server bt_navigator connected with bond.
+[lifecycle_manager-18] [INFO] [1789724862.255194219] [lifecycle_manager_navigation]: Activating waypoint_follower
+[waypoint_follower-16] [INFO] [1789724862.258131993] [waypoint_follower]: Activating
+[waypoint_follower-16] [INFO] [1789724862.258237054] [waypoint_follower]: Creating bond (waypoint_follower) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789724862.386212288] [lifecycle_manager_navigation]: Server waypoint_follower connected with bond.
+[lifecycle_manager-18] [INFO] [1789724862.386340276] [lifecycle_manager_navigation]: Activating velocity_smoother
+[velocity_smoother-17] [INFO] [1789724862.387432163] [velocity_smoother]: Activating
+[velocity_smoother-17] [INFO] [1789724862.387596433] [velocity_smoother]: Creating bond (velocity_smoother) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789724862.507652797] [lifecycle_manager_navigation]: Server velocity_smoother connected with bond.
+[lifecycle_manager-18] [INFO] [1789724862.507779895] [lifecycle_manager_navigation]: Managed nodes are active
+[lifecycle_manager-18] [INFO] [1789724862.507813633] [lifecycle_manager_navigation]: Creating bond timer...
+[supervisor-23] [INFO] [1789724862.514557971] [supervisor]: [semantic_map] STARTUP -> /lifecycle_manager_semantic_map
+[lifecycle_manager-34] [INFO] [1789724862.518407399] [lifecycle_manager_semantic_map]: Starting managed nodes bringup...
+[lifecycle_manager-34] [INFO] [1789724862.518551000] [lifecycle_manager_semantic_map]: Configuring route_server
+[route_server-30] [INFO] [1789724862.520914625] [route_server]: Configuring
+[route_server-30] [INFO] [1789724862.755610560] [route_server]: Created GraphFileLoader GeoJsonGraphFileLoader of type nav2_route::GeoJsonGraphFileLoader
+[route_server-30] [INFO] [1789724862.755720232] [route_server]: Configuring geojson graph file loader
+[route_server-30] [INFO] [1789724862.755743762] [route_server]: Loading graph file from /home/fabian/ros2_ws/install/guide_robot_semantic_map/share/guide_robot_semantic_map/config/graph_innopark.geojson, by parser nav2_route::GeoJsonGraphFileLoader
+[route_server-30] [INFO] [1789724862.797295097] [route_server]: Created edge cost function plugin DistanceScorer of type nav2_route::DistanceScorer
+[route_server-30] [INFO] [1789724862.799322138] [route_server]: Configuring distance scorer.
+[route_server-30] [INFO] [1789724862.805114088] [route_server]: Created edge cost function plugin DynamicEdgesScorer of type nav2_route::DynamicEdgesScorer
+[route_server-30] [INFO] [1789724862.805224587] [route_server]: Configuring adjust edges scorer.
+[route_server-30] [INFO] [1789724862.832200192] [route_server]: Created route operation AdjustSpeedLimit of type nav2_route::AdjustSpeedLimit
+[route_server-30] [INFO] [1789724862.832315556] [route_server]: Configuring Adjust speed limit operation.
+[route_server-30] [INFO] [1789724862.838305513] [route_server]: Created route operation ReroutingService of type nav2_route::ReroutingService
+[route_server-30] [INFO] [1789724862.838417888] [route_server]: Configuring Rerouting service operation.
+[lifecycle_manager-34] [INFO] [1789724862.862156021] [lifecycle_manager_semantic_map]: Configuring content_server
+[content_server-31] [WARN] [1789724863.274531788] [content_server]: content location_ids не найдены в locations.yaml: exhibit_id=expo_city_model language=ru неизвестные location_ids=['expo_city_model']
+[content_server-31] [WARN] [1789724863.275719301] [content_server]: content location_ids не найдены в locations.yaml: exhibit_id=expo_handoff language=ru неизвестные location_ids=['expo_handoff']
+[content_server-31] [WARN] [1789724863.276787674] [content_server]: content location_ids не найдены в locations.yaml: exhibit_id=expo_meeting language=ru неизвестные location_ids=['expo_meeting']
+[content_server-31] [INFO] [1789724863.278053881] [content_server]: content_server сконфигурирован: 13 записей контента из /home/fabian/ros2_ws/install/guide_robot_semantic_map/share/guide_robot_semantic_map/content
+[lifecycle_manager-34] [INFO] [1789724863.280546486] [lifecycle_manager_semantic_map]: Configuring location_server
+[location_server-32] [INFO] [1789724863.453210099] [location_server]: location_server сконфигурирован: 5 локаций, 1 туров из /home/fabian/ros2_ws/install/guide_robot_semantic_map/share/guide_robot_semantic_map/config/locations_innopark.yaml, /home/fabian/ros2_ws/install/guide_robot_semantic_map/share/guide_robot_semantic_map/config/tours_innopark.yaml
+[lifecycle_manager-34] [INFO] [1789724863.458729432] [lifecycle_manager_semantic_map]: Configuring route_planner
+[route_planner-33] [INFO] [1789724863.690078113] [route_planner]: route_planner сконфигурирован: 5 локаций из /home/fabian/ros2_ws/install/guide_robot_semantic_map/share/guide_robot_semantic_map/config/locations_innopark.yaml
+[lifecycle_manager-34] [INFO] [1789724863.694363188] [lifecycle_manager_semantic_map]: Activating route_server
+[route_server-30] [INFO] [1789724863.694913254] [route_server]: Activating
+[route_server-30] [INFO] [1789724863.695369796] [route_server]: Creating bond (route_server) to lifecycle manager.
+[controller_server-11] [WARN] [1789724863.697017828] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[lifecycle_manager-34] [INFO] [1789724863.722473803] [lifecycle_manager_semantic_map]: Activating content_server
+[lifecycle_manager-34] [INFO] [1789724863.732109526] [lifecycle_manager_semantic_map]: Activating location_server
+[lifecycle_manager-34] [INFO] [1789724863.746276686] [lifecycle_manager_semantic_map]: Activating route_planner
+[route_planner-33] [INFO] [1789724863.754853614] [route_planner]: route_planner: прогрев матрицы -- 5 локаций, 20 направленных пар...
+[route_server-30] [INFO] [1789724863.760068385] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724863.760274970] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724863.831978094] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724863.832113303] [route_server]: Route found with 2 nodes and 1 edges
+[planner_server-13] [WARN] [1789724863.850234532] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[route_server-30] [INFO] [1789724863.870535688] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724863.870670038] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724863.947021415] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724863.947143960] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.009714516] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.009851021] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.067812641] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.067952841] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.099884745] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.105497142] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.139055746] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.139365344] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.196822463] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.197167023] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.248036846] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.248172523] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.275364973] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.289467147] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.370439916] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.370601863] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.404704611] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.404846466] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.454349131] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.454482517] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.484440805] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.484563332] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.545896994] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.546047224] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.628501621] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.628688724] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.680195828] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.685378170] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.747453522] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.748750214] [route_server]: Route found with 2 nodes and 1 edges
+[route_server-30] [INFO] [1789724864.786269042] [route_server]: Computing route to goal.
+[route_server-30] [INFO] [1789724864.788453259] [route_server]: Route found with 2 nodes and 1 edges
+[route_planner-33] [INFO] [1789724864.876086496] [route_planner]: route_planner: матрица прогрета за 1114 мс, 20/20 пар маршрутизируемы
+[lifecycle_manager-34] [INFO] [1789724864.885678795] [lifecycle_manager_semantic_map]: Managed nodes are active
+[supervisor-23] [INFO] [1789724864.911873355] [supervisor]: [mission] STARTUP -> /lifecycle_manager_mission
+[lifecycle_manager-37] [INFO] [1789724864.913361480] [lifecycle_manager_mission]: Starting managed nodes bringup...
+[lifecycle_manager-37] [INFO] [1789724864.913491203] [lifecycle_manager_mission]: Configuring presence_monitor
+[presence_monitor-35] [INFO] [1789724865.187138227] [presence_monitor]: presence_monitor сконфигурирован: sources=['asr_final', 'vad', 'wakeword'], disengage_timeout_s=120.0
+[lifecycle_manager-37] [INFO] [1789724865.192135491] [lifecycle_manager_mission]: Configuring narration_server
+[mission_container-36] [INFO] [1789724865.581053501] [narration_server]: narration_server сконфигурирован: lookahead=1, resume_policy=repeat_chunk
+[lifecycle_manager-37] [INFO] [1789724865.589283904] [lifecycle_manager_mission]: Configuring mission_fsm
+[controller_server-11] [WARN] [1789724865.796818861] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724865.850737342] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[mission_container-36] [INFO] [1789724866.626285789] [mission_fsm]: mission_fsm сконфигурирован
+[lifecycle_manager-37] [INFO] [1789724866.632733515] [lifecycle_manager_mission]: Activating presence_monitor
+[lifecycle_manager-37] [INFO] [1789724866.643433253] [lifecycle_manager_mission]: Activating narration_server
+[lifecycle_manager-37] [INFO] [1789724866.655106009] [lifecycle_manager_mission]: Activating mission_fsm
+[lifecycle_manager-37] [INFO] [1789724866.667280703] [lifecycle_manager_mission]: Managed nodes are active
+[supervisor-23] [INFO] [1789724866.690960649] [supervisor]: [llm] STARTUP -> /lifecycle_manager_llm
+[lifecycle_manager-43] [INFO] [1789724866.693718450] [lifecycle_manager_llm]: Starting managed nodes bringup...
+[lifecycle_manager-43] [INFO] [1789724866.693860868] [lifecycle_manager_llm]: Configuring tool_broker
+[controller_server-11] [WARN] [1789724867.801283704] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724867.858451998] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[tool_broker-40] [INFO] [1789724868.162383887] [tool_broker]: tool_broker сконфигурирован
+[lifecycle_manager-43] [INFO] [1789724868.179264229] [lifecycle_manager_llm]: Configuring dialog_agent
+[dialog_agent-41] [INFO] [1789724868.849221403] [dialog_agent]: dialog_agent сконфигурирован
+[lifecycle_manager-43] [INFO] [1789724868.859186838] [lifecycle_manager_llm]: Configuring interaction_log
+[interaction_log-42] [INFO] [1789724869.027738304] [interaction_log]: interaction_log сконфигурирован: log_dir=/home/fabian/.guide_robot/llm_turns/interaction_20260918_094748.jsonl
+[lifecycle_manager-43] [INFO] [1789724869.036567962] [lifecycle_manager_llm]: Activating tool_broker
+[lifecycle_manager-43] [INFO] [1789724869.068718818] [lifecycle_manager_llm]: Activating dialog_agent
+[asr_node-27] [INFO] [1789724869.153925166] [asr_node]: final 'вално сейчас' 1520ms
+[lifecycle_manager-43] [INFO] [1789724869.235684580] [lifecycle_manager_llm]: Activating interaction_log
+[lifecycle_manager-43] [INFO] [1789724869.259878736] [lifecycle_manager_llm]: Managed nodes are active
+[supervisor-23] [INFO] [1789724869.278459069] [supervisor]: state: BRINGUP -> ACTIVE
+[controller_server-11] [WARN] [1789724869.896719622] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724870.850198280] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724871.896774792] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[vad_node-25] [WARN] [1789724872.236426747] [vad_node]: разрыв в /audio/mic: ожидался first_sample=262656, пришёл 267008 (пропуск 4352 сэмплов) -- сбрасываю состояние
+[planner_server-13] [WARN] [1789724872.851126236] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724873.996789258] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724875.850191398] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724875.996885917] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724877.851586801] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724878.101839605] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724879.852232353] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724880.198348975] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724882.198541799] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724882.861748935] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724884.296776233] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724885.852020985] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724886.297212416] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724888.298450370] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724888.852177525] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[dual_laser_merger_node-8] [WARN] [1789724890.067968929] [dual_laser_merger]: New subscription discovered on topic '/scan', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY_QOS_POLICY
+[sonar_node_mult.py-9] [WARN] [1789724890.198200322] [sonar_node]: New subscription discovered on topic 'sonar/range/sonar_sensor_8', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY
+[sonar_node_mult.py-9] [WARN] [1789724890.298041891] [sonar_node]: New subscription discovered on topic 'sonar/range/sonar_sensor_1', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY
+[sonar_node_mult.py-9] [WARN] [1789724890.312289633] [sonar_node]: New subscription discovered on topic 'sonar/range/sonar_sensor_2', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY
+[sonar_node_mult.py-9] [WARN] [1789724890.363193138] [sonar_node]: New subscription discovered on topic 'sonar/range/sonar_sensor_4', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY
+[sonar_node_mult.py-9] [WARN] [1789724890.375530602] [sonar_node]: New subscription discovered on topic 'sonar/range/sonar_sensor_5', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY
+[sonar_node_mult.py-9] [WARN] [1789724890.395291192] [sonar_node]: New subscription discovered on topic 'sonar/range/sonar_sensor_6', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY
+[sonar_node_mult.py-9] [WARN] [1789724890.411965074] [sonar_node]: New subscription discovered on topic 'sonar/range/sonar_sensor_9', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY
+[controller_server-11] [WARN] [1789724890.397215773] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724890.854511930] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724892.497036322] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724893.850369254] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724894.497479200] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724895.851485474] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724896.497691533] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724898.596758503] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724898.854084777] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724900.598034698] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724901.851532263] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724902.696795737] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724904.796754606] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724904.854296617] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724906.896757529] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724907.852146820] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724908.996738696] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724910.850247089] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724910.997133691] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724912.850713672] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724913.096866230] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724914.851053525] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724915.097249245] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724916.851469479] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724917.196784589] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724919.296773064] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724919.850176888] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724921.396996840] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724921.850928189] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724923.498785063] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724924.852125074] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724925.599663116] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724927.697536770] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724927.850674439] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724929.796776499] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724930.850220798] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724931.796778183] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724932.850711199] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724933.796783220] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724935.798177776] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724935.851019649] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724937.897290019] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [INFO] [1789724937.910785455] [bt_navigator]: Begin navigating from current location (0.00, 0.00) to (-2.94, 0.19)
+[controller_server-11] [INFO] [1789724937.948172272] [controller_server]: Received a goal, begin computing control effort.
+[controller_server-11] [WARN] [1789724937.953411811] [controller_server]: No goal checker was specified in parameter 'current_goal_checker'. Server will use only plugin loaded general_goal_checker . This warning will appear once.
+[collision_monitor-19] [INFO] [1789724938.047545360] [collision_monitor]: Robot to slowdown for 40.000000 percents due to SonarSlow polygon
+[bt_navigator-15] [WARN] [1789724938.142912162] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724938.715402534] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[planner_server-13] [WARN] [1789724938.850240848] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724939.025336606] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724939.332817910] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724939.475170399] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724939.582289398] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724939.933672512] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724940.023779065] [controller_server]: Passing new path to controller.
+[planner_server-13] [WARN] [1789724940.862759476] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724941.090255977] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724941.325071821] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724941.996873653] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724942.090242315] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789724943.024031896] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[controller_server-11] [WARN] [1789724943.092224878] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[controller_server-11] [INFO] [1789724943.156917888] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724943.253587228] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[planner_server-13] [WARN] [1789724943.850779042] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724943.962906698] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724943.997024148] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724944.156915018] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724944.295787022] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724944.366137555] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[controller_server-11] [INFO] [1789724945.223580547] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789724945.997073178] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724946.224735159] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724946.654799695] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724946.846179756] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[planner_server-13] [WARN] [1789724946.854270389] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724947.223789617] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789724948.139417592] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724948.291718957] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789724948.632419213] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[controller_server-11] [INFO] [1789724949.290245649] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789724949.439763383] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[controller_server-11] [WARN] [1789724949.510162152] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[controller_server-11] [WARN] [1789724949.599333860] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[controller_server-11] [WARN] [1789724949.644810068] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[planner_server-13] [WARN] [1789724949.851157901] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724949.921846357] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724949.943806232] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724950.196707539] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724950.365132658] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724950.927644147] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724951.224245800] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724951.230743147] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724951.274235970] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724951.351603148] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724951.424085548] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724951.732078836] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724952.196765565] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724952.286005311] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724952.423693418] [controller_server]: Passing new path to controller.
+[planner_server-13] [WARN] [1789724952.854740229] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724953.490251352] [controller_server]: Passing new path to controller.
+[collision_monitor-19] [INFO] [1789724954.082301110] [collision_monitor]: Robot to continue normal operation
+[controller_server-11] [WARN] [1789724954.197108241] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724954.443525558] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724954.490238485] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724954.693652098] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724954.711921343] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724955.556928996] [controller_server]: Passing new path to controller.
+[planner_server-13] [WARN] [1789724955.852713910] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724956.198344542] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724956.385342791] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724956.433371064] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724956.513031709] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724956.628025939] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789724957.629603286] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724958.212845078] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724958.297149087] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724958.690303910] [controller_server]: Passing new path to controller.
+[planner_server-13] [WARN] [1789724958.851972455] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724959.516032003] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724959.522547257] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724959.690245534] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724960.101642127] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724960.217850150] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724960.302886037] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724960.757008645] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789724961.756903453] [controller_server]: Passing new path to controller.
+[planner_server-13] [INFO] [1789724961.849228870] [global_costmap.global_costmap]: StaticLayer: Resizing costmap to 319 X 328 at 0.050000 m/pix
+[planner_server-13] [WARN] [1789724961.854021053] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724961.894182052] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724961.918284836] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724962.396639242] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724962.823572534] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789724963.180620050] [controller_server]: Reached the goal!
+[bt_navigator-15] [INFO] [1789724963.219202124] [bt_navigator]: Goal succeeded
+[controller_server-11] [WARN] [1789724964.396889001] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724964.852051582] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724966.496723998] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789724966.848887343] [global_costmap.global_costmap]: StaticLayer: Resizing costmap to 348 X 339 at 0.050000 m/pix
+[planner_server-13] [WARN] [1789724966.857610551] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724968.496731768] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724969.851228131] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724970.596642249] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724971.857554032] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724972.596697058] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724974.597061090] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724974.851718741] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724976.599276808] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724976.855270222] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [INFO] [1789724977.709574321] [bt_navigator]: Begin navigating from current location (-2.77, 0.13) to (-7.72, -4.54)
+[bt_navigator-15] [WARN] [1789724977.726424306] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724977.734288277] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724977.749801111] [controller_server]: Received a goal, begin computing control effort.
+[bt_navigator-15] [WARN] [1789724977.784334738] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724977.808650402] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724977.831479346] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724977.905664555] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724977.926166886] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724978.518829842] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724978.696805983] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724978.773491839] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[controller_server-11] [INFO] [1789724978.778407581] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789724978.829735346] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[bt_navigator-15] [WARN] [1789724979.167445906] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724979.820046809] [controller_server]: Passing new path to controller.
+[planner_server-13] [WARN] [1789724979.851156610] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724979.970290056] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724979.979573903] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724980.709947189] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724980.887223851] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724980.989049920] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724981.769831378] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[planner_server-13] [INFO] [1789724981.848831455] [global_costmap.global_costmap]: StaticLayer: Resizing costmap to 348 X 345 at 0.050000 m/pix
+[planner_server-13] [WARN] [1789724981.858510471] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724981.954589274] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724981.966538577] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724982.796774702] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724982.953391196] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789724984.020061890] [controller_server]: Passing new path to controller.
+[ros2_control_node-2] [WARN] [1789724984.256926134] [GuideRobotSystem]: [encoders] слот 1: разрыв счётчика драйвера на +65536 тиков (+3.142 рад на колесе) починен разворачиванием; сырая дельта +48472 за 0.221 с при конверте 33729. Это дефект прошивки FURO, не наш расчёт. Всего разрывов с активации: 1
+[bt_navigator-15] [WARN] [1789724984.438318074] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724984.800983376] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724984.853165517] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724985.020612147] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724985.867352513] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724985.882979641] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724986.086726852] [controller_server]: Passing new path to controller.
+[planner_server-13] [INFO] [1789724986.848851056] [global_costmap.global_costmap]: StaticLayer: Resizing costmap to 348 X 348 at 0.050000 m/pix
+[planner_server-13] [WARN] [1789724986.881837169] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724986.912056853] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724986.926713136] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724987.082661298] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724987.153396151] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724987.277026017] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724988.153396412] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789724988.915131428] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724989.220430664] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724989.308503477] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724989.472082110] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724989.554838379] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724989.652399630] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724989.689815108] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[bt_navigator-15] [WARN] [1789724989.703156417] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724989.753107603] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724989.785253017] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[planner_server-13] [WARN] [1789724989.851311889] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724989.986694009] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724990.286726352] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789724990.996891140] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724991.287099068] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724991.577457222] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[planner_server-13] [INFO] [1789724991.850633178] [global_costmap.global_costmap]: StaticLayer: Resizing costmap to 433 X 348 at 0.050000 m/pix
+[planner_server-13] [WARN] [1789724991.859030600] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724991.923099367] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724992.027457411] [controller_server]: Control loop missed its desired rate of 15.0000Hz
+[controller_server-11] [INFO] [1789724992.353382356] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789724993.097425812] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724993.353384079] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789724994.420060794] [controller_server]: Passing new path to controller.
+[planner_server-13] [WARN] [1789724994.850937319] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789724994.854760085] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [WARN] [1789724995.111523223] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724995.486822576] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789724996.108463421] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789724996.208518149] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789724996.487445666] [controller_server]: Passing new path to controller.
+[planner_server-13] [INFO] [1789724996.848839186] [global_costmap.global_costmap]: StaticLayer: Resizing costmap to 488 X 348 at 0.050000 m/pix
+[planner_server-13] [WARN] [1789724996.857260373] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789724997.196745427] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789724997.553388562] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789724998.553396718] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789724999.104619099] [controller_server]: Reached the goal!
+[bt_navigator-15] [INFO] [1789724999.139045234] [bt_navigator]: Goal succeeded
+[controller_server-11] [WARN] [1789724999.196784285] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789724999.850618434] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789725001.196960990] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [INFO] [1789725001.559359037] [bt_navigator]: Begin navigating from current location (-7.61, -4.45) to (-11.67, -5.78)
+[controller_server-11] [INFO] [1789725001.580892120] [controller_server]: Received a goal, begin computing control effort.
+[planner_server-13] [WARN] [1789725001.855467948] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725002.648234594] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789725003.296800843] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725003.714832627] [controller_server]: Passing new path to controller.
+[planner_server-13] [WARN] [1789725003.860399445] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725004.714836946] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789725005.296814883] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725005.714842420] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789725006.781499322] [controller_server]: Passing new path to controller.
+[planner_server-13] [INFO] [1789725006.848843258] [global_costmap.global_costmap]: StaticLayer: Resizing costmap to 488 X 348 at 0.050000 m/pix
+[planner_server-13] [WARN] [1789725006.857085372] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789725007.397306148] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725007.781491810] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789725008.848315486] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789725009.398004089] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725009.848183739] [controller_server]: Passing new path to controller.
+[planner_server-13] [WARN] [1789725009.853210276] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725010.914838766] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789725011.496950672] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789725011.848872572] [global_costmap.global_costmap]: StaticLayer: Resizing costmap to 550 X 414 at 0.050000 m/pix
+[planner_server-13] [WARN] [1789725011.867779698] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725011.914829700] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789725012.870589802] [controller_server]: Reached the goal!
+[bt_navigator-15] [WARN] [1789725012.914310776] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [INFO] [1789725012.914536795] [bt_navigator]: Goal succeeded
+[controller_server-11] [WARN] [1789725013.596977855] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725014.850541721] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789725015.696890857] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725016.858525924] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [INFO] [1789725016.950022675] [bt_navigator]: Begin navigating from current location (-11.52, -5.69) to (-2.07, 0.59)
+[controller_server-11] [INFO] [1789725016.984505640] [controller_server]: Received a goal, begin computing control effort.
+[controller_server-11] [WARN] [1789725017.697043407] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725018.053424673] [controller_server]: Passing new path to controller.
+[collision_monitor-19] [INFO] [1789725018.260018719] [collision_monitor]: Robot to slowdown for 40.000000 percents due to SonarSlow polygon
+[controller_server-11] [INFO] [1789725019.054411824] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789725019.716235998] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725019.850505499] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725020.120148001] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789725021.120094999] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789725021.800756981] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725021.862303778] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725022.187166252] [controller_server]: Passing new path to controller.
+[controller_server-11] [INFO] [1789725023.187069190] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789725023.811949396] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725024.253418266] [controller_server]: Passing new path to controller.
+[bt_navigator-15] [WARN] [1789725024.411893818] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[planner_server-13] [WARN] [1789725024.850624367] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725025.320084573] [controller_server]: Passing new path to controller.
+[controller_server-11] [WARN] [1789725025.896965339] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725026.320374315] [controller_server]: Passing new path to controller.
+[collision_monitor-19] [INFO] [1789725026.364517639] [collision_monitor]: Robot to continue normal operation
+[controller_server-11] [ERROR] [1789725026.453636820] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725026.453781489] [tf_help]: Data time: 1789725026s 436696187ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725026.454766914] [controller_server]: Unable to transform robot pose into global plan's frame
+[controller_server-11] [ERROR] [1789725026.520277638] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725026.520520939] [tf_help]: Data time: 1789725026s 515773385ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725026.520676549] [controller_server]: Unable to transform robot pose into global plan's frame
+[controller_server-11] [ERROR] [1789725026.586955727] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725026.587088399] [tf_help]: Data time: 1789725026s 575683897ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725026.587163421] [controller_server]: Unable to transform robot pose into global plan's frame
+[collision_monitor-19] [INFO] [1789725026.606789771] [collision_monitor]: Robot to slowdown for 40.000000 percents due to SonarSlow polygon
+[controller_server-11] [ERROR] [1789725026.653629305] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725026.653761465] [tf_help]: Data time: 1789725026s 635622115ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725026.653836967] [controller_server]: Unable to transform robot pose into global plan's frame
+[planner_server-13] [INFO] [1789725026.698894597] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725026.213 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[controller_server-11] [ERROR] [1789725026.720306082] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725026.720432836] [tf_help]: Data time: 1789725026s 715614995ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725026.720507729] [controller_server]: Unable to transform robot pose into global plan's frame
+[controller_server-11] [ERROR] [1789725026.720632755] [controller_server]: Controller patience exceeded
+[controller_server-11] [WARN] [1789725026.720829603] [controller_server]: [follow_path] [ActionServer] Aborting handle.
+[controller_server-11] [INFO] [1789725026.741019817] [local_costmap.local_costmap]: Received request to clear entirely the local_costmap
+[controller_server-11] [INFO] [1789725026.746470944] [local_costmap.local_costmap]: KeepoutFilter: Subscribing to "/costmap_filter_info" topic for filter info...
+[controller_server-11] [INFO] [1789725026.772267992] [controller_server]: Received a goal, begin computing control effort.
+[controller_server-11] [ERROR] [1789725026.808193594] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725026.808370063] [tf_help]: Data time: 1789725026s 801297184ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725026.808447388] [controller_server]: Unable to transform robot pose into global plan's frame
+[controller_server-11] [ERROR] [1789725026.840427578] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725026.840549372] [tf_help]: Data time: 1789725026s 835615911ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725026.840650212] [controller_server]: Unable to transform robot pose into global plan's frame
+[planner_server-13] [WARN] [1789725026.850799754] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [ERROR] [1789725026.906930029] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725026.907075434] [tf_help]: Data time: 1789725026s 900779807ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725026.907154615] [controller_server]: Unable to transform robot pose into global plan's frame
+[collision_monitor-19] [INFO] [1789725026.907118976] [collision_monitor]: Robot to continue normal operation
+[controller_server-11] [ERROR] [1789725026.973639855] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725026.973766960] [tf_help]: Data time: 1789725026s 955635384ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725026.973844733] [controller_server]: Unable to transform robot pose into global plan's frame
+[controller_server-11] [ERROR] [1789725027.040316432] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725027.040458766] [tf_help]: Data time: 1789725027s 35624345ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725027.040541082] [controller_server]: Unable to transform robot pose into global plan's frame
+[controller_server-11] [ERROR] [1789725027.107046966] [tf_help]: Transform data too old when converting from odom to map
+[controller_server-11] [ERROR] [1789725027.107174775] [tf_help]: Data time: 1789725027s 101860854ns, Transform time: 1789725026s 217460000ns
+[controller_server-11] [WARN] [1789725027.107255556] [controller_server]: Unable to transform robot pose into global plan's frame
+[controller_server-11] [ERROR] [1789725027.107334161] [controller_server]: Controller patience exceeded
+[controller_server-11] [WARN] [1789725027.107468145] [controller_server]: [follow_path] [ActionServer] Aborting handle.
+[controller_server-11] [INFO] [1789725027.120852860] [local_costmap.local_costmap]: Received request to clear entirely the local_costmap
+[controller_server-11] [INFO] [1789725027.129298667] [local_costmap.local_costmap]: KeepoutFilter: Subscribing to "/costmap_filter_info" topic for filter info...
+[planner_server-13] [INFO] [1789725027.145744501] [global_costmap.global_costmap]: Received request to clear entirely the global_costmap
+[planner_server-13] [INFO] [1789725027.151015873] [global_costmap.global_costmap]: KeepoutFilter: Subscribing to "/costmap_filter_info" topic for filter info...
+[bt_navigator-15] [WARN] [1789725027.151690047] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725027.181189348] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-11] [INFO] [1789725027.606786897] [local_costmap.local_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725027.112 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[collision_monitor-19] [ERROR] [1789725027.697491566] [getTransform]: Failed to get "base_footprint"->"base_footprint" frame transform: Lookup would require extrapolation into the future.  Requested time 1789725027.195867 but the latest data is at time 1789725027.155625, when looking up transform from frame [odom] to frame [base_footprint]
+[controller_server-11] [WARN] [1789725027.996862051] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[collision_monitor-19] [ERROR] [1789725028.201066586] [getTransform]: Failed to get "sonar_sensor_1"->"base_footprint" frame transform: Lookup would require extrapolation into the future.  Requested time 1789725027.181821 but the latest data is at time 1789725027.155625, when looking up transform from frame [sonar_sensor_1] to frame [odom]
+[collision_monitor-19] [WARN] [1789725028.686821250] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 1.474528 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725028.687971535] [collision_monitor]: [sonar_1]: Latest source and current collision monitor node timestamps differ on 0.564423 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725028.688013925] [collision_monitor]: [sonar_9]: Latest source and current collision monitor node timestamps differ on 0.614343 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725028.688036543] [collision_monitor]: [sonar_2]: Latest source and current collision monitor node timestamps differ on 0.564423 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725028.688051580] [collision_monitor]: [sonar_8]: Latest source and current collision monitor node timestamps differ on 0.614343 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725028.688064600] [collision_monitor]: [sonar_4]: Latest source and current collision monitor node timestamps differ on 0.564423 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725028.688668008] [collision_monitor]: [sonar_6]: Latest source and current collision monitor node timestamps differ on 0.614343 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725028.688718236] [collision_monitor]: [sonar_5]: Latest source and current collision monitor node timestamps differ on 0.614343 seconds. Ignoring the source.
+[controller_server-11] [WARN] [1789725030.096832534] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[supervisor-23] [ERROR] [1789725030.723267769] [supervisor]: watchdog 'scan_rate' tripped (no data: /scan) -> action 'pause'
+[lifecycle_manager-18] [INFO] [1789725030.725112805] [lifecycle_manager_navigation]: Terminating bond timer...
+[lifecycle_manager-18] [INFO] [1789725030.725255587] [lifecycle_manager_navigation]: Pausing managed nodes...
+[lifecycle_manager-18] [INFO] [1789725030.725350125] [lifecycle_manager_navigation]: Deactivating velocity_smoother
+[velocity_smoother-17] [INFO] [1789725030.727133320] [velocity_smoother]: Deactivating
+[velocity_smoother-17] [INFO] [1789725030.727293090] [velocity_smoother]: Destroying bond (velocity_smoother) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725030.869506283] [lifecycle_manager_navigation]: Deactivating waypoint_follower
+[waypoint_follower-16] [INFO] [1789725030.871757783] [waypoint_follower]: Deactivating
+[waypoint_follower-16] [INFO] [1789725030.871864734] [waypoint_follower]: Destroying bond (waypoint_follower) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725031.004899589] [lifecycle_manager_navigation]: Deactivating bt_navigator
+[bt_navigator-15] [INFO] [1789725031.006108489] [bt_navigator]: Deactivating
+[bt_navigator-15] [WARN] [1789725031.006190038] [bt_navigator]: [navigate_to_pose] [ActionServer] Requested to deactivate server but goal is still executing. Should check if action server is running before deactivating.
+[bt_navigator-15] [INFO] [1789725031.106318238] [bt_navigator]: [navigate_to_pose] [ActionServer] Waiting for async process to finish.
+[bt_navigator-15] [ERROR] [1789725031.160660358] [bt_navigator_navigate_to_pose_rclcpp_node]: Failed to cancel action server for compute_path_to_pose
+[bt_navigator-15] [INFO] [1789725031.206528628] [bt_navigator]: [navigate_to_pose] [ActionServer] Waiting for async process to finish.
+[bt_navigator-15] [INFO] [1789725031.306735594] [bt_navigator]: [navigate_to_pose] [ActionServer] Waiting for async process to finish.
+[bt_navigator-15] [ERROR] [1789725031.311049653] [bt_navigator_navigate_to_pose_rclcpp_node]: Failed to get result for compute_path_to_pose in node halt!
+[bt_navigator-15] [WARN] [1789725031.311286269] [bt_navigator]: [navigate_to_pose] [ActionServer] Aborting handle.
+[bt_navigator-15] [INFO] [1789725031.311506377] [bt_navigator]: Goal canceled
+[bt_navigator-15] [WARN] [1789725031.311539074] [bt_navigator]: [navigate_to_pose] [ActionServer] Stopping the thread per request.
+[bt_navigator-15] [INFO] [1789725031.312303214] [bt_navigator]: Destroying bond (bt_navigator) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725031.444733174] [lifecycle_manager_navigation]: Deactivating behavior_server
+[behavior_server-14] [INFO] [1789725031.446205116] [behavior_server]: Deactivating
+[behavior_server-14] [INFO] [1789725031.446370965] [behavior_server]: Destroying bond (behavior_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725031.572773445] [lifecycle_manager_navigation]: Deactivating planner_server
+[controller_server-11] [INFO] [1789725031.653300648] [local_costmap.local_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725030.286 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[controller_server-11] [WARN] [1789725032.196769938] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725033.489734147] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789725033.492346757] [planner_server]: Deactivating
+[planner_server-13] [WARN] [1789725033.495806401] [planner_server]: [compute_path_to_pose] [ActionServer] Requested to deactivate server but goal is still executing. Should check if action server is running before deactivating.
+[planner_server-13] [WARN] [1789725033.495518884] [planner_server]: Planner loop missed its desired rate of 1.0000 Hz. Current loop rate is 0.1582 Hz
+[planner_server-13] [INFO] [1789725033.602304652] [planner_server]: [compute_path_to_pose] [ActionServer] Waiting for async process to finish.
+[planner_server-13] [INFO] [1789725033.702612597] [planner_server]: [compute_path_to_pose] [ActionServer] Waiting for async process to finish.
+[planner_server-13] [INFO] [1789725033.788401768] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725028.711 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[planner_server-13] [INFO] [1789725033.802834385] [planner_server]: [compute_path_to_pose] [ActionServer] Waiting for async process to finish.
+[planner_server-13] [INFO] [1789725033.903070090] [planner_server]: [compute_path_to_pose] [ActionServer] Waiting for async process to finish.
+[planner_server-13] [INFO] [1789725034.007266063] [planner_server]: [compute_path_to_pose] [ActionServer] Waiting for async process to finish.
+[controller_server-11] [WARN] [1789725034.296813543] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725034.373592103] [planner_server]: [compute_path_to_pose] [ActionServer] Stopping the thread per request.
+[planner_server-13] [ERROR] [1789725034.373996585] [planner_server]: [compute_path_to_pose] [ActionServer] Action callback is still running and missed deadline to stop
+[planner_server-13] [INFO] [1789725034.374370451] [global_costmap.global_costmap]: Deactivating
+[planner_server-13] [INFO] [1789725035.473937201] [planner_server]: Deactivating plugin GridBased of type NavfnPlanner
+[planner_server-13] [INFO] [1789725035.474057461] [planner_server]: Destroying bond (planner_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725035.601923325] [lifecycle_manager_navigation]: Deactivating smoother_server
+[smoother_server-12] [INFO] [1789725035.609067445] [smoother_server]: Deactivating
+[smoother_server-12] [INFO] [1789725035.609181018] [smoother_server]: Destroying bond (smoother_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725035.740274941] [lifecycle_manager_navigation]: Deactivating controller_server
+[controller_server-11] [INFO] [1789725035.742721388] [controller_server]: Deactivating
+[controller_server-11] [INFO] [1789725035.742872329] [local_costmap.local_costmap]: Deactivating
+[controller_server-11] [INFO] [1789725035.796248102] [controller_server]: Destroying bond (controller_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725035.931270243] [lifecycle_manager_navigation]: Managed nodes have been paused
+[supervisor-23] [INFO] [1789725035.948963235] [supervisor]: state: ACTIVE -> DEGRADED
+[supervisor-23] [INFO] [1789725036.189105291] [supervisor]: watchdog 'scan_rate' recovered -> resuming
+[supervisor-23] [INFO] [1789725036.197508331] [supervisor]: state: DEGRADED -> RECOVERING
+[lifecycle_manager-18] [INFO] [1789725036.199052938] [lifecycle_manager_navigation]: Resuming managed nodes...
+[lifecycle_manager-18] [INFO] [1789725036.199160498] [lifecycle_manager_navigation]: Activating controller_server
+[controller_server-11] [INFO] [1789725036.200539351] [controller_server]: Activating
+[controller_server-11] [INFO] [1789725036.200683254] [local_costmap.local_costmap]: Activating
+[controller_server-11] [INFO] [1789725036.200712911] [local_costmap.local_costmap]: Checking transform
+[controller_server-11] [INFO] [1789725036.200836531] [local_costmap.local_costmap]: start
+[controller_server-11] [INFO] [1789725036.219071468] [local_costmap.local_costmap]: KeepoutFilter: Subscribing to "/costmap_filter_info" topic for filter info...
+[controller_server-11] [WARN] [1789725036.313895658] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [INFO] [1789725036.333331729] [controller_server]: Creating bond (controller_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725036.461453366] [lifecycle_manager_navigation]: Server controller_server connected with bond.
+[lifecycle_manager-18] [INFO] [1789725036.461572763] [lifecycle_manager_navigation]: Activating smoother_server
+[smoother_server-12] [INFO] [1789725036.463145876] [smoother_server]: Activating
+[smoother_server-12] [INFO] [1789725036.463233376] [smoother_server]: Creating bond (smoother_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725036.627497187] [lifecycle_manager_navigation]: Server smoother_server connected with bond.
+[lifecycle_manager-18] [INFO] [1789725036.627613513] [lifecycle_manager_navigation]: Activating planner_server
+[planner_server-13] [INFO] [1789725036.629862151] [planner_server]: Activating
+[planner_server-13] [INFO] [1789725036.630027201] [global_costmap.global_costmap]: Activating
+[planner_server-13] [INFO] [1789725036.630082644] [global_costmap.global_costmap]: Checking transform
+[planner_server-13] [INFO] [1789725036.630297859] [global_costmap.global_costmap]: start
+[planner_server-13] [INFO] [1789725036.641359396] [global_costmap.global_costmap]: KeepoutFilter: Subscribing to "/costmap_filter_info" topic for filter info...
+[planner_server-13] [INFO] [1789725036.994534283] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725036.501 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[planner_server-13] [WARN] [1789725037.638578286] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789725037.657636353] [planner_server]: Activating plugin GridBased of type NavfnPlanner
+[planner_server-13] [INFO] [1789725037.691807049] [planner_server]: Creating bond (planner_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725037.840472035] [lifecycle_manager_navigation]: Server planner_server connected with bond.
+[lifecycle_manager-18] [INFO] [1789725037.840618978] [lifecycle_manager_navigation]: Activating behavior_server
+[behavior_server-14] [INFO] [1789725037.842264940] [behavior_server]: Activating
+[behavior_server-14] [INFO] [1789725037.842363126] [behavior_server]: Activating spin
+[behavior_server-14] [INFO] [1789725037.842986984] [behavior_server]: Activating backup
+[behavior_server-14] [INFO] [1789725037.843024415] [behavior_server]: Activating wait
+[behavior_server-14] [INFO] [1789725037.843253899] [behavior_server]: Creating bond (behavior_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725037.985284298] [lifecycle_manager_navigation]: Server behavior_server connected with bond.
+[lifecycle_manager-18] [INFO] [1789725037.985405198] [lifecycle_manager_navigation]: Activating bt_navigator
+[bt_navigator-15] [INFO] [1789725037.986548426] [bt_navigator]: Activating
+[bt_navigator-15] [INFO] [1789725037.986631256] [bt_navigator]: Creating bond (bt_navigator) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725038.138556002] [lifecycle_manager_navigation]: Server bt_navigator connected with bond.
+[lifecycle_manager-18] [INFO] [1789725038.138689604] [lifecycle_manager_navigation]: Activating waypoint_follower
+[waypoint_follower-16] [INFO] [1789725038.140674371] [waypoint_follower]: Activating
+[waypoint_follower-16] [INFO] [1789725038.140762703] [waypoint_follower]: Creating bond (waypoint_follower) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725038.282841632] [lifecycle_manager_navigation]: Server waypoint_follower connected with bond.
+[lifecycle_manager-18] [INFO] [1789725038.282965316] [lifecycle_manager_navigation]: Activating velocity_smoother
+[velocity_smoother-17] [INFO] [1789725038.289208672] [velocity_smoother]: Activating
+[velocity_smoother-17] [INFO] [1789725038.289339938] [velocity_smoother]: Creating bond (velocity_smoother) to lifecycle manager.
+[controller_server-11] [WARN] [1789725038.313955266] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[lifecycle_manager-18] [INFO] [1789725038.448929307] [lifecycle_manager_navigation]: Server velocity_smoother connected with bond.
+[lifecycle_manager-18] [INFO] [1789725038.449038466] [lifecycle_manager_navigation]: Managed nodes are active
+[lifecycle_manager-18] [INFO] [1789725038.449060605] [lifecycle_manager_navigation]: Creating bond timer...
+[supervisor-23] [INFO] [1789725038.452447615] [supervisor]: state: RECOVERING -> ACTIVE
+[planner_server-13] [INFO] [1789725039.500219978] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725039.000 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[controller_server-11] [WARN] [1789725040.313976635] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725040.632163600] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789725042.088121849] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725041.595 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[controller_server-11] [WARN] [1789725042.314064496] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725042.632291605] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789725044.314696856] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789725044.677722054] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725044.195 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[planner_server-13] [WARN] [1789725045.633903285] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789725046.413929144] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789725047.200898483] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725046.686 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[controller_server-11] [WARN] [1789725048.414338323] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725048.632463983] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789725049.780345987] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725049.283 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[controller_server-11] [WARN] [1789725050.513946596] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725051.632548367] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789725052.364787289] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725051.881 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[controller_server-11] [WARN] [1789725052.514743189] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [WARN] [1789725053.632863297] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789725054.614101745] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[planner_server-13] [INFO] [1789725054.872172700] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725054.380 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[planner_server-13] [WARN] [1789725055.632995089] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789725056.615032141] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [INFO] [1789725057.399916748] [bt_navigator]: Begin navigating from current location (-11.50, -5.41) to (-2.33, 0.72)
+[bt_navigator-15] [WARN] [1789725057.420575214] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725057.434656632] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725057.442551321] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725057.455182293] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[planner_server-13] [INFO] [1789725057.473328647] [global_costmap.global_costmap]: Message Filter dropping message: frame 'base_footprint' at time 1789725056.978 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[bt_navigator-15] [WARN] [1789725057.517270209] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725057.558498230] [bt_navigator_navigate_to_pose_rclcpp_node]: Timed out while waiting for action server to acknowledge goal request for compute_path_to_pose
+[bt_navigator-15] [WARN] [1789725057.568447079] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725057.645243929] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725057.709612837] [bt_navigator_navigate_to_pose_rclcpp_node]: Node timed out while executing service call to global_costmap/clear_entirely_global_costmap.
+[bt_navigator-15] [WARN] [1789725057.716000324] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725057.886166726] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725058.330056217] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[planner_server-13] [WARN] [1789725058.632193564] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[controller_server-11] [WARN] [1789725058.713884504] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[bt_navigator-15] [WARN] [1789725059.737046716] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-15] [WARN] [1789725059.847720912] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[behavior_server-14] [INFO] [1789725060.449478900] [behavior_server]: Running backup
+[behavior_server-14] [INFO] [1789725060.450094484] [behavior_server]: DriveOnHeading: no acceleration or deceleration limits set
+[collision_monitor-19] [WARN] [1789725060.451583677] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 1.377434 seconds. Ignoring the source.
+[bt_navigator-15] [WARN] [1789725060.528080242] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[collision_monitor-19] [WARN] [1789725060.551115558] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 1.476965 seconds. Ignoring the source.
+[planner_server-13] [WARN] [1789725060.632211418] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[collision_monitor-19] [WARN] [1789725060.651814203] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 1.577664 seconds. Ignoring the source.
+[bt_navigator-15] [WARN] [1789725060.665507374] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[collision_monitor-19] [WARN] [1789725060.752497619] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 1.678347 seconds. Ignoring the source.
+[controller_server-11] [WARN] [1789725060.813915094] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[collision_monitor-19] [WARN] [1789725060.863117328] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 1.788968 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725060.950885778] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 1.876735 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725061.050853848] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 1.976704 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725061.157861025] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.083711 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725061.261933773] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.187783 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725061.356113223] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.281963 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725061.453060031] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.378910 seconds. Ignoring the source.
+[bt_navigator-15] [WARN] [1789725061.526583337] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[behavior_server-14] [WARN] [1789725061.550499538] [behavior_server]: Collision Ahead - Exiting DriveOnHeading
+[behavior_server-14] [WARN] [1789725061.550588831] [behavior_server]: backup failed
+[behavior_server-14] [WARN] [1789725061.550620760] [behavior_server]: [backup] [ActionServer] Aborting handle.
+[collision_monitor-19] [WARN] [1789725061.551162919] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.477012 seconds. Ignoring the source.
+[behavior_server-14] [INFO] [1789725061.581726631] [behavior_server]: Running spin
+[behavior_server-14] [INFO] [1789725061.581955672] [behavior_server]: Turning 1.57 for spin behavior.
+[collision_monitor-19] [WARN] [1789725061.589348179] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.515197 seconds. Ignoring the source.
+[bt_navigator-15] [WARN] [1789725061.655810108] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[collision_monitor-19] [WARN] [1789725061.684758028] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.610608 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725061.783965454] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.709815 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725061.886878476] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.812728 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725061.984800634] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 2.910650 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725062.083825259] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 3.009675 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725062.184044142] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 3.109895 seconds. Ignoring the source.
+[asr_node-27] [INFO] [1789725062.269118044] [asr_node]: final 'рите' 1040ms
+[supervisor-23] [ERROR] [1789725062.269151478] [supervisor]: watchdog 'scan_rate' tripped (no data: /scan, /scan_left) -> action 'pause'
+[lifecycle_manager-18] [INFO] [1789725062.280333953] [lifecycle_manager_navigation]: Terminating bond timer...
+[lifecycle_manager-18] [INFO] [1789725062.281502095] [lifecycle_manager_navigation]: Pausing managed nodes...
+[lifecycle_manager-18] [INFO] [1789725062.281536008] [lifecycle_manager_navigation]: Deactivating velocity_smoother
+[velocity_smoother-17] [INFO] [1789725062.283316821] [velocity_smoother]: Deactivating
+[velocity_smoother-17] [INFO] [1789725062.283411042] [velocity_smoother]: Destroying bond (velocity_smoother) to lifecycle manager.
+[collision_monitor-19] [WARN] [1789725062.283484179] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 3.209334 seconds. Ignoring the source.
+[dialog_agent-41] [INFO] [1789725062.294789253] [dialog_agent]: без wakeword, игнор: 'рите'
+[collision_monitor-19] [WARN] [1789725062.384283837] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 3.310125 seconds. Ignoring the source.
+[lifecycle_manager-18] [INFO] [1789725062.432142498] [lifecycle_manager_navigation]: Deactivating waypoint_follower
+[waypoint_follower-16] [INFO] [1789725062.433561851] [waypoint_follower]: Deactivating
+[waypoint_follower-16] [INFO] [1789725062.433651529] [waypoint_follower]: Destroying bond (waypoint_follower) to lifecycle manager.
+[collision_monitor-19] [WARN] [1789725062.485152409] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 3.411002 seconds. Ignoring the source.
+[collision_monitor-19] [WARN] [1789725062.585671166] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 3.511520 seconds. Ignoring the source.
+[lifecycle_manager-18] [INFO] [1789725062.601784841] [lifecycle_manager_navigation]: Deactivating bt_navigator
+[bt_navigator-15] [INFO] [1789725062.603494822] [bt_navigator]: Deactivating
+[bt_navigator-15] [WARN] [1789725062.603567830] [bt_navigator]: [navigate_to_pose] [ActionServer] Requested to deactivate server but goal is still executing. Should check if action server is running before deactivating.
+[planner_server-13] [WARN] [1789725062.633530339] [global_costmap.global_costmap]: KeepoutFilter: Filter mask was not received
+[behavior_server-14] [INFO] [1789725062.682095990] [behavior_server]: Canceling spin
+[behavior_server-14] [INFO] [1789725062.682362238] [behavior_server]: [spin] [ActionServer] Client requested to cancel the goal. Cancelling.
+[bt_navigator-15] [WARN] [1789725062.683687211] [bt_navigator]: [navigate_to_pose] [ActionServer] Aborting handle.
+[bt_navigator-15] [INFO] [1789725062.683905694] [bt_navigator]: Goal canceled
+[bt_navigator-15] [WARN] [1789725062.683936919] [bt_navigator]: [navigate_to_pose] [ActionServer] Stopping the thread per request.
+[bt_navigator-15] [INFO] [1789725062.684069308] [bt_navigator]: Destroying bond (bt_navigator) to lifecycle manager.
+[collision_monitor-19] [WARN] [1789725062.684525469] [collision_monitor]: [scan]: Latest source and current collision monitor node timestamps differ on 3.610376 seconds. Ignoring the source.
+[lifecycle_manager-18] [INFO] [1789725062.823337259] [lifecycle_manager_navigation]: Deactivating behavior_server
+[behavior_server-14] [INFO] [1789725062.826447493] [behavior_server]: Deactivating
+[behavior_server-14] [INFO] [1789725062.826563276] [behavior_server]: Destroying bond (behavior_server) to lifecycle manager.
+[controller_server-11] [WARN] [1789725062.913906724] [local_costmap.local_costmap]: KeepoutFilter: Filter mask was not received
+[lifecycle_manager-18] [INFO] [1789725062.961088118] [lifecycle_manager_navigation]: Deactivating planner_server
+[planner_server-13] [INFO] [1789725062.962441116] [planner_server]: Deactivating
+[planner_server-13] [INFO] [1789725062.962558020] [global_costmap.global_costmap]: Deactivating
+[planner_server-13] [INFO] [1789725063.630565101] [planner_server]: Deactivating plugin GridBased of type NavfnPlanner
+[planner_server-13] [INFO] [1789725063.630677237] [planner_server]: Destroying bond (planner_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725063.765335910] [lifecycle_manager_navigation]: Deactivating smoother_server
+[smoother_server-12] [INFO] [1789725063.772611170] [smoother_server]: Deactivating
+[smoother_server-12] [INFO] [1789725063.773288662] [smoother_server]: Destroying bond (smoother_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725063.902608250] [lifecycle_manager_navigation]: Deactivating controller_server
+[controller_server-11] [INFO] [1789725063.903998585] [controller_server]: Deactivating
+[controller_server-11] [INFO] [1789725063.904120928] [local_costmap.local_costmap]: Deactivating
+[controller_server-11] [INFO] [1789725063.913576855] [controller_server]: Destroying bond (controller_server) to lifecycle manager.
+[lifecycle_manager-18] [INFO] [1789725064.053719887] [lifecycle_manager_navigation]: Managed nodes have been paused
+[supervisor-23] [INFO] [1789725064.059396217] [supervisor]: state: ACTIVE -> DEGRADED
+[supervisor-23] [ERROR] [1789725069.388363452] [supervisor]: watchdog 'tf_map' tripped (map -> odom stale (10.1 s)) -> action 'pause'
+  
