@@ -46,7 +46,7 @@ def generate_launch_description():
     declare_keepout_mask_file = DeclareLaunchArgument(
         "keepout_mask_file",
         default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited_keepout.yaml"),
-        description="Keepout costmap-filter mask, must match `map`. Empty -- filter off.",
+        description="Keepout costmap-filter mask, must match `map`. 'none' -- filter off.",
     )
     world_arg = DeclareLaunchArgument(
         name="world",

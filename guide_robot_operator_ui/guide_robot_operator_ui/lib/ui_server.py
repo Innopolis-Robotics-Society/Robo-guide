@@ -141,6 +141,15 @@ class UiServer:
         else:
             self.app.router.add_get("/promo/{tail:.*}", self._handle_promo_missing)
         self.app.router.add_static("/static", self._web_root, show_index=False)
+        # Файлы под /promo, /media, /static меняются на месте с тем же URL
+        # (новые картинки промо после colcon build, правка app.js). Без
+        # Cache-Control WebKit киоска считает их свежими эвристически (10 % от
+        # возраста по Last-Modified -- часы) и после перезагрузки страницы
+        # показывает старые. Живой случай: промо заменили на 9:16 под
+        # повёрнутый HDMI, на экране остались прежние IMG_2/IMG_3. no-cache --
+        # не «не кэшировать», а «сверяться» (If-Modified-Since/ETag от
+        # aiohttp static): неизменённый файл стоит один 304.
+        self.app.on_response_prepare.append(self._force_revalidation)
 
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
@@ -217,6 +226,12 @@ class UiServer:
     async def _handle_media_missing(self, request: web.Request) -> web.Response:
         del request
         return web.Response(status=404, text="media_root not configured (see operator_ui log)")
+
+    @staticmethod
+    async def _force_revalidation(request: web.Request, response: web.StreamResponse) -> None:
+        """Cache-Control: no-cache на статике -- см. комментарий у add_static."""
+        if request.path.startswith(("/promo/", "/media/", "/static/")):
+            response.headers["Cache-Control"] = "no-cache"
 
     async def _handle_promo_missing(self, request: web.Request) -> web.Response:
         del request

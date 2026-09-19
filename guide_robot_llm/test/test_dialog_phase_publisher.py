@@ -65,7 +65,7 @@ def test_normal_turn_goes_action_answer_idle_never_dropping_to_idle_between() ->
         harness.llm_server.chunks_with_grammar = [_NOOP]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, привет")
+        _publish_transcript(client, "фирая, привет")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
         wait_until(lambda: recorder.snapshot()[-1:] == ["IDLE"], timeout_s=5.0)
 
@@ -97,7 +97,7 @@ def test_ask_visitor_turn_reaches_awaiting_only_after_answer_phase_returns() -> 
         ]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, хочу к лидару")
+        _publish_transcript(client, "фирая, хочу к лидару")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
         wait_until(lambda: "AWAITING" in recorder.snapshot(), timeout_s=5.0)
 
@@ -129,7 +129,7 @@ def test_ask_visitor_fast_path_yes_never_publishes_action() -> None:
         ]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, хочу к лидару")
+        _publish_transcript(client, "фирая, хочу к лидару")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
         wait_until(lambda: "AWAITING" in recorder.snapshot(), timeout_s=5.0)
 
@@ -157,7 +157,7 @@ def test_backend_error_on_action_phase_returns_to_idle() -> None:
         harness.llm_server.mode = MockLlmServer.MODE_HTTP_ERROR
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, привет")
+        _publish_transcript(client, "фирая, привет")
 
         wait_until(lambda: len(recorder.snapshot()) >= 2, timeout_s=10.0)
 
@@ -186,7 +186,7 @@ def test_barge_in_during_turn_returns_to_idle_not_stuck_thinking() -> None:
         harness.llm_server.chunk_delay_s = 0.3
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, расскажи что-нибудь длинное")
+        _publish_transcript(client, "фирая, расскажи что-нибудь длинное")
         wait_until(lambda: "ACTION" in recorder.snapshot(), timeout_s=5.0)
         time.sleep(0.15)  # дать ходу получить хотя бы первый чанк фазы действия
 

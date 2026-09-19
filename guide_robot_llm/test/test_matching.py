@@ -6,6 +6,7 @@ from guide_robot_llm.matching import (
     has_leading_wake_word,
     has_motion_intent,
     idle_turn_allowed,
+    is_wake_keyword,
     looks_like_chit_chat,
     match_confirm,
     match_end_tour,
@@ -118,14 +119,14 @@ def test_stop_phrase_short_confident_still_matches() -> None:
 def test_end_tour_stop_ekskursiya() -> None:
     """Живой баг: «стоп экскурсия» уходило в SKIP_STOP и ехало на следующую точку."""
     assert match_end_tour("стоп экскурсия") is True
-    assert match_end_tour("робот стоп экскурсия") is True
+    assert match_end_tour("фирая стоп экскурсия") is True
     assert match_end_tour("стоп останови экскурсию") is True
     assert match_stop_phrase("стоп экскурсия") is False
 
 
 def test_start_tour_phrase() -> None:
     assert match_start_tour("начни экскурсию") is True
-    assert match_start_tour("робот начни экскурсию") is True
+    assert match_start_tour("фирая начни экскурсию") is True
     assert match_start_tour("проведи экскурсию") is True
     assert match_start_tour("начать тур") is True
     assert match_start_tour("что такое экскурсия") is False
@@ -133,7 +134,7 @@ def test_start_tour_phrase() -> None:
     assert match_start_tour("вернись домой") is False
     assert match_start_tour("привет") is False
     assert match_end_tour("вернись домой") is True
-    assert match_end_tour("робот вернись домой") is True
+    assert match_end_tour("фирая вернись домой") is True
     assert match_end_tour("едем домой") is True
     assert match_stop_phrase("вернись домой") is False
     assert match_end_tour("сколько будет семь") is False
@@ -142,7 +143,7 @@ def test_start_tour_phrase() -> None:
     assert match_end_tour("стоп") is False
 
 
-# -- match_idle_dismiss: IDLE-версия, живой баг "робот стоп" в IDLE --
+# -- match_idle_dismiss: IDLE-версия, живой баг "робот стоп" (прежнее имя) в IDLE --
 
 
 def test_idle_dismiss_bare_stop_word() -> None:
@@ -150,7 +151,9 @@ def test_idle_dismiss_bare_stop_word() -> None:
 
 
 def test_idle_dismiss_with_wake_word_prefix() -> None:
-    assert match_idle_dismiss("робот стоп") is True
+    assert match_idle_dismiss("фирая стоп") is True
+    assert match_idle_dismiss("Фирая, стоп") is True
+    assert match_idle_dismiss("фира я стоп") is True
 
 
 def test_idle_dismiss_multiple_dismiss_words() -> None:
@@ -160,7 +163,7 @@ def test_idle_dismiss_multiple_dismiss_words() -> None:
 def test_idle_dismiss_all_vocabulary_words() -> None:
     for word in ("стоп", "стой", "хватит", "замолчи"):
         assert match_idle_dismiss(word) is True
-        assert match_idle_dismiss(f"робот {word}") is True
+        assert match_idle_dismiss(f"фирая {word}") is True
 
 
 def test_idle_dismiss_rejects_extra_content() -> None:
@@ -177,8 +180,8 @@ def test_idle_dismiss_empty_text() -> None:
 
 
 def test_idle_dismiss_wake_word_alone_is_not_a_dismiss() -> None:
-    """Одно "робот" без стоп-слова -- не команда отмены, токенов после фильтра не остаётся."""
-    assert match_idle_dismiss("робот") is False
+    """Одно "фирая" без стоп-слова -- не команда отмены, токенов после фильтра не остаётся."""
+    assert match_idle_dismiss("фирая") is False
 
 
 def test_idle_dismiss_unrelated_text() -> None:
@@ -189,30 +192,33 @@ def test_idle_dismiss_unrelated_text() -> None:
 
 
 def test_strip_wake_word_bare_wake_word_becomes_empty() -> None:
-    assert strip_wake_word("робот") == ""
+    assert strip_wake_word("фирая") == ""
 
 
 def test_strip_wake_word_case_and_punctuation() -> None:
-    assert strip_wake_word("Робот!") == ""
+    assert strip_wake_word("Фирая!") == ""
 
 
 def test_strip_wake_word_repeated_wake_words() -> None:
-    assert strip_wake_word("робот робот") == ""
+    assert strip_wake_word("фирая фирая") == ""
+    assert strip_wake_word("эй фирая, фирая") == ""
 
 
 def test_strip_wake_word_leading_prefix_is_cut() -> None:
-    assert strip_wake_word("робот, отведи меня к входу") == "отведи меня к входу"
-    assert strip_wake_word("Робот отведи меня к входу") == "отведи меня к входу"
+    assert strip_wake_word("фирая, отведи меня к входу") == "отведи меня к входу"
+    assert strip_wake_word("Фирая отведи меня к входу") == "отведи меня к входу"
+    assert strip_wake_word("слушай фирая, отведи меня к входу") == "отведи меня к входу"
 
 
 def test_strip_wake_word_mid_phrase_wake_word_is_kept() -> None:
-    """«робот» в середине/конце фразы -- часть содержания, не обращение."""
-    assert strip_wake_word("что такое робот") == "что такое робот"
+    """Имя в середине/конце фразы -- часть содержания, не обращение."""
+    assert strip_wake_word("как тебя зовут фирая") == "как тебя зовут фирая"
 
 
 def test_strip_wake_word_prefix_of_longer_word_is_kept() -> None:
-    """«роботы»/«роботов» -- не wake-слово, срезать нельзя."""
-    assert strip_wake_word("роботы наступают") == "роботы наступают"
+    """Слово, начинающееся как имя, но длиннее -- не wake-слово, срезать нельзя."""
+    assert strip_wake_word("фираянка пришла") == "фираянка пришла"
+    assert strip_wake_word("вера я хочу к лидару") == "вера я хочу к лидару"
 
 
 def test_strip_wake_word_empty_text() -> None:
@@ -240,7 +246,7 @@ def test_motion_intent_empty_is_false() -> None:
     assert has_motion_intent("   ") is False
 
 
-# -- idle_turn_allowed: IDLE без «робот» не должен уходить в ЛЛМ --
+# -- idle_turn_allowed: IDLE без «фирая» не должен уходить в ЛЛМ --
 
 
 def test_idle_turn_rejects_bare_chit_chat() -> None:
@@ -250,8 +256,9 @@ def test_idle_turn_rejects_bare_chit_chat() -> None:
 
 
 def test_idle_turn_accepts_leading_wake_word() -> None:
-    assert idle_turn_allowed("робот, привет", listen_armed=False) is True
-    assert idle_turn_allowed("робот который год музей", listen_armed=False) is True
+    assert idle_turn_allowed("фирая, привет", listen_armed=False) is True
+    assert idle_turn_allowed("фирая который год музей", listen_armed=False) is True
+    assert idle_turn_allowed("ферая привет", listen_armed=False) is True
 
 
 def test_idle_turn_accepts_armed_listen_window() -> None:
@@ -264,7 +271,7 @@ def test_idle_turn_rejects_motion_intent_without_wake() -> None:
 
 
 def test_idle_turn_bare_wake_word_is_not_a_turn() -> None:
-    assert idle_turn_allowed("робот", listen_armed=False) is False
+    assert idle_turn_allowed("фирая", listen_armed=False) is False
 
 
 def test_idle_turn_stop_without_wake_is_not_activation() -> None:
@@ -272,9 +279,40 @@ def test_idle_turn_stop_without_wake_is_not_activation() -> None:
 
 
 def test_has_leading_wake_word() -> None:
-    assert has_leading_wake_word("робот, привет") is True
+    assert has_leading_wake_word("фирая, привет") is True
     assert has_leading_wake_word("привет") is False
-    assert has_leading_wake_word("что такое робот") is False
+    assert has_leading_wake_word("как тебя зовут фирая") is False
+    assert has_leading_wake_word("робот, привет") is False
+
+
+# -- варианты записи имени GigaAM: лексика voice/config/voice*.yaml activation_phrases --
+
+
+def test_strip_wake_word_asr_variants_of_the_name() -> None:
+    """Все варианты из activation_phrases wakeword_node и типичные ошибки ASR режутся."""
+    for heard in (
+        "фирая",
+        "фирайя",
+        "фирае",
+        "фираю",
+        "ферая",
+        "фира я",
+        "фи рая",
+        "эй фирая",
+        "слушай фирая",
+        "Эй, Фирая!",
+    ):
+        assert strip_wake_word(heard) == "", heard
+        assert strip_wake_word(f"{heard} привет") == "привет", heard
+        assert idle_turn_allowed(f"{heard} привет", listen_armed=False) is True, heard
+
+
+def test_is_wake_keyword_matches_activation_phrases_not_stop_words() -> None:
+    """`Wakeword.keyword` от wakeword_node: имя открывает окно, стоп-слова -- нет."""
+    for phrase in ("фирая", "фирайя", "фира я", "фи рая", "эй фирая", "слушай фирая"):
+        assert is_wake_keyword(phrase) is True, phrase
+    for phrase in ("стоп", "стой", "хватит", "замолчи", "робот", "", "  "):
+        assert is_wake_keyword(phrase) is False, phrase
 
 
 def test_looks_like_chit_chat_greetings() -> None:

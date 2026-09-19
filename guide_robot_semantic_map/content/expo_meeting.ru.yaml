@@ -12,28 +12,28 @@ title: "Знакомство и приглашение в Иннополис"
 chunks:
   - {id: m1, level: short, interruptible: false,
      text: "Здравствуйте, люди! То есть… уважаемые гости!"}
-  - {id: m2, level: full, interruptible: false, pause_after_s: 1.0,
+  - {id: m2, level: full, interruptible: false, pause_after_s: 0.0,
      text: "Добро пожаловать в Иннополис — город, где будущее уже наступило, а некоторые его жители до сих пор не поняли, что они живут в будущем."}
   - {id: m3a, level: full, interruptible: false,
      text: "Меня зовут Фирая."}
   - {id: m3b, level: full, interruptible: false,
      text: "Я робот. Но, пожалуйста, не пугайтесь."}
-  - {id: m4, level: full, interruptible: false, pause_after_s: 1.0,
+  - {id: m4, level: full, interruptible: false, pause_after_s: 0.0,
      text: "Я добрая. По крайней мере, так написано в моей инструкции."}
   - {id: m5, level: full, interruptible: false,
      text: "А если серьёзно — сегодня я буду вашей первой цифровой знакомой в Иннополисе. А дальше вас передадут человеку."}
   - {id: m6a, level: full, interruptible: false,
      text: "Да-да. Человеку. Удивительная технология."}
-  - {id: m6b, level: full, interruptible: false, pause_after_s: 2.0,
-     text: "Человек умеет рассказывать про технологии без зарядки и даже без Wi-Fi."}
+  - {id: m6b, level: full, interruptible: false, pause_after_s: 0.5,
+     text: "Человек умеет рассказывать про технологии без зарядки и даже без Вай Фай."}
 
   - {id: m7, level: short, interruptible: false,
      text: "Вы сейчас находитесь в Иннополисе — молодом российском городе, который создавался как среда для развития IT, науки, образования и новых технологий."}
   - {id: m8, level: full, interruptible: false,
      text: "Здесь рядом находятся университет, технопарки, компании, лаборатории, жилые кварталы, спортивная инфраструктура и множество технологических сервисов."}
-  - {id: m9, level: full, interruptible: false, pause_after_s: 1.0,
+  - {id: m9, level: full, interruptible: false, pause_after_s: 0.0,
      text: "То есть здесь можно утром пойти учиться программированию, днём встретить робота, вечером заказать еду… А ночью задуматься: «А точно ли это я живу в городе или уже внутри компьютерной игры?»"}
-  - {id: m10, level: full, interruptible: false, pause_after_s: 2.0,
+  - {id: m10, level: full, interruptible: false, pause_after_s: 0.5,
      text: "Спойлер: вы в городе. Пока."}
 
   - {id: m11, level: full, interruptible: false,
@@ -44,18 +44,18 @@ chunks:
      text: "Представьте, что государство говорит технологическим компаниям: «Ребята, приходите к нам, развивайте новые технологии, создавайте продукты и рабочие места. А мы создадим для вас особые условия для работы»."}
   - {id: m13, level: full, interruptible: false,
      text: "Именно поэтому для компаний-резидентов ОЭЗ предусмотрены специальные условия и налоговые преференции. Например, для резидентов ОЭЗ «Иннополис» предусмотрены льготные условия по налогу на прибыль, а также определённые льготы по имущественным и другим налогам. Конкретные ставки и сроки зависят от действующего законодательства и условий резидентства."}
-  - {id: m14, level: full, interruptible: false, pause_after_s: 1.5,
+  - {id: m14, level: full, interruptible: false, pause_after_s: 0.5,
      text: "Если коротко: обычная компания говорит — нам бы помещение. Компания в Иннополисе говорит — нам бы лабораторию, инженеров, программистов, роботов, искусственный интеллект… А Иннополис отвечает — хорошо."}
-  - {id: m15, level: full, interruptible: false, pause_after_s: 2.0,
+  - {id: m15, level: full, interruptible: false, pause_after_s: 0.0,
      text: "Именно поэтому здесь появляются технологии, которые потом могут использоваться далеко за пределами города."}
 
-  - {id: m16, level: full, interruptible: false, pause_after_s: 1.0,
+  - {id: m16, level: full, interruptible: false, pause_after_s: 0.0,
      text: "Кстати, наверняка вы уже слышали про роботов-доставщиков. Если увидите одного из них на улице — не удивляйтесь. Это мои родственники."}
   - {id: m17, level: full, interruptible: false,
      text: "Правда, мы не очень похожи. Они ездят по тротуарам, доставляют еду и посылки. Я пока в основном доставляю информацию."}
-  - {id: m18, level: full, interruptible: false, pause_after_s: 1.0,
+  - {id: m18, level: full, interruptible: false, pause_after_s: 0.0,
      text: "Но, между нами говоря, у них работа попроще. Они приехали, сказали «ваш заказ» — и уехали. А я должна говорить десять минут."}
-  - {id: m19, level: full, interruptible: false, pause_after_s: 2.0,
+  - {id: m19, level: full, interruptible: false, pause_after_s: 0.0,
      text: "Так что, если встретите робота-доставщика, передавайте привет от меня. Только не просите его рассказать экскурсию — у него тариф за дополнительные слова."}
 
   - {id: m20, level: full, interruptible: false,

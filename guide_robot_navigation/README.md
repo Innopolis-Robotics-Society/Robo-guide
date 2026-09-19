@@ -127,7 +127,9 @@ DWB на `max_vel_x: 0.5`. `raytrace_max_range`/`obstacle_max_range`
 (`slam_navigation.launch.py`) — keepout защищает зоны на уже готовой карте,
 во время online-SLAM карты ещё нет. Включаются launch-аргументом
 `keepout_mask_file` (полный путь до маски-yaml, origin/resolution обязаны
-совпадать с активной `map`); пустая строка (дефолт) — фильтр выключен,
+совпадать с активной `map`); пустая строка или `none` — фильтр выключен
+(из CLI только `keepout_mask_file:=none`: Humble-овский `ros2 launch`
+отвергает пустое значение как malformed),
 костмапы работают как раньше. Маска подготовлена пока только для карты
 симуляции `map/innopark_l_10.09_edited_keepout.{pgm,yaml}`
 (`simulation.launch.py` подставляет её по умолчанию) — для `lab_105_full`

@@ -156,6 +156,20 @@ def test_media_route_registered_even_when_directory_missing() -> None:
     _run(body())
 
 
+def test_static_assets_force_revalidation() -> None:
+    """Файлы меняются под тем же URL -- киоск обязан сверяться с сервером, не жить на эвристике."""
+
+    async def body() -> None:
+        async with TestClient(TestServer(_new_server().app)) as client:
+            resp = await client.get("/static/app.js")
+            assert resp.status == 200
+            assert resp.headers.get("Cache-Control") == "no-cache"
+            resp = await client.get("/api/promo")
+            assert "Cache-Control" not in resp.headers
+
+    _run(body())
+
+
 def test_promo_route_registered_even_when_directory_missing() -> None:
     """design F2 -- тот же паттерн C7, что и /media/*: 404, не 500."""
 

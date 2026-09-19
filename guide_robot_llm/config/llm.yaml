@@ -89,7 +89,7 @@
 
     answer.max_chars: 400
 
-    # unused: ход к ЛЛМ только после «робот» или окна /speech/wakeword.
+    # unused: ход к ЛЛМ только после «Фирая» или окна /speech/wakeword.
     wake_grace_s: 0.0
 
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.

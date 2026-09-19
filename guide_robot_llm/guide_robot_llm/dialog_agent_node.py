@@ -97,7 +97,6 @@ _STATE_NAMES = {
 }
 _DEGRADED_REASONS = frozenset({"answer_backend_error", "action_backend_error", "aborted"})
 _LISTEN_WINDOW_S = 20.0
-_ACTIVATION_KEYWORDS = frozenset({"робот", "слушай робот"})
 
 
 def _wait_future(future: Future, context: object, timeout_s: float) -> bool:
@@ -263,7 +262,7 @@ class DialogAgentNode(LifecycleNode):
         self._told_ids: set[str] = set()
         self._listen_until = 0.0
         # wake_grace_s оставлен в yaml как no-op: ход к ЛЛМ только после
-        # «робот» / окна wakeword, не после конца предыдущей реплики.
+        # «фирая» / окна wakeword, не после конца предыдущей реплики.
         self._wake_grace_s = float(self.get_parameter("wake_grace_s").value)
         self._wake_grace_until = 0.0
         # stage2 C2: {question, on_yes, on_no, deadline} -- живёт до ответа,
@@ -698,11 +697,17 @@ class DialogAgentNode(LifecycleNode):
     def _on_wakeword(self, msg: Wakeword) -> None:
         """Открыть окно слушания на активацию.
 
-        tts_active не гейтит: «робот» во время рассказа -- штатный interrupt;
+        tts_active не гейтит: «Фирая» во время рассказа -- штатный interrupt;
         эхо колонки режется exact-match в wakeword_node.
+
+        Стоп-слова тоже приходят как `Wakeword` -- окно они не открывают.
+        Лексика имени -- только в `matching` (одна на транскрипт и на keyword):
+        жёсткий список здесь после переименования робота на стороне voice
+        молча отбрасывал каждый wakeword (живой баг «без wakeword, игнор»).
         """
         keyword = (msg.keyword or "").strip().lower()
-        if keyword not in _ACTIVATION_KEYWORDS:
+        if not matching.is_wake_keyword(keyword):
+            self.get_logger().debug(f"wakeword {keyword!r} -- не активация, окно не открываю")
             return
         self._arm_listen()
 
@@ -711,9 +716,9 @@ class DialogAgentNode(LifecycleNode):
     def _on_transcript(self, msg: Transcript) -> None:
         if not msg.is_final or not self._active:
             return
-        # Голое wake-слово ("робот") -- не реплика: содержания для хода нет,
-        # а ведущее "робот, ..." срезается, чтобы ЛЛМ не принимала его за
-        # обращение в третьем лице (живой баг: "робот стоп" как существительное).
+        # Голое wake-слово ("фирая") -- не реплика: содержания для хода нет,
+        # а ведущее "фирая, ..." срезается, чтобы ЛЛМ не видела обращения
+        # (живой баг с прежним именем: "робот стоп" принято за существительное).
         text = matching.strip_wake_word(msg.text)
         if not text:
             self._arm_listen()
@@ -726,7 +731,7 @@ class DialogAgentNode(LifecycleNode):
             if not self._pending_confirm_ready(text):
                 self.get_logger().info(f"без wakeword, игнор: {text!r}")
                 return
-        # Окно после «робот» — на эту реплику. Иначе болтовня рядом
+        # Окно после «фирая» — на эту реплику. Иначе болтовня рядом
         # прерывает ход в полёте (`ход в полёте -- текущий прерван`).
         self._disarm_listen()
         self._handle_transcript(text)
@@ -753,7 +758,7 @@ class DialogAgentNode(LifecycleNode):
             return time.monotonic() < self._listen_until
 
     def _pending_confirm_ready(self, text: str) -> bool:
-        """да/нет на живой ask_visitor -- не ход к ЛЛМ, «робот» не нужен."""
+        """да/нет на живой ask_visitor -- не ход к ЛЛМ, «Фирая» не нужна."""
         with self._state_lock:
             pending = self._pending_question
             if pending is None or time.monotonic() >= pending["deadline"]:

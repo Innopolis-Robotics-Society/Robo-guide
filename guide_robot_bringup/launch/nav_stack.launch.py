@@ -72,7 +72,7 @@ def generate_launch_description():
         "keepout_mask_file",
         default_value="",
         description="Keepout costmap-filter mask yaml, must match `map`'s origin/resolution. "
-        "Empty -- filter off. Only used on the AMCL path (slam:=false); ignored under SLAM.",
+        "'none' -- filter off. Only used on the AMCL path (slam:=false); ignored under SLAM.",
     )
     declare_launch_supervisor = DeclareLaunchArgument(
         "launch_supervisor", default_value="true", description="Launch guide_robot_supervisor"

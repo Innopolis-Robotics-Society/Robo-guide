@@ -44,8 +44,8 @@ def generate_launch_description():
         "keepout_mask_file",
         default_value="",
         description="Full path to keepout mask yaml (must match the active `map`'s "
-        "origin/resolution). Empty -- keepout filter stays off (no matching mask "
-        "for this map yet), costmaps behave exactly as before.",
+        "origin/resolution). Empty or 'none' -- keepout filter stays off (no "
+        "matching mask for this map yet), costmaps behave exactly as before.",
     )
 
     # map_server + amcl from nav2_bringup, non-composed to match common.
@@ -109,7 +109,14 @@ def generate_launch_description():
         ],
     )
     keepout_group = GroupAction(
-        condition=IfCondition(PythonExpression(['"', keepout_mask_file, '" != ""'])),
+        # "none"/"false"/"off" -- то же, что пустая строка: `ros2 launch` в Humble
+        # отвергает `keepout_mask_file:=` ("malformed launch argument"), так что
+        # из CLI выключить фильтр пустым значением нельзя.
+        condition=IfCondition(
+            PythonExpression(
+                ['"', keepout_mask_file, '".strip().lower() not in ("", "none", "false", "off")']
+            )
+        ),
         actions=[filter_mask_server, costmap_filter_info_server, lifecycle_costmap_filters],
     )
 
