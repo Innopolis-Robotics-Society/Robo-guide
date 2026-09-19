@@ -112,15 +112,20 @@ supervisor:
         debounce: 3
         period: 1.0
 
+    # TFRawWatchdog вместо TFWatchdog: tf2 TransformListener разбирал каждое
+    # сообщение /tf (~75 Гц) в питоновские объекты ради двух штампов --
+    # основной расход CPU супервизора. Сырой проверяет только прямое ребро,
+    # поэтому child = base_footprint (его публикует diff_drive,
+    # controllers.yaml.in base_frame_id), base_link к нему прибит статикой.
     - name: tf_odom
-      class: guide_robot_supervisor.watchdogs.tf_available.TFWatchdog
+      class: guide_robot_supervisor.watchdogs.tf_raw.TFRawWatchdog
       # 1.0 с ловило scheduling hitch (ros2 CLI / шторм /rosout) как
       # пропажу одометрии и вешало estop. pause navigation, не вся база.
-      params: {parent: odom, child: base_link, max_age: 3.0, grace: 20.0}
+      params: {parent: odom, child: base_footprint, max_age: 3.0, grace: 20.0}
       policy: {on_error: pause, target: navigation, debounce: 3, period: 0.5}
 
     - name: tf_map
-      class: guide_robot_supervisor.watchdogs.tf_available.TFWatchdog
+      class: guide_robot_supervisor.watchdogs.tf_raw.TFRawWatchdog
       params: {parent: map, child: odom, max_age: 5.0, grace: 30.0}
       policy: {on_error: pause, target: navigation, debounce: 5, period: 1.0}
 
