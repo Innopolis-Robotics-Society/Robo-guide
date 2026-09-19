@@ -44,7 +44,8 @@ locations:
       ru: ["третья точка", "точка три"]
       en: ["point three"]
 
-  # База = P1 (vybory_1); дублирует mission.yaml home_pose. Скрыта от
+  # База = P1 (vybory_1); дублирует mission.yaml home_pose и стартовую позу
+# AMCL (guide_robot_navigation/config/first_iter_nav2.yaml.in). Скрыта от
   # пустого ListLocations (is_public=false), отдаётся по category=charging
   # (operator UI) -- см. config/locations.yaml.
   - id: home

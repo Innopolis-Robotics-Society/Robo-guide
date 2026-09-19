@@ -50,12 +50,15 @@ amcl:
     # Тот же док (экран как раньше) теперь yaw π. recovery_alpha_* = 0 —
     # без ручного Pose Estimate AMCL на 180° не вылезет и повезёт задом
     # по траектории наоборот.
+    # ArtSpace (artspace_18.09_edited): старт в P1 = vybory_1 = home
+    # (guide_robot_semantic_map/config/locations_artspace.yaml), yaw 0 со слов
+    # оператора, на месте не сверен. Лаборатория/Innopark была (0, 0, π).
     set_initial_pose: true
     initial_pose:
-      x: 0.0
-      y: 0.0
+      x: 20.3075
+      y: 1.2831
       z: 0.0
-      yaw: 3.141592653589793
+      yaw: 0.0
 
 amcl_map_client:
   ros__parameters:
