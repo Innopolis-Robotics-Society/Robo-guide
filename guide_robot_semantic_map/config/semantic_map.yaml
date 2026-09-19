@@ -28,6 +28,8 @@
   ros__parameters:
     content_dir: ""
     default_language: "ru"
+    # только для WARN-сверки location_ids контента; пусто -- лабораторный locations.yaml
+    locations_file: "$(find-pkg-share guide_robot_semantic_map)/config/locations_artspace.yaml"
 
 /**/location_server:
   ros__parameters:
