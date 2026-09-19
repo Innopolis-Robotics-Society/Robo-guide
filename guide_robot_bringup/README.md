@@ -78,8 +78,10 @@ watchdog'ов до этого не действуют. `autostart_nav` уход�
 ### `launch/lidars.launch.py`
 
 Два `sllidar_ros2` (`sllidar_left`/`sllidar_right`, RPLIDAR C1,
-460800 бод), с правым лидаром, задержанным на 5 с (`lidar_start_delay`)
-во избежание просадки питания при одновременном старте. Каждый скан
+460800 бод), с правым лидаром, задержанным на 5 с (`lidar_start_delay`):
+изначально «от просадки питания», по факту это ещё и защита от
+одновременных control-запросов к двум CP2102 за одним хабом (см.
+«Известные проблемы», зависание single-TT хаба). Каждый скан
 проходит через `laser_sector_blanker` (свой пакетный exec) — вырезает
 угловой сектор, где лидар видит собственное крепление / крепление
 второго лидара (жёстко заданные `left/right_blind_sectors_deg`,
@@ -192,8 +194,34 @@ ros2 launch guide_robot_bringup desk.launch.py
 - `scan_merger` — экспериментальный merge+deskew (Python). На железе
   **не запускается** (см. откат в `lidars.launch.py`): на Orin ~1.4 ядра.
   Unit-тесты математики — `test/test_scan_merge_math.py`.
+- `usb_serial_preflight` — pre-flight USB-serial портов (без rclpy).
+  Последовательно открывает `/dev/tty_motors`, `/dev/tty_sonar`,
+  `/dev/tty_lidar_left`, `/dev/tty_lidar_right`; если порт не открывается
+  или висит дольше `--timeout` (8 с) — `USBDEVFS_RESET` родительского
+  внешнего хаба (через `sudo -n`, если не root), ожидание симлинков и
+  повторная проверка. `hardware.launch.py` запускает его первым и стартует
+  ros2_control/перцепцию только по его завершении (`usb_preflight:=false`
+  выключает). Отдельно: `ros2 run guide_robot_bringup usb_serial_preflight
+  [--no-reset]`. Тесты — `test/test_usb_serial_preflight.py`.
 
 ## Известные проблемы
+
+- **Зависание single-TT USB-хаба (Jetson, tegra-xusb 5.15).** Все внешние
+  хабы на роботе (Terminus FE1.1s `1a40:0101`, Genesys GL850 `05e3:0610`)
+  имеют один Transaction Translator. Если два CP2102 (лидары) за одним
+  хабом одновременно делают open/close — а именно так выглядит Ctrl-C
+  стека, оба `sllidar_node` закрывают порты разом — все full-speed
+  устройства за хабом перестают отвечать даже на GET_DESCRIPTOR, сам хаб
+  жив. В dmesg `cp210x ttyUSBx: failed set request 0x0 status: -110`,
+  `cp210x_open - Unable to enable UART`; у sllidar `code: 80008004`, у
+  моторов «Не удалось открыть порт». Воспроизведено 2026-09-19 на обоих
+  хабах; последовательный доступ, потоковое сканирование и один лидар с
+  аудио на том же хабе не виснут. Хаб на плате devkit (Realtek
+  `0bda:5489`) — multi-TT, устройства прямо в портах Jetson не сбоили ни
+  разу. Правило: **два лидара никогда не на одном внешнем хабе**; моторы и
+  сонар — на своём хабе (udev-правила ловят их по номеру порта хаба).
+  Лечение без передёргивания кабеля — `usb_serial_preflight` (выше) или
+  вручную `USBDEVFS_RESET` на хаб.
 
 - `scan_merger` не поднимается ни одним launch: Python-deskew откачен
   2026-08-11. `dual_laser_merger` остаётся, пока deskew не перепишут на C++.
