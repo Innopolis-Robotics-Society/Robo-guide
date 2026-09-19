@@ -1,0 +1,15 @@
+exhibit_id: vybory_3
+language: ru
+version: "2026-09-19.1"
+reviewed_by: ""
+title: "Выборы: навигатор по человеческим делам"
+# ArtSpace, точка 3.
+chunks:
+  - {id: v3a, level: short, interruptible: false,
+     text: "Привет! Меня зовут Фирая."}
+  - {id: v3b, level: full, interruptible: false,
+     text: "Сегодня я впервые работаю навигатором по человеческим делам. Начинаем с выборов."}
+  - {id: v3c, level: full, interruptible: false,
+     text: "Сегодня можно проголосовать на выборах депутатов Государственной Думы и Совета депутатов Иннополиса."}
+  - {id: v3d, level: full, interruptible: false,
+     text: "Заглядывай на избирательный участок в Артспейс. Не забудь с собой паспорт!"}

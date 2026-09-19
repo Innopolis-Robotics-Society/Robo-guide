@@ -1,8 +1,8 @@
 # Параметры трёх нод guide_robot_semantic_map.
 #
-# Пути к данным (*_file/*_dir) явно указаны на датасет Innopark (реальная
-# площадка expo_one) -- пустая строка была бы сигналом нодам искать файл
-# по умолчанию (config/graph.geojson и т.п. в share/guide_robot_semantic_map,
+# Пути к данным (*_file/*_dir) явно указаны на датасет ArtSpace (текущая
+# площадка, выборы 2026-09; прошлая -- Innopark/expo_one, файлы *_innopark.*) -- пустая строка была бы
+# сигналом нодам искать файл по умолчанию (config/graph.geojson и т.п. в share/guide_robot_semantic_map,
 # см. _configure()/_resolve_path() в каждой ноде), а дефолт-фолбэк в коде
 # всё ещё смотрит на лабораторный датасет ("для тестов", см. locations.yaml/
 # tours.yaml). ParameterFile грузится с allow_substs=True (semantic_map.launch.py),
@@ -22,7 +22,7 @@
 # Чтобы вернуться на лабораторный датасет для тестов -- переопределить
 # ВСЕ ЧЕТЫРЕ пути разом (graph_file здесь, locations_file, tours_file,
 # route_planner.locations_file) на *.geojson/*.yaml без суффикса
-# "_innopark", и graph_file launch-аргумент semantic_map.launch.py тоже.
+# "_artspace" (или на "_innopark" для Innopark), и graph_file launch-аргумент semantic_map.launch.py тоже.
 
 /**/content_server:
   ros__parameters:
@@ -31,15 +31,15 @@
 
 /**/location_server:
   ros__parameters:
-    locations_file: "$(find-pkg-share guide_robot_semantic_map)/config/locations_innopark.yaml"
-    tours_file: "$(find-pkg-share guide_robot_semantic_map)/config/tours_innopark.yaml"
-    graph_file: "$(find-pkg-share guide_robot_semantic_map)/config/graph_innopark.geojson"
+    locations_file: "$(find-pkg-share guide_robot_semantic_map)/config/locations_artspace.yaml"
+    tours_file: "$(find-pkg-share guide_robot_semantic_map)/config/tours_artspace.yaml"
+    graph_file: "$(find-pkg-share guide_robot_semantic_map)/config/graph_artspace.geojson"
     default_language: "ru"
     near_radius_m: 5.0          # отсечка near_only=true, метры
 
 /**/route_planner:
   ros__parameters:
-    locations_file: "$(find-pkg-share guide_robot_semantic_map)/config/locations_innopark.yaml"
+    locations_file: "$(find-pkg-share guide_robot_semantic_map)/config/locations_artspace.yaml"
     nominal_speed_mps: 0.35     # ИЗМЕРИТЬ на роботе -- паспортная скорость, не эффективная
     crowd_factor: 0.7           # design.md §1.2: оценка должна быть пессимистичной
     turn_penalty_s: 3.0

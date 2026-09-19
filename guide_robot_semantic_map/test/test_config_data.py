@@ -107,3 +107,33 @@ def test_expo_one_tour_has_known_content_gaps() -> None:
     covered = {exhibit_id for exhibit_id, _language in content}
     missing = stop_exhibit_ids - covered
     assert missing == {"right_wing", "left_wing"}
+
+
+# -- ArtSpace (выборы, точка-в-точку без экскурсии) --------------------------
+
+
+def test_graph_artspace_geojson_is_valid() -> None:
+    graph = load_graph(_CONFIG_DIR / "graph_artspace.geojson")
+    assert len(graph.nodes) == 3
+
+
+def test_locations_artspace_yaml_is_valid_and_linked_to_graph() -> None:
+    graph = load_graph(_CONFIG_DIR / "graph_artspace.geojson")
+    locations = load_locations(_CONFIG_DIR / "locations_artspace.yaml")
+    validate_locations(locations)
+    validate_graph_links(locations, set(graph.nodes))
+    assert {"vybory_1", "vybory_2", "vybory_3", "home"} <= set(locations.locations)
+
+
+def test_tours_artspace_yaml_references_valid_locations() -> None:
+    locations = load_locations(_CONFIG_DIR / "locations_artspace.yaml")
+    tours = load_tours(_CONFIG_DIR / "tours_artspace.yaml")
+    validate_tours(tours, locations)
+    assert len(tours.tours["artspace_vybory"].stops) == 3
+
+
+def test_artspace_points_have_content() -> None:
+    # `cli tour --locations vybory_N`: exhibit_id = location_id
+    # (mission_fsm_node._resolve_tour), контент обязан лежать под тем же id.
+    content, _ = load_content_dir(_CONTENT_DIR)
+    assert {("vybory_1", "ru"), ("vybory_2", "ru"), ("vybory_3", "ru")} <= set(content)

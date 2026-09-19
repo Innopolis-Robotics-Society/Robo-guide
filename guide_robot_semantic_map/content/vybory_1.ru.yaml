@@ -1,0 +1,19 @@
+exhibit_id: vybory_1
+language: ru
+version: "2026-09-19.1"
+reviewed_by: ""
+title: "Выборы: напоминание"
+# ArtSpace, точка 1. "№ 1259" прописью -- TTS не нормализует цифры.
+chunks:
+  - {id: v1a, level: short, interruptible: false,
+     text: "Привет! Меня зовут Фирая."}
+  - {id: v1b, level: full, interruptible: false,
+     text: "Я робот, поэтому голосовать не могу: у меня нет паспорта, только электронное удостоверение робота."}
+  - {id: v1c, level: full, interruptible: false,
+     text: "Зато могу напомнить тебе о голосовании."}
+  - {id: v1d, level: full, interruptible: false,
+     text: "В человеческом мире сегодня проходят выборы в Государственную Думу и Совет депутатов города Иннополис."}
+  - {id: v1e, level: full, interruptible: false,
+     text: "Приходи проголосовать на избирательный участок номер тысяча двести пятьдесят девять в Артспейс."}
+  - {id: v1f, level: full, interruptible: false,
+     text: "Желаю тебе хорошего дня!"}
