@@ -5,7 +5,7 @@
 # сняты через RViz Publish Point (/clicked_point) по месту. yaw не измерен.
 #
 # Экскурсии здесь нет: оператор гоняет робота из точки в точку
-# `cli tour --locations vybory_N --no-greet --no-confirm --no-return-home`,
+# `ros2 run guide_robot_mission_control mission_cli tour --locations vybory_N --no-greet --no-confirm --no-return-home`,
 # по прибытии звучит content/vybory_N.ru.yaml (для явного location_ids
 # exhibit_id = location_id, mission_fsm_node._resolve_tour).
 version: 1
