@@ -20,6 +20,7 @@ from __future__ import annotations
 import threading
 import time
 
+import numpy as np
 import rclpy
 from builtin_interfaces.msg import Time as TimeMsg
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
@@ -33,6 +34,7 @@ from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from guide_robot_voice.lib.backends import TtsBackend, make_backend
 from guide_robot_voice.lib.chunker import ChunkerConfig, TextChunker
 from guide_robot_voice.lib.qos import QOS_CANCEL_ALL, QOS_SYSTEM_EVENT, QOS_VOICE_SPEAKING
+from guide_robot_voice.lib.remote_sink import RemoteSink
 from guide_robot_voice.lib.resampler import Resampler
 from guide_robot_voice.lib.scheduler import Action, Scheduler, Scope, Utterance
 from guide_robot_voice.lib.sink import EpochFencedSink, SoundDeviceEmitter
@@ -57,6 +59,8 @@ class TtsNode(LifecycleNode):
         self.declare_parameter("periods", 3)
         self.declare_parameter("channels", 2)
         self.declare_parameter("allow_shared", False)
+        self.declare_parameter("sink_backend", "local")
+        self.declare_parameter("remote_service_timeout", 3.0)
         self.declare_parameter("max_queue_ms", 600)
         self.declare_parameter("fade_out_ms", 80)
         self.declare_parameter("min_chars", 40)
@@ -68,7 +72,7 @@ class TtsNode(LifecycleNode):
         self.declare_parameter("default_priority", 50)
 
         self._backend: TtsBackend | None = None
-        self._sink: EpochFencedSink | None = None
+        self._sink: EpochFencedSink | RemoteSink | None = None
         self._chunker: TextChunker | None = None
         self._resampler: Resampler | None = None
         self._scheduler = Scheduler()
@@ -137,22 +141,34 @@ class TtsNode(LifecycleNode):
         block_ms = int(self.get_parameter("block_ms").value)
         periods = int(self.get_parameter("periods").value)
         device = self.get_parameter("device").value or None
-        self._stage = f"открытие устройства вывода ({device or 'по умолчанию'})"
-        self.get_logger().info(f"открываю устройство вывода: {device or 'по умолчанию'}")
-        emitter = SoundDeviceEmitter(
-            sample_rate=device_rate,
-            channels=int(self.get_parameter("channels").value),
-            block_ms=block_ms,
-            buffer_ms=periods * block_ms,
-            device=device,
-            allow_shared=bool(self.get_parameter("allow_shared").value),
-        )
-        self._sink = EpochFencedSink(
-            emitter,
-            sample_rate=device_rate,
-            max_queue_ms=int(self.get_parameter("max_queue_ms").value),
-            fade_out_ms=int(self.get_parameter("fade_out_ms").value),
-        )
+        sink_backend = str(self.get_parameter("sink_backend").value)
+        if sink_backend == "xvf3800":
+            self._stage = "подключение RemoteSink к xvf3800_audio_node"
+            self._sink = RemoteSink(
+                self,
+                sample_rate=device_rate,
+                fade_out_ms=int(self.get_parameter("fade_out_ms").value),
+                service_timeout=float(self.get_parameter("remote_service_timeout").value),
+            )
+        elif sink_backend == "local":
+            self._stage = f"открытие устройства вывода ({device or 'по умолчанию'})"
+            self.get_logger().info(f"открываю устройство вывода: {device or 'по умолчанию'}")
+            emitter = SoundDeviceEmitter(
+                sample_rate=device_rate,
+                channels=int(self.get_parameter("channels").value),
+                block_ms=block_ms,
+                buffer_ms=periods * block_ms,
+                device=device,
+                allow_shared=bool(self.get_parameter("allow_shared").value),
+            )
+            self._sink = EpochFencedSink(
+                emitter,
+                sample_rate=device_rate,
+                max_queue_ms=int(self.get_parameter("max_queue_ms").value),
+                fade_out_ms=int(self.get_parameter("fade_out_ms").value),
+            )
+        else:
+            raise ValueError("sink_backend должен быть local или xvf3800")
 
         self._stage = "интерфейсы ROS"
         self._scheduler = Scheduler(max_queue=int(self.get_parameter("max_queue").value))
@@ -189,6 +205,7 @@ class TtsNode(LifecycleNode):
         self._stage = "готово"
         self.get_logger().info(
             f"tts_node сконфигурирован: бэкенд={self.get_parameter('backend').value}, "
+            f"sink={sink_backend}, "
             f"модель {self._backend.sample_rate} Гц, устройство {device_rate} Гц, "
             f"блок {block_ms} мс"
         )
@@ -284,8 +301,16 @@ class TtsNode(LifecycleNode):
             self._pending_barge_in_latency_ms = (now_ns - onset_ns) / 1e6
 
     def _on_goal_cancel(self, goal_handle: object) -> CancelResponse:
-        """Штатная отмена одной цели: ждёт границы клаузы."""
-        del goal_handle
+        """Немедленно fenced-нуть PCM отменяемой активной Say-цели."""
+        if self._sink is not None:
+            goal_id = bytes(goal_handle.goal_id.uuid).hex()  # type: ignore[attr-defined]
+            with self._scheduler_lock:
+                active = self._scheduler.active
+                is_active = active is not None and active.goal_id == goal_id
+            if is_active:
+                self._sink.bump("goal_cancel")
+                if self._resampler is not None:
+                    self._resampler.reset()
         return CancelResponse.ACCEPT
 
     # -- приём целей ------------------------------------------------------
@@ -354,14 +379,27 @@ class TtsNode(LifecycleNode):
 
     # -- воспроизведение ----------------------------------------------------
 
-    def _speak(self, goal_handle: object, utterance: Utterance) -> Say.Result:
+    def _speak(  # noqa: PLR0912, PLR0915 -- линейная orchestration Say lifecycle
+        self, goal_handle: object, utterance: Utterance
+    ) -> Say.Result:
         """Основной цикл: клауза -> синтез -> сток, с проверкой epoch."""
         assert self._sink is not None
         assert self._chunker is not None
         assert self._backend is not None
 
         clauses = self._chunker.split(utterance.text)
-        epoch = self._sink.epoch
+        try:
+            epoch = self._sink.begin(utterance.goal_id)
+        except Exception as error:
+            self.get_logger().error(f"не удалось открыть playback stream: {error}")
+            goal_handle.abort()  # type: ignore[attr-defined]
+            return self._finish(
+                utterance.goal_id,
+                Say.Result(
+                    status=Say.Result.STATUS_FAILED,
+                    message=f"playback_begin_error: {error}"[:200],
+                ),
+            )
         started = time.monotonic()
         spoken_chars = 0
         status = Say.Result.STATUS_COMPLETED
@@ -379,6 +417,9 @@ class TtsNode(LifecycleNode):
                 break
             if utterance.max_duration > 0 and time.monotonic() - started > utterance.max_duration:
                 status, message = Say.Result.STATUS_PREEMPTED, "max_duration"
+                self._sink.bump("max_duration")
+                if self._resampler is not None:
+                    self._resampler.reset()
                 break
 
             feedback = Say.Feedback(
@@ -398,10 +439,24 @@ class TtsNode(LifecycleNode):
                 message = f"synthesis_error: {error}"[:200]
                 break
             if not pushed:
-                status, message = Say.Result.STATUS_PREEMPTED, "epoch_bumped"
+                if goal_handle.is_cancel_requested:  # type: ignore[attr-defined]
+                    status, message = Say.Result.STATUS_CANCELLED, "goal_cancel"
+                else:
+                    status, message = Say.Result.STATUS_PREEMPTED, "epoch_bumped"
                 break
 
-            # Символы засчитываются только за полностью поставленную клаузу.
+            # Для RemoteSink это аппаратный checkpoint: все сэмплы клаузы
+            # уже прошли playback timeline XVF3800. При cancel/fence epoch
+            # меняется и ожидание сразу возвращает False, поэтому
+            # narration_server не пропустит фактически не прозвучавший текст.
+            if not self._sink.wait_presented(epoch):
+                if goal_handle.is_cancel_requested:  # type: ignore[attr-defined]
+                    status, message = Say.Result.STATUS_CANCELLED, "goal_cancel"
+                else:
+                    status, message = Say.Result.STATUS_PREEMPTED, "epoch_bumped"
+                break
+
+            # Символы засчитываются только за подтверждённую целую клаузу.
             # Половина клаузы в очереди -- это не "прозвучало", и завышать
             # spoken_chars нельзя: narration_server возобновит монолог
             # с пропуском куска текста.
@@ -467,12 +522,28 @@ class TtsNode(LifecycleNode):
         max_attempts = 2
         for attempt in range(1, max_attempts + 1):
             pushed_any = False
+            remote_blocks: list[np.ndarray] = []
             try:
                 for block in self._backend.synthesize(text, voice):
+                    if self._sink.epoch != epoch:
+                        self._resampler.reset()
+                        return False
                     converted = self._resampler.process(block)
                     if not converted.size:
                         continue
+                    if self._sink.prefers_clause_batches:
+                        remote_blocks.append(converted)
+                        continue
                     if not self._sink.submit(epoch, converted):
+                        self._resampler.reset()
+                        return False
+                    pushed_any = True
+                if remote_blocks:
+                    # Один PlayPcm на каждый разрешённый аппаратной нодой
+                    # блок, а не action round-trip на каждые 20 мс TTS.
+                    # RemoteSink сам режет массив по max_pcm_samples.
+                    clause_pcm = np.concatenate(remote_blocks)
+                    if not self._sink.submit(epoch, clause_pcm):
                         self._resampler.reset()
                         return False
                     pushed_any = True
@@ -518,7 +589,9 @@ class TtsNode(LifecycleNode):
         now = self.get_clock().now()
         status = SpeakingStatus()
         status.stamp = now.to_msg()
-        status.speaking = self._speaking
+        status.speaking = self._speaking and (
+            self._sink.is_playing if self._sink.reports_hardware_state else True
+        )
         status.epoch = self._sink.epoch
         status.goal_id = self._active_goal_id
         status.priority = self._active_priority
@@ -534,7 +607,7 @@ class TtsNode(LifecycleNode):
             name="voice/tts",
             hardware_id="tts_node",
             level=DiagnosticStatus.OK,
-            message="speaking" if self._speaking else "idle",
+            message="speaking" if status.speaking else "idle",
             values=[
                 KeyValue(key="epoch", value=str(self._sink.epoch)),
                 KeyValue(key="t_stop_ms", value=f"{metrics.t_stop_ms:.2f}"),

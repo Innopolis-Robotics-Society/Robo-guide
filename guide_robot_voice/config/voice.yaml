@@ -63,6 +63,7 @@
 
 /**/tts_node:
   ros__parameters:
+    sink_backend: local           # local | xvf3800
     backend: silero               # silero | piper | null (null -> тон, режим измерений)
     # Модель лежит в репозитории (models/, git-lfs) -- путь одинаков на любой
     # машине, ничего не нужно скачивать отдельно.

@@ -1,0 +1,27 @@
+# Аппаратный профиль конкретной стендовой платы XVF3800.
+#
+# Значения подтверждены USB/UAC probe 20 сентября 2026 года. Номер ALSA
+# card N намеренно не используется: он меняется при перезагрузке. Serial
+# запрещает ноде молча открыть другую одноимённую плату или встроенный микрофон.
+/**/xvf3800_audio_node:
+  ros__parameters:
+    expected_usb_serial: "101991441262500122"
+    capture_device: "hw:CARD=Array,DEV=0"
+    playback_device: "hw:CARD=Array,DEV=0"
+
+    device_rate: 16000
+    capture_channels: 2
+    playback_channels: 2
+    sample_format: "S16_LE"
+    frame_ms: 16
+    alsa_latency_us: 48000
+    max_playback_queue_ms: 600
+    max_pcm_block_ms: 2000
+    playback_fade_ms: 20
+    playback_state_hz: 20.0
+
+    # Предварительный выбор по стендовому full-duplex тесту: channel 0
+    # сильнее подавил утечку playback и имел меньший noise floor. Окончательно
+    # подтвердить с внешней колонкой на этапе AEC; смена не требует пересборки.
+    processed_channel: 0
+    frame_id: "mic_array"

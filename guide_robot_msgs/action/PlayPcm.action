@@ -1,0 +1,21 @@
+# Поставить ограниченный блок mono PCM в очередь аппаратного audio owner.
+
+string device_session_id
+uint64 stream_id
+uint64 generation
+uint32 clause_index
+uint32 sample_rate
+uint16 channels
+int16[] pcm
+---
+uint8 STATUS_ACCEPTED=0
+uint8 STATUS_CANCELLED=1
+uint8 STATUS_REJECTED=2
+uint8 STATUS_FAILED=3
+
+uint8 status
+uint64 submitted_samples
+string reason
+---
+uint64 presented_samples_estimate
+uint32 buffered_samples

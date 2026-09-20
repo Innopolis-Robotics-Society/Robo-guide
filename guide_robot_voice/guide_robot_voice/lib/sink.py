@@ -358,6 +358,27 @@ class EpochFencedSink:
         self._emitter.open(self._pull)
         self._opened = True
 
+    def begin(self, goal_id: str) -> int:
+        """Локальному sink не нужен отдельный stream; вернуть текущий epoch."""
+        del goal_id
+        return self.epoch
+
+    @property
+    def reports_hardware_state(self) -> bool:
+        """Локальный PortAudio sink не получает отдельный playback heartbeat."""
+        return False
+
+    @property
+    def prefers_clause_batches(self) -> bool:
+        """Локальный callback-sink принимает потоковые блоки без ROS overhead."""
+        return False
+
+    @property
+    def is_playing(self) -> bool:
+        """Приближённое локальное состояние: в очереди остаётся PCM."""
+        with self._lock:
+            return bool(self._state.chunks) or self._state.cursor != 0
+
     def close(self) -> None:
         """Остановить вывод и освободить устройство."""
         with self._cv:
@@ -521,6 +542,17 @@ class EpochFencedSink:
         return (tail * gain).astype(np.int16)
 
     # -- завершение ---------------------------------------------------------
+
+    def wait_presented(self, epoch: int, timeout: float = 30.0) -> bool:
+        """Совместимость с RemoteSink для границ клауз.
+
+        Локальный legacy-путь не получает отдельный аппаратный timeline:
+        точную границу подтверждает только RemoteSink. Здесь достаточно
+        проверить, что epoch всё ещё актуален; прежнее потоковое поведение
+        PortAudio от этого не меняется.
+        """
+        del timeout
+        return not self._closed and self.epoch == epoch
 
     def wait_idle(self, epoch: int, timeout: float = 30.0) -> bool:
         """Дождаться, пока очередь опустеет и устройство доиграет.

@@ -22,3 +22,7 @@ convention = "pep257"
 [tool.ruff.lint.per-file-ignores]
 "**/test/**" = ["D"]   # в тестах докстринги не нужны
 "setup.py" = ["D"]
+
+[tool.codespell]
+# HDA (High Definition Audio) приходит дословно из вывода ALSA.
+ignore-words-list = "hda"

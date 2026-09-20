@@ -1,0 +1,21 @@
+# Оверлей голосового стека для единственного ALSA-владельца XVF3800.
+# Передаётся ПОСЛЕ voice.yaml, поэтому переопределяет только отличия профиля.
+
+/**/tts_node:
+  ros__parameters:
+    sink_backend: xvf3800
+    device_rate: 16000
+    channels: 1
+    fade_out_ms: 20
+    heartbeat_hz: 20.0
+    remote_service_timeout: 3.0
+
+/**/vad_node:
+  ros__parameters:
+    # Автоматический barge-in будет включён после стендовой валидации AEC.
+    require_aec_for_barge_in: true
+
+/**/asr_node:
+  ros__parameters:
+    # XVF-профиль не должен прекращать capture/ASR из-за речи робота.
+    gate_on_tts: false

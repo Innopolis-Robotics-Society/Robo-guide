@@ -38,8 +38,10 @@
                             /diagnostics, /system_event -- пишут все ноды
 ```
 
-Владелец устройства захвата — только `audio_frontend`; владелец устройства
-воспроизведения — только `tts_node`. Никто другой PCM напрямую не открывает.
+В legacy-профилях владельцами устройств остаются `audio_frontend` и локальный
+sink `tts_node`. В профиле XVF3800 единственный владелец обоих ALSA endpoint —
+`xvf3800_audio_node`: старый `audio_frontend` не запускается, а `tts_node`
+передаёт ему PCM через `RemoteSink`.
 
 ## Ноды
 
@@ -139,12 +141,19 @@ mission). `backend=oww` объявлен, но при выборе бросае�
 ### `tts_node`
 
 Silero TTS v5 (`v5_ru.pt`, спикер `xenia`) → `TextChunker` (клаузы) → `Scheduler`
-(приоритет/scope/interruptible) → `Resampler` → `EpochFencedSink`
-(callback-режим PortAudio, epoch-fencing на отмене) → ALSA. Единственный
-издатель `/voice/speaking`. `/speech/cancel_all` — критический путь,
+(приоритет/scope/interruptible) → `Resampler` → выбранный sink. `local`
+использует `EpochFencedSink` и PortAudio; `xvf3800` использует `RemoteSink`,
+а ALSA открывает только `xvf3800_audio_node`. Единственный издатель
+`/voice/speaking`. В XVF-профиле `speaking=true` основан на фактическом
+`PlaybackState`, а не на начале синтеза. `/speech/cancel_all` — критический путь,
 держится коротким (только `bump()` + `Scheduler.cancel()`); при
 `reason=barge_in` latency (`now - msg.stamp`) считается и публикуется как
 `SystemEvent` с heartbeat-таймера, не из колбэка отмены.
+
+В XVF-профиле граница `spoken_text` тоже подтверждается аппаратным timeline:
+клауза засчитывается только после того, как `presented_samples_estimate`
+достиг числа принятых для неё сэмплов. Если в это время пришёл fence, частично
+прозвучавшая клауза не попадает в `spoken_text`.
 
 Синтез клаузы, упавший с исключением (наблюдалось на реальном железе —
 onnxruntime/GigaAM… не для TTS, но тот же класс проблем возможен и здесь)
@@ -166,6 +175,7 @@ latency).
 **Параметры**: `backend="silero"` (`silero`|`piper`|`null` — `null` синтезирует тон,
 режим измерений без модели), `model_path`, `speaker=xenia`, `config_path`, `speaker_id=0`
 (для piper), `length_scale=1.0`, `device`, `device_rate=0` (0 → частота бэкенда),
+`sink_backend="local"` (`local`|`xvf3800`), `remote_service_timeout=3.0`,
 `block_ms=20`, `periods=3`, `channels=2`, `allow_shared=false`,
 `max_queue_ms=600`, `min_chars=40`, `max_clause_chars=180`,
 `chars_per_second=14.0`, `heartbeat_hz=5.0`, `max_queue=8`,

@@ -34,11 +34,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/RunTour.action"
   "action/AskUser.action"
   "action/Say.action"
+  "action/PlayPcm.action"
   "msg/SonarRanges.msg"
   "msg/AudioChunk.msg"
   "msg/CancelAll.msg"
   "msg/Doa.msg"
   "msg/SpeakingStatus.msg"
+  "msg/PlaybackState.msg"
   "msg/VoiceActivity.msg"
   "msg/Wakeword.msg"
   "msg/Presence.msg"
@@ -47,6 +49,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ExhibitChunk.msg"
   "msg/FaceState.msg"
   "srv/SetFaceState.srv"
+  "srv/BeginPlayback.srv"
+  "srv/FencePlayback.srv"
   "msg/DialogPhase.msg"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs
 )
