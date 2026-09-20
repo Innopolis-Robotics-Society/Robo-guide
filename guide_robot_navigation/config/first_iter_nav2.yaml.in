@@ -344,8 +344,14 @@ global_costmap:
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 1.0
+        # ПОДНЯТО 2026-09-09: пути строились слишком близко к стенам,
+        # робот регулярно попадал в зону сонарных полигонов (SonarStopFront /
+        # SonarSlow) и уходил в recovery. Увеличен радиус до 1.2, снижена
+        # крутизна спада до 2.0 — более пологий градиент при большем ореоле.
+        # Следить за узкими проходами: если NavFN перестаёт находить путь
+        # через проём < 2.4 м (2 * 1.2), вернуть к 1.0 / 3.0.
+        cost_scaling_factor: 2.0
+        inflation_radius: 1.2
       always_send_full_costmap: False
   global_costmap_client:
     ros__parameters:
