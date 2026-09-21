@@ -208,6 +208,10 @@ stateDiagram-v2
 
 ### Этап 1. Аудиотракт XVF3800
 
+**Статус 21 сентября 2026:** компьютерный USB/ALSA-стенд выполнен; serial,
+capture/playback и непрерывный ROS-поток подтверждены. AUX → Supra → динамики
+остаётся проверить на роботе.
+
 - определить ALSA-карту, playback/capture endpoints и processed-канал;
 - реализовать `xvf3800_audio_node` и новый аппаратный YAML-профиль;
 - получить одновременные стабильные capture и playback без Pulse/UM2;
@@ -218,6 +222,10 @@ stateDiagram-v2
 
 ### Этап 2. TTS и отмена
 
+**Статус 21 сентября 2026:** `RemoteSink`, фактический `PlaybackState`,
+ограниченная очередь, fade/fencing и настоящий Silero 48 → 16 кГц проверены
+на XVF3800. Отмена не засчитывает незаконченную клаузу и не мешает следующей.
+
 - подключить `tts_node` к playback-интерфейсу audio owner;
 - связать `/voice/speaking` с фактическим началом и концом PCM;
 - реализовать ограниченный буфер, fade-out и очистку старого поколения PCM.
@@ -226,6 +234,12 @@ stateDiagram-v2
 возвращается после новой реплики.
 
 ### Этап 3. AEC и full-duplex
+
+**Статус 21 сентября 2026:** добавлен полный XVF-стенд без `audio_frontend`,
+ASR сохраняет человеческую реплику при остановке TTS, оба UAC capture-канала
+доступны в диагностическом режиме. На компьютерном double-talk тесте выбран
+предварительный `processed_channel: 0`; финальное подтверждение через Supra и
+динамики остаётся обязательным. Автоматический barge-in пока закрыт.
 
 - проверить, что XVF3800 получает правильный playback reference;
 - выбрать processed capture-канал и настроить уровни Supra;
@@ -236,6 +250,15 @@ stateDiagram-v2
 человека поверх динамиков обнаруживается.
 
 ### Этап 4. Голосовая FSM и barge-in
+
+**Статус 21 сентября 2026:** реализованы sample-indexed `VadObservation`,
+`voice_session_manager`, решения `ADMIT/KWS_ONLY/REJECT` по конкретным
+`device_session_id + utterance_id`, 500 мс indexed pre-roll и input fencing по
+`control_sequence`. В XVF-launch только manager владеет автоматическим
+barge-in; VAD больше не публикует его сам. Чистая FSM, разрывы capture,
+pre-roll и поздние решения покрыты unit-тестами. Автоматическая отмена пока
+закрыта до финальной AEC-проверки через Supra (`automatic_barge_in_enabled` и
+`audio_profile_validated` остаются `false`).
 
 - реализовать `voice_session_manager`;
 - перенести в него единоличное решение об автоматическом barge-in;

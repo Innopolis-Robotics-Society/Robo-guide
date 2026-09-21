@@ -35,7 +35,7 @@ from guide_robot_voice.lib.backends import TtsBackend, make_backend
 from guide_robot_voice.lib.chunker import ChunkerConfig, TextChunker
 from guide_robot_voice.lib.qos import QOS_CANCEL_ALL, QOS_SYSTEM_EVENT, QOS_VOICE_SPEAKING
 from guide_robot_voice.lib.remote_sink import RemoteSink
-from guide_robot_voice.lib.resampler import Resampler
+from guide_robot_voice.lib.resampler import Resampler, resample_int16
 from guide_robot_voice.lib.scheduler import Action, Scheduler, Scope, Utterance
 from guide_robot_voice.lib.sink import EpochFencedSink, SoundDeviceEmitter
 
@@ -51,6 +51,7 @@ class TtsNode(LifecycleNode):
         self.declare_parameter("model_path", "")
         self.declare_parameter("config_path", "")
         self.declare_parameter("speaker", "xenia")
+        self.declare_parameter("silero_sample_rate", 48000)
         self.declare_parameter("speaker_id", 0)
         self.declare_parameter("length_scale", 1.0)
         self.declare_parameter("device", "")
@@ -522,27 +523,37 @@ class TtsNode(LifecycleNode):
         max_attempts = 2
         for attempt in range(1, max_attempts + 1):
             pushed_any = False
-            remote_blocks: list[np.ndarray] = []
+            remote_source_blocks: list[np.ndarray] = []
             try:
                 for block in self._backend.synthesize(text, voice):
                     if self._sink.epoch != epoch:
                         self._resampler.reset()
                         return False
+                    if self._sink.prefers_clause_batches:
+                        # Silero уже вернул всю фразу до первого yield, а
+                        # RemoteSink всё равно посылает её крупными блоками.
+                        # Собираем исходную клаузу и ресемплируем одним
+                        # полифазным вызовом: без soxr это исключает стыки
+                        # фильтра на каждые 20 мс.
+                        remote_source_blocks.append(block)
+                        continue
                     converted = self._resampler.process(block)
                     if not converted.size:
-                        continue
-                    if self._sink.prefers_clause_batches:
-                        remote_blocks.append(converted)
                         continue
                     if not self._sink.submit(epoch, converted):
                         self._resampler.reset()
                         return False
                     pushed_any = True
-                if remote_blocks:
+                if remote_source_blocks:
                     # Один PlayPcm на каждый разрешённый аппаратной нодой
                     # блок, а не action round-trip на каждые 20 мс TTS.
                     # RemoteSink сам режет массив по max_pcm_samples.
-                    clause_pcm = np.concatenate(remote_blocks)
+                    source_pcm = np.concatenate(remote_source_blocks)
+                    clause_pcm = resample_int16(
+                        source_pcm,
+                        self._backend.sample_rate,
+                        self._resampler.target_rate,
+                    )
                     if not self._sink.submit(epoch, clause_pcm):
                         self._resampler.reset()
                         return False
@@ -658,12 +669,11 @@ class TtsNode(LifecycleNode):
                 length_scale=float(self.get_parameter("length_scale").value),
             )
         if kind == "silero":
-            device_rate = int(self.get_parameter("device_rate").value)
             return make_backend(
                 "silero",
                 model_path=str(self.get_parameter("model_path").value),
                 speaker=str(self.get_parameter("speaker").value),
-                sample_rate=device_rate or 48000,
+                sample_rate=int(self.get_parameter("silero_sample_rate").value),
                 block_ms=int(self.get_parameter("block_ms").value),
             )
         raise ValueError(f"неизвестный бэкенд: {kind!r}, ожидается 'silero', 'piper' или 'null'")

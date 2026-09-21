@@ -12,10 +12,19 @@
 
 /**/vad_node:
   ros__parameters:
-    # Автоматический barge-in будет включён после стендовой валидации AEC.
+    # В XVF-профиле VAD только измеряет; automatic CancelAll принадлежит FSM.
+    barge_in_enabled: false
     require_aec_for_barge_in: true
 
 /**/asr_node:
   ros__parameters:
     # XVF-профиль не должен прекращать capture/ASR из-за речи робота.
     gate_on_tts: false
+    session_managed_input: true
+    pre_roll_ms: 500.0
+
+/**/voice_session_manager:
+  ros__parameters:
+    # Оба флага включаются только после проверки XVF -> Supra -> динамики.
+    automatic_barge_in_enabled: false
+    audio_profile_validated: false

@@ -20,8 +20,10 @@
     playback_fade_ms: 20
     playback_state_hz: 20.0
 
-    # Предварительный выбор по стендовому full-duplex тесту: channel 0
-    # сильнее подавил утечку playback и имел меньший noise floor. Окончательно
-    # подтвердить с внешней колонкой на этапе AEC; смена не требует пересборки.
+    # Компьютерный стенд 2026-09-21: при playback-only channel 0 дал
+    # -40.2 dBFS против -32.3 dBFS у channel 1, а человеческую речь сохранил
+    # почти на том же уровне (-25.6 против -24.3 dBFS). Окончательно
+    # подтвердить через Supra и динамики; смена не требует пересборки.
     processed_channel: 0
+    publish_stereo_debug: false
     frame_id: "mic_array"

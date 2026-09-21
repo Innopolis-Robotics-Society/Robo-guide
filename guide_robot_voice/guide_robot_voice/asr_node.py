@@ -8,10 +8,11 @@
 ПОТОК (design §3.4, с поправкой на §-отклонение в lib/asr_model.py):
 1. Кадры /audio/mic всегда копятся в кольцевой pre-roll буфер
    (pre_roll_ms), независимо от состояния VAD.
-2. /vad active=false -> true, ранее не было открытого высказывания,
-   TTS не гейтит (gate_on_tts) -- открывается высказывание: utterance_id++,
-   в накопитель высказывания подаётся снимок pre-roll (без него срезается
-   первый слог -- design §3.4).
+2. В legacy-профиле /vad active=false -> true открывает высказывание. В
+   session_managed_input-профиле его открывает только UtteranceControl от
+   voice_session_manager; utterance_id и onset_sample приходят в решении.
+   Pre-roll выбирается по capture sample index, чтобы не потерять и не
+   задублировать начало.
 3. Каждый новый кадр /audio/mic во время открытого высказывания
    добавляется в накопитель. GigaAM крутится на отдельном потоке: таймер
    на том же executor'е, что и подписка KEEP_LAST, на сотни мс глушил
@@ -19,10 +20,9 @@
 4. Каждое /vad-сообщение во время открытого высказывания прогоняется
    через TurnPolicy.should_finalize(). Тишина берётся из state_duration
    самого /vad -- vad_node уже считает её точно, задваивать незачем.
-5. На финализации -- ОДИН проход OfflineRecognizer по ВСЕМУ накопителю
-   (спешить некуда, высказывание уже закончено). Короче min_final_chars --
-   не публикуется вовсе (шум/лязг, а не речь, симметрично min_speech_ms
-   в vad_node).
+5. На финализации -- ОДИН проход OfflineRecognizer по ВСЕМУ накопителю.
+   В managed-профиле внешний final публикуется только при актуальном ADMIT;
+   поздний REJECT fencing-ует уже запущенный worker.
 """
 
 from __future__ import annotations
@@ -36,7 +36,14 @@ from dataclasses import dataclass
 import numpy as np
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from guide_robot_msgs.msg import AudioChunk, SpeakingStatus, Transcript, VoiceActivity
+from guide_robot_msgs.msg import (
+    AudioChunk,
+    SpeakingStatus,
+    Transcript,
+    UtteranceControl,
+    UtteranceEvent,
+    VoiceActivity,
+)
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_voice.lib.asr_model import GigaAmCtc
@@ -44,15 +51,18 @@ from guide_robot_voice.lib.qos import (
     QOS_ASR_PARTIAL,
     QOS_ASR_TRANSCRIPT,
     QOS_AUDIO_MIC,
+    QOS_UTTERANCE_CONTROL,
+    QOS_UTTERANCE_EVENT,
     QOS_VAD,
     QOS_VOICE_SPEAKING,
 )
-from guide_robot_voice.lib.ring import RingBuffer
+from guide_robot_voice.lib.ring import IndexedAudioRing, RingBuffer
 from guide_robot_voice.lib.turn_policy import TurnPolicy, TurnPolicyConfig
 
 _SAMPLE_RATE = 16000
 _SPEAKING_STATUS_STALE_SEC = 0.4
 _TTS_ECHO_HOLD_S = 1.0
+_PREROLL_DECISION_RESERVE_MS = 1000.0
 
 
 @dataclass(frozen=True)
@@ -66,6 +76,9 @@ class _DecodeJob:
     prefix_samples: int
     total_samples: int
     speech_ms: float
+    device_session_id: str
+    start_sample: int
+    end_sample: int
 
 
 class AsrNode(LifecycleNode):
@@ -89,6 +102,7 @@ class AsrNode(LifecycleNode):
         self.declare_parameter("short_path_max_ms", 2500.0)
         self.declare_parameter("min_final_chars", 2)
         self.declare_parameter("gate_on_tts", False)
+        self.declare_parameter("session_managed_input", False)
         # При gate_on_tts: всё равно копить окно и слать /asr/partial во время
         # TTS (для wakeword «робот»/«стоп»), финалы в диалог не открывать.
         self.declare_parameter("wakeword_listen_during_tts", False)
@@ -97,6 +111,7 @@ class AsrNode(LifecycleNode):
         self._asr: GigaAmCtc | None = None
         self._turn_policy: TurnPolicy | None = None
         self._pre_roll: RingBuffer | None = None
+        self._indexed_pre_roll: IndexedAudioRing | None = None
         self._is_active = False
         self._lock = threading.Lock()
 
@@ -107,7 +122,14 @@ class AsrNode(LifecycleNode):
         self._prefix_samples = 0
         """Длина pre-roll внутри накопителя -- utterance_ms считается без неё."""
         self._utterance_timestamp = 0.0
+        self._utterance_device_session_id = ""
+        self._utterance_start_sample = 0
+        self._utterance_next_sample = 0
+        self._utterance_decision = UtteranceControl.DECISION_ADMIT
         self._last_partial_text = ""
+        self._last_control_sequence: dict[tuple[str, int], int] = {}
+        self._admission: dict[tuple[str, int], int] = {}
+        self._preroll_underflows = 0
 
         self._latest_speaking: SpeakingStatus | None = None
         self._tts_hold_until = 0.0
@@ -168,12 +190,22 @@ class AsrNode(LifecycleNode):
         pre_roll_ms = float(self.get_parameter("pre_roll_ms").value)
         pre_roll_samples = int(_SAMPLE_RATE * pre_roll_ms / 1000.0)
         self._pre_roll = RingBuffer(_SAMPLE_RATE, max_samples=pre_roll_samples)
+        indexed_capacity = pre_roll_samples + int(
+            _SAMPLE_RATE * _PREROLL_DECISION_RESERVE_MS / 1000.0
+        )
+        self._indexed_pre_roll = IndexedAudioRing(_SAMPLE_RATE, max_samples=indexed_capacity)
 
         self._partial_pub = self.create_lifecycle_publisher(
             Transcript, "/asr/partial", QOS_ASR_PARTIAL
         )
         self._transcript_pub = self.create_lifecycle_publisher(
             Transcript, "/asr/transcript", QOS_ASR_TRANSCRIPT
+        )
+        self._kws_partial_pub = self.create_lifecycle_publisher(
+            Transcript, "/voice/kws_partial", QOS_ASR_PARTIAL
+        )
+        self._utterance_event_pub = self.create_lifecycle_publisher(
+            UtteranceEvent, "/voice/utterance_event", QOS_UTTERANCE_EVENT
         )
         self._diag_pub = self.create_lifecycle_publisher(DiagnosticArray, "/diagnostics", 10)
         self._mic_sub = self.create_subscription(
@@ -182,6 +214,12 @@ class AsrNode(LifecycleNode):
         self._vad_sub = self.create_subscription(VoiceActivity, "/vad", self._on_vad, QOS_VAD)
         self._speaking_sub = self.create_subscription(
             SpeakingStatus, "/voice/speaking", self._on_speaking_status, QOS_VOICE_SPEAKING
+        )
+        self._input_control_sub = self.create_subscription(
+            UtteranceControl,
+            "/voice/input_control",
+            self._on_input_control,
+            QOS_UTTERANCE_CONTROL,
         )
         self._diag_timer = self.create_timer(1.0, self._publish_diagnostics)
         partial_hz = float(self.get_parameter("partial_rate_hz").value)
@@ -196,7 +234,13 @@ class AsrNode(LifecycleNode):
         pre_roll_ms = float(self.get_parameter("pre_roll_ms").value)
         pre_roll_samples = int(_SAMPLE_RATE * pre_roll_ms / 1000.0)
         self._pre_roll = RingBuffer(_SAMPLE_RATE, max_samples=pre_roll_samples)
+        indexed_capacity = pre_roll_samples + int(
+            _SAMPLE_RATE * _PREROLL_DECISION_RESERVE_MS / 1000.0
+        )
+        self._indexed_pre_roll = IndexedAudioRing(_SAMPLE_RATE, max_samples=indexed_capacity)
         self._close_utterance()
+        self._last_control_sequence.clear()
+        self._admission.clear()
         self._latest_speaking = None
         self._tts_hold_until = 0.0
         with self._lock:
@@ -227,7 +271,12 @@ class AsrNode(LifecycleNode):
     def _on_speaking_status(self, msg: SpeakingStatus) -> None:
         prev = self._latest_speaking
         self._latest_speaking = msg
-        if prev is not None and prev.speaking and not msg.speaking:
+        if (
+            prev is not None
+            and prev.speaking
+            and not msg.speaking
+            and bool(self.get_parameter("gate_on_tts").value)
+        ):
             self._tts_hold_until = time.monotonic() + _TTS_ECHO_HOLD_S
             # Хвост shadow-слушания под TTS не должен стать финалом в диалог.
             with self._lock:
@@ -250,17 +299,76 @@ class AsrNode(LifecycleNode):
     def _wakeword_listen_during_tts(self) -> bool:
         return bool(self.get_parameter("wakeword_listen_during_tts").value)
 
+    def _session_managed_input(self) -> bool:
+        return bool(self.get_parameter("session_managed_input").value)
+
     def _on_audio(self, msg: AudioChunk) -> None:
         timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
         samples = np.array(msg.data, dtype=np.int16)
+        device_session_id = msg.device_session_id or "unknown-capture-session"
         with self._lock:
             if not self._is_active:
                 return
             assert self._pre_roll is not None
+            assert self._indexed_pre_roll is not None
             self._pre_roll.push(timestamp, samples)
-            if self._utterance_open:
+            discontinuity = self._indexed_pre_roll.push(
+                device_session_id, int(msg.first_sample), timestamp, samples
+            )
+            if not self._utterance_open:
+                return
+            if self._session_managed_input():
+                if (
+                    discontinuity
+                    or device_session_id != self._utterance_device_session_id
+                    or int(msg.first_sample) > self._utterance_next_sample
+                ):
+                    self._discard_open_utterance("capture_discontinuity")
+                    return
+                block_end = int(msg.first_sample) + int(samples.shape[0])
+                if block_end <= self._utterance_next_sample:
+                    return
+                offset = max(0, self._utterance_next_sample - int(msg.first_sample))
+                appended = samples[offset:]
+                if appended.size:
+                    self._utterance_chunks.append(appended)
+                    self._utterance_samples += int(appended.shape[0])
+                    self._utterance_next_sample = block_end
+            else:
                 self._utterance_chunks.append(samples)
                 self._utterance_samples += samples.shape[0]
+
+    def _on_input_control(self, msg: UtteranceControl) -> None:
+        """Применить только самое новое решение для конкретной реплики."""
+        key = (msg.device_session_id, int(msg.utterance_id))
+        with self._lock:
+            if not self._is_active or not self._session_managed_input():
+                return
+            previous_sequence = self._last_control_sequence.get(key, -1)
+            if int(msg.control_sequence) <= previous_sequence:
+                return
+            self._last_control_sequence[key] = int(msg.control_sequence)
+            self._admission[key] = int(msg.decision)
+
+            if msg.decision == UtteranceControl.DECISION_REJECT:
+                if (
+                    self._utterance_open
+                    and self._utterance_device_session_id == msg.device_session_id
+                    and self._utterance_id == msg.utterance_id
+                ):
+                    self._discard_open_utterance(msg.reason or "rejected")
+                return
+
+            if self._utterance_open:
+                if (
+                    self._utterance_device_session_id == msg.device_session_id
+                    and self._utterance_id == msg.utterance_id
+                ):
+                    self._utterance_decision = int(msg.decision)
+                    return
+                self._discard_open_utterance("superseded")
+
+            self._open_managed_utterance(msg)
 
     def _on_partial_timer(self) -> None:
         """Поставить партиал в очередь воркера, не декодировать на executor'е."""
@@ -296,7 +404,7 @@ class AsrNode(LifecycleNode):
                 self._trim_utterance_to_partial_window_locked()
                 return
             if not self._utterance_open:
-                if msg.active:
+                if msg.active and not self._session_managed_input():
                     self._open_utterance()
                 return
             silence_ms = 0.0 if msg.active else msg.state_duration * 1000.0
@@ -309,6 +417,7 @@ class AsrNode(LifecycleNode):
     # -- высказывание ---------------------------------------------------
 
     def _open_utterance(self) -> None:
+        """Открыть legacy-сегмент приблизительным снимком всего pre-roll."""
         assert self._pre_roll is not None
         snapshot = self._pre_roll.snapshot()
         if snapshot is None:
@@ -322,15 +431,104 @@ class AsrNode(LifecycleNode):
         self._utterance_samples = int(prefix.shape[0])
         self._prefix_samples = int(prefix.shape[0])
         self._utterance_timestamp = prefix_timestamp
+        self._utterance_device_session_id = (
+            self._indexed_pre_roll.device_session_id if self._indexed_pre_roll is not None else ""
+        )
+        indexed_next = (
+            self._indexed_pre_roll.next_sample if self._indexed_pre_roll is not None else 0
+        )
+        self._utterance_next_sample = int(indexed_next or 0)
+        self._utterance_start_sample = max(
+            0, self._utterance_next_sample - self._utterance_samples
+        )
+        self._utterance_decision = UtteranceControl.DECISION_ADMIT
+        self._admission[(self._utterance_device_session_id, self._utterance_id)] = (
+            UtteranceControl.DECISION_ADMIT
+        )
         self._last_partial_text = ""
         self._utterances_total += 1
+
+    def _open_managed_utterance(self, control: UtteranceControl) -> None:
+        """Открыть segment по точному onset_sample с настраиваемым pre-roll."""
+        assert self._indexed_pre_roll is not None
+        pre_roll_samples = int(
+            _SAMPLE_RATE * float(self.get_parameter("pre_roll_ms").value) / 1000.0
+        )
+        requested_start = max(0, int(control.onset_sample) - pre_roll_samples)
+        snapshot = self._indexed_pre_roll.snapshot_from(control.device_session_id, requested_start)
+        if snapshot is None:
+            self.get_logger().warning(
+                f"нет pre-roll для utterance_id={control.utterance_id}, "
+                f"session={control.device_session_id!r}"
+            )
+            return
+
+        self._utterance_id = int(control.utterance_id)
+        self._utterance_open = True
+        self._utterance_chunks = [snapshot.samples] if snapshot.samples.size else []
+        self._utterance_samples = int(snapshot.samples.shape[0])
+        self._prefix_samples = max(
+            0,
+            min(
+                self._utterance_samples,
+                int(control.onset_sample) - snapshot.first_sample,
+            ),
+        )
+        self._utterance_timestamp = snapshot.timestamp
+        self._utterance_device_session_id = control.device_session_id
+        self._utterance_start_sample = snapshot.first_sample
+        self._utterance_next_sample = snapshot.next_sample
+        self._utterance_decision = int(control.decision)
+        self._last_partial_text = ""
+        self._utterances_total += 1
+        if snapshot.underflow:
+            self._preroll_underflows += 1
+            self.get_logger().warning(
+                f"preroll_underflow: utterance_id={control.utterance_id}, "
+                f"requested={requested_start}, available={snapshot.first_sample}"
+            )
+        self._publish_utterance_event(UtteranceEvent.EVENT_OPENED, "opened")
 
     def _close_utterance(self) -> None:
         self._utterance_open = False
         self._utterance_chunks = []
         self._utterance_samples = 0
         self._prefix_samples = 0
+        self._utterance_device_session_id = ""
+        self._utterance_start_sample = 0
+        self._utterance_next_sample = 0
+        self._utterance_decision = UtteranceControl.DECISION_ADMIT
         self._last_partial_text = ""
+
+    def _discard_open_utterance(self, reason: str) -> None:
+        if not self._utterance_open:
+            return
+        self._publish_utterance_event(UtteranceEvent.EVENT_DISCARDED, reason)
+        self._close_utterance()
+
+    def _publish_utterance_event(
+        self, event: int, status: str, *, job: _DecodeJob | None = None
+    ) -> None:
+        message = UtteranceEvent()
+        message.stamp = self.get_clock().now().to_msg()
+        if job is None:
+            message.device_session_id = self._utterance_device_session_id
+            message.utterance_id = self._utterance_id
+            message.start_sample = self._utterance_start_sample
+            message.end_sample = self._utterance_next_sample
+            message.decision = self._utterance_decision
+        else:
+            message.device_session_id = job.device_session_id
+            message.utterance_id = job.utterance_id
+            message.start_sample = job.start_sample
+            message.end_sample = job.end_sample
+            message.decision = self._admission.get(
+                (job.device_session_id, job.utterance_id),
+                UtteranceControl.DECISION_REJECT,
+            )
+        message.event = event
+        message.status = status
+        self._utterance_event_pub.publish(message)
 
     def _trim_utterance_to_partial_window_locked(self) -> None:
         """Держать только хвост partial_window_s (shadow-listen под TTS)."""
@@ -386,8 +584,15 @@ class AsrNode(LifecycleNode):
                 self._prefix_samples,
                 self._utterance_samples,
                 self._utterance_speech_ms(),
+                self._utterance_device_session_id,
+                self._utterance_start_sample,
+                self._utterance_next_sample,
             )
             if kind == "final":
+                if self._session_managed_input():
+                    self._publish_utterance_event(
+                        UtteranceEvent.EVENT_ENDPOINT, "endpoint", job=job
+                    )
                 self._close_utterance()
         self._decode_jobs.put(job)
 
@@ -415,18 +620,45 @@ class AsrNode(LifecycleNode):
                 if not self._utterance_open or job.utterance_id != self._utterance_id:
                     return
                 self._last_partial_text = text
+                decision = self._utterance_decision
+                same_session = job.device_session_id == self._utterance_device_session_id
+            if self._session_managed_input():
+                if not same_session:
+                    return
+                self._publish_transcript(text, confidence, is_final=False, job=job, kws_only=True)
+                if decision != UtteranceControl.DECISION_ADMIT:
+                    return
             self._publish_transcript(text, confidence, is_final=False, job=job)
+            return
+
+        decision = self._admission.get(
+            (job.device_session_id, job.utterance_id),
+            UtteranceControl.DECISION_ADMIT
+            if not self._session_managed_input()
+            else UtteranceControl.DECISION_REJECT,
+        )
+        if self._session_managed_input() and decision != UtteranceControl.DECISION_ADMIT:
+            self.get_logger().info(
+                f"discard final utterance_id={job.utterance_id}: admission={decision}"
+            )
+            self._publish_utterance_event(UtteranceEvent.EVENT_DISCARDED, "not_admitted", job=job)
             return
 
         min_chars = int(self.get_parameter("min_final_chars").value)
         if len(text) < min_chars:
             self._finals_dropped_short += 1
             self.get_logger().info(f"drop {text!r} {job.speech_ms:.0f}ms")
+            if self._session_managed_input():
+                self._publish_utterance_event(
+                    UtteranceEvent.EVENT_DISCARDED, "final_too_short", job=job
+                )
             return
 
         self.get_logger().info(f"final {text!r} {job.speech_ms:.0f}ms")
         self._publish_transcript(text, confidence, is_final=True, job=job)
         self._finals_published += 1
+        if self._session_managed_input():
+            self._publish_utterance_event(UtteranceEvent.EVENT_FINAL, "final", job=job)
 
     def _publish_transcript(
         self,
@@ -435,6 +667,7 @@ class AsrNode(LifecycleNode):
         *,
         is_final: bool,
         job: _DecodeJob,
+        kws_only: bool = False,
     ) -> None:
         msg = Transcript()
         msg.header.stamp = self._seconds_to_time_msg(job.timestamp)
@@ -447,7 +680,10 @@ class AsrNode(LifecycleNode):
         msg.speech_end = job.total_samples / _SAMPLE_RATE
         msg.language = "ru"
         msg.azimuth = float("nan")
-        (self._transcript_pub if is_final else self._partial_pub).publish(msg)
+        if kws_only:
+            self._kws_partial_pub.publish(msg)
+        else:
+            (self._transcript_pub if is_final else self._partial_pub).publish(msg)
 
     def _seconds_to_time_msg(self, seconds: float) -> object:
         from builtin_interfaces.msg import Time as TimeMsg
@@ -470,6 +706,11 @@ class AsrNode(LifecycleNode):
                 KeyValue(key="utterances_total", value=str(self._utterances_total)),
                 KeyValue(key="finals_published", value=str(self._finals_published)),
                 KeyValue(key="finals_dropped_short", value=str(self._finals_dropped_short)),
+                KeyValue(key="preroll_underflows", value=str(self._preroll_underflows)),
+                KeyValue(
+                    key="session_managed_input",
+                    value=str(self._session_managed_input()).lower(),
+                ),
             ],
         )
         diag.status.append(entry)

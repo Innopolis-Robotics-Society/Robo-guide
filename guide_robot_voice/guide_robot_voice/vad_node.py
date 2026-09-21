@@ -6,11 +6,11 @@ ROS-обвязку -- накопление кадров /audio/mic (256 сэмп
 ровно по 512 сэмплов, которых требует модель (design §3.1: кадр захвата
 подобран так, чтобы 512 = 2 кадра), и публикацию VoiceActivity.
 
-Barge-in: при входе в речь, если TTS сейчас говорит (/voice/speaking,
-не протухший) и barge_in_enabled -- публикует CancelAll(scope=SCOPE_ALL,
-reason=REASON_BARGE_IN). Живёт здесь, а не в mission/LLM, сознательно:
-это L1-путь, обязан работать при мёртвом LLM. Задержка = один хоп DDS
-(design §3.2).
+Legacy barge-in: при входе в речь, если TTS сейчас говорит
+(/voice/speaking, не протухший) и barge_in_enabled -- публикует CancelAll.
+В XVF-профиле этот путь выключен: нода публикует sample-indexed
+VadObservation, а единственное automatic-решение принимает
+voice_session_manager. Стоп-слово остаётся отдельным L1-путём.
 
 barge_in_min_windows -- НЕЗАВИСИМОЕ от enter_windows подтверждение:
 считает подряд идущие окна с вероятностью выше enter_threshold сам по
@@ -19,11 +19,8 @@ barge_in_min_windows -- НЕЗАВИСИМОЕ от enter_windows подтвер
 и для неё оправдан отдельный (в общем случае более консервативный)
 порог подтверждения, не завязанный на то, каким публикуется /vad.
 
-require_aec_for_barge_in: AEC ещё не существует (Stage 2+, design §7),
-поэтому "AEC активен" здесь всегда False. Если параметр включён, barge-in
-выключен целиком -- это и есть защита от сценария "переехали на железо,
-забыли включить AEC, робот перебивает сам себя", реализованная максимально
-консервативно: нет источника подтверждения AEC -- нет и barge-in.
+require_aec_for_barge_in сохраняется только для legacy-пути. В XVF-профиле
+проверенный AEC-профиль является отдельным guard session manager.
 
 Про xrun. audio_frontend уже сбрасывает свои фильтры при разрыве потока.
 Дыра в 1–2 кадра (16–32 мс) для гистерезиса -- то же, что короткий провал
@@ -41,13 +38,20 @@ import time
 import numpy as np
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from guide_robot_msgs.msg import AudioChunk, CancelAll, SpeakingStatus, VoiceActivity
+from guide_robot_msgs.msg import (
+    AudioChunk,
+    CancelAll,
+    SpeakingStatus,
+    VadObservation,
+    VoiceActivity,
+)
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_voice.lib.qos import (
     QOS_AUDIO_MIC,
     QOS_CANCEL_ALL,
     QOS_VAD,
+    QOS_VAD_OBSERVATION,
     QOS_VOICE_SPEAKING,
 )
 from guide_robot_voice.lib.ring import RingBuffer
@@ -87,6 +91,9 @@ class VadNode(LifecycleNode):
 
         self._lock = threading.Lock()
         self._expected_first_sample: int | None = None
+        self._window_first_sample: int | None = None
+        self._device_session_id = ""
+        self._next_observation_discontinuity = True
         self._activations_total = 0
         self._short_segments_total = 0
         self._last_probability = 0.0
@@ -135,6 +142,9 @@ class VadNode(LifecycleNode):
         self._ring = RingBuffer(16000)
 
         self._vad_pub = self.create_lifecycle_publisher(VoiceActivity, "/vad", QOS_VAD)
+        self._observation_pub = self.create_lifecycle_publisher(
+            VadObservation, "/voice/vad_observation", QOS_VAD_OBSERVATION
+        )
         self._diag_pub = self.create_lifecycle_publisher(DiagnosticArray, "/diagnostics", 10)
         self._cancel_pub = self.create_lifecycle_publisher(
             CancelAll, "/speech/cancel_all", QOS_CANCEL_ALL
@@ -159,6 +169,9 @@ class VadNode(LifecycleNode):
         self._hysteresis.reset()
         self._ring = RingBuffer(16000)
         self._expected_first_sample = None
+        self._window_first_sample = None
+        self._device_session_id = ""
+        self._next_observation_discontinuity = True
         self._was_active = False
         self._barge_in_streak = 0
         self._barge_in_armed = True
@@ -194,32 +207,29 @@ class VadNode(LifecycleNode):
             if not self._is_active:
                 return
 
+        device_session_id = msg.device_session_id or "unknown-capture-session"
         expected = self._expected_first_sample
-        if expected is not None and msg.first_sample != expected:
-            skipped = int(msg.first_sample) - int(expected)
-            reset = skipped < 0 or skipped >= _RESET_GAP_SAMPLES
-            now = time.monotonic()
-            if now - self._gap_log_at >= 1.0:
-                extra = (
-                    f" (+{self._gaps_suppressed} ещё за секунду)" if self._gaps_suppressed else ""
-                )
-                action = "сбрасываю состояние" if reset else "держу сегмент"
-                self.get_logger().warning(
-                    f"разрыв в /audio/mic: ожидался first_sample={expected}, "
-                    f"пришёл {msg.first_sample} (пропуск {skipped} сэмплов) "
-                    f"-- {action}{extra}"
-                )
-                self._gap_log_at = now
-                self._gaps_suppressed = 0
-            else:
-                self._gaps_suppressed += 1
-            if reset:
+        session_changed = bool(self._device_session_id) and (
+            device_session_id != self._device_session_id
+        )
+        sample_gap = expected is not None and msg.first_sample != expected
+        if not self._device_session_id or session_changed or sample_gap:
+            skipped = 0 if expected is None else int(msg.first_sample) - int(expected)
+            reset = session_changed or skipped < 0 or abs(skipped) >= _RESET_GAP_SAMPLES
+            self._ring = RingBuffer(16000)
+            self._window_first_sample = int(msg.first_sample)
+            self._next_observation_discontinuity = True
+            self._barge_in_streak = 0
+            if reset and expected is not None:
                 assert self._vad is not None
                 assert self._hysteresis is not None
                 self._vad.reset()
                 self._hysteresis.reset()
-                self._ring = RingBuffer(16000)
-                self._barge_in_streak = 0
+                self._was_active = False
+                self._barge_in_armed = True
+            if expected is not None:
+                self._log_capture_discontinuity(expected, int(msg.first_sample), skipped, reset)
+        self._device_session_id = device_session_id
         self._expected_first_sample = msg.first_sample + len(msg.data)
 
         timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
@@ -229,6 +239,23 @@ class VadNode(LifecycleNode):
         self._ring.push(timestamp, samples)
         self._drain_ring()
 
+    def _log_capture_discontinuity(
+        self, expected: int, received: int, skipped: int, reset: bool
+    ) -> None:
+        """Залогировать разрыв с throttling, не смешивая его с VAD-логикой."""
+        now = time.monotonic()
+        if now - self._gap_log_at >= 1.0:
+            extra = f" (+{self._gaps_suppressed} ещё за секунду)" if self._gaps_suppressed else ""
+            action = "сбрасываю модель" if reset else "сохраняю гистерезис"
+            self.get_logger().warning(
+                f"разрыв в /audio/mic: ожидался first_sample={expected}, "
+                f"пришёл {received} (пропуск {skipped} сэмплов) -- {action}{extra}"
+            )
+            self._gap_log_at = now
+            self._gaps_suppressed = 0
+        else:
+            self._gaps_suppressed += 1
+
     def _drain_ring(self) -> None:
         assert self._ring is not None
         while True:
@@ -236,9 +263,16 @@ class VadNode(LifecycleNode):
             if popped is None:
                 return
             window_timestamp, window = popped
-            self._process_window(window_timestamp, window)
+            assert self._window_first_sample is not None
+            first_sample = self._window_first_sample
+            self._window_first_sample += _WINDOW_SAMPLES
+            discontinuity = self._next_observation_discontinuity
+            self._next_observation_discontinuity = False
+            self._process_window(window_timestamp, first_sample, discontinuity, window)
 
-    def _process_window(self, timestamp: float, window: np.ndarray) -> None:
+    def _process_window(
+        self, timestamp: float, first_sample: int, discontinuity: bool, window: np.ndarray
+    ) -> None:
         assert self._vad is not None
         assert self._hysteresis is not None
 
@@ -268,6 +302,18 @@ class VadNode(LifecycleNode):
         msg.state_duration = result.state_duration
         msg.level_dbfs = level_dbfs
         self._vad_pub.publish(msg)
+
+        observation = VadObservation()
+        observation.header = msg.header
+        observation.device_session_id = self._device_session_id
+        observation.first_sample = first_sample
+        observation.sample_count = int(window.shape[0])
+        observation.probability = probability
+        observation.active = result.active
+        observation.state_duration = result.state_duration
+        observation.level_dbfs = level_dbfs
+        observation.discontinuity = discontinuity
+        self._observation_pub.publish(observation)
 
     def _on_speaking_status(self, msg: SpeakingStatus) -> None:
         """Запомнить последний статус TTS. Критический путь -- держать коротким."""

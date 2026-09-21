@@ -81,6 +81,7 @@ public:
     declare_parameter<int>("playback_channels", 2);
     declare_parameter<std::string>("sample_format", "S16_LE");
     declare_parameter<int>("processed_channel", 0);
+    declare_parameter<bool>("publish_stereo_debug", false);
     declare_parameter<int>("frame_ms", 16);
     declare_parameter<int>("alsa_latency_us", 48000);
     declare_parameter<int>("max_playback_queue_ms", 600);
@@ -104,6 +105,9 @@ private:
       qos.best_effort();
       qos.durability_volatile();
       mic_publisher_ = create_publisher<AudioChunk>("/audio/mic", qos);
+      if (publish_stereo_debug_) {
+        mic_stereo_publisher_ = create_publisher<AudioChunk>("/audio/mic_stereo", qos);
+      }
 
       auto state_qos = rclcpp::QoS(rclcpp::KeepLast(1));
       state_qos.reliable();
@@ -138,14 +142,17 @@ private:
       RCLCPP_INFO(
         get_logger(),
         "XVF3800 сконфигурирован: serial=%s, capture=%s, playback=%s, "
-        "%u Гц, %u capture channels, processed_channel=%u, frame=%u samples",
+        "%u Гц, %u capture channels, processed_channel=%u, stereo_debug=%s, "
+        "frame=%u samples",
         actual_usb_serial_.c_str(), capture_device_.c_str(), playback_device_.c_str(), device_rate_,
-        capture_channels_, processed_channel_, frame_samples_);
+        capture_channels_, processed_channel_, publish_stereo_debug_ ? "on" : "off",
+        frame_samples_);
       return CallbackReturn::SUCCESS;
     } catch (const std::exception & error) {
       RCLCPP_ERROR(get_logger(), "configure не удался: %s", error.what());
       close_audio();
       mic_publisher_.reset();
+      mic_stereo_publisher_.reset();
       return CallbackReturn::FAILURE;
     }
   }
@@ -182,6 +189,9 @@ private:
     node_active_.store(true);
     reset_playback_runtime();
     mic_publisher_->on_activate();
+    if (mic_stereo_publisher_ != nullptr) {
+      mic_stereo_publisher_->on_activate();
+    }
     playback_state_publisher_->on_activate();
     // XVF3800 использует синхронный full-duplex USB-тракт. Открытый, но
     // простаивающий playback приводит к EIO на capture; в тишине владелец
@@ -199,6 +209,9 @@ private:
       RCLCPP_ERROR(get_logger(), "linked capture не перешёл в RUNNING после запуска playback");
       stop_streams();
       mic_publisher_->on_deactivate();
+      if (mic_stereo_publisher_ != nullptr) {
+        mic_stereo_publisher_->on_deactivate();
+      }
       return CallbackReturn::FAILURE;
     }
     capture_thread_ = std::thread(&Xvf3800AudioNode::capture_loop, this);
@@ -214,6 +227,9 @@ private:
     if (mic_publisher_ != nullptr) {
       mic_publisher_->on_deactivate();
     }
+    if (mic_stereo_publisher_ != nullptr) {
+      mic_stereo_publisher_->on_deactivate();
+    }
     if (playback_state_publisher_ != nullptr) {
       playback_state_publisher_->on_deactivate();
     }
@@ -225,6 +241,7 @@ private:
     stop_streams();
     close_audio();
     mic_publisher_.reset();
+    mic_stereo_publisher_.reset();
     playback_state_publisher_.reset();
     begin_playback_service_.reset();
     fence_playback_service_.reset();
@@ -251,6 +268,7 @@ private:
     const auto capture_channels = get_parameter("capture_channels").as_int();
     const auto playback_channels = get_parameter("playback_channels").as_int();
     const auto processed_channel = get_parameter("processed_channel").as_int();
+    publish_stereo_debug_ = get_parameter("publish_stereo_debug").as_bool();
     const auto frame_ms = get_parameter("frame_ms").as_int();
     const auto latency_us = get_parameter("alsa_latency_us").as_int();
     const auto max_playback_queue_ms = get_parameter("max_playback_queue_ms").as_int();
@@ -434,11 +452,28 @@ private:
       const auto completed_at = now();
       const auto duration = rclcpp::Duration::from_seconds(
         static_cast<double>(frames_read) / static_cast<double>(device_rate_));
+      const auto first_sample = first_sample_;
+
+      if (mic_stereo_publisher_ != nullptr && mic_stereo_publisher_->is_activated()) {
+        auto stereo_message = AudioChunk();
+        stereo_message.header.stamp = completed_at - duration;
+        stereo_message.header.frame_id = frame_id_;
+        stereo_message.device_session_id = device_session_id_;
+        stereo_message.sample_rate = device_rate_;
+        stereo_message.channels = static_cast<std::uint16_t>(capture_channels_);
+        stereo_message.first_sample = first_sample;
+        const auto sample_count =
+          static_cast<std::size_t>(frames_read) * static_cast<std::size_t>(capture_channels_);
+        stereo_message.data.assign(interleaved.begin(), interleaved.begin() + sample_count);
+        mic_stereo_publisher_->publish(std::move(stereo_message));
+      }
+
       message.header.stamp = completed_at - duration;
       message.header.frame_id = frame_id_;
+      message.device_session_id = device_session_id_;
       message.sample_rate = device_rate_;
       message.channels = 1;
-      message.first_sample = first_sample_;
+      message.first_sample = first_sample;
       message.data.reserve(static_cast<std::size_t>(frames_read));
       for (snd_pcm_sframes_t frame = 0; frame < frames_read; ++frame) {
         const auto offset =
@@ -928,6 +963,7 @@ private:
   unsigned int capture_channels_{2};
   unsigned int playback_channels_{2};
   unsigned int processed_channel_{0};
+  bool publish_stereo_debug_{false};
   unsigned int frame_ms_{16};
   unsigned int latency_us_{48000};
   unsigned int frame_samples_{256};
@@ -946,6 +982,7 @@ private:
   std::uint64_t first_sample_{0};
   bool streams_linked_{false};
   rclcpp_lifecycle::LifecyclePublisher<AudioChunk>::SharedPtr mic_publisher_;
+  rclcpp_lifecycle::LifecyclePublisher<AudioChunk>::SharedPtr mic_stereo_publisher_;
   rclcpp_lifecycle::LifecyclePublisher<PlaybackState>::SharedPtr playback_state_publisher_;
   rclcpp::Service<BeginPlayback>::SharedPtr begin_playback_service_;
   rclcpp::Service<FencePlayback>::SharedPtr fence_playback_service_;

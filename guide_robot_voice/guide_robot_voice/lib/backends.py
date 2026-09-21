@@ -33,6 +33,8 @@ _logger = logging.getLogger(__name__)
 
 __all__ = ["NullBackend", "PiperBackend", "SileroBackend", "TtsBackend", "make_backend"]
 
+_SILERO_SAMPLE_RATES = frozenset({8000, 24000, 48000})
+
 
 class TtsBackend(Protocol):
     """Синтезатор речи."""
@@ -313,6 +315,11 @@ class SileroBackend:
         block_ms: int = 20,
     ) -> None:
         """Запомнить параметры. Модель загружается в load()."""
+        if sample_rate not in _SILERO_SAMPLE_RATES:
+            supported = ", ".join(str(rate) for rate in sorted(_SILERO_SAMPLE_RATES))
+            raise ValueError(
+                f"Silero TTS не поддерживает {sample_rate} Гц; допустимо: {supported}"
+            )
         self._model_path = model_path
         self._speaker = speaker
         self.sample_rate = sample_rate

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from guide_robot_voice.lib.ring import RingBuffer
+from guide_robot_voice.lib.ring import IndexedAudioRing, RingBuffer
 
 SAMPLE_RATE = 16000
 
@@ -108,3 +108,54 @@ def test_snapshot_does_not_consume() -> None:
     assert len(ring) == 200
     ring.push(200 / SAMPLE_RATE, block(3, 50))
     assert len(ring) == 250
+
+
+def test_indexed_snapshot_selects_exact_preroll_without_consuming() -> None:
+    ring = IndexedAudioRing(SAMPLE_RATE, max_samples=300)
+    assert ring.push("session-a", 1000, 10.0, block(1, 100)) is True
+    assert ring.push("session-a", 1100, 10.0 + 100 / SAMPLE_RATE, block(2, 100)) is False
+
+    snapshot = ring.snapshot_from("session-a", 1050)
+
+    assert snapshot is not None
+    assert snapshot.first_sample == 1050
+    assert snapshot.next_sample == 1200
+    assert snapshot.timestamp == 10.0 + 50 / SAMPLE_RATE
+    assert snapshot.underflow is False
+    assert np.all(snapshot.samples[:50] == 1)
+    assert np.all(snapshot.samples[50:] == 2)
+    assert len(ring) == 200
+
+
+def test_indexed_ring_reports_underflow_after_old_audio_was_evicted() -> None:
+    ring = IndexedAudioRing(SAMPLE_RATE, max_samples=100)
+    ring.push("session-a", 0, 0.0, block(1, 200))
+
+    snapshot = ring.snapshot_from("session-a", 50)
+
+    assert snapshot is not None
+    assert snapshot.first_sample == 100
+    assert snapshot.next_sample == 200
+    assert snapshot.underflow is True
+
+
+def test_indexed_ring_does_not_join_different_capture_sessions() -> None:
+    ring = IndexedAudioRing(SAMPLE_RATE, max_samples=300)
+    ring.push("session-a", 0, 0.0, block(1, 100))
+
+    assert ring.push("session-b", 0, 1.0, block(2, 100)) is True
+    assert ring.snapshot_from("session-a", 0) is None
+    snapshot = ring.snapshot_from("session-b", 0)
+    assert snapshot is not None
+    assert np.all(snapshot.samples == 2)
+
+
+def test_indexed_ring_resets_on_sample_gap() -> None:
+    ring = IndexedAudioRing(SAMPLE_RATE, max_samples=300)
+    ring.push("session-a", 0, 0.0, block(1, 100))
+
+    assert ring.push("session-a", 120, 1.0, block(2, 100)) is True
+    snapshot = ring.snapshot()
+    assert snapshot is not None
+    assert snapshot.first_sample == 120
+    assert np.all(snapshot.samples == 2)

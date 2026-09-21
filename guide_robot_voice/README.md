@@ -6,7 +6,8 @@
 отмены.README — практический справочник по факту
 реализации (местами отличается от design, отличия отмечены отдельно).
 
-`ament_python`, ROS 2 Humble. Все пять нод — `rclpy.lifecycle.LifecycleNode`.
+`ament_python`, ROS 2 Humble. Голосовые ноды —
+`rclpy.lifecycle.LifecycleNode`.
 
 ## Топология
 
@@ -41,7 +42,9 @@
 В legacy-профилях владельцами устройств остаются `audio_frontend` и локальный
 sink `tts_node`. В профиле XVF3800 единственный владелец обоих ALSA endpoint —
 `xvf3800_audio_node`: старый `audio_frontend` не запускается, а `tts_node`
-передаёт ему PCM через `RemoteSink`.
+передаёт ему PCM через `RemoteSink`. Между VAD и ASR работает
+`voice_session_manager`: он выдаёт `ADMIT/KWS_ONLY/REJECT` для конкретного
+`device_session_id + utterance_id` и один владеет автоматическим barge-in.
 
 ## Ноды
 
@@ -79,7 +82,13 @@ staleness-проверка (400 мс), что и у `speaking`, отдельно
 `interruptible` нет. Стоп-слово (`wakeword_node`) и e-stop идут другим
 путём (не через vad_node) и этим флагом не гейтятся.
 
+В XVF-профиле `barge_in_enabled=false`: нода не принимает решение об отмене,
+а публикует то же окно как sample-indexed `VadObservation`. Поле
+`discontinuity` не позволяет FSM засчитать окна по разные стороны gap/reconnect
+как непрерывное подтверждение речи.
+
 **Публикует**: `/vad` (`VoiceActivity`, BEST_EFFORT d1, 31.25 Гц),
+`/voice/vad_observation` (`VadObservation`, BEST_EFFORT d4),
 `/speech/cancel_all` (`CancelAll`, только при barge-in), `/diagnostics`.
 
 **Подписан на**: `/audio/mic`, `/voice/speaking` (для гейта barge-in,
@@ -95,26 +104,57 @@ staleness-проверка (400 мс), что и у `speaking`, отдельно
 
 GigaAM v3 CTC через `sherpa_onnx.OfflineRecognizer` (**не** `OnlineRecognizer`
 — см. «Отличия от design» ниже). Копит `/audio/mic` в pre-roll кольцевой
-буфер постоянно; по фронту `/vad` открывает высказывание со снимком
-pre-roll внутри. Партиалы — троттлинг до `partial_rate_hz`, декодируется
+буфер постоянно. В legacy-профиле фронт `/vad` сам открывает высказывание.
+В XVF-профиле (`session_managed_input=true`) сегмент открывает только
+`UtteranceControl`; pre-roll выбирается точно по `onset_sample`, а live PCM
+добавляется с первого ещё не включённого sample index. Партиалы — троттлинг
+до `partial_rate_hz`, декодируется
 не весь буфер, а последние `partial_window_s` секунд. Финализация — по
 `TurnPolicy` (`lib/turn_policy.py`): тишина `≥ base_silence_ms`, ИЛИ тишина
 `≥ short_silence_ms` при синтаксически завершённом тексте, ИЛИ
 `utterance_ms ≥ max_utterance_s` (страховка). Тишина берётся из
 `state_duration` самого `/vad`, не считается заново.
 
+До `ADMIT` KWS-кандидат публикуется только в `/voice/kws_partial`. Поздний
+`REJECT` не позволяет уже запущенному worker опубликовать final. Внешние
+`/asr/partial` и `/asr/transcript` получают только принятую реплику.
+
 **Публикует**: `/asr/partial` (`Transcript`, `is_final=false`, BEST_EFFORT
 d1, ~6 Гц), `/asr/transcript` (`Transcript`, `is_final=true`, RELIABLE d10),
-`/diagnostics`. `confidence=-1.0`, если бэкенд не отдаёт log-вероятности
+`/voice/kws_partial`, `/voice/utterance_event`, `/diagnostics`.
+`confidence=-1.0`, если бэкенд не отдаёт log-вероятности
 (greedy_search у sherpa-onnx их не отдаёт — это не баг, это документированный
 контракт `Transcript.msg`).
 
-**Подписан на**: `/audio/mic`, `/vad`, `/voice/speaking` (для `gate_on_tts`).
+**Подписан на**: `/audio/mic`, `/vad`, `/voice/speaking` (для `gate_on_tts`),
+`/voice/input_control`.
 
 **Параметры**: `model_path`, `tokens_path`, `num_threads=2`,
 `pre_roll_ms=300.0`, `partial_rate_hz=6.0`, `partial_window_s=5.0` (не из
 design), `base_silence_ms=600.0`, `short_silence_ms=350.0`,
-`max_utterance_s=20.0`, `min_final_chars=2`, `gate_on_tts=false`, `frame_id`.
+`max_utterance_s=20.0`, `min_final_chars=2`, `gate_on_tts=false`,
+`session_managed_input=false` (`true` в XVF), `frame_id`. В XVF
+`pre_roll_ms=500.0`.
+
+### `voice_session_manager`
+
+FSM очередности разговора. Получает соседние `VadObservation`, фактические
+`SpeakingStatus`/`PlaybackState` и создаёт монотонный `utterance_id`. В тишине
+сразу выдаёт `ADMIT`; во время TTS сначала `KWS_ONLY`, а после прохождения всех
+guards — `ADMIT` и один `CancelAll(reason=barge_in)`. TTS затем выполняет уже
+реализованный адресный `FencePlayback` для своего `stream_id/generation`.
+
+Автоматический путь требует одновременно
+`automatic_barge_in_enabled=true`, `audio_profile_validated=true`, свежих
+статусов playback/speaking, `interruptible=true` и трёх соседних VAD-окон.
+В текущем XVF-профиле первые два флага `false`, пока не завершён тест через
+Supra и реальные динамики.
+
+**Публикует**: `/voice/input_control`, `/voice/session_state`,
+`/speech/cancel_all` (только подтверждённый automatic barge-in).
+
+**Подписан на**: `/voice/vad_observation`, `/voice/speaking`,
+`/audio/playback_state`, `/voice/utterance_event`.
 
 ### `wakeword_node`
 
@@ -155,6 +195,12 @@ Silero TTS v5 (`v5_ru.pt`, спикер `xenia`) → `TextChunker` (клаузы
 достиг числа принятых для неё сэмплов. Если в это время пришёл fence, частично
 прозвучавшая клауза не попадает в `spoken_text`.
 
+Полный компьютерный XVF-стенд запускается через
+`xvf3800_voice.launch.py`. Он заменяет `audio_frontend` на
+`xvf3800_audio_node` и поднимает TTS, VAD, session manager, wakeword и ASR.
+Wakeword в этом launch переназначен на `/voice/kws_partial`. Автоматический
+barge-in в этом профиле намеренно закрыт до измерительного подтверждения AEC.
+
 Синтез клаузы, упавший с исключением (наблюдалось на реальном железе —
 onnxruntime/GigaAM… не для TTS, но тот же класс проблем возможен и здесь)
 повторяется один раз, если ничего ещё не ушло в сток; иначе — `STATUS_FAILED`
@@ -174,7 +220,8 @@ latency).
 
 **Параметры**: `backend="silero"` (`silero`|`piper`|`null` — `null` синтезирует тон,
 режим измерений без модели), `model_path`, `speaker=xenia`, `config_path`, `speaker_id=0`
-(для piper), `length_scale=1.0`, `device`, `device_rate=0` (0 → частота бэкенда),
+(для piper), `length_scale=1.0`, `silero_sample_rate=48000` (частота синтеза,
+не частота устройства), `device`, `device_rate=0` (0 → частота бэкенда),
 `sink_backend="local"` (`local`|`xvf3800`), `remote_service_timeout=3.0`,
 `block_ms=20`, `periods=3`, `channels=2`, `allow_shared=false`,
 `max_queue_ms=600`, `min_chars=40`, `max_clause_chars=180`,
@@ -189,11 +236,16 @@ latency).
 | `/audio/mic` | `AudioChunk` | BEST_EFFORT d20 | audio_frontend | vad_node, asr_node |
 | `/audio/mic_raw` | `AudioChunk` | BEST_EFFORT d20 | audio_frontend (опц.) | диагностика |
 | `/vad` | `VoiceActivity` | BEST_EFFORT d1 | vad_node | asr_node |
+| `/voice/vad_observation` | `VadObservation` | BEST_EFFORT d4 | vad_node | voice_session_manager |
+| `/voice/input_control` | `UtteranceControl` | RELIABLE d10 | voice_session_manager | asr_node |
+| `/voice/utterance_event` | `UtteranceEvent` | RELIABLE d10 | asr_node | voice_session_manager |
+| `/voice/session_state` | `VoiceSessionState` | RELIABLE, TRANSIENT_LOCAL d1 | voice_session_manager | диагностика |
+| `/voice/kws_partial` | `Transcript` | BEST_EFFORT d1 | asr_node | wakeword_node (XVF) |
 | `/speech/wakeword` | `Wakeword` | RELIABLE d1 | wakeword_node | — |
 | `/asr/partial` | `Transcript` | BEST_EFFORT d1 | asr_node | wakeword_node |
 | `/asr/transcript` | `Transcript` | RELIABLE d10 | asr_node | — |
 | `/voice/speaking` | `SpeakingStatus` | RELIABLE, TRANSIENT_LOCAL d1 | tts_node | vad_node, asr_node, wakeword_node |
-| `/speech/cancel_all` | `CancelAll` | RELIABLE d1 | vad_node, wakeword_node | tts_node |
+| `/speech/cancel_all` | `CancelAll` | RELIABLE d1 | vad_node (legacy), voice_session_manager (XVF), wakeword_node | tts_node |
 | `/diagnostics` | `DiagnosticArray` | стандартный | все ноды | — |
 | `/system_event` | `SystemEvent` | RELIABLE d10 | audio_frontend, tts_node | — |
 | `say` (action) | `Say` | — | — (сервер: tts_node) | — |
