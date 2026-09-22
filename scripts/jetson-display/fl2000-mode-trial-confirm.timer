@@ -1,0 +1,8 @@
+[Unit]
+Description=Confirm the trial weston mode 5 min after boot if the system is still alive
+
+[Timer]
+OnBootSec=5min
+
+[Install]
+WantedBy=timers.target

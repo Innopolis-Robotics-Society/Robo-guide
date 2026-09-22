@@ -1,0 +1,21 @@
+[core]
+idle-time=0
+backend=drm-backend.so
+repaint-window=16
+
+[shell]
+panel-position=none
+locking=false
+close-animation=none
+startup-animation=none
+background-color=0xff1a365d
+
+[output]
+name=HDMI-A-1
+# 1920x1080 при 30 Гц: пиксельный клок и весь горизонтальный тайминг те же, что у рабочего
+# 1080p60 (148.5 МГц, htotal 2200), удвоен только вертикальный период (vtotal 2250 вместо
+# 1125). PLL FL2000 не меняется, строчная частота 67.5 кГц не меняется. Драйвер шлёт полный
+# кадр на каждый vblank, так что поток по USB падает вдвое: 373 -> ~187 МБ/с.
+# Попытка со стандартным 1080p30 (74.25 МГц) 19.09.2026 подвешивала Jetson после загрузки.
+mode=148.5 1920 2008 2052 2200 1080 1084 1089 2250 +hsync +vsync
+transform=rotate-90

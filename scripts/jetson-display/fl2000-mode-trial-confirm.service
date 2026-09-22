@@ -1,0 +1,6 @@
+[Unit]
+Description=Confirm the trial weston mode on the FL2000 dongle (system stayed up)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fl2000-mode-trial confirm
