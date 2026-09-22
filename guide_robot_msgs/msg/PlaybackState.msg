@@ -20,7 +20,8 @@ uint64 generation
 uint8 state
 
 # Сэмплы mono PCM текущего stream. Один сэмпл затем дублируется во все
-# физические playback-каналы XVF3800.
+# физические playback-каналы XVF3800. buffered_samples учитывает также
+# остаток fade-out после fence (но не задержку уже переданного ALSA PCM).
 uint64 submitted_samples
 uint64 presented_samples_estimate
 uint32 buffered_samples

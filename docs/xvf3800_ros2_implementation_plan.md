@@ -260,6 +260,22 @@ pre-roll и поздние решения покрыты unit-тестами. А
 закрыта до финальной AEC-проверки через Supra (`automatic_barge_in_enabled` и
 `audio_profile_validated` остаются `false`).
 
+**Проверка 22 сентября 2026:** в ROS Humble Docker собраны `guide_robot_msgs`,
+`guide_robot_audio` и `guide_robot_voice`; полный XVF launch (TTS `null`,
+без речевой команды) запущен с
+подключённой платой `101991441262500122`. Реальный `/voice/vad_observation`
+содержал `device_session_id`, диапазон сэмплов и признак первого разрыва;
+`voice_session_manager` перешёл в `LISTENING`. Закрыты гонки позднего
+`UtteranceControl`, прихода control раньше PCM и публикации final после
+разрыва capture. `STOPPING_OUTPUT` теперь ждёт свежего `PlaybackState`
+`IDLE/FENCED` без остатка fade-out; задержка уже переданного в ALSA PCM
+по-прежнему оценивается отдельно. В полном прогоне 125 тестов voice-пакета
+прошли, 1 пропущен и 2 теста SNR ресемплера не достигли 60 dB; добавленный
+затем тест аппаратного ACK прошёл отдельно. В текущем образе
+нет optional `soxr`, используется документированный fallback на scipy.
+Автоматический barge-in и приёмочный тест человека поверх динамиков ещё
+не выполнялись: для них нужны Supra, реальные динамики и проверенный AEC.
+
 - реализовать `voice_session_manager`;
 - перенести в него единоличное решение об автоматическом barge-in;
 - связать VAD-кандидат, остановку TTS, ASR pre-roll и отмену LLM;

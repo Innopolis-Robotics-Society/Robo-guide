@@ -207,7 +207,9 @@ class IndexedAudioRing:
             self._length = 0
             self._device_session_id = device_session_id
 
-        owned = np.asarray(samples, dtype=np.int16)
+        # Хранить собственную копию: callback может повторно использовать
+        # исходный ndarray до того, как ASR снимет pre-roll.
+        owned = np.array(samples, dtype=np.int16, copy=True)
         self._segments.append(_IndexedSegment(first_sample, timestamp, owned))
         count = int(owned.shape[0])
         self._length += count
@@ -244,6 +246,8 @@ class IndexedAudioRing:
         available_first = self._segments[0].first_sample
         available_next = self._next_sample
         assert available_next is not None
+        if requested_first_sample > available_next:
+            return None
         actual_first = max(requested_first_sample, available_first)
         actual_first = min(actual_first, available_next)
         underflow = requested_first_sample < available_first

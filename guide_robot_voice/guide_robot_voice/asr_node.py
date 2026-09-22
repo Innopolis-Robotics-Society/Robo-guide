@@ -63,6 +63,7 @@ _SAMPLE_RATE = 16000
 _SPEAKING_STATUS_STALE_SEC = 0.4
 _TTS_ECHO_HOLD_S = 1.0
 _PREROLL_DECISION_RESERVE_MS = 1000.0
+_MAX_ADMISSION_RECORDS = 256
 
 
 @dataclass(frozen=True)
@@ -127,7 +128,9 @@ class AsrNode(LifecycleNode):
         self._utterance_next_sample = 0
         self._utterance_decision = UtteranceControl.DECISION_ADMIT
         self._last_partial_text = ""
-        self._last_control_sequence: dict[tuple[str, int], int] = {}
+        self._latest_control_sequence = -1
+        self._latest_control_utterance_id = 0
+        self._pending_control: UtteranceControl | None = None
         self._admission: dict[tuple[str, int], int] = {}
         self._preroll_underflows = 0
 
@@ -239,7 +242,9 @@ class AsrNode(LifecycleNode):
         )
         self._indexed_pre_roll = IndexedAudioRing(_SAMPLE_RATE, max_samples=indexed_capacity)
         self._close_utterance()
-        self._last_control_sequence.clear()
+        self._latest_control_sequence = -1
+        self._latest_control_utterance_id = 0
+        self._pending_control = None
         self._admission.clear()
         self._latest_speaking = None
         self._tts_hold_until = 0.0
@@ -312,9 +317,34 @@ class AsrNode(LifecycleNode):
             assert self._pre_roll is not None
             assert self._indexed_pre_roll is not None
             self._pre_roll.push(timestamp, samples)
+            previous_session = self._indexed_pre_roll.device_session_id
             discontinuity = self._indexed_pre_roll.push(
                 device_session_id, int(msg.first_sample), timestamp, samples
             )
+            if discontinuity and previous_session:
+                # Финал от старой непрерывной истории не может попасть в диалог.
+                self._admission.clear()
+                if self._utterance_open and self._session_managed_input():
+                    self._discard_open_utterance("capture_discontinuity")
+                if self._pending_control is not None and (
+                    self._pending_control.device_session_id != device_session_id
+                    or int(self._pending_control.onset_sample) < int(msg.first_sample)
+                ):
+                    self._pending_control = None
+                if self._pending_control is not None:
+                    pending_key = (
+                        self._pending_control.device_session_id,
+                        int(self._pending_control.utterance_id),
+                    )
+                    self._admission[pending_key] = int(self._pending_control.decision)
+            if self._pending_control is not None and (
+                self._pending_control.device_session_id == device_session_id
+                and self._indexed_pre_roll.next_sample is not None
+                and self._indexed_pre_roll.next_sample >= self._pending_control.onset_sample
+            ):
+                pending = self._pending_control
+                self._pending_control = None
+                self._open_managed_utterance(pending)
             if not self._utterance_open:
                 return
             if self._session_managed_input():
@@ -344,13 +374,29 @@ class AsrNode(LifecycleNode):
         with self._lock:
             if not self._is_active or not self._session_managed_input():
                 return
-            previous_sequence = self._last_control_sequence.get(key, -1)
-            if int(msg.control_sequence) <= previous_sequence:
+            if (
+                int(msg.control_sequence) <= self._latest_control_sequence
+                or int(msg.utterance_id) < self._latest_control_utterance_id
+            ):
                 return
-            self._last_control_sequence[key] = int(msg.control_sequence)
+            # Номер выдаёт один manager глобально. Старый utterance/session
+            # не может вытеснить новый даже при переупорядочивании DDS.
+            self._latest_control_sequence = int(msg.control_sequence)
+            self._latest_control_utterance_id = int(msg.utterance_id)
             self._admission[key] = int(msg.decision)
+            if len(self._admission) > _MAX_ADMISSION_RECORDS:
+                self._admission.pop(next(iter(self._admission)))
 
             if msg.decision == UtteranceControl.DECISION_REJECT:
+                if (
+                    self._pending_control is not None
+                    and (
+                        self._pending_control.device_session_id,
+                        int(self._pending_control.utterance_id),
+                    )
+                    == key
+                ):
+                    self._pending_control = None
                 if (
                     self._utterance_open
                     and self._utterance_device_session_id == msg.device_session_id
@@ -368,6 +414,17 @@ class AsrNode(LifecycleNode):
                     return
                 self._discard_open_utterance("superseded")
 
+            if (
+                self._indexed_pre_roll is None
+                or self._indexed_pre_roll.device_session_id != msg.device_session_id
+                or self._indexed_pre_roll.next_sample is None
+                or self._indexed_pre_roll.next_sample < int(msg.onset_sample)
+            ):
+                # Решение и PCM приходят разными DDS-топиками. Не теряем
+                # реплику, если control опередил соответствующий audio chunk.
+                self._pending_control = msg
+                return
+            self._pending_control = None
             self._open_managed_utterance(msg)
 
     def _on_partial_timer(self) -> None:
@@ -442,9 +499,6 @@ class AsrNode(LifecycleNode):
             0, self._utterance_next_sample - self._utterance_samples
         )
         self._utterance_decision = UtteranceControl.DECISION_ADMIT
-        self._admission[(self._utterance_device_session_id, self._utterance_id)] = (
-            UtteranceControl.DECISION_ADMIT
-        )
         self._last_partial_text = ""
         self._utterances_total += 1
 
@@ -622,43 +676,50 @@ class AsrNode(LifecycleNode):
                 self._last_partial_text = text
                 decision = self._utterance_decision
                 same_session = job.device_session_id == self._utterance_device_session_id
-            if self._session_managed_input():
-                if not same_session:
-                    return
-                self._publish_transcript(text, confidence, is_final=False, job=job, kws_only=True)
-                if decision != UtteranceControl.DECISION_ADMIT:
-                    return
-            self._publish_transcript(text, confidence, is_final=False, job=job)
+                if self._session_managed_input():
+                    if not same_session:
+                        return
+                    self._publish_transcript(
+                        text, confidence, is_final=False, job=job, kws_only=True
+                    )
+                    if decision != UtteranceControl.DECISION_ADMIT:
+                        return
+                self._publish_transcript(text, confidence, is_final=False, job=job)
             return
 
-        decision = self._admission.get(
-            (job.device_session_id, job.utterance_id),
-            UtteranceControl.DECISION_ADMIT
-            if not self._session_managed_input()
-            else UtteranceControl.DECISION_REJECT,
-        )
-        if self._session_managed_input() and decision != UtteranceControl.DECISION_ADMIT:
-            self.get_logger().info(
-                f"discard final utterance_id={job.utterance_id}: admission={decision}"
+        # Проверка admission и публикация -- один критический участок.
+        # Иначе поздний REJECT может проскочить между ними.
+        with self._lock:
+            decision = self._admission.get(
+                (job.device_session_id, job.utterance_id),
+                UtteranceControl.DECISION_ADMIT
+                if not self._session_managed_input()
+                else UtteranceControl.DECISION_REJECT,
             )
-            self._publish_utterance_event(UtteranceEvent.EVENT_DISCARDED, "not_admitted", job=job)
-            return
-
-        min_chars = int(self.get_parameter("min_final_chars").value)
-        if len(text) < min_chars:
-            self._finals_dropped_short += 1
-            self.get_logger().info(f"drop {text!r} {job.speech_ms:.0f}ms")
-            if self._session_managed_input():
-                self._publish_utterance_event(
-                    UtteranceEvent.EVENT_DISCARDED, "final_too_short", job=job
+            if self._session_managed_input() and decision != UtteranceControl.DECISION_ADMIT:
+                self.get_logger().info(
+                    f"discard final utterance_id={job.utterance_id}: admission={decision}"
                 )
-            return
+                self._publish_utterance_event(
+                    UtteranceEvent.EVENT_DISCARDED, "not_admitted", job=job
+                )
+                return
 
-        self.get_logger().info(f"final {text!r} {job.speech_ms:.0f}ms")
-        self._publish_transcript(text, confidence, is_final=True, job=job)
-        self._finals_published += 1
-        if self._session_managed_input():
-            self._publish_utterance_event(UtteranceEvent.EVENT_FINAL, "final", job=job)
+            min_chars = int(self.get_parameter("min_final_chars").value)
+            if len(text) < min_chars:
+                self._finals_dropped_short += 1
+                self.get_logger().info(f"drop {text!r} {job.speech_ms:.0f}ms")
+                if self._session_managed_input():
+                    self._publish_utterance_event(
+                        UtteranceEvent.EVENT_DISCARDED, "final_too_short", job=job
+                    )
+                return
+
+            self.get_logger().info(f"final {text!r} {job.speech_ms:.0f}ms")
+            self._publish_transcript(text, confidence, is_final=True, job=job)
+            self._finals_published += 1
+            if self._session_managed_input():
+                self._publish_utterance_event(UtteranceEvent.EVENT_FINAL, "final", job=job)
 
     def _publish_transcript(
         self,

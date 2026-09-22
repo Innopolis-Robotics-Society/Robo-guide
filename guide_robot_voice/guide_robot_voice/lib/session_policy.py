@@ -53,6 +53,7 @@ class OutputSnapshot:
     interruptible: bool = False
     speaking_fresh: bool = False
     playback_fresh: bool = False
+    playback_stopped: bool = False
 
 
 @dataclass(frozen=True)
@@ -146,7 +147,11 @@ class VoiceSessionPolicy:
                 if self._high_onset_sample is not None
                 else window.first_sample
             )
-            self._current_onset_timestamp = self._high_onset_timestamp or window.timestamp
+            self._current_onset_timestamp = (
+                self._high_onset_timestamp
+                if self._high_onset_sample is not None
+                else window.timestamp
+            )
             self._cancel_sent = False
             decision = InputDecision.KWS_ONLY if output.speaking else InputDecision.ADMIT
             reason = "tts_active" if output.speaking else "listening"
@@ -189,7 +194,9 @@ class VoiceSessionPolicy:
     def update_output(self, output: OutputSnapshot) -> None:
         """Отразить фактический старт/stop TTS между окнами VAD."""
         if self.state == SessionState.STOPPING_OUTPUT:
-            if not output.speaking and output.speaking_fresh:
+            # SpeakingStatus отражает TTS, но не гарантирует, что PCM уже
+            # выведен или сброшен аппаратным владельцем. Нужен его ACK.
+            if not output.speaking and output.speaking_fresh and output.playback_stopped:
                 next_state = (
                     SessionState.USER_SPEAKING if self._vad_active else SessionState.RECOGNIZING
                 )

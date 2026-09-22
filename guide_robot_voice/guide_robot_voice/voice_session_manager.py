@@ -45,6 +45,10 @@ _ACTIVE_PLAYBACK_STATES = {
     PlaybackState.STATE_PLAYING,
     PlaybackState.STATE_DRAINING,
 }
+_STOPPED_PLAYBACK_STATES = {
+    PlaybackState.STATE_IDLE,
+    PlaybackState.STATE_FENCED,
+}
 
 
 class VoiceSessionManager(LifecycleNode):
@@ -171,6 +175,9 @@ class VoiceSessionManager(LifecycleNode):
     def _on_playback(self, msg: PlaybackState) -> None:
         with self._lock:
             self._latest_playback = msg
+            if self._active and self._policy is not None:
+                self._policy.update_output(self._output_snapshot(self._policy.device_session_id))
+        self._publish_state()
 
     def _on_utterance_event(self, msg: UtteranceEvent) -> None:
         if msg.event not in (UtteranceEvent.EVENT_FINAL, UtteranceEvent.EVENT_DISCARDED):
@@ -181,6 +188,7 @@ class VoiceSessionManager(LifecycleNode):
             if msg.device_session_id != self._policy.device_session_id:
                 return
             self._policy.finish_utterance(int(msg.utterance_id), msg.status)
+            self._policy.update_output(self._output_snapshot(self._policy.device_session_id))
         self._publish_state()
 
     def _output_snapshot(self, device_session_id: str) -> OutputSnapshot:
@@ -208,6 +216,12 @@ class VoiceSessionManager(LifecycleNode):
             ),
             speaking_fresh=speaking_status_fresh or playback_status_fresh,
             playback_fresh=playback_active,
+            playback_stopped=bool(
+                playback_status_fresh
+                and playback is not None
+                and playback.state in _STOPPED_PLAYBACK_STATES
+                and playback.buffered_samples == 0
+            ),
         )
 
     def _stamp_is_fresh(self, stamp: object) -> bool:

@@ -777,7 +777,10 @@ private:
     snapshot.generation = playback_generation_;
     snapshot.submitted_samples = submitted_samples_;
     snapshot.presented_samples = presented_samples_;
-    snapshot.buffered_samples = static_cast<std::uint32_t>(playback_queue_.size());
+    // После fence старые PCM удалены, но короткий fade ещё пишется в ALSA.
+    // Не сообщать FSM об остановке до исчерпания этого хвоста.
+    snapshot.buffered_samples =
+      static_cast<std::uint32_t>(playback_queue_.size() + fade_queue_.size());
 
     if (!node_active_.load()) {
       snapshot.state = PlaybackState::STATE_ERROR;

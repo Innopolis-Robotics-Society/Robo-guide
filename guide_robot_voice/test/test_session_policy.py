@@ -143,3 +143,23 @@ def test_late_final_cannot_close_a_newer_utterance() -> None:
 
     policy.finish_utterance(1, "final")
     assert policy.state == SessionState.LISTENING
+
+
+def test_stopping_output_requires_fresh_hardware_fence_ack() -> None:
+    policy = VoiceSessionPolicy(
+        confirm_windows=2,
+        automatic_barge_in_enabled=True,
+        audio_profile_validated=True,
+    )
+    policy.activate()
+    playing = OutputSnapshot(True, True, True, True)
+    policy.observe(observation(0, probability=0.9, active=False), playing)
+    actions = policy.observe(observation(1, probability=0.9, active=True), playing)
+    assert actions[-1].cancel_output is True
+    assert policy.state == SessionState.STOPPING_OUTPUT
+
+    # TTS уже говорит «не говорю», но USB/ALSA ещё выводит старый PCM.
+    policy.update_output(OutputSnapshot(False, False, True, False, False))
+    assert policy.state == SessionState.STOPPING_OUTPUT
+    policy.update_output(OutputSnapshot(False, False, True, False, True))
+    assert policy.state == SessionState.USER_SPEAKING
