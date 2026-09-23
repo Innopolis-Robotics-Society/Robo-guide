@@ -24,7 +24,6 @@ import asyncio
 import concurrent.futures
 import math
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -40,12 +39,7 @@ from std_srvs.srv import Trigger
 from guide_robot_msgs.action import RunTour
 from guide_robot_msgs.msg import MissionState
 from guide_robot_msgs.srv import GetExhibitContent, GetExhibitMedia, ListLocations, ListTours
-from guide_robot_operator_ui.lib.auth import RfidBackend, make_auth_chain
-from guide_robot_operator_ui.lib.command_log import CommandLogSink
-from guide_robot_operator_ui.lib.promo_io import load_promo
 from guide_robot_operator_ui.lib.qos import QOS_MISSION_STATE
-from guide_robot_operator_ui.lib.rfid_link import PySerialPort, RfidLink
-from guide_robot_operator_ui.lib.session import SessionManager
 from guide_robot_operator_ui.lib.state_frame import build_frame
 from guide_robot_operator_ui.lib.ui_server import UiServer
 
@@ -80,7 +74,6 @@ class OperatorUiNode(Node):
         """Прочитать параметры, поднять UiServer, подписаться, завести клиентов."""
         super().__init__("operator_ui")
 
-        share = Path(get_package_share_directory("guide_robot_operator_ui"))
         try:
             semantic_map_share = Path(get_package_share_directory("guide_robot_semantic_map"))
             default_media_root = str(semantic_map_share / "content" / "media")
@@ -91,13 +84,11 @@ class OperatorUiNode(Node):
 
         self.declare_parameter("bind_host", "127.0.0.1")
         self.declare_parameter("http_port", 8091)
-        self.declare_parameter("web_root", str(share / "web"))
         self.declare_parameter("media_root", default_media_root)
-        # promo/ живёт в этом же пакете (design F1), не semantic_map --
-        # дефолт всегда конкретный путь, PackageNotFoundError здесь
-        # невозможен в отличие от media_root выше.
-        self.declare_parameter("promo_dir", str(share / "promo"))
-        self.declare_parameter("promo_interval_s", 10.0)
+        # Общий секрет с guide-launcher: командные роуты принимают только
+        # запросы с этим токеном в X-Bridge-Token. Файл лежит в репозитории
+        # (примонтирован и на хосте, и в контейнере), вне git.
+        self.declare_parameter("bridge_token_file", "")
         self.declare_parameter("service_timeout_s", 5.0)
         self.declare_parameter("mission_state_stale_s", 3.0)
         self.declare_parameter("initialpose_settle_s", 0.5)
@@ -106,31 +97,6 @@ class OperatorUiNode(Node):
         # Отдельно от tours_language -- у content_server/narration_server
         # тоже свои независимые языковые параметры, не общий (design D2).
         self.declare_parameter("content_language", "ru")
-        self.declare_parameter("slide_interval_s", 8.0)
-        # -- аутентификация оператора (Task E). Потолок стойкости всей схемы
-        # -- PIN, поэтому его дефолт обязан пройти собственную проверку
-        # длины ниже: "changeme" -- валидный по длине (>=8) плейсхолдер,
-        # чтобы нода поднималась из коробки, а не "0000" (было бы отказом
-        # стартовать сразу после проверки, которую этот же коммит вводит).
-        self.declare_parameter("operator_pin", "changeme")
-        self.declare_parameter("auth_backends", ["rfid", "pin"])
-        self.declare_parameter("session_ttl_s", 600.0)
-        self.declare_parameter("nonce_ttl_s", 30.0)
-        self.declare_parameter("max_failed_attempts", 5)
-        self.declare_parameter("lockout_s", 60.0)
-        # Дефолт false -- оператор сворачивает панель посмотреть на слайд и
-        # не должен логиниться заново (design E2).
-        self.declare_parameter("close_session_on_panel_hide", False)
-        self.declare_parameter("command_log_dir", "~/.guide_robot/operator_ui")
-        # -- RFID (Task E4). Пусто/нет порта -- RFID недоступен, вход по
-        # PIN, узел всё равно поднимается (design E5, критерий 15).
-        self.declare_parameter("rfid_port", "/dev/rfid0")
-        self.declare_parameter("rfid_secret_file", "")
-        self.declare_parameter("rfid_timeout_s", 0.3)
-        # firmware/rfid_bridge/src/main.cpp:19-22 -- один REQA на challenge
-        # не всегда видит неподвижно лежащую карту (наблюдалось 3 подряд
-        # no_card перед успехом), опрос в цикле обязателен на этой стороне.
-        self.declare_parameter("rfid_retries", 5)
         # Имена сервисов/экшена -- параметры, не хардкод (design C3).
         self.declare_parameter("run_tour_action", "run_tour")
         self.declare_parameter("request_stop_service", "/mission_fsm/request_stop")
@@ -150,12 +116,8 @@ class OperatorUiNode(Node):
 
         bind_host = str(self.get_parameter("bind_host").value)
         http_port = int(self.get_parameter("http_port").value)
-        web_root = Path(str(self.get_parameter("web_root").value))
         media_root_str = str(self.get_parameter("media_root").value)
         media_root = Path(media_root_str) if media_root_str else _UNSET_MEDIA_ROOT
-        promo_dir = Path(str(self.get_parameter("promo_dir").value))
-        promo_root = promo_dir / "media"
-        self._promo_interval_s = float(self.get_parameter("promo_interval_s").value)
         self._service_timeout_s = float(self.get_parameter("service_timeout_s").value)
         self._mission_state_stale_s = float(self.get_parameter("mission_state_stale_s").value)
         self._initialpose_settle_s = float(self.get_parameter("initialpose_settle_s").value)
@@ -164,51 +126,8 @@ class OperatorUiNode(Node):
         ]
         self._tours_language = str(self.get_parameter("tours_language").value)
         self._content_language = str(self.get_parameter("content_language").value)
-        self._slide_interval_s = float(self.get_parameter("slide_interval_s").value)
 
-        self._operator_pin = str(self.get_parameter("operator_pin").value)
-        # Отказ стартовать, не молчаливая слабая защита (design E3, критерий
-        # 9) -- PIN остаётся резервом при отказе RFID-ридера, поэтому его
-        # длина -- потолок стойкости ВСЕЙ схемы, не только PIN-пути.
-        if len(self._operator_pin) < 8:
-            raise ValueError(
-                f"operator_pin короче 8 символов ({len(self._operator_pin)}) -- "
-                "это потолок стойкости всей схемы аутентификации, см. README.md"
-            )
-        if self._operator_pin == "changeme":
-            self.get_logger().warning(
-                'operator_pin -- дефолтный плейсхолдер "changeme", смени перед деплоем'
-            )
-
-        auth_backend_names = [str(name) for name in self.get_parameter("auth_backends").value]
-        rfid_backend = None
-        if "rfid" in auth_backend_names:
-            rfid_backend = self._build_rfid_backend()
-        self._auth_chain = make_auth_chain(
-            auth_backend_names, operator_pin=self._operator_pin, rfid_backend=rfid_backend
-        )
-
-        self._session_ttl_s = float(self.get_parameter("session_ttl_s").value)
-        self._close_session_on_panel_hide = bool(
-            self.get_parameter("close_session_on_panel_hide").value
-        )
-        self._sessions = SessionManager(
-            session_ttl_s=self._session_ttl_s,
-            nonce_ttl_s=float(self.get_parameter("nonce_ttl_s").value),
-            max_failed_attempts=int(self.get_parameter("max_failed_attempts").value),
-            lockout_s=float(self.get_parameter("lockout_s").value),
-        )
-
-        command_log_dir = str(self.get_parameter("command_log_dir").value)
-        self._command_log = CommandLogSink(command_log_dir)
-
-        # Один раз при старте (design F2/F3) -- тот же принцип, что у
-        # _media_manifest_cache ниже: "кэш есть -- используем", без
-        # фоновой инвалидации. Никогда не бросает (lib/promo_io.py) --
-        # опечатка в promo.yaml не должна валить узел целиком.
-        self._promo_items, promo_warnings = load_promo(promo_dir / "promo.yaml", promo_root)
-        for warning in promo_warnings:
-            self.get_logger().warning(f"promo: {warning}")
+        bridge_token = self._read_bridge_token()
 
         if not media_root.is_dir():
             self.get_logger().warning(
@@ -230,22 +149,15 @@ class OperatorUiNode(Node):
 
         # -- сервер в отдельном потоке (копия face_node.py:60-68) -------------
         self._server = UiServer(
-            web_root=web_root,
             media_root=media_root,
-            promo_root=promo_root,
+            bridge_token=bridge_token,
             on_tours=self._on_api_tours,
             on_tour_start=self._on_api_tour_start,
             on_tour_stop=self._on_api_tour_stop,
             on_go_home=self._on_api_go_home,
             on_localization_reset=self._on_api_localization_reset,
+            on_costmaps_clear=self._on_api_costmaps_clear,
             on_media=self._on_api_media,
-            on_promo=self._on_api_promo,
-            on_auth_challenge=self._on_api_auth_challenge,
-            on_auth_verify=self._on_api_auth_verify,
-            on_auth_logout=self._on_api_auth_logout,
-            on_auth_status=self._on_api_auth_status,
-            on_auth_check=self._on_api_auth_check,
-            on_auth_touch=self._on_api_auth_touch,
             on_command_logged=self._on_api_command_logged,
         )
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -256,12 +168,6 @@ class OperatorUiNode(Node):
         self._server_thread.start()
         if not self._loop_ready.wait(timeout=_SERVER_START_TIMEOUT_S):
             raise RuntimeError("ui_server не поднялся за отведённое время")
-
-        if self._auth_chain.mock_active:
-            # 1 Гц, отдельный от heartbeat /mission/state (design E3,
-            # критерий 11): без mission_fsm предупреждение не должно
-            # молчать именно тогда, когда оно нужнее всего.
-            self.create_timer(1.0, self._warn_mock_auth)
 
         # -- подписки. Три фиксированных системных топика -- не параметры,
         # как и в mission_fsm_node.py (свои клиенты/экшен ниже параметризованы,
@@ -306,48 +212,24 @@ class OperatorUiNode(Node):
             PoseWithCovarianceStamped, "/initialpose", 10
         )
 
-        self.get_logger().info(f"operator_ui: http://{bind_host}:{http_port}, web_root={web_root}")
+        self.get_logger().info(f"operator_ui bridge: http://{bind_host}:{http_port}")
 
-    def _build_rfid_backend(self) -> RfidBackend:
-        """Собрать RfidBackend; отсутствие секрета/порта -- WARN, не отказ узла (design E5).
-
-        Секрет читается из файла (путь -- параметр, файл вне git,
-        design E4/E5), не из самого параметра -- он не должен осесть в
-        ros2 param dump/логе запуска.
-        """
-        secret = ""
-        secret_file = str(self.get_parameter("rfid_secret_file").value)
-        if secret_file:
-            secret_path = Path(secret_file).expanduser()
-            try:
-                secret = secret_path.read_text(encoding="utf-8").strip()
-            except OSError as exc:
-                self.get_logger().warning(
-                    f"rfid_secret_file {secret_path} не прочитан ({exc}) -- RFID недоступен"
-                )
-        else:
-            self.get_logger().warning(
-                "rfid_secret_file не задан -- RFID недоступен, вход только по PIN"
-            )
-
-        link: RfidLink | None = None
-        if secret:
-            rfid_port = str(self.get_parameter("rfid_port").value)
-            rfid_timeout_s = float(self.get_parameter("rfid_timeout_s").value)
-            try:
-                link = RfidLink(PySerialPort(rfid_port), timeout_s=rfid_timeout_s)
-            except OSError as exc:
-                self.get_logger().warning(
-                    f"rfid_port {rfid_port} не открылся ({exc}) -- RFID недоступен, "
-                    "вход по PIN, узел поднимается (design E5)"
-                )
-            else:
-                self.get_logger().info(
-                    f"rfid: порт {rfid_port} открыт, timeout={rfid_timeout_s}s"
-                )
-
-        rfid_retries = int(self.get_parameter("rfid_retries").value)
-        return RfidBackend(link, secret, retries=rfid_retries)
+    def _read_bridge_token(self) -> str:
+        """Прочитать общий секрет; пустой/отсутствующий файл -- отказ стартовать."""
+        token_file = str(self.get_parameter("bridge_token_file").value)
+        if not token_file:
+            self.get_logger().fatal("bridge_token_file не задан -- командные роуты не защитить")
+            raise ValueError("bridge_token_file не задан")
+        path = Path(token_file).expanduser()
+        try:
+            token = path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            self.get_logger().fatal(f"bridge_token_file {path} не прочитан: {exc}")
+            raise ValueError(f"bridge_token_file {path} не прочитан") from exc
+        if not token:
+            self.get_logger().fatal(f"bridge_token_file {path} пуст")
+            raise ValueError(f"bridge_token_file {path} пуст")
+        return token
 
     def _run_server(self, host: str, port: int) -> None:
         loop = asyncio.new_event_loop()
@@ -478,25 +360,7 @@ class OperatorUiNode(Node):
         except (TimeoutError, asyncio.TimeoutError):
             return 503, {"message": "service_unavailable"}
         tours = [{"id": t.id, "name": t.name} for t in response.tours]
-        # slide_interval_s едет здесь же, не отдельным endpoint'ом (design
-        # D3): не секрет, а /api/tours и так дёргается клиентом ровно один
-        # раз при загрузке страницы -- удобное место для статической
-        # конфигурации. operator_pin здесь БОЛЬШЕ НЕ ЕДЕТ (design E2) --
-        # раньше это позволяло обойти "замок" одним curl по localhost,
-        # проверка PIN теперь только на сервере (/api/auth/verify). "auth"
-        # -- то немногое об аутентификации, что UI должен знать статически:
-        # список реальных методов входа для экрана входа, флаг mock (для
-        # несъёмной плашки, design E3) и параметр сворачивания панели.
-        return 200, {
-            "tours": tours,
-            "slide_interval_s": self._slide_interval_s,
-            "auth": {
-                "mock": self._auth_chain.mock_active,
-                "backends": self._auth_chain.available_names(),
-                "session_ttl_s": self._session_ttl_s,
-                "close_session_on_panel_hide": self._close_session_on_panel_hide,
-            },
-        }
+        return 200, {"tours": tours}
 
     async def _on_api_tour_start(self, *, tour_id: str) -> tuple[int, dict[str, Any]]:
         # RunTour.action's bool-поля не несут wire-дефолтов -- комментарии
@@ -576,17 +440,7 @@ class OperatorUiNode(Node):
 
         await asyncio.sleep(self._initialpose_settle_s)
 
-        for client in (self._clear_global_costmap_client, self._clear_local_costmap_client):
-            try:
-                await self._call_ros(
-                    lambda c=client: c.call_async(ClearEntireCostmap.Request()),
-                    self._service_timeout_s,
-                    name=f"clear_costmap[{client.srv_name}]",
-                )
-            except (TimeoutError, asyncio.TimeoutError):
-                self.get_logger().warning(
-                    f"localization reset: {client.srv_name} не ответил вовремя"
-                )
+        await self._clear_costmaps()
 
         return 200, {
             "message": "",
@@ -596,6 +450,26 @@ class OperatorUiNode(Node):
                 "yaw": _yaw_from_quaternion(home.pose.pose.orientation),
             },
         }
+
+    async def _clear_costmaps(self) -> bool:
+        """Очистить global и local costmap; False, если хотя бы один не ответил вовремя."""
+        ok = True
+        for client in (self._clear_global_costmap_client, self._clear_local_costmap_client):
+            try:
+                await self._call_ros(
+                    lambda c=client: c.call_async(ClearEntireCostmap.Request()),
+                    self._service_timeout_s,
+                    name=f"clear_costmap[{client.srv_name}]",
+                )
+            except (TimeoutError, asyncio.TimeoutError):
+                ok = False
+                self.get_logger().warning(f"clear costmap: {client.srv_name} не ответил вовремя")
+        return ok
+
+    async def _on_api_costmaps_clear(self) -> tuple[int, dict[str, Any]]:
+        if not await self._clear_costmaps():
+            return 503, {"message": "service_unavailable"}
+        return 200, {"message": ""}
 
     async def _on_api_media(self, *, exhibit_id: str) -> tuple[int, dict[str, Any]]:
         """Манифест слайдов экспоната (design D2): title + порядок chunk_id + медиа.
@@ -667,161 +541,13 @@ class OperatorUiNode(Node):
         self._media_manifest_cache[cache_key] = manifest
         return 200, manifest
 
-    async def _on_api_promo(self) -> tuple[int, dict[str, Any]]:
-        """Манифест промо-петли (design F2) -- {items, promo_interval_s}, без гейта.
-
-        `path`, не `file` -- тот же ключ, что уже отдаёт `_on_api_media`
-        для слайдов тура (промо переиспользует тот же рендерер на
-        клиенте, design F2, критерий 11).
-        """
-        return 200, {
-            "items": [
-                {
-                    "id": item.id,
-                    "kind": item.kind,
-                    "path": item.file,
-                    "duration_s": item.duration_s,
-                    "caption": item.caption,
-                }
-                for item in self._promo_items
-            ],
-            "promo_interval_s": self._promo_interval_s,
-        }
-
-    # -- аутентификация HTTP (design E2/E3, выполняются на серверном потоке) --
-
-    def _log_command_line(self, **fields: Any) -> None:
-        self._command_log.write({"ts": time.time(), **fields})
-
-    def _warn_mock_auth(self) -> None:
-        self.get_logger().warning(
-            'operator_ui: auth_backends содержит "mock" -- аутентификация '
-            "отключена, любой вход успешен (только для стенда без железа)"
-        )
-
-    async def _on_api_auth_challenge(self) -> tuple[int, dict[str, Any]]:
-        nonce = self._sessions.issue_nonce()
-        return 200, {"nonce": nonce, "backends": self._auth_chain.available_names()}
-
-    async def _on_api_auth_verify(self, **kwargs: Any) -> tuple[int, dict[str, Any]]:
-        nonce = kwargs.get("nonce")
-        backend_name = kwargs.get("backend")
-        if not isinstance(nonce, str) or not nonce:
-            return 400, {"message": "invalid_body"}
-        if not isinstance(backend_name, str) or not backend_name:
-            return 400, {"message": "invalid_body"}
-
-        # Погашен НЕЗАВИСИМО от исхода ниже -- design E2, критерий 5/6.
-        if not self._sessions.consume_nonce(nonce):
-            return 401, {"error": "invalid_nonce"}
-
-        # mock коротит всю цепочку (design E3) -- логируемый механизм входа
-        # обязан отражать это, а не то, что запросил клиент.
-        used_backend = "mock" if self._auth_chain.mock_active else backend_name
-
-        lockout_remaining_s = self._sessions.lockout_remaining_s()
-        if lockout_remaining_s is not None:
-            self._log_command_line(
-                event="auth_attempt",
-                backend=used_backend,
-                operator="",
-                ok=False,
-                reason="locked_out",
-            )
-            return 429, {"error": "locked_out", "retry_after_s": lockout_remaining_s}
-
-        if used_backend == "rfid":
-            self.get_logger().info("rfid: приложите карту -- жду challenge/response")
-
-        # to_thread: RfidBackend.verify() блокирует до rfid_timeout_s на
-        # реальном порте (design E4) -- вызов из event loop сервера
-        # напрямую застопорил бы вообще все WS/HTTP на время каждой
-        # попытки входа. Pin/MockBackend от этого не страдают -- быстрые.
-        started_s = time.monotonic()
-        result = await asyncio.to_thread(self._auth_chain.verify, nonce, backend_name, kwargs)
-        elapsed_s = time.monotonic() - started_s
-        if used_backend == "rfid":
-            # reason уже несёт код от ESP (rfid_timeout/rfid_bad_response/
-            # rfid_bad_signature/rfid_missing_card/rfid_unavailable/...,
-            # см. RfidBackend.verify в lib/auth.py) -- здесь только делаем
-            # его видимым в живом логе ноды, а не только в jsonl.
-            self.get_logger().info(
-                f"rfid: {'успех' if result.ok else 'отказ'} за {elapsed_s:.2f}s"
-                f"{'' if result.ok else f', причина={result.reason}'}"
-            )
-
-        if not result.ok:
-            self._sessions.record_failure()
-            self._log_command_line(
-                event="auth_attempt",
-                backend=used_backend,
-                operator="",
-                ok=False,
-                reason=result.reason,
-            )
-            body: dict[str, Any] = {"error": "invalid_credentials"}
-            # rfid_no_card -- единственная причина, которую стоит отличать
-            # в UI ("карту не считало", а не "неверный вход"): это
-            # состояние ридера, не попытка подбора учётных данных, ничего
-            # чувствительного не раскрывает. Остальные reason (wrong_pin,
-            # rfid_bad_signature, ...) наружу нарочно не идут.
-            if result.reason == "rfid_no_card":
-                body["reason"] = "rfid_no_card"
-            return 401, body
-
-        info, evicted = self._sessions.create_session(
-            operator=result.operator, backend=used_backend
-        )
-        if evicted is not None:
-            self.get_logger().warning(
-                f"operator_ui: сессия {evicted.operator}/{evicted.backend} "
-                "вытеснена новым успешным входом"
-            )
-            self._log_command_line(
-                event="session_evicted", operator=evicted.operator, backend=evicted.backend
-            )
-        self._log_command_line(
-            event="auth_attempt",
-            backend=used_backend,
-            operator=result.operator,
-            ok=True,
-            reason="",
-        )
-        return 200, {
-            "token": info.token,
-            "expires_at": info.expires_at_wall,
-            "operator": info.operator,
-        }
-
-    async def _on_api_auth_logout(self) -> tuple[int, dict[str, Any]]:
-        info = self._sessions.logout()
-        if info is not None:
-            self._log_command_line(event="logout", operator=info.operator, backend=info.backend)
-        return 200, {"ok": True}
-
-    async def _on_api_auth_status(self) -> tuple[int, dict[str, Any]]:
-        info = self._sessions.status()
-        if info is None:
-            return 200, {"active": False, "expires_at": None, "operator": None}
-        return 200, {"active": True, "expires_at": info.expires_at_wall, "operator": info.operator}
-
-    async def _on_api_auth_check(self, token: str | None) -> tuple[bool, str]:
-        """Гейт-коллбэк UiServer (design E2) -- без продления окна."""
-        info = self._sessions.validate(token)
-        return (False, "") if info is None else (True, info.operator)
-
-    async def _on_api_auth_touch(self, token: str) -> None:
-        """Продлить скользящее окно -- зовётся гейтом только на исход < 400."""
-        self._sessions.touch(token)
-
     async def _on_api_command_logged(self, *, path: str, operator: str, status: int) -> None:
         self.get_logger().info(f"команда {path} -- оператор={operator or '?'}, статус={status}")
-        self._log_command_line(event="command", path=path, operator=operator, status=status)
 
     # -- завершение -------------------------------------------------------------
 
     def destroy_node(self) -> None:
-        """Остановить UiServer и его поток, закрыть лог-файл перед уничтожением ноды."""
+        """Остановить UiServer и его поток перед уничтожением ноды."""
         if self._loop is not None:
             stop_fut = asyncio.run_coroutine_threadsafe(self._server.stop(), self._loop)
             try:
@@ -830,7 +556,6 @@ class OperatorUiNode(Node):
                 self.get_logger().warning("ui_server: ошибка при остановке", exc_info=True)
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._server_thread.join(timeout=_SERVER_STOP_TIMEOUT_S)
-        self._command_log.close()
         super().destroy_node()
 
 
