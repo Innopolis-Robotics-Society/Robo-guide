@@ -9,7 +9,9 @@
 /**/tool_broker:
   ros__parameters:
     service_call_timeout_s: 2.0
-    say_result_timeout_s: 15.0
+    # До 400 символов синтеза при естественном темпе занимают заметно больше
+    # 15 секунд. Таймаут ждёт фактический Say.Result, а не только принятие goal.
+    say_result_timeout_s: 45.0
     mission_fsm_ns: "/mission_fsm"
     location_server_ns: "/location_server"
     route_planner_ns: "/route_planner"
@@ -74,10 +76,10 @@
     system_prompt_path: "$(find-pkg-share guide_robot_llm)/config/system_prompt.txt"
     tool_broker_ns: "/tool_broker"
     service_call_timeout_s: 2.0
-    # tool_broker.say_result_timeout_s + запас на сам сетевой круговорот
+    # tool_broker.say_result_timeout_s + запас на сам сервисный круговорот.
     # ~/call_tool -- иначе dialog_agent сдаётся раньше, чем tool_broker
     # успевает ответить, и say_ok=False получается на пустом месте.
-    say_result_timeout_s: 16.0
+    say_result_timeout_s: 50.0
     catalog_ns_timeout_s: 5.0
 
     history.max_entries: 16
@@ -89,8 +91,9 @@
 
     answer.max_chars: 400
 
-    # unused: ход к ЛЛМ только после «Фирая» или окна /speech/wakeword.
-    wake_grace_s: 0.0
+    # После ответа разрешить одну естественную follow-up реплику без
+    # повторного «Фирая» (например «давай» или «расскажи подробнее»).
+    wake_grace_s: 8.0
 
 # interaction_log (llm_plam.md §6): jsonl-sink ходов диалога.
 /**/interaction_log:

@@ -43,10 +43,22 @@ def generate_launch_description():
         choices=["silero", "piper", "null"],
         description="TTS backend used by the XVF profile",
     )
+    declare_automatic_barge_in_enabled = DeclareLaunchArgument(
+        "automatic_barge_in_enabled",
+        default_value="false",
+        description="Enable automatic barge-in for an explicitly validated test profile",
+    )
+    declare_audio_profile_validated = DeclareLaunchArgument(
+        "audio_profile_validated",
+        default_value="false",
+        description="Confirm the current acoustic profile for automatic barge-in",
+    )
     autostart = LaunchConfiguration("autostart")
     voice_profile = LaunchConfiguration("voice_profile")
     launch_face = LaunchConfiguration("launch_face")
     tts_backend = LaunchConfiguration("tts_backend")
+    automatic_barge_in_enabled = LaunchConfiguration("automatic_barge_in_enabled")
+    audio_profile_validated = LaunchConfiguration("audio_profile_validated")
 
     high_level = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -60,6 +72,8 @@ def generate_launch_description():
             "voice_profile": voice_profile,
             "launch_face": launch_face,
             "tts_backend": tts_backend,
+            "automatic_barge_in_enabled": automatic_barge_in_enabled,
+            "audio_profile_validated": audio_profile_validated,
         }.items(),
     )
     llm = IncludeLaunchDescription(
@@ -72,6 +86,8 @@ def generate_launch_description():
             declare_voice_profile,
             declare_launch_face,
             declare_tts_backend,
+            declare_automatic_barge_in_enabled,
+            declare_audio_profile_validated,
             high_level,
             llm,
         ]

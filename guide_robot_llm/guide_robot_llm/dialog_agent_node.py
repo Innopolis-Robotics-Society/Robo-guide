@@ -180,7 +180,7 @@ class DialogAgentNode(LifecycleNode):
         # Свой (более длинный) таймаут здесь -- иначе dialog_agent сдаётся
         # раньше, чем tool_broker вообще успевает ответить, и say_ok=False
         # получается на пустом месте, хотя реплика прозвучала штатно.
-        self.declare_parameter("say_result_timeout_s", 16.0)
+        self.declare_parameter("say_result_timeout_s", 50.0)
 
         self.declare_parameter("history.max_entries", 16)
         self.declare_parameter("history.trim_to", 8)
@@ -190,7 +190,7 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("history.clear_after_absent_s", 60.0)
 
         self.declare_parameter("answer.max_chars", 400)
-        self.declare_parameter("wake_grace_s", 0.0)
+        self.declare_parameter("wake_grace_s", 8.0)
         self.declare_parameter("ask_visitor_ttl_s", 30.0)
 
         self._active = False
@@ -261,8 +261,8 @@ class DialogAgentNode(LifecycleNode):
         )
         self._told_ids: set[str] = set()
         self._listen_until = 0.0
-        # wake_grace_s оставлен в yaml как no-op: ход к ЛЛМ только после
-        # «фирая» / окна wakeword, не после конца предыдущей реплики.
+        # Короткое окно естественного follow-up после ответа: посетителю не
+        # нужно повторять «Фирая» перед «давай», «продолжай» или уточнением.
         self._wake_grace_s = float(self.get_parameter("wake_grace_s").value)
         self._wake_grace_until = 0.0
         # stage2 C2: {question, on_yes, on_no, deadline} -- живёт до ответа,
@@ -727,13 +727,15 @@ class DialogAgentNode(LifecycleNode):
         mission = self.last_mission_state()
         if mission is None:
             return
-        if not matching.idle_turn_allowed(msg.text, listen_armed=self._listen_armed()):
+        followup_armed = self._listen_armed() or self._wake_grace_active()
+        if not matching.idle_turn_allowed(msg.text, listen_armed=followup_armed):
             if not self._pending_confirm_ready(text):
                 self.get_logger().info(f"без wakeword, игнор: {text!r}")
                 return
         # Окно после «фирая» — на эту реплику. Иначе болтовня рядом
         # прерывает ход в полёте (`ход в полёте -- текущий прерван`).
         self._disarm_listen()
+        self._disarm_wake_grace()
         self._handle_transcript(text)
 
     def _arm_listen(self) -> None:
@@ -752,6 +754,11 @@ class DialogAgentNode(LifecycleNode):
     def _wake_grace_active(self) -> bool:
         with self._state_lock:
             return time.monotonic() < self._wake_grace_until
+
+    def _disarm_wake_grace(self) -> None:
+        """Закрыть одноразовое follow-up окно после принятой реплики."""
+        with self._state_lock:
+            self._wake_grace_until = 0.0
 
     def _listen_armed(self) -> bool:
         with self._state_lock:

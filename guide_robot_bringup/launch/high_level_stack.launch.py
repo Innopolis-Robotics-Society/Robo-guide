@@ -116,6 +116,16 @@ def generate_launch_description():
         choices=["silero", "piper", "null"],
         description="TTS backend passed to the XVF voice profile",
     )
+    declare_automatic_barge_in_enabled = DeclareLaunchArgument(
+        "automatic_barge_in_enabled",
+        default_value="false",
+        description="Enable XVF session-manager automatic barge-in",
+    )
+    declare_audio_profile_validated = DeclareLaunchArgument(
+        "audio_profile_validated",
+        default_value="false",
+        description="Confirm the current XVF acoustic profile for automatic barge-in",
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     launch_voice = LaunchConfiguration("launch_voice")
@@ -129,6 +139,8 @@ def generate_launch_description():
     xvf_base_voice_params_file = LaunchConfiguration("xvf_base_voice_params_file")
     xvf_voice_params_file = LaunchConfiguration("xvf_voice_params_file")
     tts_backend = LaunchConfiguration("tts_backend")
+    automatic_barge_in_enabled = LaunchConfiguration("automatic_barge_in_enabled")
+    audio_profile_validated = LaunchConfiguration("audio_profile_validated")
 
     # ── Голос ─────────────────────────────────────────────────────────────────
     # autostart -- пробрасывается (default "false"): супервизор (группа
@@ -183,6 +195,8 @@ def generate_launch_description():
                     "xvf_voice_params": xvf_voice_params_file,
                     "tts_backend": tts_backend,
                     "autostart": autostart,
+                    "automatic_barge_in_enabled": automatic_barge_in_enabled,
+                    "audio_profile_validated": audio_profile_validated,
                 }.items(),
             ),
         ],
@@ -258,6 +272,8 @@ def generate_launch_description():
             declare_xvf_base_voice_params_file,
             declare_xvf_voice_params_file,
             declare_tts_backend,
+            declare_automatic_barge_in_enabled,
+            declare_audio_profile_validated,
             legacy_voice,
             xvf_voice,
             semantic_map,
