@@ -94,6 +94,18 @@ class TtsNode(LifecycleNode):
         self._cb_action = ReentrantCallbackGroup()
         self._cb_timer = MutuallyExclusiveCallbackGroup()
 
+        # Эти сущности создаются в on_configure(), а не в __init__().
+        # Храним явные None, чтобы частично неудавшийся configure и повторный
+        # lifecycle-цикл могли безопасно освободить только уже созданное.
+        (
+            self._status_pub,
+            self._diag_pub,
+            self._event_pub,
+            self._cancel_sub,
+            self._action_server,
+            self._status_timer,
+        ) = (None,) * 6
+
     # -- lifecycle ----------------------------------------------------------
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
@@ -109,6 +121,7 @@ class TtsNode(LifecycleNode):
             return self._configure()
         except Exception as error:
             self.get_logger().error(f"configure не удался на шаге '{self._stage}': {error}")
+            self._release_resources()
             return TransitionCallbackReturn.FAILURE
 
     def _configure(self) -> TransitionCallbackReturn:
@@ -239,13 +252,37 @@ class TtsNode(LifecycleNode):
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
         """Освободить устройство и модель."""
         del state
+        self._release_resources()
+        return TransitionCallbackReturn.SUCCESS
+
+    def _release_resources(self) -> None:
+        """Удалить ROS-интерфейсы и тяжёлые ресурсы текущей конфигурации.
+
+        Простого присваивания нового ActionServer при следующем configure
+        недостаточно: старый сервер некоторое время остаётся в DDS-графе и
+        две реализации /say могут принять одну цель. Поэтому lifecycle
+        cleanup обязан уничтожать сущности явно, до новой конфигурации.
+        """
+        if self._status_timer is not None:
+            self.destroy_timer(self._status_timer)
+            self._status_timer = None
+        if self._action_server is not None:
+            self._action_server.destroy()
+            self._action_server = None
+        if self._cancel_sub is not None:
+            self.destroy_subscription(self._cancel_sub)
+            self._cancel_sub = None
+        for attribute in ("_status_pub", "_diag_pub", "_event_pub"):
+            publisher = getattr(self, attribute)
+            if publisher is not None:
+                self.destroy_lifecycle_publisher(publisher)
+                setattr(self, attribute, None)
         if self._sink is not None:
             self._sink.close()
             self._sink = None
         if self._backend is not None:
             self._backend.close()
             self._backend = None
-        return TransitionCallbackReturn.SUCCESS
 
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:
         """То же, что cleanup."""
