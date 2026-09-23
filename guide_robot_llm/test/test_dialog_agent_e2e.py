@@ -367,7 +367,10 @@ def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
             )
         ]
         _publish_transcript(client, "робот, хочу посмотреть на лидар")
-        wait_until(lambda: harness.say.goals_received >= 2, timeout_s=5.0)
+        wait_until(
+            lambda: any("Прервать экскурсию" in text for text in harness.say.texts_received),
+            timeout_s=5.0,
+        )
 
         harness.nav.duration_s = 0.05
         harness.llm_server.chunks_no_grammar = ["Идём смотреть на лидар."]
