@@ -74,3 +74,15 @@ locations:
     aliases:
       ru: ["левое крыло"]
       en: ["left wing"]
+
+  # База = вход/точка встречи (expo_meeting, graph_node 1); дублирует mission.yaml
+  # home_pose и стартовую позу AMCL (guide_robot_navigation/config/first_iter_nav2.yaml.in).
+  # Скрыта от пустого ListLocations (is_public=false), отдаётся по category=charging
+  # (operator UI, «Сброс локализации»). yaw π -- стартовый yaw Innopark в шаблоне AMCL
+  # до ArtSpace; на месте не сверен.
+  - id: home
+    graph_node: 1
+    pose: {x: -0.18678855895996094, y: -0.029946327209472656, yaw: 3.141592653589793}
+    zone: innopark
+    category: charging
+    is_public: false
