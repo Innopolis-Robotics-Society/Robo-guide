@@ -65,7 +65,7 @@ def test_turn_produces_interaction_log_record() -> None:
         assert record["answer_raw_text"] == "Привет!"
         assert record["answer_finish_reason"] == "stop"
         assert record["action_raw_text"] == '{"tool": "reply", "args": {}}'
-        assert record["action_finish_reason"] == "stop"
+        assert record["action_finish_reason"] == "stop_when"
         assert record["llm_messages"][0]["role"] == "system"
         roles = [m["role"] for m in record["llm_messages"]]
         assert roles.count("assistant") == 2  # tool-call фазы действия + реплика

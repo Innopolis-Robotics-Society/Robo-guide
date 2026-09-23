@@ -1,0 +1,12 @@
+# Закрыть старое поколение PCM и перейти к тишине/короткому fade-out.
+
+string request_id
+string device_session_id
+uint64 stream_id
+uint64 expected_generation
+string reason
+uint32 fade_ms
+---
+bool accepted
+uint64 resulting_generation
+string reason

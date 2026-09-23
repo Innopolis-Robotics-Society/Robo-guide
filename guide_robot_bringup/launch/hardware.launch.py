@@ -127,6 +127,12 @@ def generate_launch_description():
         default_value=os.path.join(pkg_voice, "config", "voice_jetson.yaml"),
         description="Voice YAML: USB mic + Pulse Bluetooth speaker on the real robot",
     )
+    declare_voice_profile = DeclareLaunchArgument(
+        "voice_profile",
+        default_value="legacy",
+        choices=["legacy", "xvf3800"],
+        description="Voice hardware profile passed through to high_level_stack",
+    )
     # tooling
     declare_launch_foxglove = DeclareLaunchArgument(
         "launch_foxglove", default_value="false", description="Launch Foxglove Bridge"
@@ -153,6 +159,7 @@ def generate_launch_description():
     launch_high_level = LaunchConfiguration("launch_high_level")
     launch_face = LaunchConfiguration("launch_face")
     launch_llm = LaunchConfiguration("launch_llm")
+    voice_profile = LaunchConfiguration("voice_profile")
     launch_foxglove = LaunchConfiguration("launch_foxglove")
     launch_rviz = LaunchConfiguration("launch_rviz")
 
@@ -243,6 +250,7 @@ def generate_launch_description():
         launch_arguments={
             "use_sim_time": use_sim_time,
             "voice_params_file": LaunchConfiguration("voice_params_file"),
+            "voice_profile": voice_profile,
             "launch_face": launch_face,
         }.items(),
     )
@@ -345,6 +353,7 @@ def generate_launch_description():
             declare_launch_face,
             declare_launch_llm,
             declare_voice_params_file,
+            declare_voice_profile,
             declare_launch_foxglove,
             declare_launch_rviz,
             robot_state_publisher_node,

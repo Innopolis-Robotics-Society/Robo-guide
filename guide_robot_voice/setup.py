@@ -36,6 +36,7 @@ setup(
             f"vad_node = {PACKAGE_NAME}.vad_node:main",
             f"asr_node = {PACKAGE_NAME}.asr_node:main",
             f"wakeword_node = {PACKAGE_NAME}.wakeword_node:main",
+            f"voice_session_manager = {PACKAGE_NAME}.voice_session_manager:main",
         ],
     },
 )

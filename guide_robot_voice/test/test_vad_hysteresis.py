@@ -68,6 +68,20 @@ def test_brief_dip_during_speech_does_not_end_segment() -> None:
     assert recovered.active
 
 
+def test_xvf_natural_pause_stays_inside_one_utterance() -> None:
+    """XVF profile's 800 ms hangover keeps a conversational pause intact."""
+    vad = make(hangover_ms=800.0)
+    feed(vad, 0.9, 6)
+
+    # 640 ms is long enough to split the old 400 ms profile, but is a normal
+    # hesitation inside e.g. "проверка микрофона ... робот меня слышит".
+    pause = feed(vad, 0.05, 20)
+    assert all(result.active for result in pause)
+
+    resumed = vad.update(0.9)
+    assert resumed.active
+
+
 def test_sustained_silence_ends_segment_after_hangover() -> None:
     """Устойчивая тишина в течение hangover_ms завершает сегмент."""
     vad = make(hangover_ms=400.0)

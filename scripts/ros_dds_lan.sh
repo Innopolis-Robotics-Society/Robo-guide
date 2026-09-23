@@ -18,7 +18,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 fi
 
 if ! ros2 pkg prefix rmw_cyclonedds_cpp >/dev/null 2>&1; then
-    echo "нужен ros-jazzy-rmw-cyclonedds-cpp" >&2
+    echo "нужен ros-${ROS_DISTRO:-humble}-rmw-cyclonedds-cpp" >&2
     return 1 2>/dev/null || exit 1
 fi
 

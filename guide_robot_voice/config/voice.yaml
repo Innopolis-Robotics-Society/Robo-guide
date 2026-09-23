@@ -51,6 +51,15 @@
     max_utterance_s: 20.0           # страховка
     min_final_chars: 2
     gate_on_tts: false              # true -> не слушать во время речи робота
+    session_managed_input: false    # true в XVF-профиле: ADMIT/REJECT от FSM
+
+/**/voice_session_manager:
+  ros__parameters:
+    speech_threshold: 0.65
+    barge_confirm_windows: 3         # 3 соседних окна по 32 мс
+    automatic_barge_in_enabled: false
+    audio_profile_validated: false
+    heartbeat_hz: 5.0
 
 /**/wakeword_node:
   ros__parameters:
@@ -65,11 +74,13 @@
 
 /**/tts_node:
   ros__parameters:
+    sink_backend: local           # local | xvf3800
     backend: silero               # silero | piper | null (null -> тон, режим измерений)
     # Модель лежит в репозитории (models/, git-lfs) -- путь одинаков на любой
     # машине, ничего не нужно скачивать отдельно.
     model_path: "$(find-pkg-share guide_robot_voice)/models/v5_ru.pt"
     speaker: xenia
+    silero_sample_rate: 48000       # частота модели; device_rate задаётся отдельно
     speaker_id: 0
     length_scale: 1.0
     silero_rate: "100%"           # <prosody rate> Silero; см. voice_jetson.yaml

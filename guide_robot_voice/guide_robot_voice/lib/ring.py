@@ -32,7 +32,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["RingBuffer"]
+__all__ = ["IndexedAudioRing", "IndexedSnapshot", "RingBuffer"]
 
 
 @dataclass
@@ -120,3 +120,164 @@ class RingBuffer:
             return None
         start_timestamp = self._segments[0].timestamp
         return start_timestamp, np.concatenate([seg.samples for seg in self._segments])
+
+
+@dataclass
+class _IndexedSegment:
+    first_sample: int
+    timestamp: float
+    samples: np.ndarray
+
+
+@dataclass(frozen=True)
+class IndexedSnapshot:
+    """Непрерывный срез indexed pre-roll и его точные границы."""
+
+    device_session_id: str
+    first_sample: int
+    next_sample: int
+    timestamp: float
+    samples: np.ndarray
+    underflow: bool
+
+
+class IndexedAudioRing:
+    """Ограниченный pre-roll с адресацией по capture sample index.
+
+    В отличие от ``RingBuffer``, этот буфер не скрывает разрывы между push:
+    новая device-сессия, rewind или gap атомарно начинают новую историю.
+    Это не позволяет ASR случайно склеить звук до и после USB reconnect.
+    """
+
+    def __init__(self, sample_rate: int, max_samples: int) -> None:
+        """Создать буфер заданной частоты и ограниченной ёмкости."""
+        if sample_rate <= 0 or max_samples <= 0:
+            raise ValueError("sample_rate и max_samples должны быть положительными")
+        self._sample_rate = sample_rate
+        self._max_samples = max_samples
+        self._segments: collections.deque[_IndexedSegment] = collections.deque()
+        self._length = 0
+        self._device_session_id = ""
+        self._next_sample: int | None = None
+
+    def __len__(self) -> int:
+        """Вернуть число доступных сэмплов."""
+        return self._length
+
+    @property
+    def device_session_id(self) -> str:
+        """Вернуть сессию текущей непрерывной истории."""
+        return self._device_session_id
+
+    @property
+    def next_sample(self) -> int | None:
+        """Вернуть индекс сразу после последнего доступного сэмпла."""
+        return self._next_sample
+
+    @property
+    def first_sample(self) -> int | None:
+        """Вернуть индекс старейшего доступного сэмпла."""
+        return self._segments[0].first_sample if self._segments else None
+
+    def clear(self) -> None:
+        """Удалить историю и идентификатор сессии."""
+        self._segments.clear()
+        self._length = 0
+        self._device_session_id = ""
+        self._next_sample = None
+
+    def push(
+        self,
+        device_session_id: str,
+        first_sample: int,
+        timestamp: float,
+        samples: np.ndarray,
+    ) -> bool:
+        """Добавить блок; вернуть True, если перед ним обнаружен разрыв."""
+        if samples.size == 0:
+            return False
+        discontinuity = (
+            not self._device_session_id
+            or device_session_id != self._device_session_id
+            or self._next_sample is None
+            or first_sample != self._next_sample
+        )
+        if discontinuity:
+            self._segments.clear()
+            self._length = 0
+            self._device_session_id = device_session_id
+
+        # Хранить собственную копию: callback может повторно использовать
+        # исходный ndarray до того, как ASR снимет pre-roll.
+        owned = np.array(samples, dtype=np.int16, copy=True)
+        self._segments.append(_IndexedSegment(first_sample, timestamp, owned))
+        count = int(owned.shape[0])
+        self._length += count
+        self._next_sample = first_sample + count
+        self._evict_excess()
+        return discontinuity
+
+    def _evict_excess(self) -> None:
+        while self._length > self._max_samples and self._segments:
+            head = self._segments[0]
+            head_len = int(head.samples.shape[0])
+            overflow = self._length - self._max_samples
+            if overflow >= head_len:
+                self._segments.popleft()
+                self._length -= head_len
+                continue
+            self._segments[0] = _IndexedSegment(
+                first_sample=head.first_sample + overflow,
+                timestamp=head.timestamp + overflow / self._sample_rate,
+                samples=head.samples[overflow:],
+            )
+            self._length -= overflow
+
+    def snapshot_from(
+        self, device_session_id: str, requested_first_sample: int
+    ) -> IndexedSnapshot | None:
+        """Вернуть ``[requested, current_end)`` без потребления буфера.
+
+        Если запрошенное начало уже вытеснено, срез начинается с самого
+        старого доступного сэмпла и ``underflow`` явно становится True.
+        """
+        if not self._segments or device_session_id != self._device_session_id:
+            return None
+        available_first = self._segments[0].first_sample
+        available_next = self._next_sample
+        assert available_next is not None
+        if requested_first_sample > available_next:
+            return None
+        actual_first = max(requested_first_sample, available_first)
+        actual_first = min(actual_first, available_next)
+        underflow = requested_first_sample < available_first
+
+        parts: list[np.ndarray] = []
+        timestamp = (
+            self._segments[-1].timestamp + len(self._segments[-1].samples) / self._sample_rate
+        )
+        for segment in self._segments:
+            segment_next = segment.first_sample + int(segment.samples.shape[0])
+            if segment_next <= actual_first:
+                continue
+            offset = max(0, actual_first - segment.first_sample)
+            if not parts:
+                timestamp = segment.timestamp + offset / self._sample_rate
+            parts.append(segment.samples[offset:])
+
+        samples = np.concatenate(parts) if parts else np.zeros(0, dtype=np.int16)
+        return IndexedSnapshot(
+            device_session_id=device_session_id,
+            first_sample=actual_first,
+            next_sample=available_next,
+            timestamp=timestamp,
+            samples=samples,
+            underflow=underflow,
+        )
+
+    def snapshot(self) -> IndexedSnapshot | None:
+        """Вернуть всю доступную непрерывную историю."""
+        first = self.first_sample
+        if first is None:
+            return None
+        return self.snapshot_from(self._device_session_id, first)

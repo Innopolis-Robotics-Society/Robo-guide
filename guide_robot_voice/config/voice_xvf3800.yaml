@@ -1,0 +1,34 @@
+# Оверлей голосового стека для единственного ALSA-владельца XVF3800.
+# Передаётся ПОСЛЕ voice.yaml, поэтому переопределяет только отличия профиля.
+
+/**/tts_node:
+  ros__parameters:
+    sink_backend: xvf3800
+    device_rate: 16000
+    channels: 1
+    fade_out_ms: 20
+    heartbeat_hz: 20.0
+    remote_service_timeout: 3.0
+
+/**/vad_node:
+  ros__parameters:
+    # В XVF-профиле VAD только измеряет; automatic CancelAll принадлежит FSM.
+    barge_in_enabled: false
+    require_aec_for_barge_in: true
+    # 400 мс разрезали естественную паузу внутри фразы на два
+    # utterance_id. 800 мс -- первая аппаратная настройка: ещё не теряем
+    # короткий ответ, но не режем паузу после «проверка микрофона».
+    hangover_ms: 800.0
+
+/**/asr_node:
+  ros__parameters:
+    # XVF-профиль не должен прекращать capture/ASR из-за речи робота.
+    gate_on_tts: false
+    session_managed_input: true
+    pre_roll_ms: 500.0
+
+/**/voice_session_manager:
+  ros__parameters:
+    # Оба флага включаются только после проверки XVF -> Supra -> динамики.
+    automatic_barge_in_enabled: false
+    audio_profile_validated: false

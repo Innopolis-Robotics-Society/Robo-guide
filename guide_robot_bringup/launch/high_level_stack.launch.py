@@ -51,12 +51,13 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 
 
 def generate_launch_description():
     """Launch the tour stack (voice + semantic_map + mission_control + face)."""
     pkg_voice = get_package_share_directory("guide_robot_voice")
+    pkg_audio = get_package_share_directory("guide_robot_audio")
     pkg_semantic_map = get_package_share_directory("guide_robot_semantic_map")
     pkg_mission_control = get_package_share_directory("guide_robot_mission_control")
     pkg_face = get_package_share_directory("guide_robot_face")
@@ -86,7 +87,34 @@ def generate_launch_description():
     declare_voice_params_file = DeclareLaunchArgument(
         "voice_params_file",
         default_value=os.path.join(pkg_voice, "config", "voice.yaml"),
-        description="YAML for guide_robot_voice (voice_jetson.yaml on the real robot)",
+        description="YAML for the legacy voice profile",
+    )
+    declare_voice_profile = DeclareLaunchArgument(
+        "voice_profile",
+        default_value="legacy",
+        choices=["legacy", "xvf3800"],
+        description="legacy uses audio_frontend; xvf3800 uses the single ALSA audio owner",
+    )
+    declare_xvf_audio_params_file = DeclareLaunchArgument(
+        "xvf_audio_params_file",
+        default_value=os.path.join(pkg_audio, "config", "xvf3800.yaml"),
+        description="Hardware YAML for xvf3800_audio_node",
+    )
+    declare_xvf_base_voice_params_file = DeclareLaunchArgument(
+        "xvf_base_voice_params_file",
+        default_value=os.path.join(pkg_voice, "config", "voice.yaml"),
+        description="Base voice YAML loaded before the XVF-specific overrides",
+    )
+    declare_xvf_voice_params_file = DeclareLaunchArgument(
+        "xvf_voice_params_file",
+        default_value=os.path.join(pkg_voice, "config", "voice_xvf3800.yaml"),
+        description="XVF-specific overrides applied after xvf_base_voice_params_file",
+    )
+    declare_tts_backend = DeclareLaunchArgument(
+        "tts_backend",
+        default_value="silero",
+        choices=["silero", "piper", "null"],
+        description="TTS backend passed to the XVF voice profile",
     )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -96,21 +124,64 @@ def generate_launch_description():
     launch_face = LaunchConfiguration("launch_face")
     autostart = LaunchConfiguration("autostart")
     voice_params_file = LaunchConfiguration("voice_params_file")
+    voice_profile = LaunchConfiguration("voice_profile")
+    xvf_audio_params_file = LaunchConfiguration("xvf_audio_params_file")
+    xvf_base_voice_params_file = LaunchConfiguration("xvf_base_voice_params_file")
+    xvf_voice_params_file = LaunchConfiguration("xvf_voice_params_file")
+    tts_backend = LaunchConfiguration("tts_backend")
 
     # ── Голос ─────────────────────────────────────────────────────────────────
     # autostart -- пробрасывается (default "false"): супервизор (группа
     # "voice") обычно владеет bring-up-ом; autostart:=true самоподнимает
     # без него, для standalone-тестирования.
     # params_file передан явно -- см. «ГРАБЛЯ» в шапке файла.
-    voice = GroupAction(
+    legacy_voice = GroupAction(
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    launch_voice,
+                    "'.lower() in ('true', '1', 'yes') and '",
+                    voice_profile,
+                    "' == 'legacy'",
+                ]
+            )
+        ),
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     os.path.join(pkg_voice, "launch", "voice.launch.py")
                 ),
-                condition=IfCondition(launch_voice),
                 launch_arguments={
                     "params_file": voice_params_file,
+                    "autostart": autostart,
+                }.items(),
+            ),
+        ],
+    )
+
+    xvf_voice = GroupAction(
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    launch_voice,
+                    "'.lower() in ('true', '1', 'yes') and '",
+                    voice_profile,
+                    "' == 'xvf3800'",
+                ]
+            )
+        ),
+        actions=[
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg_voice, "launch", "xvf3800_voice.launch.py")
+                ),
+                launch_arguments={
+                    "audio_params": xvf_audio_params_file,
+                    "voice_params": xvf_base_voice_params_file,
+                    "xvf_voice_params": xvf_voice_params_file,
+                    "tts_backend": tts_backend,
                     "autostart": autostart,
                 }.items(),
             ),
@@ -182,7 +253,13 @@ def generate_launch_description():
             declare_launch_face,
             declare_autostart,
             declare_voice_params_file,
-            voice,
+            declare_voice_profile,
+            declare_xvf_audio_params_file,
+            declare_xvf_base_voice_params_file,
+            declare_xvf_voice_params_file,
+            declare_tts_backend,
+            legacy_voice,
+            xvf_voice,
             semantic_map,
             mission,
             face,

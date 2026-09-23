@@ -35,6 +35,7 @@ import math
 import queue
 import threading
 import time
+import uuid
 from array import array
 
 import numpy as np
@@ -91,6 +92,7 @@ class AudioFrontendNode(LifecycleNode):
         self._gain_linear = 1.0
         self._first_sample = 0
         self._raw_first_sample = 0
+        self._device_session_id = ""
         self._stage = "инициализация"
         self._level_lock = threading.Lock()
         self._level_dbfs = _SILENCE_FLOOR_DBFS
@@ -221,6 +223,7 @@ class AudioFrontendNode(LifecycleNode):
             assert self._stream is not None
             self._first_sample = 0
             self._raw_first_sample = 0
+            self._device_session_id = f"audio-frontend-{uuid.uuid4().hex}"
             with self._activation_check_lock:
                 self._activation_validating = True
                 self._activation_frames_seen = 0
@@ -464,6 +467,7 @@ class AudioFrontendNode(LifecycleNode):
         msg = AudioChunk()
         msg.header.stamp = self._seconds_to_time_msg(timestamp)
         msg.header.frame_id = str(self.get_parameter("frame_id").value)
+        msg.device_session_id = self._device_session_id
         msg.sample_rate = int(self.get_parameter("out_rate").value)
         msg.channels = 1
         msg.data = _pcm_msg_data(frame)
@@ -479,6 +483,7 @@ class AudioFrontendNode(LifecycleNode):
         msg = AudioChunk()
         msg.header.stamp = self._seconds_to_time_msg(capture_time)
         msg.header.frame_id = str(self.get_parameter("frame_id").value)
+        msg.device_session_id = self._device_session_id
         msg.sample_rate = int(self.get_parameter("device_rate").value)
         msg.channels = 1
         msg.data = _pcm_msg_data(mono)
