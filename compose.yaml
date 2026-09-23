@@ -38,7 +38,7 @@ x-common: &common-setup
   command: [
     "/bin/bash","-lc","
     sudo chown $(whoami):$(whoami) /home/fabian/ros2_ws /home/fabian/ros2_ws/build /home/fabian/ros2_ws/install /home/fabian/ros2_ws/log 2>/dev/null || true &&
-    grep -q ros2_ws/install/setup.bash ~/.bashrc || echo '[ -f /home/fabian/ros2_ws/install/setup.bash ] && source /home/fabian/ros2_ws/install/setup.bash' >> ~/.bashrc &&
+    grep -qxF '[ -f /home/fabian/ros2_ws/install/setup.bash ] && source /home/fabian/ros2_ws/install/setup.bash' ~/.bashrc || echo '[ -f /home/fabian/ros2_ws/install/setup.bash ] && source /home/fabian/ros2_ws/install/setup.bash' >> ~/.bashrc &&
     exec bash"
     ]
 
