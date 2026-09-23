@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from guide_launcher.stack import StackError, StackMonitor, StackState
+from guide_launcher.stack import PROBE_FAILS_TO_DROP, StackError, StackMonitor, StackState
 from helpers import Clock, FakeDocker, make_cfg
 
 
@@ -214,6 +214,8 @@ def test_control_disabled_mode_uses_bridge_only(tmp_path):
     async def go():
         assert await m.poll() is StackState.UP
         bridge[0] = False
+        for _ in range(PROBE_FAILS_TO_DROP - 1):
+            assert await m.poll() is StackState.UP
         assert await m.poll() is StackState.DOWN
         for call in (m.start, m.restart):
             with pytest.raises(StackError) as exc:
@@ -270,3 +272,36 @@ def test_autostart_does_not_touch_already_running_stack(tmp_path):
     m = _monitor(tmp_path, d, [True], clock, cfg={"autostart_stack": True})
     _run_forever(m, clock, 3)
     assert not any(c[:3] == ["docker", "exec", "-d"] for c in d.calls)
+
+
+def test_up_survives_failed_probes_until_three_in_a_row(tmp_path):
+    bridge = [True]
+    m = _monitor(tmp_path, FakeDocker(), bridge, Clock())
+
+    async def go():
+        assert await m.poll() is StackState.UP
+        bridge[0] = False
+        for _ in range(PROBE_FAILS_TO_DROP - 1):
+            assert await m.poll() is StackState.UP
+        bridge[0] = True
+        assert await m.poll() is StackState.UP
+        bridge[0] = False
+        for _ in range(PROBE_FAILS_TO_DROP - 1):
+            assert await m.poll() is StackState.UP
+        assert await m.poll() is StackState.STARTING
+        assert m.checks.bridge is False
+
+    asyncio.run(go())
+
+
+def test_up_drops_immediately_when_container_or_launch_dies(tmp_path):
+    d, bridge = FakeDocker(), [True]
+    m = _monitor(tmp_path, d, bridge, Clock())
+
+    async def go():
+        assert await m.poll() is StackState.UP
+        bridge[0] = False
+        d.launch_alive = False
+        assert await m.poll() is StackState.DOWN
+
+    asyncio.run(go())

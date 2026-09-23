@@ -177,6 +177,9 @@ class OperatorUiNode(Node):
         )
         self.create_subscription(Bool, "/supervisor/estop", self._on_estop, 10)
         self.create_subscription(String, "/supervisor/state", self._on_supervisor_state, 10)
+        # Раз в секунду пересобираем кадр (растёт mission_state_age_s): по молчанию /ws
+        # launcher отличает зависший мост от живого.
+        self.create_timer(1.0, self._heartbeat_frame)
 
         # -- клиенты -----------------------------------------------------------
         self._run_tour_client = ActionClient(
@@ -263,6 +266,12 @@ class OperatorUiNode(Node):
         if self._mission_received_at_s is None:
             return None
         return max(0.0, self._now_s() - self._mission_received_at_s)
+
+    def _heartbeat_frame(self) -> None:
+        try:
+            self._push_frame()
+        except Exception as exc:
+            self.get_logger().warn(f"heartbeat-кадр не собран: {exc!r}", throttle_duration_sec=5.0)
 
     def _push_frame(self) -> None:
         self._seq += 1

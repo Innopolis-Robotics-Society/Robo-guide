@@ -16,6 +16,7 @@ from aiohttp import web
 log = logging.getLogger(__name__)
 
 PROBE_TIMEOUT_S = 1.0
+FRAME_MAX_AGE_S = 3.0
 COMMAND_TIMEOUT_S = 15.0
 CHUNK = 64 * 1024
 
@@ -196,8 +197,11 @@ class FrameWatcher:
         self.frame: Frame | None = None
 
     def latest(self) -> Frame | None:
-        """Последний кадр или None (стек не UP или кадров ещё нет)."""
-        return self.frame
+        """Последний кадр или None (стек не UP, кадров нет или мост молчит > FRAME_MAX_AGE_S)."""
+        frame = self.frame
+        if frame is None or self._clock() - frame.received_at > FRAME_MAX_AGE_S:
+            return None
+        return frame
 
     async def run_forever(self) -> None:
         """Цикл подключения; исключения соединения не выходят наружу."""

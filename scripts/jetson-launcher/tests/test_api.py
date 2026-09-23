@@ -15,7 +15,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 from guide_launcher.api import API, COOKIE, MAX_FAILED_ATTEMPTS, PUBLIC_START_MIN_INTERVAL_S
 from guide_launcher.auth import RfidBackend, make_auth_chain
-from guide_launcher.bridge import Bridge, Frame, FrameWatcher
+from guide_launcher.bridge import FRAME_MAX_AGE_S, Bridge, Frame, FrameWatcher
 from guide_launcher.rfid_link import MemorySerialPort, RfidLink
 from guide_launcher.server import create_app
 from guide_launcher.stack import StackMonitor, StackState
@@ -95,6 +95,12 @@ class Env:
             **over,
         }
         self.watcher.frame = Frame(data, self.clock.t)
+
+    def advance(self, seconds: float) -> None:
+        """Сдвинуть часы; живой мост шлёт heartbeat, поэтому кадр перештамповывается."""
+        self.clock.t += seconds
+        if self.watcher.frame is not None:
+            self.watcher.frame = Frame(self.watcher.frame.data, self.clock.t)
 
     def journal(self) -> list[dict[str, Any]]:
         path = self.app[API].journal.path
@@ -367,7 +373,7 @@ def test_public_start_refusals(tmp_path):
         async with env(tmp_path, default_tour="expo_one") as e:
 
             async def refused(reason: str) -> None:
-                e.clock.t += PUBLIC_START_MIN_INTERVAL_S + 1
+                e.advance(PUBLIC_START_MIN_INTERVAL_S + 1)
                 resp = await _public(e)
                 assert resp.status == 409, reason
                 assert await resp.json() == {"error": "refused", "reason": reason}
@@ -409,11 +415,11 @@ def test_public_start_rate_limited(tmp_path):
         async with env(tmp_path) as e:
             e.set_frame()
             assert (await _public(e)).status == 200
-            e.clock.t += PUBLIC_START_MIN_INTERVAL_S - 1
+            e.advance(PUBLIC_START_MIN_INTERVAL_S - 1)
             resp = await _public(e)
             assert resp.status == 409
             assert (await resp.json())["reason"] == "rate_limited"
-            e.clock.t += 2
+            e.advance(2)
             assert (await _public(e)).status == 200
             assert len(e.calls) == 2
 
@@ -509,5 +515,32 @@ def test_journal_records_events_with_results(tmp_path):
             assert by["public_start"][0]["ok"] is True
             assert by["logout"][0]["operator"] == "pin"
             assert all(isinstance(r["ts"], float) for r in events)
+
+    run(go())
+
+
+def test_silent_bridge_frame_expires_for_restart_and_public_start(tmp_path):
+    async def go():
+        async with env(tmp_path, default_tour="expo_one") as e:
+            await e.login()
+            e.set_frame(state_name="navigating")
+            assert e.watcher.latest() is not None
+            e.clock.t += FRAME_MAX_AGE_S - 0.1
+            assert e.watcher.latest() is not None
+            e.clock.t += 0.2
+            assert e.watcher.latest() is None
+
+            resp = await _public(e)
+            assert resp.status == 409
+            assert (await resp.json())["reason"] == "no_mission_fsm"
+
+            e.set_frame(state_name="navigating")
+            assert (await e.client.post("/api/stack/restart")).status == 409
+            e.set_frame(state_name="navigating")
+            e.clock.t += FRAME_MAX_AGE_S + 1
+            e.docker.calls.clear()
+            e.monitor._starting_since = None
+            assert (await e.client.post("/api/stack/restart")).status == 202
+            await _settle(e)
 
     run(go())

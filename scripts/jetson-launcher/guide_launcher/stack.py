@@ -15,6 +15,7 @@ from .config import Config
 log = logging.getLogger(__name__)
 
 LAUNCH_PATTERN = "ros2 launch"
+PROBE_FAILS_TO_DROP = 3
 GRACEFUL_STOP_WAIT_S = 20.0
 DOCKER_RESTART_GRACE_S = 20
 
@@ -105,6 +106,7 @@ class StackMonitor:
         self._lock = asyncio.Lock()
         self._starting_since: float | None = None
         self._mismatch_since: float | None = None
+        self._probe_fails = 0
         self.state = StackState.DOWN
         self.checks = Checks()
         self.last_error = ""
@@ -123,7 +125,10 @@ class StackMonitor:
                 checks.launch = (await self._exec(["pgrep", "-f", LAUNCH_PATTERN], 4.0)).rc == 0
         else:
             checks.container = checks.launch = True
-        checks.bridge = await self._probe()
+        bridge_ok = await self._probe()
+        self._probe_fails = 0 if bridge_ok else self._probe_fails + 1
+        debounced = self.state is StackState.UP and self._probe_fails < PROBE_FAILS_TO_DROP
+        checks.bridge = bridge_ok or debounced
         self.checks = checks
         self.state = self._derive(checks)
         return self.state
