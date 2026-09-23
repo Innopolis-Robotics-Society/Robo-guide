@@ -360,3 +360,17 @@ def test_mid_phrase_address_allows_turn_without_armed_listen() -> None:
     """Партиал с «фирая» могли пропустить -- обращение в финале всё равно считается."""
     heard = focus_on_address("мы тут болтали фирая который час")
     assert idle_turn_allowed(heard, listen_armed=False) is True
+
+
+def test_wake_variants_misheard_by_asr() -> None:
+    """GigaAM не знает имени: «ферая», «феррай», «феррари», «фираеи» -- обращение."""
+    for heard in ("ферая", "феррай", "феррая", "феррари", "фираеи", "фираей", "фи рая"):
+        assert is_wake_keyword(heard), heard
+        assert strip_wake_word(f"{heard} расскажи анекдот") == "расскажи анекдот", heard
+    heard = "ой она же не робот она же феррари феррари расскажи анекдот"
+    assert strip_wake_word(focus_on_address(heard)) == "расскажи анекдот"
+
+
+def test_wake_variants_do_not_eat_ordinary_words() -> None:
+    for text in ("фирма работает", "вчера я приехал", "ферма у дороги", "фираянка пришла"):
+        assert strip_wake_word(text) == text, text

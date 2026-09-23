@@ -26,6 +26,11 @@
     gate_on_tts: false
     session_managed_input: true
     pre_roll_ms: 500.0
+    # voice.yaml (6 Гц по окну 5 с) на CPU Orin Nano держит единственный
+    # воркер декода занятым партиалами, и финал ждёт за ними 3-10 с (замер
+    # 24.09.2026). Та же причина, что в voice_jetson.yaml.
+    partial_rate_hz: 2.0
+    partial_window_s: 2.5
 
 /**/voice_session_manager:
   ros__parameters:
