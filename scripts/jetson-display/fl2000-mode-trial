@@ -1,0 +1,79 @@
+#!/bin/sh
+# Пробный режим вывода для weston на FL2000 с автооткатом.
+#
+# Зачем: смена режима в weston.ini применяется только ребутом (weston на FL2000 нельзя
+# перезапустить живьём), а неудачный режим уже один раз подвешивал Jetson через несколько
+# секунд после загрузки (19.09.2026, 1080p30 на 74.25 МГц). Этот скрипт делает так, чтобы
+# неудачная попытка стоила одного выключения-включения по кнопке, без ручного отката.
+#
+# Сценарий:
+#   fl2000-mode-trial arm /path/to/weston.ini.candidate   # подменить конфиг, взвести флаг
+#   reboot
+#   -- при загрузке (до weston) unit fl2000-mode-trial.service вызывает `boot`:
+#        флаг armed  -> ставим booted, weston стартует с пробным конфигом
+#        флаг booted -> прошлая пробная загрузка не была подтверждена: возвращаем бэкап
+#   fl2000-mode-trial confirm   # экран хороший: оставить (таймер делает это сам через 5 мин)
+#   fl2000-mode-trial revert    # экран плохой, но система жива: вернуть бэкап (нужен ребут)
+set -eu
+
+CFG=/etc/xdg/weston-dlhdmi/weston.ini
+BACKUP=/etc/xdg/weston-dlhdmi/weston.ini.trial-backup
+STATE_DIR=/var/lib/guide-kiosk
+STATE=$STATE_DIR/fl2000-mode-trial.state
+
+log() { echo "fl2000-mode-trial: $*"; logger -t fl2000-mode-trial "$*" 2>/dev/null || true; }
+
+state() { [ -f "$STATE" ] && cat "$STATE" || echo none; }
+
+do_revert() {
+  if [ -f "$BACKUP" ]; then
+    cp "$BACKUP" "$CFG"
+    sync
+    log "weston.ini возвращён из $BACKUP"
+  else
+    log "нет бэкапа $BACKUP, нечего возвращать"
+  fi
+  rm -f "$STATE"
+}
+
+case "${1:-}" in
+  arm)
+    cand=${2:?путь к кандидату weston.ini}
+    [ -r "$cand" ] || { log "нет файла $cand"; exit 1; }
+    mkdir -p "$STATE_DIR"
+    cp "$CFG" "$BACKUP"
+    cp "$cand" "$CFG"
+    echo armed > "$STATE"
+    sync
+    log "взведено: $cand -> $CFG, бэкап $BACKUP; ребут"
+    ;;
+  boot)
+    case "$(state)" in
+      armed)
+        echo booted > "$STATE"; sync
+        log "пробная загрузка с $CFG (откат при следующей загрузке, если не подтвердят)"
+        ;;
+      booted)
+        log "прошлая пробная загрузка не подтверждена -> откат"
+        do_revert
+        ;;
+      *) ;;
+    esac
+    ;;
+  confirm)
+    [ "$(state)" = none ] && { log "пробного режима нет"; exit 0; }
+    rm -f "$STATE"; sync
+    log "пробный режим подтверждён, $CFG оставлен"
+    ;;
+  revert)
+    do_revert
+    ;;
+  status)
+    echo "state=$(state)"
+    grep '^mode=' "$CFG" || true
+    ;;
+  *)
+    echo "usage: $0 arm <weston.ini> | boot | confirm | revert | status" >&2
+    exit 2
+    ;;
+esac

@@ -25,15 +25,19 @@
 # Раскладка 19.09.2026 вечер: порт 1 -- хаб {левый лидар, микрофон, колонка}; порт 2 -- сонар
 # напрямую; порт 3 -- хаб {моторы в порту 1 хаба, FL2000 на 3.0-проходе}; порт 4 -- хаб {правый лидар}.
 
+# Правило простое и физическое: порт 4 Jetson -- моторы (сам CH341 или хаб с ним, любой порт
+# хаба), порты 2/3 -- сонар (напрямую или порт 3/4 хаба). Порт 1 -- лидары/аудио. Множества не
+# пересекаются, перепутать моторы с сонаром нельзя.
+
 # FURO Sonar controller: прямо в порт 2 или 3 Jetson (1-2.2 / 1-2.3) ...
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ATTRS{devpath}=="2.[23]", SYMLINK+="tty_sonar", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
-# ... или порт 3/4 внешнего хаба (e.g. 1-2.3.4)
-SUBSYSTEM=="tty", KERNELS=="1-2.[1-4].[34]", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_sonar", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
+# ... или порт 3/4 хаба, воткнутого в порт 1-3 Jetson (e.g. 1-2.3.4). Хаб в порту 4 -- моторный.
+SUBSYSTEM=="tty", KERNELS=="1-2.[1-3].[34]", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_sonar", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
 
 # FURO Motor controller: прямо в порт 4 Jetson (1-2.4) ...
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ATTRS{devpath}=="2.4", SYMLINK+="tty_motors", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
-# ... или порт 1 внешнего хаба (e.g. 1-2.3.1)
-SUBSYSTEM=="tty", KERNELS=="1-2.[1-4].1", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_motors", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
+# ... или любой порт хаба, воткнутого в порт 4 Jetson (e.g. 1-2.4.4)
+SUBSYSTEM=="tty", KERNELS=="1-2.4.[1-4]", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_motors", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
 
 # RPLIDAR C1 Left (Serial: LIDAR)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="LIDAR", SYMLINK+="tty_lidar_left", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
