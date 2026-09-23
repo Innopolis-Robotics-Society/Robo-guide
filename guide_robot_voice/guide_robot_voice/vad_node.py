@@ -47,6 +47,7 @@ from guide_robot_msgs.msg import (
 )
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
+from guide_robot_voice.lib.gap_fill import fill_small_gap
 from guide_robot_voice.lib.qos import (
     QOS_AUDIO_MIC,
     QOS_CANCEL_ALL,
@@ -83,6 +84,9 @@ class VadNode(LifecycleNode):
         self.declare_parameter("barge_in_enabled", True)
         self.declare_parameter("barge_in_min_windows", 2)
         self.declare_parameter("require_aec_for_barge_in", False)
+        # Пропуск в /audio/mic не длиннее этого -- тишина, а не разрыв захвата
+        # (иначе voice_session_manager выбрасывает всю фразу). 0 -- выключено.
+        self.declare_parameter("max_filled_gap_ms", 100.0)
 
         self._vad: SileroVad | None = None
         self._hysteresis: VadHysteresis | None = None
@@ -107,6 +111,8 @@ class VadNode(LifecycleNode):
         self._barge_in_triggers_total = 0
         self._gap_log_at = 0.0
         self._gaps_suppressed = 0
+        self._gaps_filled = 0
+        self._max_fill_samples = 0
 
     # -- lifecycle ------------------------------------------------------
 
@@ -120,6 +126,7 @@ class VadNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
     def _configure(self) -> TransitionCallbackReturn:
+        self._max_fill_samples = int(float(self.get_parameter("max_filled_gap_ms").value) * 16)
         model_path = str(self.get_parameter("model_path").value)
         if not model_path:
             raise ValueError(
@@ -177,6 +184,7 @@ class VadNode(LifecycleNode):
         self._barge_in_armed = True
         self._gap_log_at = 0.0
         self._gaps_suppressed = 0
+        self._gaps_filled = 0
         with self._lock:
             self._is_active = True
         return super().on_activate(state)
@@ -212,12 +220,22 @@ class VadNode(LifecycleNode):
         session_changed = bool(self._device_session_id) and (
             device_session_id != self._device_session_id
         )
-        sample_gap = expected is not None and msg.first_sample != expected
+        timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        first_sample = int(msg.first_sample)
+        samples = np.array(msg.data, dtype=np.int16)
+        if not session_changed:
+            first_sample, samples, filled = fill_small_gap(
+                expected, first_sample, samples, self._max_fill_samples
+            )
+            if filled:
+                timestamp -= filled / 16000.0
+                self._gaps_filled += 1
+        sample_gap = expected is not None and first_sample != expected
         if not self._device_session_id or session_changed or sample_gap:
-            skipped = 0 if expected is None else int(msg.first_sample) - int(expected)
+            skipped = 0 if expected is None else first_sample - int(expected)
             reset = session_changed or skipped < 0 or abs(skipped) >= _RESET_GAP_SAMPLES
             self._ring = RingBuffer(16000)
-            self._window_first_sample = int(msg.first_sample)
+            self._window_first_sample = first_sample
             self._next_observation_discontinuity = True
             self._barge_in_streak = 0
             if reset and expected is not None:
@@ -228,12 +246,9 @@ class VadNode(LifecycleNode):
                 self._was_active = False
                 self._barge_in_armed = True
             if expected is not None:
-                self._log_capture_discontinuity(expected, int(msg.first_sample), skipped, reset)
+                self._log_capture_discontinuity(expected, first_sample, skipped, reset)
         self._device_session_id = device_session_id
-        self._expected_first_sample = msg.first_sample + len(msg.data)
-
-        timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
-        samples = np.array(msg.data, dtype=np.int16)
+        self._expected_first_sample = first_sample + int(samples.shape[0])
 
         assert self._ring is not None
         self._ring.push(timestamp, samples)
@@ -416,6 +431,7 @@ class VadNode(LifecycleNode):
                 KeyValue(key="activations_total", value=str(self._activations_total)),
                 KeyValue(key="short_segments_total", value=str(self._short_segments_total)),
                 KeyValue(key="barge_in_triggers_total", value=str(self._barge_in_triggers_total)),
+                KeyValue(key="gaps_filled_total", value=str(self._gaps_filled)),
             ],
         )
         diag.status.append(entry)

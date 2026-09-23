@@ -48,6 +48,7 @@ from guide_robot_msgs.msg import (
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_voice.lib.asr_model import GigaAmCtc
+from guide_robot_voice.lib.gap_fill import fill_small_gap
 from guide_robot_voice.lib.qos import (
     QOS_ASR_PARTIAL,
     QOS_ASR_TRANSCRIPT,
@@ -115,6 +116,9 @@ class AsrNode(LifecycleNode):
         # не даёт VAD замолчать (0 -- только общий max_utterance_s).
         self.declare_parameter("wake_trim_margin_s", 1.0)
         self.declare_parameter("max_after_wake_s", 8.0)
+        # Пропуск в /audio/mic не длиннее этого -- тишина внутри фразы, а не
+        # разрыв захвата, выбрасывающий её целиком. 0 -- выключено.
+        self.declare_parameter("max_filled_gap_ms", 100.0)
         self.declare_parameter("frame_id", "mic_array")
 
         self._asr: GigaAmCtc | None = None
@@ -139,6 +143,8 @@ class AsrNode(LifecycleNode):
         self._wake_cap_ms = 0.0
         """utterance_ms, на котором финализировать после «Фирая» (0 -- нет лимита)."""
         self._wake_trims = 0
+        self._gaps_filled = 0
+        self._max_fill_samples = 0
         self._latest_control_sequence = -1
         self._latest_control_utterance_id = 0
         self._pending_control: UtteranceControl | None = None
@@ -168,6 +174,9 @@ class AsrNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
     def _configure(self) -> TransitionCallbackReturn:
+        self._max_fill_samples = int(
+            float(self.get_parameter("max_filled_gap_ms").value) * _SAMPLE_RATE / 1000
+        )
         model_path = str(self.get_parameter("model_path").value)
         tokens_path = str(self.get_parameter("tokens_path").value)
         if not model_path or not tokens_path:
@@ -324,16 +333,20 @@ class AsrNode(LifecycleNode):
     def _on_audio(self, msg: AudioChunk) -> None:
         timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
         samples = np.array(msg.data, dtype=np.int16)
+        first_sample = int(msg.first_sample)
         device_session_id = msg.device_session_id or "unknown-capture-session"
         with self._lock:
             if not self._is_active:
                 return
             assert self._pre_roll is not None
             assert self._indexed_pre_roll is not None
-            self._pre_roll.push(timestamp, samples)
             previous_session = self._indexed_pre_roll.device_session_id
+            first_sample, samples, timestamp = self._fill_gap_locked(
+                device_session_id, first_sample, samples, timestamp
+            )
+            self._pre_roll.push(timestamp, samples)
             discontinuity = self._indexed_pre_roll.push(
-                device_session_id, int(msg.first_sample), timestamp, samples
+                device_session_id, first_sample, timestamp, samples
             )
             if discontinuity and previous_session:
                 # Финал от старой непрерывной истории не может попасть в диалог.
@@ -342,7 +355,7 @@ class AsrNode(LifecycleNode):
                     self._discard_open_utterance("capture_discontinuity")
                 if self._pending_control is not None and (
                     self._pending_control.device_session_id != device_session_id
-                    or int(self._pending_control.onset_sample) < int(msg.first_sample)
+                    or int(self._pending_control.onset_sample) < first_sample
                 ):
                     self._pending_control = None
                 if self._pending_control is not None:
@@ -365,14 +378,14 @@ class AsrNode(LifecycleNode):
                 if (
                     discontinuity
                     or device_session_id != self._utterance_device_session_id
-                    or int(msg.first_sample) > self._utterance_next_sample
+                    or first_sample > self._utterance_next_sample
                 ):
                     self._discard_open_utterance("capture_discontinuity")
                     return
-                block_end = int(msg.first_sample) + int(samples.shape[0])
+                block_end = first_sample + int(samples.shape[0])
                 if block_end <= self._utterance_next_sample:
                     return
-                offset = max(0, self._utterance_next_sample - int(msg.first_sample))
+                offset = max(0, self._utterance_next_sample - first_sample)
                 appended = samples[offset:]
                 if appended.size:
                     self._utterance_chunks.append(appended)
@@ -381,6 +394,20 @@ class AsrNode(LifecycleNode):
             else:
                 self._utterance_chunks.append(samples)
                 self._utterance_samples += samples.shape[0]
+
+    def _fill_gap_locked(
+        self, device_session_id: str, first_sample: int, samples: np.ndarray, timestamp: float
+    ) -> tuple[int, np.ndarray, float]:
+        """Короткий пропуск внутри той же сессии захвата -- тишина, а не разрыв."""
+        assert self._indexed_pre_roll is not None
+        if self._indexed_pre_roll.device_session_id != device_session_id:
+            return first_sample, samples, timestamp
+        first_sample, samples, filled = fill_small_gap(
+            self._indexed_pre_roll.next_sample, first_sample, samples, self._max_fill_samples
+        )
+        if filled:
+            self._gaps_filled += 1
+        return first_sample, samples, timestamp - filled / _SAMPLE_RATE
 
     def _on_input_control(self, msg: UtteranceControl) -> None:
         """Применить только самое новое решение для конкретной реплики."""
@@ -834,6 +861,7 @@ class AsrNode(LifecycleNode):
                 KeyValue(key="finals_dropped_short", value=str(self._finals_dropped_short)),
                 KeyValue(key="preroll_underflows", value=str(self._preroll_underflows)),
                 KeyValue(key="wake_trims", value=str(self._wake_trims)),
+                KeyValue(key="gaps_filled", value=str(self._gaps_filled)),
                 KeyValue(
                     key="session_managed_input",
                     value=str(self._session_managed_input()).lower(),
