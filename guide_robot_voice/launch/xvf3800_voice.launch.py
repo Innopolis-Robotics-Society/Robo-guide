@@ -31,6 +31,8 @@ def generate_launch_description() -> LaunchDescription:
     tts_backend = LaunchConfiguration("tts_backend")
     autostart = LaunchConfiguration("autostart")
     publish_stereo_debug = LaunchConfiguration("publish_stereo_debug")
+    automatic_barge_in_enabled = LaunchConfiguration("automatic_barge_in_enabled")
+    audio_profile_validated = LaunchConfiguration("audio_profile_validated")
 
     arguments = [
         DeclareLaunchArgument(
@@ -54,6 +56,17 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("tts_backend", default_value="silero"),
         DeclareLaunchArgument("autostart", default_value="true"),
         DeclareLaunchArgument("publish_stereo_debug", default_value="false"),
+        DeclareLaunchArgument(
+            "automatic_barge_in_enabled",
+            default_value="false",
+            description="Enable session-manager barge-in; keep"
+            " false until the audio path is tested",
+        ),
+        DeclareLaunchArgument(
+            "audio_profile_validated",
+            default_value="false",
+            description="Confirm that the current acoustic profile is safe for automatic barge-in",
+        ),
     ]
 
     audio_owner = LifecycleNode(
@@ -76,6 +89,21 @@ def generate_launch_description() -> LaunchDescription:
         ]
         if name == "tts_node":
             parameters.append({"backend": ParameterValue(tts_backend, value_type=str)})
+        if name == "voice_session_manager":
+            # These explicit launch overrides are intentionally separate.
+            # A developer may enable both on a headphone stand, while the
+            # production XVF profile remains fail-closed until loudspeaker/AEC
+            # validation has actually been completed.
+            parameters.append(
+                {
+                    "automatic_barge_in_enabled": ParameterValue(
+                        automatic_barge_in_enabled, value_type=bool
+                    ),
+                    "audio_profile_validated": ParameterValue(
+                        audio_profile_validated, value_type=bool
+                    ),
+                }
+            )
         remappings = []
         if name == "wakeword_node":
             # В managed-профиле wakeword видит также KWS_ONLY, а обычные

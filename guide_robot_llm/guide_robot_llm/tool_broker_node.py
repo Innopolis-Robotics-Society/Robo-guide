@@ -97,7 +97,7 @@ class ToolBrokerNode(LifecycleNode):
         # stage3 C2: say -- не fire-and-forget, как run_tour/narrate (§4).
         # Реплика короткая (секунды), тур/рассказ -- нет: их таймаут
         # заведомо не подходит.
-        self.declare_parameter("say_result_timeout_s", 15.0)
+        self.declare_parameter("say_result_timeout_s", 45.0)
         self.declare_parameter("mission_fsm_ns", "/mission_fsm")
         self.declare_parameter("location_server_ns", "/location_server")
         self.declare_parameter("route_planner_ns", "/route_planner")

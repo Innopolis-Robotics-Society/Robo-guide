@@ -193,8 +193,8 @@ def test_action_reaches_tool_broker_then_answer_is_spoken() -> None:
         harness.shutdown()
 
 
-def test_followup_without_wakeword_does_not_start_a_turn() -> None:
-    """После хода следующая фраза без «фирая» в ЛЛМ не идёт (wake_grace выключен)."""
+def test_followup_within_wake_grace_starts_a_turn() -> None:
+    """После ответа одна естественная реплика проходит без повторного wakeword."""
     harness = ToolBrokerTestHarness(dialog_agent_overrides=(Parameter("wake_grace_s", value=5.0),))
     try:
         wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
@@ -205,11 +205,13 @@ def test_followup_without_wakeword_does_not_start_a_turn() -> None:
         _publish_transcript(client, "фирая, привет")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
 
+        wait_until(lambda: not harness.dialog_agent._turn_in_flight, timeout_s=5.0)
+        harness.llm_server.chunks_no_grammar = ["Продолжаю!"]
+        harness.llm_server.chunks_with_grammar = [_NOOP]
         harness.llm_server.last_request_body = None
         _publish_transcript(client, "расскажи про себя")
-        time.sleep(0.3)
-        assert harness.llm_server.last_request_body is None, "ЛЛМ не должен был вызываться"
-        assert harness.say.goals_received == 1
+        wait_until(lambda: harness.llm_server.last_request_body is not None, timeout_s=5.0)
+        wait_until(lambda: harness.say.goals_received >= 2, timeout_s=5.0)
     finally:
         harness.shutdown()
 
