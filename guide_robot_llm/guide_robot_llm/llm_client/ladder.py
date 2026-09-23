@@ -34,6 +34,7 @@ def complete_with_fallback(
     on_delta: Callable[[str], None] | None = None,
     stop_when: Callable[[str], bool] | None = None,
     backoff_s: float = 0.5,
+    on_attempt: Callable[[], None] | None = None,
 ) -> CompletionResult:
     """Пробовать `backends` по порядку, с retry внутри каждого.
 
@@ -49,6 +50,9 @@ def complete_with_fallback(
     ретраится вовсе, сразу следующий бэкенд; 429 (rate limit) и 5xx ретраятся
     как обычно. Если исчерпаны все -- поднимается последняя пойманная ошибка
     (вызывающий, `dialog_agent`, решает как деградировать дальше).
+
+    `on_attempt` зовётся перед каждой попыткой: `on_delta` новой попытки
+    начинает текст с нуля, и потребитель дельт должен это знать.
     """
     if not backends:
         msg = "список бэкендов пуст"
@@ -58,6 +62,8 @@ def complete_with_fallback(
     for backend in backends:
         max_attempts = backend.config.max_attempts
         for attempt in range(max_attempts):
+            if on_attempt is not None:
+                on_attempt()
             try:
                 return backend.complete(
                     messages,

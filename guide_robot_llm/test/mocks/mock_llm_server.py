@@ -46,6 +46,8 @@ class MockLlmServer:
         # (для теста ретрая: 429 один раз, потом успех на том же бэкенде).
         self.http_error_count = -1
         self.request_count = 0
+        # GET /models -- прогрев соединения (`Backend.warm`), не запрос к модели.
+        self.models_request_count = 0
         self.last_request_body: dict | None = None
         # Внешний шлюз без GBNF (TASK_external_llm_backend.md §0/§6): reasoning
         # приходит ДО обычного content, отдельными `delta.reasoning`-событиями,
@@ -69,6 +71,15 @@ class MockLlmServer:
 
             def do_POST(self) -> None:  # noqa: N802 -- имя метода диктует http.server
                 outer._handle(self)
+
+            def do_GET(self) -> None:  # noqa: N802 -- имя метода диктует http.server
+                outer.models_request_count += 1
+                payload = b'{"data": []}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         # Без этого поток на MODE_HANG (спит hang_s) -- недемон, и может

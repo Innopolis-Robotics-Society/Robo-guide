@@ -581,6 +581,8 @@ class ToolBrokerNode(LifecycleNode):
             scope=Say.Goal.SCOPE_DIALOG,
             priority=Say.Goal.PRIORITY_DIALOG,
             interruptible=bool(args.get("interruptible", True)),
+            # Потоковый ответ: продолжение идёт в /speech/say_stream мимо брокера.
+            stream_id=str(args.get("stream_id", "")),
         )
         send_future = self._say_client.send_goal_async(goal)
         if not _wait_future(send_future, self.context, self._service_call_timeout_s):

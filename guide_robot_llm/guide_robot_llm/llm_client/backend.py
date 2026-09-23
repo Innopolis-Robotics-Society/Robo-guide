@@ -57,6 +57,10 @@ class BackendConfig:
     # (сбрасывают read_timeout_s), не защищая от бесконечного "думания".
     first_content_timeout_s: float | None = None
     max_attempts: int = 2  # заменяет глобальный max_attempts_per_backend
+    # Держать в пуле готовое TCP+TLS соединение: SSE-ответ закрывается
+    # недочитанным (шлюз держит стрим открытым после [DONE]), и соединение
+    # умирает вместе с ним -- без прогрева каждый запрос платит рукопожатие.
+    prewarm: bool = False
 
 
 @dataclass
@@ -77,11 +81,39 @@ class Backend:
         """Запомнить конфиг; `session` подменяется в тестах (мок-сервер на localhost)."""
         self._config = config
         self._session = session or requests.Session()
+        self._warming = threading.Lock()
 
     @property
     def config(self) -> BackendConfig:
         """Конфиг бэкенда, только для чтения (`ladder.py` читает `max_attempts`)."""
         return self._config
+
+    def warm(self) -> None:
+        """Открыть соединение заранее, в фоне: лёгкий GET, дочитанный до конца.
+
+        Дочитанный ответ возвращает соединение в пул `requests.Session` --
+        следующий `complete()` идёт по нему без TCP+TLS. Ошибки молча
+        глотаются: прогрев -- оптимизация, не условие работы. Параллельные
+        вызовы схлопываются в один.
+        """
+        if not self._config.prewarm or not self._warming.acquire(blocking=False):
+            return
+        threading.Thread(target=self._warm_blocking, name="llm-prewarm", daemon=True).start()
+
+    def _warm_blocking(self) -> None:
+        try:
+            headers = {}
+            if self._config.api_key:
+                headers["Authorization"] = f"Bearer {self._config.api_key}"
+            url = f"{self._config.base_url.rstrip('/')}/models"
+            response = self._session.get(
+                url, headers=headers, timeout=(self._config.connect_timeout_s, 5.0)
+            )
+            _ = response.content
+        except requests.exceptions.RequestException:
+            pass
+        finally:
+            self._warming.release()
 
     def complete(
         self,
@@ -278,6 +310,9 @@ class Backend:
             raise BackendError(str(error)) from error
         finally:
             response.close()
+            # Недочитанный стрим закрыт вместе с соединением -- готовим
+            # следующее, пока исполняется действие или говорит TTS.
+            self.warm()
         return CompletionResult(
             text="".join(chunks),
             finish_reason=finish_reason,

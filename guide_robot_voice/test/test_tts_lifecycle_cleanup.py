@@ -28,6 +28,7 @@ def test_release_resources_destroys_ros_interfaces_and_is_idempotent() -> None:
     node._status_timer = object()
     node._action_server = _Destroyable(events, "action")
     node._cancel_sub = object()
+    node._stream_sub = object()
     node._status_pub = object()
     node._diag_pub = object()
     node._event_pub = object()
@@ -45,6 +46,7 @@ def test_release_resources_destroys_ros_interfaces_and_is_idempotent() -> None:
         "destroy:timer",
         "destroy:action",
         "destroy:subscription",
+        "destroy:subscription",
         "destroy:publisher",
         "destroy:publisher",
         "destroy:publisher",
@@ -54,6 +56,7 @@ def test_release_resources_destroys_ros_interfaces_and_is_idempotent() -> None:
     assert node._status_timer is None
     assert node._action_server is None
     assert node._cancel_sub is None
+    assert node._stream_sub is None
     assert node._status_pub is None
     assert node._diag_pub is None
     assert node._event_pub is None
