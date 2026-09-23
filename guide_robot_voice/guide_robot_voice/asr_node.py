@@ -43,6 +43,7 @@ from guide_robot_msgs.msg import (
     UtteranceControl,
     UtteranceEvent,
     VoiceActivity,
+    Wakeword,
 )
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
@@ -55,6 +56,7 @@ from guide_robot_voice.lib.qos import (
     QOS_UTTERANCE_EVENT,
     QOS_VAD,
     QOS_VOICE_SPEAKING,
+    QOS_WAKEWORD,
 )
 from guide_robot_voice.lib.ring import IndexedAudioRing, RingBuffer
 from guide_robot_voice.lib.turn_policy import TurnPolicy, TurnPolicyConfig
@@ -85,7 +87,7 @@ class _DecodeJob:
 class AsrNode(LifecycleNode):
     """Lifecycle-нода распознавания речи."""
 
-    def __init__(self) -> None:
+    def __init__(self) -> None:  # noqa: PLR0915 -- плоское объявление параметров и полей
         """Объявить параметры. Модель загружается в on_configure."""
         super().__init__("asr_node")
 
@@ -107,6 +109,12 @@ class AsrNode(LifecycleNode):
         # При gate_on_tts: всё равно копить окно и слать /asr/partial во время
         # TTS (для wakeword «Фирая»/«стоп»), финалы в диалог не открывать.
         self.declare_parameter("wakeword_listen_during_tts", False)
+        # «Фирая» посреди слитной речи: аудио до срабатывания режется до окна
+        # партиала, в котором его нашли, + этот запас на задержку декода и
+        # доставки; max_after_wake_s -- сколько ещё слушать просьбу, если фон
+        # не даёт VAD замолчать (0 -- только общий max_utterance_s).
+        self.declare_parameter("wake_trim_margin_s", 1.0)
+        self.declare_parameter("max_after_wake_s", 8.0)
         self.declare_parameter("frame_id", "mic_array")
 
         self._asr: GigaAmCtc | None = None
@@ -128,6 +136,9 @@ class AsrNode(LifecycleNode):
         self._utterance_next_sample = 0
         self._utterance_decision = UtteranceControl.DECISION_ADMIT
         self._last_partial_text = ""
+        self._wake_cap_ms = 0.0
+        """utterance_ms, на котором финализировать после «Фирая» (0 -- нет лимита)."""
+        self._wake_trims = 0
         self._latest_control_sequence = -1
         self._latest_control_utterance_id = 0
         self._pending_control: UtteranceControl | None = None
@@ -217,6 +228,9 @@ class AsrNode(LifecycleNode):
         self._vad_sub = self.create_subscription(VoiceActivity, "/vad", self._on_vad, QOS_VAD)
         self._speaking_sub = self.create_subscription(
             SpeakingStatus, "/voice/speaking", self._on_speaking_status, QOS_VOICE_SPEAKING
+        )
+        self._wakeword_sub = self.create_subscription(
+            Wakeword, "/speech/wakeword", self._on_wakeword, QOS_WAKEWORD
         )
         self._input_control_sub = self.create_subscription(
             UtteranceControl,
@@ -468,8 +482,40 @@ class AsrNode(LifecycleNode):
             utterance_ms = self._utterance_speech_ms()
             last_partial = self._last_partial_text
             should = self._turn_policy.should_finalize(last_partial, silence_ms, utterance_ms)
+            if self._wake_cap_ms and utterance_ms >= self._wake_cap_ms:
+                # Фоновая речь не даёт тишины -- просьба после «Фирая» не ждёт
+                # общего max_utterance_s.
+                should = True
         if should:
             self._submit_decode("final")
+
+    def _on_wakeword(self, msg: Wakeword) -> None:
+        """«Фирая»/«стоп» внутри открытой фразы -- всё сказанное раньше не к роботу.
+
+        Слитная речь без паузы 600-800 мс копится одной фразой до
+        max_utterance_s, и финал нёс в диалог всё, что говорили до
+        обращения, а декод 20 с аудио ещё и медленный. Обрезаем накопитель
+        до хвоста, в котором wakeword_node нашёл слово (dialog_agent срежет
+        остаток текста до «Фирая»), и ограничиваем, сколько ждать просьбу.
+        """
+        del msg
+        keep_s = float(self.get_parameter("partial_window_s").value) + float(
+            self.get_parameter("wake_trim_margin_s").value
+        )
+        max_after_s = float(self.get_parameter("max_after_wake_s").value)
+        with self._lock:
+            if not self._is_active or not self._utterance_open:
+                return
+            dropped = self._trim_utterance_locked(int(keep_s * _SAMPLE_RATE))
+            if max_after_s > 0:
+                self._wake_cap_ms = self._utterance_speech_ms() + max_after_s * 1000.0
+            if dropped:
+                self._wake_trims += 1
+        if dropped:
+            self.get_logger().info(
+                f"wakeword в фразе {self._utterance_id}: отброшено "
+                f"{dropped / _SAMPLE_RATE:.1f} с речи до обращения"
+            )
 
     # -- высказывание ---------------------------------------------------
 
@@ -553,6 +599,7 @@ class AsrNode(LifecycleNode):
         self._utterance_next_sample = 0
         self._utterance_decision = UtteranceControl.DECISION_ADMIT
         self._last_partial_text = ""
+        self._wake_cap_ms = 0.0
 
     def _discard_open_utterance(self, reason: str) -> None:
         if not self._utterance_open:
@@ -592,6 +639,24 @@ class AsrNode(LifecycleNode):
             n = int(dropped.shape[0])
             self._utterance_samples -= n
             self._prefix_samples = max(0, self._prefix_samples - n)
+
+    def _trim_utterance_locked(self, keep_samples: int) -> int:
+        """Оставить ровно последние keep_samples накопителя; вернуть, сколько отброшено.
+
+        В отличие от окна под TTS режет с точностью до сэмпла (чанки по
+        200-500 мс иначе съели бы начало «Фирая») и сдвигает начало фразы --
+        UtteranceEvent/Transcript должны описывать то, что реально декодируется.
+        """
+        excess = self._utterance_samples - keep_samples
+        if excess <= 0:
+            return 0
+        pcm = self._utterance_pcm()[excess:]
+        self._utterance_chunks = [pcm] if pcm.size else []
+        self._utterance_samples = int(pcm.shape[0])
+        self._prefix_samples = max(0, self._prefix_samples - excess)
+        self._utterance_start_sample += excess
+        self._utterance_timestamp += excess / _SAMPLE_RATE
+        return excess
 
     def _utterance_speech_ms(self) -> float:
         spoken_samples = max(0, self._utterance_samples - self._prefix_samples)
@@ -768,6 +833,7 @@ class AsrNode(LifecycleNode):
                 KeyValue(key="finals_published", value=str(self._finals_published)),
                 KeyValue(key="finals_dropped_short", value=str(self._finals_dropped_short)),
                 KeyValue(key="preroll_underflows", value=str(self._preroll_underflows)),
+                KeyValue(key="wake_trims", value=str(self._wake_trims)),
                 KeyValue(
                     key="session_managed_input",
                     value=str(self._session_managed_input()).lower(),

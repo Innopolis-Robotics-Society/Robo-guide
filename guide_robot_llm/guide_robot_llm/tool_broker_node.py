@@ -300,24 +300,26 @@ class ToolBrokerNode(LifecycleNode):
         mission = self.last_mission_state()
         if mission is None:
             return
+        # Сказанное до обращения посреди слитной речи -- не ответ роботу.
+        text = matching.focus_on_address(msg.text)
 
         if mission.state == MissionState.STATE_AWAITING_CONFIRM:
-            is_yes = matching.match_confirm(msg.text)
+            is_yes = matching.match_confirm(text)
             if is_yes is None:
-                self.get_logger().info(f"confirm: неуверенно ({msg.text!r}), жду ЛЛМ")
+                self.get_logger().info(f"confirm: неуверенно ({text!r}), жду ЛЛМ")
                 return
             self.get_logger().info(f"confirm: локально распознано -- {'да' if is_yes else 'нет'}")
             self._call_sync(self._confirm_client, SetBool.Request(data=is_yes))
         elif mission.state == MissionState.STATE_ANSWERING:
-            if matching.match_end_tour(msg.text):
+            if matching.match_end_tour(text):
                 self.get_logger().info("answering: локально распознано -- END_TOUR")
                 self._call_sync(
                     self._answer_client,
                     SubmitAnswer.Request(outcome=SubmitAnswer.Request.OUTCOME_END_TOUR),
                 )
                 return
-            if not matching.match_stop_phrase(msg.text):
-                self.get_logger().info(f"answering: неуверенно ({msg.text!r}), жду ЛЛМ")
+            if not matching.match_stop_phrase(text):
+                self.get_logger().info(f"answering: неуверенно ({text!r}), жду ЛЛМ")
                 return
             self.get_logger().info("answering: локально распознано стоп-слово -- SKIP_STOP")
             self._call_sync(

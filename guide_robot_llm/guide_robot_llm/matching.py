@@ -28,6 +28,7 @@ import re
 import unicodedata
 
 __all__ = [
+    "focus_on_address",
     "has_leading_wake_word",
     "is_wake_keyword",
     "has_motion_intent",
@@ -120,6 +121,8 @@ _WAKE_PREFIX = r"(?:(?:эй|слушай)[\s,]+)?"
 # Анкер в начале строки НАМЕРЕННО: имя в середине/конце фразы -- часть
 # содержания («как тебя зовут, Фирая?»), вырезать нельзя.
 _LEADING_WAKE_RE = re.compile(rf"^\s*(?:{_WAKE_PREFIX}{_WAKE_NAME}[\s,.!?—–-]*)+", re.IGNORECASE)
+# То же обращение в любом месте фразы, но не хвостом слова («эфирая»).
+_ANY_WAKE_RE = re.compile(rf"(?<![а-яё]){_WAKE_PREFIX}{_WAKE_NAME}", re.IGNORECASE)
 
 # Похоже на просьбу поехать/провести куда-то -- подстроки, не NLP.
 # «повтори»/«привет» сюда не входят намеренно (изначальный живой баг,
@@ -193,6 +196,22 @@ def _confident_gate(tokens: set[str]) -> bool:
     if not tokens or len(tokens) > _MAX_TOKENS_FOR_MATCH:
         return False
     return not (tokens & _QUESTION_WORDS)
+
+
+def focus_on_address(text: str) -> str:
+    """Начать фразу с последнего обращения, после которого есть просьба.
+
+    Слитная речь без паузы приходит одним транскриптом: «...говорили о
+    своём фирая включи свет» -- к роботу только «фирая включи свет», а
+    сказанное до обращения ЛЛМ видеть не должна (живой баг). Имя в конце
+    фразы без просьбы после него («как тебя зовут, фирая») -- часть
+    содержания, фраза не меняется.
+    """
+    for match in reversed(list(_ANY_WAKE_RE.finditer(text))):
+        addressed = text[match.start() :]
+        if strip_wake_word(addressed):
+            return addressed.strip()
+    return text
 
 
 def has_leading_wake_word(text: str) -> bool:

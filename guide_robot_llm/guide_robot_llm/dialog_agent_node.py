@@ -719,7 +719,11 @@ class DialogAgentNode(LifecycleNode):
         # Голое wake-слово ("фирая") -- не реплика: содержания для хода нет,
         # а ведущее "фирая, ..." срезается, чтобы ЛЛМ не видела обращения
         # (живой баг с прежним именем: "робот стоп" принято за существительное).
-        text = matching.strip_wake_word(msg.text)
+        # Обращение посреди слитной речи -- сказанное до него не к роботу.
+        raw = matching.focus_on_address(msg.text)
+        if raw != msg.text.strip():
+            self.get_logger().info(f"срезано до обращения: {msg.text.strip()[: -len(raw)]!r}")
+        text = matching.strip_wake_word(raw)
         if not text:
             self._arm_listen()
             self.get_logger().info("транскрипт -- только wake-слово, ход не запускаю")
@@ -728,7 +732,7 @@ class DialogAgentNode(LifecycleNode):
         if mission is None:
             return
         followup_armed = self._listen_armed() or self._wake_grace_active()
-        if not matching.idle_turn_allowed(msg.text, listen_armed=followup_armed):
+        if not matching.idle_turn_allowed(raw, listen_armed=followup_armed):
             if not self._pending_confirm_ready(text):
                 self.get_logger().info(f"без wakeword, игнор: {text!r}")
                 return
