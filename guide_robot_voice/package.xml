@@ -21,6 +21,7 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>guide_robot_audio</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

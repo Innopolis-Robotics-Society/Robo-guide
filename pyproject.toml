@@ -23,3 +23,7 @@ convention = "pep257"
 "**/test/**" = ["D"]   # в тестах докстринги не нужны
 "**/tests/**" = ["D"]
 "setup.py" = ["D"]
+
+[tool.codespell]
+# HDA (High Definition Audio) приходит дословно из вывода ALSA.
+ignore-words-list = "hda"

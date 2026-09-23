@@ -43,6 +43,8 @@ __all__ = [
     "trim_trailing_silence",
 ]
 
+_SILERO_SAMPLE_RATES = frozenset({8000, 24000, 48000})
+
 
 class TtsBackend(Protocol):
     """Синтезатор речи."""
@@ -367,6 +369,12 @@ class SileroBackend:
         sentence_pause_ms: int = 0,
         trailing_silence_ms: int = -1,
     ) -> None:
+        """Запомнить параметры. Модель загружается в load()."""
+        if sample_rate not in _SILERO_SAMPLE_RATES:
+            supported = ", ".join(str(rate) for rate in sorted(_SILERO_SAMPLE_RATES))
+            raise ValueError(
+                f"Silero TTS не поддерживает {sample_rate} Гц; допустимо: {supported}"
+            )
         """Запомнить параметры. Модель загружается в load().
 
         rate -- <prosody rate> SSML ("100%" -- как есть); sentence_pause_ms --

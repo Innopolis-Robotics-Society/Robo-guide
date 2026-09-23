@@ -19,8 +19,13 @@ __all__ = [
     "QOS_ASR_TRANSCRIPT",
     "QOS_AUDIO_MIC",
     "QOS_CANCEL_ALL",
+    "QOS_PLAYBACK_STATE",
     "QOS_SYSTEM_EVENT",
+    "QOS_UTTERANCE_CONTROL",
+    "QOS_UTTERANCE_EVENT",
     "QOS_VAD",
+    "QOS_VAD_OBSERVATION",
+    "QOS_VOICE_SESSION_STATE",
     "QOS_VOICE_SPEAKING",
     "QOS_WAKEWORD",
 ]
@@ -42,6 +47,45 @@ QOS_VAD = QoSProfile(
     depth=1,
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
+)
+
+# Расширенное представление того же VAD-окна. Небольшая history позволяет
+# session manager проверить соседство sample ranges; пропуск не ретраится и
+# сам по себе разрывает подтверждение речевого кандидата.
+QOS_VAD_OBSERVATION = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=4,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+)
+
+# Решение admission и события сегмента обязаны дойти. Они содержат ID и
+# sequence, поэтому повтор/поздняя доставка обрабатываются идемпотентно.
+QOS_UTTERANCE_CONTROL = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
+QOS_UTTERANCE_EVENT = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
+
+QOS_VOICE_SESSION_STATE = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+)
+
+QOS_PLAYBACK_STATE = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
 )
 
 # /speech/wakeword -- событие, редкое и обязанное дойти.

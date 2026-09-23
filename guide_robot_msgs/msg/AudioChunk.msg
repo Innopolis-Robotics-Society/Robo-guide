@@ -7,6 +7,11 @@
 
 std_msgs/Header header
 
+# Экземпляр непрерывной capture-сессии. Меняется после повторного открытия
+# устройства/рестарта audio owner. Серийный номер выбирает физическое
+# устройство, а это поле не даёт склеить старые и новые сэмплы после reconnect.
+string device_session_id
+
 uint32 sample_rate
 uint16 channels
 

@@ -26,6 +26,10 @@ def test_silero_load_missing_file() -> None:
         backend.load()
 
 
+def test_silero_rejects_device_rate_as_synthesis_rate() -> None:
+    """XVF3800 16кГц -- частота устройства, не допустимый output Silero v5."""
+    with pytest.raises(ValueError, match="не поддерживает 16000"):
+        SileroBackend(model_path="/no/such.pt", sample_rate=16000)
 def test_ssml_not_built_for_defaults() -> None:
     """При темпе 100% и модельной паузе apply_tts зовётся с text, не ssml."""
     assert build_silero_ssml("Привет. Как дела?") is None
