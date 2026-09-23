@@ -6,8 +6,8 @@ import hashlib
 import hmac
 import json
 
-from guide_robot_operator_ui.lib.auth import RfidBackend
-from guide_robot_operator_ui.lib.rfid_link import MemorySerialPort, RfidLink
+from guide_launcher.auth import RfidBackend
+from guide_launcher.rfid_link import MemorySerialPort, RfidLink
 
 SECRET = "shared-secret-from-esp"  # noqa: S105 -- тестовая фикстура, не реальный секрет
 NONCE = "test-nonce-64hex-placeholder"
@@ -148,3 +148,53 @@ def test_rfid_backend_missing_card_is_rejected() -> None:
     result = backend.verify(NONCE, {})
     assert result.ok is False
     assert result.reason == "rfid_missing_card"
+
+
+# -- ReconnectingRfidLink: порт открывается лениво и переоткрывается -----------------
+
+
+class _BrokenWritePort(MemorySerialPort):
+    def write_line(self, line: str) -> None:
+        raise OSError("unplugged")
+
+
+def test_reconnecting_link_opens_lazily_and_recovers() -> None:
+    from guide_launcher.rfid_link import ReconnectingRfidLink
+
+    ports: list[MemorySerialPort] = []
+    plugged = {"in": False}
+
+    def factory() -> MemorySerialPort:
+        if not plugged["in"]:
+            raise OSError("no device")
+        port = MemorySerialPort()
+        port.responses.append(_signed_response(NONCE))
+        ports.append(port)
+        return port
+
+    link = ReconnectingRfidLink(factory, timeout_s=0.01)
+    assert link.available() is False
+    assert link.challenge(NONCE).err == "port_unavailable"
+
+    plugged["in"] = True
+    assert link.available() is True
+    assert link.challenge(NONCE).ok is True
+    assert len(ports) == 1
+
+
+def test_reconnecting_link_reopens_after_write_failure() -> None:
+    from guide_launcher.rfid_link import ReconnectingRfidLink
+
+    opened: list[MemorySerialPort] = []
+
+    def factory() -> MemorySerialPort:
+        port: MemorySerialPort = _BrokenWritePort() if not opened else MemorySerialPort()
+        if opened:
+            port.responses.append(_signed_response(NONCE))
+        opened.append(port)
+        return port
+
+    link = ReconnectingRfidLink(factory, timeout_s=0.01)
+    assert link.challenge(NONCE).err == "write_failed"
+    assert link.challenge(NONCE).ok is True
+    assert len(opened) == 2

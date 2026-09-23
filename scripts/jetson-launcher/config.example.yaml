@@ -15,7 +15,7 @@ slide_interval_s: 8.0
 always_promo: true
 default_tour: expo_one
 operator_pin: "00112233"               # не короче 8 символов, иначе сервис не стартует
-auth_backends: [rfid, pin]
+auth_backends: [rfid, pin]           # "pin" обязателен; rfid без порта/секрета просто недоступен
 rfid_port: /dev/rfid0
 rfid_secret_file: ""
 session_ttl_s: 600

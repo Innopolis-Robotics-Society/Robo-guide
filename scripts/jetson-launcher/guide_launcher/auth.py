@@ -1,15 +1,8 @@
-"""Бэкенды аутентификации оператора -- без rclpy, без aiohttp (design E3).
+"""Бэкенды аутентификации оператора -- без rclpy, без aiohttp.
 
 Один интерфейс (`AuthBackend`), несколько реализаций: PIN -- резерв и
 потолок стойкости всей схемы (переживает отказ ридера), RFID -- удобство и
-атрибуция в логах, не стойкость (E4), MockBackend -- только для стенда без
-железа.
-
-`"mock"` в `auth_backends` коротит ВСЮ цепочку, а не участвует в переборе
-по порядку: если бы он был рядовой записью, `["pin","mock"]` и
-`["mock","pin"]` вели бы себя по-разному, и мок срабатывал бы не при
-каждой попытке входа -- худший вид отладочного бэкенда, тот, что не всегда
-срабатывает. `AuthChain.verify()` -- единственное место, где это решается.
+атрибуция в логах, не стойкость.
 """
 
 from __future__ import annotations
@@ -19,19 +12,18 @@ import hmac
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from guide_robot_operator_ui.lib.rfid_link import RfidLink
+from .rfid_link import RfidLink
 
 __all__ = [
     "AuthBackend",
     "AuthChain",
     "AuthResult",
-    "MockBackend",
     "PinBackend",
     "RfidBackend",
     "make_auth_chain",
 ]
 
-_KNOWN_BACKEND_NAMES = frozenset({"pin", "rfid", "mock"})
+_KNOWN_BACKEND_NAMES = frozenset({"pin", "rfid"})
 
 
 @dataclass(frozen=True)
@@ -79,28 +71,13 @@ class PinBackend:
         return AuthResult(ok=False, operator="", reason="wrong_pin")
 
 
-class MockBackend:
-    """Всегда успех -- задействуется только через `AuthChain.mock_active`, см. докстринг модуля."""
-
-    name = "mock"
-
-    def available(self) -> bool:
-        """Мок не завязан на железо -- доступен всегда, пока он включён."""
-        return True
-
-    def verify(self, nonce: str, payload: dict[str, Any]) -> AuthResult:
-        """Всегда успех; операторская атрибуция -- "mock", не имя запрошенного бэкенда."""
-        del nonce, payload
-        return AuthResult(ok=True, operator="mock", reason="")
-
-
 class RfidBackend:
     """HMAC challenge/response через ESP32-S3/RC522 (design E4).
 
     Секрет не покидает ESP -- по проводу только подпись (`RfidLink`),
     сверка HMAC -- здесь. `verify()` синхронный и может блокироваться до
     `retries * rfid_timeout_s` (порт открывается один раз при создании, не
-    на каждый вызов) -- вызывающий (operator_ui_node.py) обязан звать это
+    на каждый вызов) -- вызывающий (server.py) обязан звать это
     через `asyncio.to_thread`, не напрямую из event loop сервера.
     """
 
@@ -120,8 +97,11 @@ class RfidBackend:
         self._retries = max(1, retries)
 
     def available(self) -> bool:
-        """Готов, только если порт открылся И секрет загружен -- оба обязательны."""
-        return self._link is not None and bool(self._secret)
+        """Готов, только если порт доступен И секрет загружен -- оба обязательны."""
+        if self._link is None or not self._secret:
+            return False
+        link_available = getattr(self._link, "available", None)
+        return bool(link_available()) if callable(link_available) else True
 
     def verify(self, nonce: str, payload: dict[str, Any]) -> AuthResult:
         """Дёрнуть ридер (с ретраями на no_card) и сверить HMAC-SHA256(secret, nonce)."""
@@ -151,16 +131,13 @@ class AuthChain:
 
     backends: dict[str, AuthBackend]
     order: list[str]
-    mock_active: bool
 
     def available_names(self) -> list[str]:
-        """Реальные (не mock) бэкенды, готовые прямо сейчас -- для /api/auth/challenge."""
+        """Бэкенды, готовые прямо сейчас, в порядке конфига -- для /api/auth/challenge."""
         return [name for name in self.order if self.backends[name].available()]
 
     def verify(self, nonce: str, backend_name: str, payload: dict[str, Any]) -> AuthResult:
-        """Проверить попытку входа. mock_active коротит это целиком -- см. докстринг модуля."""
-        if self.mock_active:
-            return AuthResult(ok=True, operator="mock", reason="")
+        """Проверить попытку входа выбранным бэкендом."""
         backend = self.backends.get(backend_name)
         if backend is None:
             return AuthResult(ok=False, operator="", reason="unknown_backend")
@@ -175,7 +152,7 @@ def make_auth_chain(
     operator_pin: str,
     rfid_backend: AuthBackend | None = None,
 ) -> AuthChain:
-    """Собрать цепочку по списку имён параметра `auth_backends` (design E3).
+    """Собрать цепочку по списку имён конфига `auth_backends`.
 
     Отказ стартовать, не молчаливое игнорирование: пустой список; "pin"
     отсутствует (потолок стойкости всей схемы обязан быть доступен всегда);
@@ -196,12 +173,6 @@ def make_auth_chain(
     backends: dict[str, AuthBackend] = {"pin": PinBackend(operator_pin)}
     if rfid_backend is not None:
         backends["rfid"] = rfid_backend
-    mock_active = "mock" in names
-    if mock_active:
-        backends["mock"] = MockBackend()
 
-    # order -- только реальные способы входа для UI (design E2's
-    # /api/auth/challenge "backends"); mock туда не попадает, он не
-    # выбираемый метод, а глобальный обход всей проверки.
-    order = [name for name in names if name in backends and name != "mock"]
-    return AuthChain(backends=backends, order=order, mock_active=mock_active)
+    order = [name for name in names if name in backends]
+    return AuthChain(backends=backends, order=order)

@@ -99,6 +99,8 @@ def make_cfg(tmp_path: Path, **overrides) -> Config:
         "promo_dir": str(tmp_path / "promo"),
         "web_dir": str(web),
         "operator_pin": "12345678",
+        "state_dir": str(tmp_path / "state"),
+        "auth_backends": ("pin",),
         "start_timeout_s": 120.0,
         "poll_interval_s": 2.0,
     }
