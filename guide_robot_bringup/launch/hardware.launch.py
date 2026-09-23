@@ -78,12 +78,12 @@ def generate_launch_description():
     )
     declare_map = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg_navigation, "map", "artspace_18.09_edited.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited.yaml"),
         description="Готовая карта для режима slam:=false (map_server + AMCL)",
     )
     declare_keepout_mask_file = DeclareLaunchArgument(
         "keepout_mask_file",
-        default_value=os.path.join(pkg_navigation, "map", "artspace_18.09_keepout.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited_keepout.yaml"),
         description="Keepout costmap-filter mask, must match `map`. 'none' -- filter off.",
     )
     declare_nav_params = DeclareLaunchArgument(

@@ -8,7 +8,11 @@
 
   const WS_RECONNECT_MIN_MS = 1000;
   const WS_RECONNECT_MAX_MS = 10000;
-  const LONG_PRESS_MS = 2000;
+  const UNLOCK_TAPS = 4;
+  const UNLOCK_WINDOW_MS = 2000;
+  // Тач-панель на роботе «отпускает» неподвижный палец через ~10 мс, поэтому
+  // считаем нажатия, а не удержание; дребезг контакта короче этого порога.
+  const UNLOCK_MIN_GAP_MS = 60;
   const MISSION_STALE_S = 3.0;
   const DEFAULT_SLIDE_INTERVAL_S = 8.0;
   const DEFAULT_PROMO_INTERVAL_S = 10.0;
@@ -1145,13 +1149,10 @@
     render();
   }
 
-  // Долгий тап в углу открывает ЭКРАН ВХОДА, а не меню напрямую. Если сессия
-  // ещё валидна (меню было закрыто), просто открывает меню без повторного PIN.
-  let pressTimer = null;
-  const cancelPress = () => {
-    if (pressTimer) clearTimeout(pressTimer);
-    pressTimer = null;
-  };
+  // UNLOCK_TAPS нажатий в углу за UNLOCK_WINDOW_MS открывают ЭКРАН ВХОДА, а не
+  // меню напрямую. Если сессия ещё валидна (меню было закрыто), просто
+  // открывает меню без повторного PIN.
+  let unlockTaps = [];
 
   // nonce одноразовый -- сервер гасит его при ЛЮБОМ /api/auth/verify. Без
   // нового запроса после неудачной попытки currentNonce остаётся null, и второй
@@ -1164,22 +1165,28 @@
     return true;
   }
 
+  async function openFromCorner() {
+    if (authed) {
+      openMenu();
+      return;
+    }
+    pinInput.value = "";
+    showAuthMessage("");
+    if (!(await refreshChallenge())) return;
+    authDialog.showModal();
+    pinInput.focus();
+  }
+
   unlockCorner.addEventListener("pointerdown", () => {
-    pressTimer = setTimeout(async () => {
-      if (authed) {
-        openMenu();
-        return;
-      }
-      pinInput.value = "";
-      showAuthMessage("");
-      if (!(await refreshChallenge())) return;
-      authDialog.showModal();
-      pinInput.focus();
-    }, LONG_PRESS_MS);
+    const now = performance.now();
+    const last = unlockTaps[unlockTaps.length - 1];
+    if (last !== undefined && now - last < UNLOCK_MIN_GAP_MS) return;
+    unlockTaps.push(now);
+    unlockTaps = unlockTaps.filter((t) => now - t <= UNLOCK_WINDOW_MS);
+    if (unlockTaps.length < UNLOCK_TAPS) return;
+    unlockTaps = [];
+    openFromCorner();
   });
-  unlockCorner.addEventListener("pointerup", cancelPress);
-  unlockCorner.addEventListener("pointerleave", cancelPress);
-  unlockCorner.addEventListener("pointercancel", cancelPress);
 
   async function verifyAndOpen(backend, extra) {
     if (!currentNonce) return;
