@@ -129,9 +129,11 @@ def generate_launch_description():
     )
     declare_voice_profile = DeclareLaunchArgument(
         "voice_profile",
-        default_value="legacy",
+        default_value="xvf3800",
         choices=["legacy", "xvf3800"],
-        description="Voice hardware profile passed through to high_level_stack",
+        description="Voice hardware profile passed through to high_level_stack: xvf3800 -- "
+        "ReSpeaker XVF3800 (single ALSA owner), legacy -- USB PnP mic + audio_frontend "
+        "(voice_params_file applies only to legacy)",
     )
     # tooling
     declare_launch_foxglove = DeclareLaunchArgument(
