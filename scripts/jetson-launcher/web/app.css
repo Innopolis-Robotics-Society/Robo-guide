@@ -137,10 +137,9 @@ h2 {
   z-index: 20;
 }
 
-/* -- слой 2: оверлей панели (design E1) -- position: fixed, не в потоке
-   медиа-слоя, поэтому его показ/скрытие не двигает и не размонтирует
-   #media-layer -- */
-#panel-overlay {
+/* -- слой 2: меню оператора -- position: fixed, не в потоке медиа-слоя,
+   поэтому его показ/скрытие не двигает и не размонтирует #media-layer -- */
+#menu-overlay {
   position: fixed;
   inset: 0;
   z-index: 30;
@@ -149,7 +148,7 @@ h2 {
   padding: 1rem 1.25rem 2rem;
 }
 
-#panel-overlay > * {
+#menu-overlay > * {
   max-width: 900px;
   margin: 0 auto;
 }
@@ -164,7 +163,7 @@ h2 {
   margin-bottom: 1rem;
 }
 
-#status {
+#menu-status {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
@@ -194,6 +193,12 @@ h2 {
   border-color: var(--danger);
 }
 
+.badge-ok {
+  background: var(--ok);
+  color: #fff;
+  border-color: var(--ok);
+}
+
 .badge-warn {
   background: var(--warn);
   color: #1a1204;
@@ -202,6 +207,12 @@ h2 {
 
 .muted {
   color: var(--muted);
+}
+
+#message.message-ok {
+  background: rgba(47, 158, 91, 0.15);
+  border-color: var(--ok);
+  color: #b6f0cd;
 }
 
 #message {
@@ -213,14 +224,6 @@ h2 {
   color: #ffb3b7;
 }
 
-#tours,
-#commands {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
-}
-
 #session-controls {
   display: flex;
   flex-wrap: wrap;
@@ -230,17 +233,6 @@ h2 {
   margin-top: 2rem;
   padding-top: 1rem;
   border-top: 1px solid var(--border);
-}
-
-select {
-  flex: 1 1 220px;
-  min-height: 3.25rem;
-  font-size: 1.1rem;
-  background: var(--panel-bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0 0.75rem;
 }
 
 .btn {
@@ -310,13 +302,6 @@ select {
   background: rgba(20, 24, 31, 0.9);
 }
 
-#auth-mock-badge {
-  position: absolute;
-  top: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
 dialog {
   background: var(--panel-bg);
   color: var(--fg);
@@ -363,4 +348,130 @@ dialog::backdrop {
   min-width: 0; /* .btn задаёт min-width: 8rem, в сетке 3 колонки так не влезет */
   min-height: 4rem;
   font-size: 1.4rem;
+}
+
+/* -- кнопка публичного старта тура: маленькая, полупрозрачная, внизу по центру -- */
+#start-tour-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 0.6rem 1.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg);
+  background: rgba(18, 22, 29, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+#start-tour-btn:active {
+  opacity: 0.9;
+}
+
+.dialog-note {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(209, 55, 63, 0.15);
+  border: 1px solid var(--danger);
+  color: #ffb3b7;
+}
+
+/* -- меню оператора: разделы -- */
+#menu-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem auto;
+}
+
+.tab {
+  flex: 1 1 0;
+  min-height: 3.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.tab.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.ros-note {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: rgba(201, 138, 31, 0.15);
+  border: 1px solid var(--warn);
+  color: #f3d49a;
+  margin-bottom: 0.5rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.tour-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-bg);
+}
+
+.tour-row.current {
+  border-color: var(--accent);
+}
+
+.tour-row .tour-name {
+  flex: 1 1 auto;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1.25rem;
+  align-items: center;
+}
+
+.kv > .badge {
+  justify-self: start;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.bad {
+  color: var(--danger);
+}
+
+#stack-log {
+  max-height: 22rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.75rem;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }

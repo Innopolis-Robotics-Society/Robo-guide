@@ -1,5 +1,164 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><title>guide-launcher</title></head>
-<body><p>guide-launcher: страница появится в следующем коммите.</p></body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Экскурсовод</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <!-- Экран показа: смонтирован ВСЕГДА. Вход/выход оператора, обрыв WS и
+         остановка ROS его не трогают: без ROS просто крутится промо. -->
+    <section id="media-layer">
+      <div id="idle-screen">
+        <div id="idle-screen-text">Экскурсовод</div>
+      </div>
+      <div id="slides">
+        <div id="slide-layer-a" class="slide-layer"></div>
+        <div id="slide-layer-b" class="slide-layer"></div>
+        <div id="title-card" class="slide-layer" hidden>
+          <div id="title-card-text"></div>
+        </div>
+      </div>
+      <div id="returning-screen" hidden>Еду на базу…</div>
+      <button id="start-tour-btn" type="button" hidden>Начать экскурсию</button>
+      <div id="unlock-corner" aria-hidden="true"></div>
+      <div id="prefetch-pool" hidden aria-hidden="true"></div>
+    </section>
+
+    <!-- Меню оператора: поверх экрана показа, только после входа. -->
+    <section id="menu-overlay" hidden>
+      <header>
+        <h1>Меню оператора</h1>
+        <div id="menu-status">
+          <span id="status-state">--</span>
+          <span id="status-stops"></span>
+          <span id="status-exhibit"></span>
+          <span id="status-supervisor" class="badge"></span>
+          <span id="status-age" class="muted"></span>
+        </div>
+      </header>
+
+      <div id="conn-banner" hidden></div>
+      <div id="message" hidden></div>
+
+      <nav id="menu-tabs">
+        <button type="button" class="tab" data-section="tour">Экскурсия</button>
+        <button type="button" class="tab" data-section="robot">Робот</button>
+        <button type="button" class="tab" data-section="ros" id="tab-ros">ROS 2</button>
+      </nav>
+
+      <section id="section-tour" class="menu-section" hidden>
+        <div class="ros-note" hidden>ROS не запущен</div>
+        <h2>Текущий тур</h2>
+        <div id="tour-list"></div>
+        <div id="tour-empty" class="muted" hidden></div>
+        <div class="row">
+          <button id="btn-start" type="button" class="btn btn-primary" data-needs-ros>Старт</button>
+          <button id="btn-stop" type="button" class="btn btn-stop" data-needs-ros>Стоп</button>
+          <button id="btn-home" type="button" class="btn" data-needs-ros>Домой</button>
+        </div>
+      </section>
+
+      <section id="section-robot" class="menu-section" hidden>
+        <div class="ros-note" hidden>ROS не запущен</div>
+        <h2>Локализация и карты</h2>
+        <div class="row">
+          <button id="btn-reset" type="button" class="btn" data-needs-ros>Сбросить локализацию</button>
+          <button id="btn-costmaps" type="button" class="btn" data-needs-ros>Очистить костмапы</button>
+        </div>
+        <h2>Состояние</h2>
+        <div class="kv">
+          <span class="muted">Супервизор</span><span id="robot-supervisor">--</span>
+          <span class="muted">E-STOP</span><span id="robot-estop">--</span>
+        </div>
+      </section>
+
+      <section id="section-ros" class="menu-section" hidden>
+        <h2>Стек ROS 2</h2>
+        <div class="kv">
+          <span class="muted">Состояние</span><span id="ros-state" class="badge">--</span>
+          <span class="muted">Контейнер</span><span id="check-container">--</span>
+          <span class="muted">ros2 launch</span><span id="check-launch">--</span>
+          <span class="muted">Мост :8091</span><span id="check-bridge">--</span>
+        </div>
+        <div id="ros-error" class="muted" hidden></div>
+        <div class="row">
+          <button id="btn-stack-start" type="button" class="btn btn-primary">Запустить</button>
+          <button id="btn-stack-restart" type="button" class="btn">Перезапустить</button>
+        </div>
+        <h2>Лог (последние 30 строк)</h2>
+        <pre id="stack-log"></pre>
+      </section>
+
+      <section id="session-controls">
+        <span id="session-expiry" class="muted"></span>
+        <button id="btn-close-menu" type="button" class="btn">Закрыть</button>
+        <button id="btn-logout" type="button" class="btn btn-stop">Выйти</button>
+      </section>
+    </section>
+
+    <!-- Плашки: поверх ОБОИХ слоёв, независимо от меню. -->
+    <div id="badges">
+      <div id="estop-overlay" class="overlay" hidden>
+        E-STOP / авария — показ приостановлен
+      </div>
+      <div id="conn-lost-overlay" class="overlay" hidden>Нет связи с mission_fsm</div>
+    </div>
+
+    <dialog id="start-dialog">
+      <p id="start-text"></p>
+      <div id="start-message" class="dialog-note" hidden></div>
+      <div class="dialog-actions">
+        <button id="btn-start-ok" type="button" class="btn btn-primary">Начать</button>
+        <button id="btn-start-cancel" type="button" class="btn">Отмена</button>
+      </div>
+    </dialog>
+
+    <dialog id="confirm-dialog">
+      <p id="confirm-text"></p>
+      <div class="dialog-actions">
+        <button id="btn-confirm-ok" type="button" class="btn btn-stop">Подтвердить</button>
+        <button id="btn-confirm-cancel" type="button" class="btn">Отмена</button>
+      </div>
+    </dialog>
+
+    <dialog id="auth-dialog">
+      <p>Вход оператора</p>
+      <input
+        id="pin-input"
+        type="password"
+        inputmode="numeric"
+        autocomplete="off"
+        placeholder="PIN"
+        readonly
+      />
+      <!-- readonly: сенсорная панель без системной клавиатуры, ввод только
+           кнопками ниже (крупные тапабельные цели). -->
+      <div id="pin-keypad">
+        <button type="button" class="btn keypad-btn" data-digit="1">1</button>
+        <button type="button" class="btn keypad-btn" data-digit="2">2</button>
+        <button type="button" class="btn keypad-btn" data-digit="3">3</button>
+
+        <button type="button" class="btn keypad-btn" data-digit="4">4</button>
+        <button type="button" class="btn keypad-btn" data-digit="5">5</button>
+        <button type="button" class="btn keypad-btn" data-digit="6">6</button>
+
+        <button type="button" class="btn keypad-btn" data-digit="7">7</button>
+        <button type="button" class="btn keypad-btn" data-digit="8">8</button>
+        <button type="button" class="btn keypad-btn" data-digit="9">9</button>
+
+        <button id="btn-pin-backspace" type="button" class="btn keypad-btn btn-stop">⌫</button>
+        <button type="button" class="btn keypad-btn" data-digit="0">0</button>
+        <button id="btn-pin-ok" type="button" class="btn keypad-btn btn-primary">✓</button>
+      </div>
+      <div id="auth-message" class="muted" hidden></div>
+      <div class="dialog-actions">
+        <button id="btn-rfid-ok" type="button" class="btn" disabled>Приложить карту</button>
+        <button id="btn-auth-cancel" type="button" class="btn">Отмена</button>
+      </div>
+    </dialog>
+
+    <script src="/static/app.js"></script>
+  </body>
 </html>
