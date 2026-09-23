@@ -23,6 +23,7 @@ case "$1" in
     shift 2
     case "$*" in
       "bash -ic env") cat "$D/container_env.txt" ;;
+      "bash -c "*"; env") [ -f "$D/base_env.txt" ] && cat "$D/base_env.txt" ;;
       "id -u") cat "$D/container_uid" ;;
       "id -g") cat "$D/container_gid" ;;
     esac ;;
@@ -186,6 +187,23 @@ def test_ros_env_set_in_container(env):
     r = run(environ, "--preflight-only")
     assert r.returncode == 1
     assert "ROS_DOMAIN_ID=42" in r.stdout
+
+
+def test_ros_own_env_is_not_a_problem(env):
+    environ, fake, _ = env
+    (fake / "container_env.txt").write_text("ROS_LOCALHOST_ONLY=0\nHOME=/home/fabian\n")
+    (fake / "base_env.txt").write_text("ROS_LOCALHOST_ONLY=0\nHOME=/home/fabian\n")
+    assert run(environ, "--preflight-only").returncode == 0
+
+
+def test_manual_env_on_top_of_ros_env_is_flagged(env):
+    environ, fake, _ = env
+    (fake / "container_env.txt").write_text("ROS_LOCALHOST_ONLY=0\nROS_DOMAIN_ID=42\n")
+    (fake / "base_env.txt").write_text("ROS_LOCALHOST_ONLY=0\n")
+    r = run(environ, "--preflight-only")
+    assert r.returncode == 1
+    assert "ROS_DOMAIN_ID=42" in r.stdout
+    assert "ROS_LOCALHOST_ONLY" not in r.stdout.split("заданы переменные DDS")[1].splitlines()[0]
 
 
 def test_port_taken(env):

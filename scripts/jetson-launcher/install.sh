@@ -162,7 +162,11 @@ echo "== Окружение и права токена"
 TOKEN_MODE=0640
 if [ -n "$INSPECT" ] && [ "$INSPECT" != "[]" ]; then
   ENV_OUT="$(docker exec "$CONTAINER" bash -ic env 2>/dev/null || true)"
-  BAD="$(grep -E '^(ROS_DOMAIN_ID|RMW_IMPLEMENTATION|CYCLONEDDS_URI|ROS_LOCALHOST_ONLY|FASTRTPS_DEFAULT_PROFILES_FILE)=' <<<"$ENV_OUT" || true)"
+  # ROS сам выставляет часть переменных (ROS_LOCALHOST_ONLY=0), их получит и start_stack.sh:
+  # ловим только то, что есть в интерактивной оболочке, но не в окружении после тех же source.
+  BASE_OUT="$(docker exec "$CONTAINER" bash -c 'source /opt/ros/humble/setup.bash; [ -f /opt/ros/sensors/setup.bash ] && source /opt/ros/sensors/setup.bash; [ -f /home/fabian/ros2_ws/install/setup.bash ] && source /home/fabian/ros2_ws/install/setup.bash; env' 2>/dev/null || true)"
+  DDS_VARS='^(ROS_DOMAIN_ID|RMW_IMPLEMENTATION|CYCLONEDDS_URI|ROS_LOCALHOST_ONLY|FASTRTPS_DEFAULT_PROFILES_FILE)='
+  BAD="$(comm -23 <(grep -E "$DDS_VARS" <<<"$ENV_OUT" | sort || true) <(grep -E "$DDS_VARS" <<<"$BASE_OUT" | sort || true))"
   if [ -n "$BAD" ]; then
     fail "в контейнере заданы переменные DDS, start_stack.sh их не выставляет: $(tr '\n' ' ' <<<"$BAD")"
   else
