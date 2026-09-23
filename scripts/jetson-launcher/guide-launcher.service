@@ -1,0 +1,16 @@
+[Unit]
+Description=Guide robot launcher (kiosk page, operator menu, ROS stack control)
+After=docker.service network.target
+Wants=docker.service
+
+[Service]
+User=jetson
+Environment=PYTHONPATH=/opt/guide-launcher
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m guide_launcher --config /etc/guide-launcher/config.yaml
+Restart=always
+RestartSec=2
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

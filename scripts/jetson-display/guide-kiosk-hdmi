@@ -23,7 +23,20 @@ from gi.repository import Gdk, GLib, Gtk, WebKit2  # noqa: E402
 
 RETRY_S = 3
 
-url = Path("/etc/guide-kiosk/url").read_text(encoding="utf-8").strip() or "https://www.google.com/"
+
+
+def read_url():
+    """url-hdmi (только этот киоск), иначе общий url, который читает и лицо."""
+    for name in ("url-hdmi", "url"):
+        path = Path("/etc/guide-kiosk") / name
+        if path.is_file():
+            text = path.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+    return "https://www.google.com/"
+
+
+url = read_url()
 
 win = Gtk.Window()
 win.set_title("kiosk")

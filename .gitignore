@@ -31,3 +31,7 @@ asr_takes/
 # System files
 .DS_Store
 Thumbs.db
+
+# guide-launcher: токен моста лежит в репозитории на роботе
+.guide_launcher/
+rfid_secret
