@@ -1,0 +1,22 @@
+# /etc/guide-launcher/config.yaml (install.sh создаёт из этого файла, если конфига ещё нет).
+bind_host: 127.0.0.1
+http_port: 8089
+container: robo-guide-jetson-1         # "" -> управление стеком выключено (разработка на ноутбуке)
+start_cmd: /home/fabian/ros2_ws/src/scripts/jetson-launcher/start_stack.sh   # путь в контейнере
+stack_log: /tmp/stack.log              # внутри контейнера
+bridge_url: http://127.0.0.1:8091
+bridge_token_file: ~/Desktop/Projects/Robo-guide/.guide_launcher/bridge_token   # хостовый путь
+autostart_stack: false
+start_timeout_s: 120
+poll_interval_s: 2.0
+promo_dir: ~/Desktop/Projects/Robo-guide/guide_robot_operator_ui/promo   # promo.yaml + media/
+promo_interval_s: 10.0
+slide_interval_s: 8.0
+always_promo: true
+default_tour: expo_one
+operator_pin: "00112233"               # не короче 8 символов, иначе сервис не стартует
+auth_backends: [rfid, pin]
+rfid_port: /dev/rfid0
+rfid_secret_file: ""
+session_ttl_s: 600
+state_dir: ~/.guide_robot/launcher

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from guide_robot_operator_ui.lib.promo_io import load_promo
+from guide_launcher.promo import load_promo
 
 
 def _write(path: Path, text: str) -> None:

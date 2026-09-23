@@ -21,4 +21,5 @@ convention = "pep257"
 
 [tool.ruff.lint.per-file-ignores]
 "**/test/**" = ["D"]   # в тестах докстринги не нужны
+"**/tests/**" = ["D"]
 "setup.py" = ["D"]
