@@ -296,6 +296,14 @@ pre-roll и поздние решения покрыты unit-тестами. А
 
 ### Этап 6. Интеграция
 
+**Статус 23 сентября 2026:** XVF-профиль подключён к
+`high_level_stack.launch.py` через `voice_profile:=xvf3800`; lifecycle manager
+использует штатное имя `/lifecycle_manager_voice`, совместимое с supervisor.
+`desk.launch.py` теперь поднимает voice + semantic map + mission + LLM с XVF,
+но без `ros2_control`, Nav2 и головы. После живого наблюдения разбиения фразы
+XVF hangover увеличен с 400 до 800 мс; тест подтверждает, что пауза 640 мс не
+создаёт второй `utterance_id`. End-to-end проверка на Jetson ещё выполняется.
+
 - добавить XVF3800-профиль и новые ноды в voice launch/lifecycle manager;
 - включить профиль в `high_level_stack.launch.py` и supervisor;
 - проверить рассказ, вопрос, barge-in, стоп-слово, resume и восстановление USB;

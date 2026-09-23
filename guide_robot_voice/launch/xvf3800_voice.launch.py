@@ -95,7 +95,9 @@ def generate_launch_description() -> LaunchDescription:
     manager = Node(
         package="nav2_lifecycle_manager",
         executable="lifecycle_manager",
-        name="lifecycle_manager_xvf3800_voice",
+        # Тот же контракт, что у legacy voice.launch.py: supervisor
+        # может менять профиль, не меняя manager service name.
+        name="lifecycle_manager_voice",
         output="screen",
         parameters=[
             {

@@ -2,6 +2,7 @@
 # hardware.launch.py падает, если реле драйвера снято — этот файл нет.
 #
 #   ros2 launch guide_robot_bringup desk.launch.py
+#   ros2 launch guide_robot_bringup desk.launch.py voice_profile:=xvf3800
 #
 # Тур из болтовни не поедет: NavigateToPose некому исполнить.
 
@@ -25,7 +26,27 @@ def generate_launch_description():
         default_value="true",
         description="Self-activate lifecycle managers (no supervisor on the desk)",
     )
+    declare_voice_profile = DeclareLaunchArgument(
+        "voice_profile",
+        default_value="legacy",
+        choices=["legacy", "xvf3800"],
+        description="Voice hardware profile; xvf3800 does not launch audio_frontend",
+    )
+    declare_launch_face = DeclareLaunchArgument(
+        "launch_face",
+        default_value="true",
+        description="Launch the face HTTP/SVG node",
+    )
+    declare_tts_backend = DeclareLaunchArgument(
+        "tts_backend",
+        default_value="silero",
+        choices=["silero", "piper", "null"],
+        description="TTS backend used by the XVF profile",
+    )
     autostart = LaunchConfiguration("autostart")
+    voice_profile = LaunchConfiguration("voice_profile")
+    launch_face = LaunchConfiguration("launch_face")
+    tts_backend = LaunchConfiguration("tts_backend")
 
     high_level = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -33,11 +54,25 @@ def generate_launch_description():
         ),
         launch_arguments={
             "autostart": autostart,
+            # Used only by legacy. XVF has a separate base-file argument and
+            # therefore cannot accidentally inherit USB/Pulse parameters.
             "voice_params_file": os.path.join(pkg_voice, "config", "voice_jetson.yaml"),
+            "voice_profile": voice_profile,
+            "launch_face": launch_face,
+            "tts_backend": tts_backend,
         }.items(),
     )
     llm = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_llm, "launch", "llm.launch.py")),
         launch_arguments={"autostart": autostart}.items(),
     )
-    return LaunchDescription([declare_autostart, high_level, llm])
+    return LaunchDescription(
+        [
+            declare_autostart,
+            declare_voice_profile,
+            declare_launch_face,
+            declare_tts_backend,
+            high_level,
+            llm,
+        ]
+    )

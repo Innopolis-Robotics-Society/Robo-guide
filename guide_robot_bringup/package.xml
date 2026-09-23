@@ -32,6 +32,7 @@
   <exec_depend>guide_robot_simulation</exec_depend>
   <exec_depend>guide_robot_mission_control</exec_depend>
   <exec_depend>guide_robot_voice</exec_depend>
+  <exec_depend>guide_robot_audio</exec_depend>
   <exec_depend>guide_robot_semantic_map</exec_depend>
   <exec_depend>guide_robot_face</exec_depend>
   <exec_depend>guide_robot_llm</exec_depend>

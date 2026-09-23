@@ -142,7 +142,10 @@ RViz с `rviz/sim.rviz`. Аргументы: `slam` (false), `map`, `rviz` (true
 (группы `voice`/`semantic_map`/`mission`,
 `guide_robot_supervisor/config/supervisor.yaml`). Аргументы:
 `use_sim_time` (false), `launch_voice`/`launch_semantic_map`/
-`launch_mission`/`launch_face` (все true).
+`launch_mission`/`launch_face` (все true), `voice_profile` (`legacy` или
+`xvf3800`). XVF-профиль включает `xvf3800_audio_node` и не запускает
+`audio_frontend`; оба профиля предоставляют supervisor один и тот же сервис
+`/lifecycle_manager_voice/manage_nodes`.
 
 **Грабля (воспроизведено вживую):** `voice`/`semantic_map`/`mission`
 каждый сам объявляет launch-аргумент `params_file` со своим дефолтом,
@@ -167,10 +170,17 @@ include завёрнут в свой `GroupAction` (scoped) — см. комме
 
 ```bash
 ros2 launch guide_robot_bringup desk.launch.py
+
+# Полный голосовой/диалоговый стек XVF3800 без моторов, Nav2 и головы:
+ros2 launch guide_robot_bringup desk.launch.py \
+  voice_profile:=xvf3800 \
+  launch_face:=false
 ```
 
-`voice_jetson.yaml`, `autostart:=true` (супервизора нет). Тур из диалога
-не поедет: `NavigateToPose` некому исполнить.
+По умолчанию используется legacy `voice_jetson.yaml`; при
+`voice_profile:=xvf3800` применяются `voice.yaml` и следующий за ним оверлей
+`voice_xvf3800.yaml`. `autostart:=true` (супервизора нет). Тур из диалога не
+поедет: `NavigateToPose` некому исполнить.
 
 ### `launch/view_robot.launch.py`
 

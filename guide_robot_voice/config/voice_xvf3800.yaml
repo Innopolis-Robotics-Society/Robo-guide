@@ -15,6 +15,10 @@
     # В XVF-профиле VAD только измеряет; automatic CancelAll принадлежит FSM.
     barge_in_enabled: false
     require_aec_for_barge_in: true
+    # 400 мс разрезали естественную паузу внутри фразы на два
+    # utterance_id. 800 мс -- первая аппаратная настройка: ещё не теряем
+    # короткий ответ, но не режем паузу после «проверка микрофона».
+    hangover_ms: 800.0
 
 /**/asr_node:
   ros__parameters:
