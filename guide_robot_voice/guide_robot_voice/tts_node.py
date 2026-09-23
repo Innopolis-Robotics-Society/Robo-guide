@@ -37,7 +37,7 @@ from guide_robot_voice.lib.qos import QOS_CANCEL_ALL, QOS_SYSTEM_EVENT, QOS_VOIC
 from guide_robot_voice.lib.remote_sink import RemoteSink
 from guide_robot_voice.lib.resampler import Resampler, resample_int16
 from guide_robot_voice.lib.scheduler import Action, Scheduler, Scope, Utterance
-from guide_robot_voice.lib.sink import EpochFencedSink, SoundDeviceEmitter
+from guide_robot_voice.lib.sink import EpochFencedSink, KeepAliveTone, SoundDeviceEmitter
 
 
 class TtsNode(LifecycleNode):
@@ -54,6 +54,12 @@ class TtsNode(LifecycleNode):
         self.declare_parameter("silero_sample_rate", 48000)
         self.declare_parameter("speaker_id", 0)
         self.declare_parameter("length_scale", 1.0)
+        # Silero: темп (<prosody rate>, "100%" -- как есть), явная пауза между
+        # предложениями (0 -- модельная ~400 мс) и обрезка тишины в конце
+        # клаузы (-1 -- не трогать). См. lib/backends.build_silero_ssml.
+        self.declare_parameter("silero_rate", "100%")
+        self.declare_parameter("sentence_pause_ms", 0)
+        self.declare_parameter("trailing_silence_ms", -1)
         self.declare_parameter("device", "")
         self.declare_parameter("device_rate", 0)
         self.declare_parameter("block_ms", 20)
@@ -64,6 +70,10 @@ class TtsNode(LifecycleNode):
         self.declare_parameter("remote_service_timeout", 3.0)
         self.declare_parameter("max_queue_ms", 600)
         self.declare_parameter("fade_out_ms", 80)
+        # keep-alive: инфразвуковой тон вместо нулей в паузах, чтобы USB-кодек
+        # с авто-mute не «засыпал» (0.0 -- выключено; см. lib/sink.KeepAliveTone).
+        self.declare_parameter("keepalive_dbfs", 0.0)
+        self.declare_parameter("keepalive_hz", 20.0)
         self.declare_parameter("min_chars", 40)
         self.declare_parameter("max_clause_chars", 180)
         self.declare_parameter("chars_per_second", 14.0)
@@ -221,7 +231,8 @@ class TtsNode(LifecycleNode):
             f"tts_node сконфигурирован: бэкенд={self.get_parameter('backend').value}, "
             f"sink={sink_backend}, "
             f"модель {self._backend.sample_rate} Гц, устройство {device_rate} Гц, "
-            f"блок {block_ms} мс"
+            f"блок {block_ms} мс, темп {self.get_parameter('silero_rate').value}, "
+            f"пауза между предложениями {self.get_parameter('sentence_pause_ms').value} мс"
         )
         return TransitionCallbackReturn.SUCCESS
 
@@ -712,6 +723,9 @@ class TtsNode(LifecycleNode):
                 speaker=str(self.get_parameter("speaker").value),
                 sample_rate=int(self.get_parameter("silero_sample_rate").value),
                 block_ms=int(self.get_parameter("block_ms").value),
+                rate=str(self.get_parameter("silero_rate").value),
+                sentence_pause_ms=int(self.get_parameter("sentence_pause_ms").value),
+                trailing_silence_ms=int(self.get_parameter("trailing_silence_ms").value),
             )
         raise ValueError(f"неизвестный бэкенд: {kind!r}, ожидается 'silero', 'piper' или 'null'")
 

@@ -67,7 +67,7 @@ def test_transcript_in_idle_drives_say_through_call_tool() -> None:
         harness.llm_server.chunks_with_grammar = [_NOOP]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, привет")
+        _publish_transcript(client, "фирая, привет")
 
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
 
@@ -109,7 +109,7 @@ def test_search_content_hit_appears_in_spravka_and_references() -> None:
         harness.llm_server.chunks_with_grammar = [_NOOP]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, что это за штука")
+        _publish_transcript(client, "фирая, что это за штука")
 
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
 
@@ -134,13 +134,13 @@ def test_search_content_hit_appears_in_spravka_and_references() -> None:
 
 
 def test_bare_wake_word_does_not_start_a_turn() -> None:
-    """Голое "робот" (wake-слово без содержания) не должно порождать ход к ЛЛМ."""
+    """Голое "фирая" (wake-слово без содержания) не должно порождать ход к ЛЛМ."""
     harness = ToolBrokerTestHarness()
     try:
         wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот")
+        _publish_transcript(client, "фирая")
 
         time.sleep(0.3)  # дать бы ходу стартовать, если фильтр не сработал
         assert harness.llm_server.last_request_body is None, "ЛЛМ не должен был вызываться вовсе"
@@ -150,7 +150,7 @@ def test_bare_wake_word_does_not_start_a_turn() -> None:
 
 
 def test_idle_chit_chat_without_wakeword_does_not_start_a_turn() -> None:
-    """IDLE без «робот» -- не диалог (мусор ASR не должен порождать ход)."""
+    """IDLE без «фирая» -- не диалог (мусор ASR не должен порождать ход)."""
     harness = ToolBrokerTestHarness()
     try:
         wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
@@ -185,7 +185,7 @@ def test_action_reaches_tool_broker_then_answer_is_spoken() -> None:
         ]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, отведи меня в лабораторию")
+        _publish_transcript(client, "фирая, отведи меня в лабораторию")
 
         wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
@@ -194,7 +194,7 @@ def test_action_reaches_tool_broker_then_answer_is_spoken() -> None:
 
 
 def test_followup_without_wakeword_does_not_start_a_turn() -> None:
-    """После хода следующая фраза без «робот» в ЛЛМ не идёт (wake_grace выключен)."""
+    """После хода следующая фраза без «фирая» в ЛЛМ не идёт (wake_grace выключен)."""
     harness = ToolBrokerTestHarness(dialog_agent_overrides=(Parameter("wake_grace_s", value=5.0),))
     try:
         wait_until(_dialog_agent_has_mission_state(harness), timeout_s=5.0)
@@ -202,7 +202,7 @@ def test_followup_without_wakeword_does_not_start_a_turn() -> None:
         harness.llm_server.chunks_with_grammar = [_NOOP]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, привет")
+        _publish_transcript(client, "фирая, привет")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
 
         harness.llm_server.last_request_body = None
@@ -235,7 +235,7 @@ def test_ask_visitor_speaks_the_question() -> None:
         ]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, хочу к лидару")
+        _publish_transcript(client, "фирая, хочу к лидару")
 
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
         assert "Прервать экскурсию" in harness.say.texts_received[-1]
@@ -264,7 +264,7 @@ def test_ask_visitor_then_no_speaks_on_no_without_calling_llm_again() -> None:
         ]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, хочу к лидару")
+        _publish_transcript(client, "фирая, хочу к лидару")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
 
         # Сентинел -- если "нет" вдруг пошло бы через ЛЛМ, мы бы его услышали.
@@ -307,7 +307,7 @@ def test_ask_visitor_ttl_expires_pending_slot() -> None:
         ]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, хочу к лидару")
+        _publish_transcript(client, "фирая, хочу к лидару")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
 
         time.sleep(0.5)  # пережить ask_visitor_ttl_s=0.2, ход 1 успевает закрыться
@@ -315,7 +315,7 @@ def test_ask_visitor_ttl_expires_pending_slot() -> None:
         harness.llm_server.chunks_no_grammar = ["Хорошо."]
         harness.llm_server.chunks_with_grammar = [_NOOP]
         harness.llm_server.last_request_body = None
-        _publish_transcript(client, "робот, да")
+        _publish_transcript(client, "фирая, да")
 
         # Слот протух -- "да" не могло быть fast-path-ответом на него,
         # значит ход пошёл обычным путём и позвал ЛЛМ.
@@ -349,7 +349,7 @@ def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
             )
         ]
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, отведи меня в лабораторию")
+        _publish_transcript(client, "фирая, отведи меня в лабораторию")
         wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
 
         harness.llm_server.chunks_no_grammar = ["Прервать экскурсию и пойти к лидару?"]
@@ -366,11 +366,8 @@ def test_ask_visitor_then_yes_redirects_mid_tour() -> None:
                 }
             )
         ]
-        _publish_transcript(client, "робот, хочу посмотреть на лидар")
-        wait_until(
-            lambda: any("Прервать экскурсию" in text for text in harness.say.texts_received),
-            timeout_s=5.0,
-        )
+        _publish_transcript(client, "фирая, хочу посмотреть на лидар")
+        wait_until(lambda: harness.say.goals_received >= 2, timeout_s=5.0)
 
         harness.nav.duration_s = 0.05
         harness.llm_server.chunks_no_grammar = ["Идём смотреть на лидар."]
@@ -426,7 +423,7 @@ def test_start_tour_from_dialog_sends_greet_false_and_skips_greeting_state() -> 
             )
         ]
 
-        _publish_transcript(client, "робот, проведи экскурсию")
+        _publish_transcript(client, "фирая, проведи экскурсию")
 
         wait_until(_mission_state_is(harness, _S.STATE_NAVIGATING), timeout_s=5.0)
         assert _S.STATE_GREETING not in states_seen
@@ -454,7 +451,7 @@ def test_barge_in_aborts_in_flight_turn_before_tool_executes() -> None:
         harness.llm_server.chunk_delay_s = 0.3
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, расскажи что-нибудь длинное")
+        _publish_transcript(client, "фирая, расскажи что-нибудь длинное")
         time.sleep(0.15)  # дать ходу начаться и получить хотя бы первый чанк фазы действия
 
         cancel_pub = client.create_publisher(CancelAll, "/speech/cancel_all", 1)
@@ -466,7 +463,7 @@ def test_barge_in_aborts_in_flight_turn_before_tool_executes() -> None:
         harness.llm_server.mode = MockLlmServer.MODE_OK
         harness.llm_server.chunks_no_grammar = ["ок"]
         harness.llm_server.chunks_with_grammar = [_NOOP]
-        _publish_transcript(client, "робот, ещё раз")
+        _publish_transcript(client, "фирая, ещё раз")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
     finally:
         harness.shutdown()
@@ -491,10 +488,10 @@ def test_pending_transcript_replayed_after_turn() -> None:
         harness.llm_server.chunk_delay_s = 0.3
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, первая реплика")
+        _publish_transcript(client, "фирая, первая реплика")
         time.sleep(0.2)  # первый ход в полёте, стрим фазы действия идёт
         harness.llm_server.mode = MockLlmServer.MODE_OK  # реплей пройдёт быстро
-        _publish_transcript(client, "робот, вторая реплика")
+        _publish_transcript(client, "фирая, вторая реплика")
 
         def _second_answered() -> bool:
             body = harness.llm_server.last_request_body
@@ -552,7 +549,7 @@ def test_idle_dismiss_suppresses_llm_call() -> None:
         assert harness.dialog_agent.last_mission_state().state == _S.STATE_IDLE
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот стоп")
+        _publish_transcript(client, "фирая стоп")
 
         time.sleep(0.3)  # дать fast-path'у отработать, если он не сработает -- ход уйдёт в ЛЛМ
         assert harness.llm_server.last_request_body is None, "ЛЛМ не должен был вызываться вовсе"
@@ -579,7 +576,7 @@ def test_tour_end_transition_does_not_clear_history() -> None:
         harness.llm_server.chunks_no_grammar = ["Первый ответ до начала тура."]
         harness.llm_server.chunks_with_grammar = [_NOOP]
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, первый вопрос посетителя")
+        _publish_transcript(client, "фирая, первый вопрос посетителя")
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
         # Дождаться полного окончания ПЕРВОГО хода (не только speak()), иначе
         # второй транскрипт ниже может попасть на "ход уже в полёте" -- сброс
@@ -602,7 +599,7 @@ def test_tour_end_transition_does_not_clear_history() -> None:
 
         harness.llm_server.chunks_no_grammar = ["Второй ответ после тура."]
         harness.llm_server.chunks_with_grammar = [_NOOP]
-        _publish_transcript(client, "робот, второй вопрос посетителя")
+        _publish_transcript(client, "фирая, второй вопрос посетителя")
 
         def _history_still_mentions_first_turn() -> bool:
             body = harness.llm_server.last_request_body
@@ -638,7 +635,7 @@ def test_mission_state_transition_appends_history_event() -> None:
         harness.llm_server.chunks_with_grammar = [_NOOP]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, а что тут интересного вообще")
+        _publish_transcript(client, "фирая, а что тут интересного вообще")
 
         def _sent_history_mentions_transition() -> bool:
             body = harness.llm_server.last_request_body
@@ -667,7 +664,7 @@ def test_gate_line_appended_to_user_content_when_backend_not_gbnf() -> None:
         harness.llm_server.chunks_with_grammar = [_NOOP]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, привет")
+        _publish_transcript(client, "фирая, привет")
 
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
 
@@ -695,7 +692,7 @@ def test_gate_line_absent_for_gbnf_backend() -> None:
         harness.llm_server.chunks_with_grammar = [_NOOP]
 
         client = harness.make_client_node()
-        _publish_transcript(client, "робот, привет")
+        _publish_transcript(client, "фирая, привет")
 
         wait_until(lambda: harness.say.goals_received >= 1, timeout_s=5.0)
 

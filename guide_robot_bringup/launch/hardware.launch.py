@@ -17,8 +17,16 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    GroupAction,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+    RegisterEventHandler,
+)
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     Command,
@@ -46,6 +54,12 @@ def generate_launch_description():
     declare_mock = DeclareLaunchArgument(
         "use_mock_hardware", default_value="false", description="Launch robot without hardware"
     )
+    declare_usb_preflight = DeclareLaunchArgument(
+        "usb_preflight",
+        default_value="true",
+        description="Перед ros2_control и лидарами последовательно открыть все USB-serial порты "
+        "и сбросить зависший хаб (usb_serial_preflight). Игнорируется при use_mock_hardware.",
+    )
     # perception
     declare_launch_sensors = DeclareLaunchArgument(
         "launch_sensors", default_value="true", description="Launch lidars, merger and sonars"
@@ -64,8 +78,13 @@ def generate_launch_description():
     )
     declare_map = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg_navigation, "map", "lab_105_full.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "artspace_18.09_edited.yaml"),
         description="Готовая карта для режима slam:=false (map_server + AMCL)",
+    )
+    declare_keepout_mask_file = DeclareLaunchArgument(
+        "keepout_mask_file",
+        default_value=os.path.join(pkg_navigation, "map", "artspace_18.09_keepout.yaml"),
+        description="Keepout costmap-filter mask, must match `map`. 'none' -- filter off.",
     )
     declare_nav_params = DeclareLaunchArgument(
         "nav_params_file",
@@ -126,11 +145,13 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_mock_hardware = LaunchConfiguration("use_mock_hardware")
+    usb_preflight = LaunchConfiguration("usb_preflight")
     launch_sensors = LaunchConfiguration("launch_sensors")
     launch_sonar = LaunchConfiguration("launch_sonar")
     nav = LaunchConfiguration("nav")
     slam = LaunchConfiguration("slam")
     map_yaml_file = LaunchConfiguration("map")
+    keepout_mask_file = LaunchConfiguration("keepout_mask_file")
     nav_params_file = LaunchConfiguration("nav_params_file")
     slam_params_file = LaunchConfiguration("slam_params_file")
     autostart_nav = LaunchConfiguration("autostart_nav")
@@ -213,6 +234,7 @@ def generate_launch_description():
             "map": map_yaml_file,
             "nav_params_file": nav_params_file,
             "slam_params_file": slam_params_file,
+            "keepout_mask_file": keepout_mask_file,
             "autostart_nav": autostart_nav,
             "launch_supervisor": "true",
             "autostart_supervisor": autostart_supervisor,
@@ -278,15 +300,51 @@ def generate_launch_description():
         parameters=[{"use_sim_time": use_sim_time}],
     )
 
+    # ── USB pre-flight ───────────────────────────────────────────────────────
+    # Всё, что открывает USB-serial (ros2_control -> /dev/tty_motors, лидары, сонары),
+    # стартует только после usb_serial_preflight: он последовательно открывает порты и при
+    # -110 сбрасывает зависший single-TT хаб (см. README, «Известные проблемы»). Без этого
+    # стек после Ctrl-C поднимался с мёртвыми лидарами и «Не удалось открыть порт» у моторов,
+    # и лечило только передёргивание кабеля. Остальные группы гейтятся заодно: их lifecycle
+    # всё равно ждёт сенсоры через супервизор.
+    hardware_actions = [
+        controller_manager_node,
+        diff_drive_controller,
+        joint_state_broadcaster,
+        perception,
+        nav_stack,
+        high_level_stack,
+        llm_stack,
+        foxglove_bridge_node,
+        rviz_node,
+    ]
+
+    def gate_on_usb_preflight(context):
+        mock = use_mock_hardware.perform(context).lower() in ("true", "1")
+        wanted = usb_preflight.perform(context).lower() in ("true", "1")
+        if mock or not wanted:
+            return hardware_actions
+        preflight = ExecuteProcess(
+            cmd=["ros2", "run", "guide_robot_bringup", "usb_serial_preflight"],
+            name="usb_preflight",
+            output="screen",
+        )
+        return [
+            preflight,
+            RegisterEventHandler(OnProcessExit(target_action=preflight, on_exit=hardware_actions)),
+        ]
+
     return LaunchDescription(
         [
             declare_use_sim_time,
             declare_mock,
+            declare_usb_preflight,
             declare_launch_sensors,
             declare_launch_sonar,
             declare_nav,
             declare_slam,
             declare_map,
+            declare_keepout_mask_file,
             declare_nav_params,
             declare_slam_params,
             declare_autostart_nav,
@@ -299,14 +357,6 @@ def generate_launch_description():
             declare_launch_foxglove,
             declare_launch_rviz,
             robot_state_publisher_node,
-            controller_manager_node,
-            diff_drive_controller,
-            joint_state_broadcaster,
-            perception,
-            nav_stack,
-            high_level_stack,
-            llm_stack,
-            foxglove_bridge_node,
-            rviz_node,
+            OpaqueFunction(function=gate_on_usb_preflight),
         ]
     )

@@ -40,13 +40,24 @@ def generate_launch_description():
     )
     declare_map = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg_navigation, "map", "lab_105_full.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited.yaml"),
         description="Map yaml, used only when slam:=false",
+    )
+    declare_keepout_mask_file = DeclareLaunchArgument(
+        "keepout_mask_file",
+        default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited_keepout.yaml"),
+        description="Keepout costmap-filter mask, must match `map`. 'none' -- filter off.",
     )
     world_arg = DeclareLaunchArgument(
         name="world",
-        default_value=os.path.join(pkg_simulation, "worlds", "iu_lab_simple.world"),
+        default_value=os.path.join(pkg_simulation, "worlds", "innopark_edited.world"),
         description="Path to the Gazebo world file",
+    )
+    spawn_yaw_arg = DeclareLaunchArgument(
+        name="spawn_yaw",
+        default_value="3.141592653589793",
+        description="Yaw (rad) of base_footprint at spawn in Gazebo. Must match "
+        "amcl.initial_pose.yaw in first_iter_nav2.yaml.in (pi by default).",
     )
     declare_nav = DeclareLaunchArgument(
         "nav", default_value="true", description="Launch Nav2 stack"
@@ -70,7 +81,9 @@ def generate_launch_description():
 
     slam = LaunchConfiguration("slam")
     map_yaml = LaunchConfiguration("map")
+    keepout_mask_file = LaunchConfiguration("keepout_mask_file")
     world = LaunchConfiguration("world")
+    spawn_yaw = LaunchConfiguration("spawn_yaw")
     nav = LaunchConfiguration("nav")
     nav_params = LaunchConfiguration("nav_params_file")
     slam_params = LaunchConfiguration("slam_params_file")
@@ -80,7 +93,7 @@ def generate_launch_description():
     # ── 1. Симуляция: Gazebo + робот ─────────────────────────────────────────
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_simulation, "launch", "gazebo.launch.py")),
-        launch_arguments={"use_sim_time": "true", "world": world}.items(),
+        launch_arguments={"use_sim_time": "true", "world": world, "spawn_yaw": spawn_yaw}.items(),
     )
 
     # ── 2. Перцепция: лидары виртуальные, соноры из плагинов Gazebo ──────────
@@ -104,6 +117,7 @@ def generate_launch_description():
             "map": map_yaml,
             "nav_params_file": nav_params,
             "slam_params_file": slam_params,
+            "keepout_mask_file": keepout_mask_file,
             "autostart_nav": "false",
             "launch_supervisor": "true",
             "autostart_supervisor": "true",
@@ -134,8 +148,10 @@ def generate_launch_description():
         [
             declare_slam,
             declare_map,
+            declare_keepout_mask_file,
             declare_nav,
             world_arg,
+            spawn_yaw_arg,
             declare_nav_params,
             declare_slam_params,
             declare_rviz,

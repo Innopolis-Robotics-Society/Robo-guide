@@ -1,0 +1,449 @@
+fabian@orin-nano:~/ros2_ws$ ros2 launch guide_robot_bringup hardware.launch.py map:=/home/fabian/ros2_ws/src/guide_robot_navigation/map/artspace_18.09.yaml 
+[INFO] [launch]: All log files can be found below /home/fabian/.ros/log/2026-09-19-09-23-35-647747-orin-nano-8026
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [supervisor-28]: process started with pid [8206]
+[INFO] [robot_state_publisher-1]: process started with pid [8028]
+[INFO] [ros2_control_node-2]: process started with pid [8030]
+[INFO] [spawner-3]: process started with pid [8032]
+[INFO] [spawner-4]: process started with pid [8034]
+[INFO] [sllidar_node-5]: process started with pid [8036]
+[INFO] [laser_sector_blanker-6]: process started with pid [8038]
+[INFO] [laser_sector_blanker-7]: process started with pid [8040]
+[INFO] [dual_laser_merger_node-8]: process started with pid [8042]
+[INFO] [sonar_node_mult.py-9]: process started with pid [8046]
+[INFO] [map_server-10]: process started with pid [8070]
+[INFO] [amcl-11]: process started with pid [8080]
+[INFO] [lifecycle_manager-12]: process started with pid [8090]
+[INFO] [controller_server-13]: process started with pid [8092]
+[INFO] [smoother_server-14]: process started with pid [8095]
+[INFO] [planner_server-15]: process started with pid [8097]
+[INFO] [behavior_server-16]: process started with pid [8099]
+[INFO] [bt_navigator-17]: process started with pid [8101]
+[INFO] [waypoint_follower-18]: process started with pid [8103]
+[INFO] [velocity_smoother-19]: process started with pid [8110]
+[INFO] [lifecycle_manager-20]: process started with pid [8125]
+[INFO] [collision_monitor-21]: process started with pid [8149]
+[INFO] [lifecycle_manager-22]: process started with pid [8159]
+[INFO] [twist_mux-23]: process started with pid [8164]
+[INFO] [twist_mux-24]: process started with pid [8170]
+[INFO] [map_server-25]: process started with pid [8182]
+[INFO] [costmap_filter_info_server-26]: process started with pid [8193]
+[INFO] [lifecycle_manager-27]: process started with pid [8198]
+[INFO] [audio_frontend-29]: process started with pid [8223]
+[INFO] [vad_node-30]: process started with pid [8238]
+[INFO] [wakeword_node-31]: process started with pid [8245]
+[INFO] [asr_node-32]: process started with pid [8248]
+[INFO] [tts_node-33]: process started with pid [8254]
+[INFO] [lifecycle_manager-34]: process started with pid [8259]
+[INFO] [route_server-35]: process started with pid [8265]
+[INFO] [content_server-36]: process started with pid [8272]
+[INFO] [location_server-37]: process started with pid [8274]
+[INFO] [route_planner-38]: process started with pid [8288]
+[INFO] [lifecycle_manager-39]: process started with pid [8305]
+[INFO] [presence_monitor-40]: process started with pid [8308]
+[INFO] [mission_container-41]: process started with pid [8313]
+[INFO] [lifecycle_manager-42]: process started with pid [8322]
+[INFO] [face_node-43]: process started with pid [8329]
+[INFO] [face_aggregator-44]: process started with pid [8338]
+[INFO] [tool_broker-45]: process started with pid [8349]
+[INFO] [dialog_agent-46]: process started with pid [8357]
+[INFO] [interaction_log-47]: process started with pid [8371]
+[INFO] [lifecycle_manager-48]: process started with pid [8379]
+[robot_state_publisher-1] [INFO] [1789809817.564733997] [robot_state_publisher]: got segment base_footprint
+[robot_state_publisher-1] [INFO] [1789809817.564999513] [robot_state_publisher]: got segment base_link
+[robot_state_publisher-1] [INFO] [1789809817.565024954] [robot_state_publisher]: got segment imu_link
+[robot_state_publisher-1] [INFO] [1789809817.565034938] [robot_state_publisher]: got segment laser_frame_left
+[robot_state_publisher-1] [INFO] [1789809817.565042651] [robot_state_publisher]: got segment laser_frame_right
+[robot_state_publisher-1] [INFO] [1789809817.565050203] [robot_state_publisher]: got segment left_caster_link
+[robot_state_publisher-1] [INFO] [1789809817.565057915] [robot_state_publisher]: got segment left_lidar_mount_link
+[robot_state_publisher-1] [INFO] [1789809817.565065628] [robot_state_publisher]: got segment left_wheel_link
+[robot_state_publisher-1] [INFO] [1789809817.565072892] [robot_state_publisher]: got segment lidar_bar_link
+[robot_state_publisher-1] [INFO] [1789809817.565079740] [robot_state_publisher]: got segment right_caster_link
+[robot_state_publisher-1] [INFO] [1789809817.565087293] [robot_state_publisher]: got segment right_lidar_mount_link
+[robot_state_publisher-1] [INFO] [1789809817.565094685] [robot_state_publisher]: got segment right_wheel_link
+[robot_state_publisher-1] [INFO] [1789809817.565101853] [robot_state_publisher]: got segment sonar_sensor_1
+[robot_state_publisher-1] [INFO] [1789809817.565108574] [robot_state_publisher]: got segment sonar_sensor_2
+[robot_state_publisher-1] [INFO] [1789809817.565115806] [robot_state_publisher]: got segment sonar_sensor_4
+[robot_state_publisher-1] [INFO] [1789809817.565122558] [robot_state_publisher]: got segment sonar_sensor_5
+[robot_state_publisher-1] [INFO] [1789809817.565129471] [robot_state_publisher]: got segment sonar_sensor_6
+[robot_state_publisher-1] [INFO] [1789809817.565136287] [robot_state_publisher]: got segment sonar_sensor_8
+[robot_state_publisher-1] [INFO] [1789809817.565143391] [robot_state_publisher]: got segment sonar_sensor_9
+[ros2_control_node-2] [WARN] [1789809817.611684816] [controller_manager]: [Deprecated] Passing the robot description parameter directly to the control_manager node is deprecated. Use '~/robot_description' topic from 'robot_state_publisher' instead.
+[ros2_control_node-2] [INFO] [1789809817.612288011] [resource_manager]: Loading hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789809817.624293120] [resource_manager]: Initialize hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789809817.624865689] [GuideRobotSystem]: Параметры: port=/dev/tty_motors baud=115200 L_id=46 R_id=47 swap=0 coeff=0.00008802 offset=0.0437m/s trim_L=0.990 r=0.103m ticks_per_rev=131072.0 cmd_timeout=0.300s max_wheel_vel=7.31 рад/с encoder_timeout=3.000s accel=1000 poll_divider=5 wrap_ticks=65536
+[ros2_control_node-2] [INFO] [1789809817.624912955] [resource_manager]: Successful initialization of hardware 'GuideRobotSystem'
+[ros2_control_node-2] [INFO] [1789809817.626280408] [resource_manager]: 'configure' hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789809817.636419322] [GuideRobotSystem]: Serial порт открыт (O_SYNC, VMIN=0, 115200 бод): /dev/tty_motors
+[ros2_control_node-2] [INFO] [1789809817.636730567] [resource_manager]: Successful 'configure' of hardware 'GuideRobotSystem'
+[ros2_control_node-2] [INFO] [1789809817.637021428] [resource_manager]: 'activate' hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789809817.639622632] [GuideRobotSystem]: Сторожевой таймер запущен (cmd_timeout=0.300 с)
+[ros2_control_node-2] [INFO] [1789809817.639897620] [GuideRobotSystem]: GuideRobotSystem активирован (моторы L=46 R=47)
+[ros2_control_node-2] [INFO] [1789809817.640174848] [resource_manager]: Successful 'activate' of hardware 'GuideRobotSystem'
+[ros2_control_node-2] [INFO] [1789809817.926708841] [controller_manager]: update rate is 50 Hz
+[ros2_control_node-2] [INFO] [1789809817.926835631] [controller_manager]: Spawning controller_manager RT thread with scheduler priority: 50
+[ros2_control_node-2] [WARN] [1789809817.930126689] [controller_manager]: Could not enable FIFO RT scheduling policy: with error number <1>(Operation not permitted). See [https://control.ros.org/master/doc/ros2_control/controller_manager/doc/userdoc.html] for details on how to enable realtime scheduling.
+[sllidar_node-5] [INFO] [1789809817.546539014] [sllidar_left]: SLLidar running on ROS2 package SLLidar.ROS2 SDK Version:1.0.1, SLLIDAR SDK Version:2.1.0
+[dual_laser_merger_node-8] [INFO] [1789809817.552356232] [dual_laser_merger]: Target Frame: base_footprint
+[map_server-10] [INFO] [1789809818.372886123] [map_server]: 
+[map_server-10] 	map_server lifecycle node launched. 
+[map_server-10] 	Waiting on external lifecycle transitions to activate
+[map_server-10] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[map_server-10] [INFO] [1789809818.373152695] [map_server]: Creating
+[amcl-11] [INFO] [1789809818.493522606] [amcl]: 
+[amcl-11] 	amcl lifecycle node launched. 
+[amcl-11] 	Waiting on external lifecycle transitions to activate
+[amcl-11] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[amcl-11] [INFO] [1789809818.495321405] [amcl]: Creating
+[lifecycle_manager-12] [INFO] [1789809817.866621759] [lifecycle_manager_localization]: Creating
+[lifecycle_manager-12] [INFO] [1789809817.942843157] [lifecycle_manager_localization]: Creating and initializing lifecycle service clients
+[controller_server-13] [INFO] [1789809818.524854458] [controller_server]: 
+[controller_server-13] 	controller_server lifecycle node launched. 
+[controller_server-13] 	Waiting on external lifecycle transitions to activate
+[controller_server-13] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[controller_server-13] [INFO] [1789809818.605286279] [controller_server]: Creating controller server
+[smoother_server-14] [INFO] [1789809817.964518711] [smoother_server]: 
+[smoother_server-14] 	smoother_server lifecycle node launched. 
+[smoother_server-14] 	Waiting on external lifecycle transitions to activate
+[smoother_server-14] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[smoother_server-14] [INFO] [1789809817.992147104] [smoother_server]: Creating smoother server
+[planner_server-15] [INFO] [1789809817.963824728] [planner_server]: 
+[planner_server-15] 	planner_server lifecycle node launched. 
+[planner_server-15] 	Waiting on external lifecycle transitions to activate
+[planner_server-15] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[planner_server-15] [INFO] [1789809818.189502476] [planner_server]: Creating
+[behavior_server-16] [INFO] [1789809818.561450384] [behavior_server]: 
+[behavior_server-16] 	behavior_server lifecycle node launched. 
+[behavior_server-16] 	Waiting on external lifecycle transitions to activate
+[behavior_server-16] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[bt_navigator-17] [INFO] [1789809818.696399853] [bt_navigator]: 
+[bt_navigator-17] 	bt_navigator lifecycle node launched. 
+[bt_navigator-17] 	Waiting on external lifecycle transitions to activate
+[bt_navigator-17] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[bt_navigator-17] [INFO] [1789809818.696812671] [bt_navigator]: Creating
+[waypoint_follower-18] [INFO] [1789809818.315370006] [waypoint_follower]: 
+[waypoint_follower-18] 	waypoint_follower lifecycle node launched. 
+[waypoint_follower-18] 	Waiting on external lifecycle transitions to activate
+[waypoint_follower-18] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[waypoint_follower-18] [INFO] [1789809818.317122852] [waypoint_follower]: Creating
+[lifecycle_manager-20] [INFO] [1789809817.893036627] [lifecycle_manager_navigation]: Creating
+[lifecycle_manager-20] [INFO] [1789809817.910386645] [lifecycle_manager_navigation]: Creating and initializing lifecycle service clients
+[twist_mux-23] [INFO] [1789809818.333517818] [mux_safety]: Topic handler 'topics.nav2' subscribed to topic '/cmd_vel': timeout = 0.500000s , priority = 10.
+[twist_mux-23] [INFO] [1789809818.342594861] [mux_safety]: Topic handler 'topics.safety_teleop' subscribed to topic '/safety_cmd_vel': timeout = 0.500000s , priority = 20.
+[costmap_filter_info_server-26] [INFO] [1789809818.071452892] [costmap_filter_info_server]: This is costmap filter info publisher
+[lifecycle_manager-22] [INFO] [1789809818.802967808] [lifecycle_manager_safety]: Creating
+[lifecycle_manager-22] [INFO] [1789809818.974490226] [lifecycle_manager_safety]: Creating and initializing lifecycle service clients
+[route_server-35] [INFO] [1789809818.932531022] [route_server]: 
+[route_server-35] 	route_server lifecycle node launched. 
+[route_server-35] 	Waiting on external lifecycle transitions to activate
+[route_server-35] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[twist_mux-24] [INFO] [1789809819.072793331] [mux_final]: Topic handler 'topics.admin' subscribed to topic '/admin_cmd_vel': timeout = 0.500000s , priority = 20.
+[lifecycle_manager-34] [INFO] [1789809819.086665178] [lifecycle_manager_voice]: Creating
+[collision_monitor-21] [INFO] [1789809819.102090180] [collision_monitor]: 
+[collision_monitor-21] 	collision_monitor lifecycle node launched. 
+[collision_monitor-21] 	Waiting on external lifecycle transitions to activate
+[collision_monitor-21] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[lifecycle_manager-34] [INFO] [1789809819.113305461] [lifecycle_manager_voice]: Creating and initializing lifecycle service clients
+[twist_mux-24] [INFO] [1789809819.205924249] [mux_final]: Topic handler 'topics.collision_out' subscribed to topic '/cmd_vel_filtered': timeout = 0.500000s , priority = 10.
+[twist_mux-24] [INFO] [1789809819.259517310] [mux_final]: Topic handler 'locks.e_stop' subscribed to topic '/supervisor/estop': timeout = None , priority = 255.
+[velocity_smoother-19] [INFO] [1789809819.378301673] [velocity_smoother]: 
+[velocity_smoother-19] 	velocity_smoother lifecycle node launched. 
+[velocity_smoother-19] 	Waiting on external lifecycle transitions to activate
+[velocity_smoother-19] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[costmap_filter_info_server-26] [INFO] [1789809819.410126474] [costmap_filter_info_server]: 
+[costmap_filter_info_server-26] 	costmap_filter_info_server lifecycle node launched. 
+[costmap_filter_info_server-26] 	Waiting on external lifecycle transitions to activate
+[costmap_filter_info_server-26] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[lifecycle_manager-39] [INFO] [1789809819.481688842] [lifecycle_manager_semantic_map]: Creating
+[lifecycle_manager-39] [INFO] [1789809819.543511931] [lifecycle_manager_semantic_map]: Creating and initializing lifecycle service clients
+[lifecycle_manager-42] [INFO] [1789809819.752215443] [lifecycle_manager_mission]: Creating
+[map_server-25] [INFO] [1789809819.814114247] [filter_mask_server]: 
+[map_server-25] 	filter_mask_server lifecycle node launched. 
+[map_server-25] 	Waiting on external lifecycle transitions to activate
+[map_server-25] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[map_server-25] [INFO] [1789809819.814435797] [filter_mask_server]: Creating
+[lifecycle_manager-27] [INFO] [1789809819.842268261] [lifecycle_manager_costmap_filters]: Creating
+[lifecycle_manager-27] [INFO] [1789809819.984895088] [lifecycle_manager_costmap_filters]: Creating and initializing lifecycle service clients
+[lifecycle_manager-48] [INFO] [1789809820.089247608] [lifecycle_manager_llm]: Creating
+[lifecycle_manager-42] [INFO] [1789809820.151972269] [lifecycle_manager_mission]: Creating and initializing lifecycle service clients
+[lifecycle_manager-48] [INFO] [1789809820.404066362] [lifecycle_manager_llm]: Creating and initializing lifecycle service clients
+[controller_server-13] [INFO] [1789809821.234354622] [local_costmap.local_costmap]: 
+[controller_server-13] 	local_costmap lifecycle node launched. 
+[controller_server-13] 	Waiting on external lifecycle transitions to activate
+[controller_server-13] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[lifecycle_manager-34] [INFO] [1789809821.254154408] [lifecycle_manager_voice]: Waiting for service tts_node/get_state...
+[controller_server-13] [INFO] [1789809821.260825583] [local_costmap.local_costmap]: Creating Costmap
+[lifecycle_manager-39] [INFO] [1789809821.888123406] [lifecycle_manager_semantic_map]: Waiting for service content_server/get_state...
+[lifecycle_manager-42] [INFO] [1789809822.176188956] [lifecycle_manager_mission]: Waiting for service presence_monitor/get_state...
+[INFO] [sllidar_node-49]: process started with pid [8483]
+[lifecycle_manager-48] [INFO] [1789809822.543213152] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[sllidar_node-5] [ERROR] [1789809822.721942639] [sllidar_left]: Error, unexpected error, code: 80008004
+[planner_server-15] [INFO] [1789809822.890475612] [global_costmap.global_costmap]: 
+[planner_server-15] 	global_costmap lifecycle node launched. 
+[planner_server-15] 	Waiting on external lifecycle transitions to activate
+[planner_server-15] 	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[planner_server-15] [INFO] [1789809822.892029857] [global_costmap.global_costmap]: Creating Costmap
+[sllidar_node-49] [INFO] [1789809823.038379578] [sllidar_right]: SLLidar running on ROS2 package SLLidar.ROS2 SDK Version:1.0.1, SLLIDAR SDK Version:2.1.0
+[lifecycle_manager-34] [INFO] [1789809823.254566932] [lifecycle_manager_voice]: Waiting for service tts_node/get_state...
+[ERROR] [sllidar_node-5]: process has died [pid 8036, exit code 255, cmd '/opt/ros/sensors/lib/sllidar_ros2/sllidar_node --ros-args -r __node:=sllidar_left --params-file /tmp/launch_params_obqo_rqq -r /scan:=/scan_left'].
+[lifecycle_manager-39] [INFO] [1789809823.888520317] [lifecycle_manager_semantic_map]: Waiting for service content_server/get_state...
+[lifecycle_manager-42] [INFO] [1789809824.176579247] [lifecycle_manager_mission]: Waiting for service presence_monitor/get_state...
+[lifecycle_manager-48] [INFO] [1789809824.543615217] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[lifecycle_manager-34] [INFO] [1789809825.696233747] [lifecycle_manager_voice]: Waiting for service audio_frontend/get_state...
+[lifecycle_manager-42] [INFO] [1789809826.176843136] [lifecycle_manager_mission]: Waiting for service presence_monitor/get_state...
+[sonar_node_mult.py-9] [INFO] [1789809826.541514968] [sonar_node]: Sonar 0 -> sonar/range/sonar_sensor_1 (frame: sonar_sensor_1)
+[lifecycle_manager-48] [INFO] [1789809826.544020262] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[sonar_node_mult.py-9] [INFO] [1789809826.592466935] [sonar_node]: Sonar 1 -> sonar/range/sonar_sensor_2 (frame: sonar_sensor_2)
+[lifecycle_manager-39] [INFO] [1789809826.598808206] [lifecycle_manager_semantic_map]: Waiting for service location_server/get_state...
+[sonar_node_mult.py-9] [INFO] [1789809826.803488751] [sonar_node]: Sonar 2 -> sonar/range/sonar_sensor_4 (frame: sonar_sensor_4)
+[sonar_node_mult.py-9] [INFO] [1789809826.936713453] [sonar_node]: Sonar 3 -> sonar/range/sonar_sensor_5 (frame: sonar_sensor_5)
+[sonar_node_mult.py-9] [INFO] [1789809827.121356281] [sonar_node]: Sonar 4 -> sonar/range/sonar_sensor_6 (frame: sonar_sensor_6)
+[sonar_node_mult.py-9] [INFO] [1789809827.261210708] [sonar_node]: Sonar 5 -> sonar/range/sonar_sensor_8 (frame: sonar_sensor_8)
+[sonar_node_mult.py-9] [INFO] [1789809827.502937478] [sonar_node]: Sonar 6 -> sonar/range/sonar_sensor_9 (frame: sonar_sensor_9)
+[sonar_node_mult.py-9] [INFO] [1789809827.576726381] [sonar_node]: Starting C++ driver on /dev/tty_sonar @ 9600 baud...
+[sonar_node_mult.py-9] [INFO] [1789809827.619111698] [sonar_node]: Opened serial port: /dev/tty_sonar
+[lifecycle_manager-34] [INFO] [1789809827.696630044] [lifecycle_manager_voice]: Waiting for service audio_frontend/get_state...
+[sllidar_node-49] [ERROR] [1789809828.097935719] [sllidar_right]: Error, unexpected error, code: 80008004
+[sonar_node_mult.py-9] [INFO] [1789809828.146818374] [sonar_node]: Sonar dome wake-up command sent on /dev/tty_sonar
+[sonar_node_mult.py-9] [INFO] [1789809828.148049084] [sonar_node]: Sonar node initialized: 7 sensors.
+[lifecycle_manager-42] [INFO] [1789809828.177213147] [lifecycle_manager_mission]: Waiting for service presence_monitor/get_state...
+[ros2_control_node-2] [WARN] [1789809828.337103710] [controller_manager.rclcpp]: failed to send response to /controller_manager/list_controllers (timeout): client will not receive response, at ./src/rmw_response.cpp:154, at ./src/rcl/service.c:314
+[lifecycle_manager-48] [INFO] [1789809828.544432129] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[lifecycle_manager-39] [INFO] [1789809828.599224931] [lifecycle_manager_semantic_map]: Waiting for service location_server/get_state...
+[laser_sector_blanker-7] [INFO] [1789809828.802881573] [laser_sector_blanker_right]: /scan_right -> /scan_right_filtered: blanking 1 sector(s) [-60.0, 85.0] deg
+[ERROR] [sllidar_node-49]: process has died [pid 8483, exit code 255, cmd '/opt/ros/sensors/lib/sllidar_ros2/sllidar_node --ros-args -r __node:=sllidar_right --params-file /tmp/launch_params_ley94wx_ -r /scan:=/scan_right'].
+[lifecycle_manager-34] [INFO] [1789809829.697234773] [lifecycle_manager_voice]: Waiting for service audio_frontend/get_state...
+[lifecycle_manager-42] [INFO] [1789809830.177674209] [lifecycle_manager_mission]: Waiting for service presence_monitor/get_state...
+[laser_sector_blanker-6] [INFO] [1789809830.486537579] [laser_sector_blanker_left]: /scan_left -> /scan_left_filtered: blanking 1 sector(s) [-85.0, 45.0] deg
+[lifecycle_manager-48] [INFO] [1789809830.544879588] [lifecycle_manager_llm]: Waiting for service tool_broker/get_state...
+[lifecycle_manager-39] [INFO] [1789809830.599760933] [lifecycle_manager_semantic_map]: Waiting for service location_server/get_state...
+[face_node-43] [INFO] [1789809831.053459311] [face_node]: face_node: http://0.0.0.0:8090, web_root=/home/fabian/ros2_ws/install/guide_robot_face/share/guide_robot_face/web
+[ros2_control_node-2] [INFO] [1789809831.237312243] [controller_manager]: Loading controller 'diff_drive_controller'
+[lifecycle_manager-42] [INFO] [1789809833.115072568] [lifecycle_manager_mission]: Waiting for service narration_server/get_state...
+[spawner-3] [INFO] [1789809835.084389486] [spawner_diff_drive_controller]: Loaded diff_drive_controller
+[lifecycle_manager-42] [INFO] [1789809835.115811462] [lifecycle_manager_mission]: Waiting for service narration_server/get_state...
+[ros2_control_node-2] [INFO] [1789809835.122819511] [controller_manager]: Configuring controller 'diff_drive_controller'
+[supervisor-28] [INFO] [1789809835.136560109] [supervisor]: supervisor up: groups=['safety', 'localization', 'costmap_filters', 'voice', 'navigation', 'semantic_map', 'mission', 'llm'], watchdogs=['sonar_rate', 'scan_rate', 'tf_odom', 'tf_map', 'control_stack', 'safety_alive']
+[supervisor-28] [INFO] [1789809835.166968601] [supervisor]: state: INIT -> BRINGUP
+[spawner-3] [INFO] [1789809835.414115871] [spawner_diff_drive_controller]: Configured and activated diff_drive_controller
+[INFO] [spawner-3]: process has finished cleanly [pid 8032]
+[spawner-4] [WARN] [1789809838.339398256] [spawner_joint_state_broadcaster]: Failed getting a result from calling /controller_manager/list_controllers in 10.0. (Attempt 1 of 3.)
+[ros2_control_node-2] [INFO] [1789809838.357628487] [controller_manager]: Loading controller 'joint_state_broadcaster'
+[spawner-4] [INFO] [1789809838.495053394] [spawner_joint_state_broadcaster]: Loaded joint_state_broadcaster
+[ros2_control_node-2] [INFO] [1789809838.511527229] [controller_manager]: Configuring controller 'joint_state_broadcaster'
+[ros2_control_node-2] [INFO] [1789809838.511750663] [joint_state_broadcaster]: 'joints' or 'interfaces' parameter is empty. All available state interfaces will be published
+[spawner-4] [INFO] [1789809838.593748045] [spawner_joint_state_broadcaster]: Configured and activated joint_state_broadcaster
+[INFO] [spawner-4]: process has finished cleanly [pid 8034]
+^C[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[lifecycle_manager-48] [INFO] [1789809845.310400759] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [twist_mux-23]: process has finished cleanly [pid 8164]
+[INFO] [behavior_server-16]: process has finished cleanly [pid 8099]
+[INFO] [lifecycle_manager-39]: process has finished cleanly [pid 8305]
+[INFO] [lifecycle_manager-12]: process has finished cleanly [pid 8090]
+[INFO] [twist_mux-24]: process has finished cleanly [pid 8170]
+[INFO] [amcl-11]: process has finished cleanly [pid 8080]
+[INFO] [route_server-35]: process has finished cleanly [pid 8265]
+[INFO] [lifecycle_manager-42]: process has finished cleanly [pid 8322]
+[INFO] [collision_monitor-21]: process has finished cleanly [pid 8149]
+[INFO] [map_server-10]: process has finished cleanly [pid 8070]
+[INFO] [lifecycle_manager-27]: process has finished cleanly [pid 8198]
+[INFO] [lifecycle_manager-22]: process has finished cleanly [pid 8159]
+[INFO] [smoother_server-14]: process has finished cleanly [pid 8095]
+[INFO] [dual_laser_merger_node-8]: process has finished cleanly [pid 8042]
+[INFO] [map_server-25]: process has finished cleanly [pid 8182]
+[INFO] [velocity_smoother-19]: process has finished cleanly [pid 8110]
+[INFO] [lifecycle_manager-20]: process has finished cleanly [pid 8125]
+[INFO] [lifecycle_manager-48]: process has finished cleanly [pid 8379]
+[INFO] [bt_navigator-17]: process has finished cleanly [pid 8101]
+[INFO] [waypoint_follower-18]: process has finished cleanly [pid 8103]
+[INFO] [robot_state_publisher-1]: process has finished cleanly [pid 8028]
+[INFO] [costmap_filter_info_server-26]: process has finished cleanly [pid 8193]
+[INFO] [lifecycle_manager-34]: process has finished cleanly [pid 8259]
+[ERROR] [face_aggregator-44]: process has died [pid 8338, exit code 1, cmd '/home/fabian/ros2_ws/install/guide_robot_face/lib/guide_robot_face/face_aggregator --ros-args --log-level info --ros-args -r __node:=face_aggregator'].
+[INFO] [asr_node-32]: process has finished cleanly [pid 8248]
+[ERROR] [laser_sector_blanker-6]: process has died [pid 8038, exit code 1, cmd '/home/fabian/ros2_ws/install/guide_robot_bringup/lib/guide_robot_bringup/laser_sector_blanker --ros-args -r __node:=laser_sector_blanker_left --params-file /tmp/launch_params_ntrsi9ux'].
+[INFO] [controller_server-13]: process has finished cleanly [pid 8092]
+[INFO] [wakeword_node-31]: process has finished cleanly [pid 8245]
+[ERROR] [laser_sector_blanker-7]: process has died [pid 8040, exit code 1, cmd '/home/fabian/ros2_ws/install/guide_robot_bringup/lib/guide_robot_bringup/laser_sector_blanker --ros-args -r __node:=laser_sector_blanker_right --params-file /tmp/launch_params_6n867ppw'].
+[INFO] [planner_server-15]: process has finished cleanly [pid 8097]
+[waypoint_follower-18] [INFO] [1789809845.310321843] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[waypoint_follower-18] [INFO] [1789809845.310857258] [waypoint_follower]: Running Nav2 LifecycleNode rcl preshutdown (waypoint_follower)
+[INFO] [ros2_control_node-2]: process has finished cleanly [pid 8030]
+[lifecycle_manager-39] [INFO] [1789809845.310474554] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lifecycle_manager-39] [INFO] [1789809845.310736549] [lifecycle_manager_semantic_map]: Running Nav2 LifecycleManager rcl preshutdown (lifecycle_manager_semantic_map)
+[lifecycle_manager-39] [INFO] [1789809845.692083060] [lifecycle_manager_semantic_map]: Destroying lifecycle_manager_semantic_map
+[lifecycle_manager-22] [INFO] [1789809845.310786919] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lifecycle_manager-22] [INFO] [1789809845.310934766] [lifecycle_manager_safety]: Running Nav2 LifecycleManager rcl preshutdown (lifecycle_manager_safety)
+[lifecycle_manager-22] [INFO] [1789809845.596326198] [lifecycle_manager_safety]: Destroying lifecycle_manager_safety
+[lifecycle_manager-42] [INFO] [1789809845.310799144] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lifecycle_manager-42] [INFO] [1789809845.310934606] [lifecycle_manager_mission]: Running Nav2 LifecycleManager rcl preshutdown (lifecycle_manager_mission)
+[lifecycle_manager-42] [INFO] [1789809845.731059716] [lifecycle_manager_mission]: Destroying lifecycle_manager_mission
+[costmap_filter_info_server-26] [INFO] [1789809845.310879051] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[costmap_filter_info_server-26] [INFO] [1789809845.311535816] [costmap_filter_info_server]: Running Nav2 LifecycleNode rcl preshutdown (costmap_filter_info_server)
+[costmap_filter_info_server-26] [INFO] [1789809845.311635596] [costmap_filter_info_server]: Destroying bond (costmap_filter_info_server) to lifecycle manager.
+[costmap_filter_info_server-26] [INFO] [1789809845.344132580] [costmap_filter_info_server]: Destroying
+[lifecycle_manager-20] [INFO] [1789809845.310946190] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lifecycle_manager-20] [INFO] [1789809845.311069620] [lifecycle_manager_navigation]: Running Nav2 LifecycleManager rcl preshutdown (lifecycle_manager_navigation)
+[lifecycle_manager-20] [INFO] [1789809846.395076277] [lifecycle_manager_navigation]: Destroying lifecycle_manager_navigation
+[collision_monitor-21] [INFO] [1789809845.310979312] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[collision_monitor-21] [INFO] [1789809845.322464415] [collision_monitor]: Running Nav2 LifecycleNode rcl preshutdown (collision_monitor)
+[collision_monitor-21] [INFO] [1789809845.322597508] [collision_monitor]: Destroying bond (collision_monitor) to lifecycle manager.
+[collision_monitor-21] [INFO] [1789809845.409699405] [collision_monitor]: Destroying
+[velocity_smoother-19] [INFO] [1789809845.311087732] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[velocity_smoother-19] [INFO] [1789809845.322004235] [velocity_smoother]: Running Nav2 LifecycleNode rcl preshutdown (velocity_smoother)
+[velocity_smoother-19] [INFO] [1789809845.322148209] [velocity_smoother]: Destroying bond (velocity_smoother) to lifecycle manager.
+[velocity_smoother-19] [INFO] [1789809845.413123905] [velocity_smoother]: Destroying
+[twist_mux-23] [INFO] [1789809845.311099541] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lifecycle_manager-27] [INFO] [1789809845.311245243] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lifecycle_manager-27] [INFO] [1789809845.311343743] [lifecycle_manager_costmap_filters]: Running Nav2 LifecycleManager rcl preshutdown (lifecycle_manager_costmap_filters)
+[lifecycle_manager-27] [INFO] [1789809845.630977419] [lifecycle_manager_costmap_filters]: Destroying lifecycle_manager_costmap_filters
+[route_server-35] [INFO] [1789809845.311251163] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[route_server-35] [INFO] [1789809845.311372609] [route_server]: Running Nav2 LifecycleNode rcl preshutdown (route_server)
+[route_server-35] [INFO] [1789809845.311445092] [route_server]: Destroying bond (route_server) to lifecycle manager.
+[route_server-35] [INFO] [1789809845.358016762] [route_server]: Destroying
+[supervisor-28] [ERROR] [1789809845.742183395] [supervisor]: [safety] preconditions not met: ['scan_rate']
+[supervisor-28] Failed to publish log message to rosout: publisher's context is invalid, at ./src/rcl/publisher.c:389
+[supervisor-28] [INFO] [1789809845.744383746] [supervisor]: state: BRINGUP -> FAULT
+[supervisor-28] Failed to publish log message to rosout: publisher's context is invalid, at ./src/rcl/publisher.c:389
+[supervisor-28] [ERROR] [1789809845.745392845] [supervisor]: tick failed: RCLError("Failed to publish: publisher's context is invalid, at ./src/rcl/publisher.c:389")
+[supervisor-28] Failed to publish log message to rosout: publisher's context is invalid, at ./src/rcl/publisher.c:389
+[map_server-25] [INFO] [1789809845.311501318] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[map_server-25] [INFO] [1789809845.311594826] [filter_mask_server]: Running Nav2 LifecycleNode rcl preshutdown (filter_mask_server)
+[map_server-25] [INFO] [1789809845.311663565] [filter_mask_server]: Destroying bond (filter_mask_server) to lifecycle manager.
+[map_server-25] [INFO] [1789809845.331676939] [filter_mask_server]: Destroying
+[twist_mux-24] [INFO] [1789809845.312719579] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[amcl-11] [INFO] [1789809845.312951973] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[amcl-11] [INFO] [1789809845.313058377] [amcl]: Running Nav2 LifecycleNode rcl preshutdown (amcl)
+[amcl-11] [INFO] [1789809845.313138925] [amcl]: Destroying bond (amcl) to lifecycle manager.
+[amcl-11] [INFO] [1789809845.398896348] [amcl]: Destroying
+[ros2_control_node-2] [INFO] [1789809845.313454394] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[ros2_control_node-2] [INFO] [1789809845.313566559] [controller_manager]: Shutdown request received....
+[ros2_control_node-2] [INFO] [1789809845.313677124] [controller_manager]: Shutting down all controllers in the controller manager.
+[ros2_control_node-2] [INFO] [1789809845.313738471] [controller_manager]: Deactivating controller 'diff_drive_controller'
+[ros2_control_node-2] [INFO] [1789809845.313835147] [controller_manager]: Shutting down controller 'diff_drive_controller'
+[ros2_control_node-2] [INFO] [1789809845.313884845] [controller_manager]: Deactivating controller 'joint_state_broadcaster'
+[ros2_control_node-2] [INFO] [1789809845.313925423] [controller_manager]: Shutting down controller 'joint_state_broadcaster'
+[ros2_control_node-2] [INFO] [1789809845.313972625] [resource_manager]: 'deactivate' hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789809845.330363603] [GuideRobotSystem]: GuideRobotSystem деактивирован, моторы остановлены
+[ros2_control_node-2] [INFO] [1789809845.330493208] [resource_manager]: Successful 'deactivate' of hardware 'GuideRobotSystem'
+[ros2_control_node-2] [INFO] [1789809845.330515993] [resource_manager]: 'shutdown' hardware 'GuideRobotSystem' 
+[ros2_control_node-2] [INFO] [1789809845.330531290] [resource_manager]: Successful 'shutdown' of hardware 'GuideRobotSystem'
+[ros2_control_node-2] [INFO] [1789809845.330550459] [controller_manager]: Shutting down the controller manager.
+[ros2_control_node-2] [INFO] [1789809847.089158053] [GuideRobotSystem]: Serial порт закрыт
+[planner_server-15] [INFO] [1789809845.313472251] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[planner_server-15] [INFO] [1789809845.313694853] [planner_server]: Running Nav2 LifecycleNode rcl preshutdown (planner_server)
+[planner_server-15] [INFO] [1789809845.313801673] [planner_server]: Destroying bond (planner_server) to lifecycle manager.
+[planner_server-15] [INFO] [1789809845.416040894] [global_costmap.global_costmap]: Destroying
+[planner_server-15] [INFO] [1789809846.557191799] [planner_server]: Destroying
+[waypoint_follower-18] [INFO] [1789809845.313859052] [waypoint_follower]: Destroying bond (waypoint_follower) to lifecycle manager.
+[waypoint_follower-18] [INFO] [1789809845.382998127] [waypoint_follower]: Destroying
+[behavior_server-16] [INFO] [1789809845.314043956] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[behavior_server-16] [INFO] [1789809845.314155545] [behavior_server]: Running Nav2 LifecycleNode rcl preshutdown (behavior_server)
+[behavior_server-16] [INFO] [1789809845.314231612] [behavior_server]: Destroying bond (behavior_server) to lifecycle manager.
+[behavior_server-16] [INFO] [1789809845.353567419] [behavior_server]: Destroying
+[bt_navigator-17] [INFO] [1789809845.315721564] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[bt_navigator-17] [INFO] [1789809845.315871907] [bt_navigator]: Running Nav2 LifecycleNode rcl preshutdown (bt_navigator)
+[bt_navigator-17] [INFO] [1789809845.315971175] [bt_navigator]: Destroying bond (bt_navigator) to lifecycle manager.
+[bt_navigator-17] [INFO] [1789809845.373785570] [bt_navigator]: Destroying
+[dual_laser_merger_node-8] [INFO] [1789809845.315867170] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[smoother_server-14] [INFO] [1789809845.316403897] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[smoother_server-14] [INFO] [1789809845.316567680] [smoother_server]: Running Nav2 LifecycleNode rcl preshutdown (smoother_server)
+[smoother_server-14] [INFO] [1789809845.316665157] [smoother_server]: Destroying bond (smoother_server) to lifecycle manager.
+[smoother_server-14] [INFO] [1789809845.373785250] [smoother_server]: Destroying
+[lifecycle_manager-34] [INFO] [1789809845.316461020] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lifecycle_manager-34] [INFO] [1789809845.316584705] [lifecycle_manager_voice]: Running Nav2 LifecycleManager rcl preshutdown (lifecycle_manager_voice)
+[lifecycle_manager-34] [INFO] [1789809846.303466158] [lifecycle_manager_voice]: Destroying lifecycle_manager_voice
+[INFO] [audio_frontend-29]: process has finished cleanly [pid 8223]
+[lifecycle_manager-12] [INFO] [1789809845.316947441] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lifecycle_manager-12] [INFO] [1789809845.317060694] [lifecycle_manager_localization]: Running Nav2 LifecycleManager rcl preshutdown (lifecycle_manager_localization)
+[lifecycle_manager-12] [INFO] [1789809845.595955526] [lifecycle_manager_localization]: Destroying lifecycle_manager_localization
+[INFO] [tts_node-33]: process has finished cleanly [pid 8254]
+[map_server-10] [INFO] [1789809845.317191387] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[map_server-10] [INFO] [1789809845.317298816] [map_server]: Running Nav2 LifecycleNode rcl preshutdown (map_server)
+[map_server-10] [INFO] [1789809845.317372099] [map_server]: Destroying bond (map_server) to lifecycle manager.
+[map_server-10] [INFO] [1789809845.386541095] [map_server]: Destroying
+[INFO] [dialog_agent-46]: process has finished cleanly [pid 8357]
+[lifecycle_manager-48] [INFO] [1789809845.320418758] [lifecycle_manager_llm]: Running Nav2 LifecycleManager rcl preshutdown (lifecycle_manager_llm)
+[lifecycle_manager-48] [INFO] [1789809845.845378849] [lifecycle_manager_llm]: Destroying lifecycle_manager_llm
+[controller_server-13] [INFO] [1789809845.322058285] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[controller_server-13] [INFO] [1789809845.322202547] [controller_server]: Running Nav2 LifecycleNode rcl preshutdown (controller_server)
+[controller_server-13] [INFO] [1789809845.322269398] [controller_server]: Destroying bond (controller_server) to lifecycle manager.
+[controller_server-13] [INFO] [1789809845.395204605] [local_costmap.local_costmap]: Destroying
+[controller_server-13] [INFO] [1789809845.866515312] [controller_server]: Destroying
+[sonar_node_mult.py-9] [INFO] [1789809845.359530332] [sonar_node]: Stopping low-level driver...
+[sonar_node_mult.py-9] Failed to publish log message to rosout: publisher's context is invalid, at ./src/rcl/publisher.c:389
+[sonar_node_mult.py-9] [INFO] [1789809845.561270544] [sonar_node]: Closed serial port: /dev/tty_sonar
+[sonar_node_mult.py-9] Failed to publish log message to rosout: publisher's context is invalid, at ./src/rcl/publisher.c:389
+[sonar_node_mult.py-9] Traceback (most recent call last):
+[sonar_node_mult.py-9]   File "/home/fabian/ros2_ws/install/guide_robot_sonar/lib/guide_robot_sonar/sonar_node_mult.py", line 466, in <module>
+[sonar_node_mult.py-9]     main()
+[sonar_node_mult.py-9]   File "/home/fabian/ros2_ws/install/guide_robot_sonar/lib/guide_robot_sonar/sonar_node_mult.py", line 462, in main
+[sonar_node_mult.py-9]     rclpy.shutdown()
+[sonar_node_mult.py-9]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+[sonar_node_mult.py-9]     _shutdown(context=context)
+[sonar_node_mult.py-9]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+[sonar_node_mult.py-9]     return context.shutdown()
+[sonar_node_mult.py-9]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+[sonar_node_mult.py-9]     self.__context.shutdown()
+[sonar_node_mult.py-9] rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241
+[robot_state_publisher-1] [INFO] [1789809845.563956612] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[face_node-43] Traceback (most recent call last):
+[face_node-43]   File "/home/fabian/ros2_ws/install/guide_robot_face/lib/guide_robot_face/face_node", line 33, in <module>
+[face_node-43]     sys.exit(load_entry_point('guide_robot_face==0.1.0', 'console_scripts', 'face_node')())
+[face_node-43]   File "/home/fabian/ros2_ws/install/guide_robot_face/lib/python3.10/site-packages/guide_robot_face/face_node.py", line 139, in main
+[face_node-43]     rclpy.shutdown()
+[face_node-43]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+[face_node-43]     _shutdown(context=context)
+[face_node-43]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+[face_node-43]     return context.shutdown()
+[face_node-43]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+[face_node-43]     self.__context.shutdown()
+[face_node-43] rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241
+[face_aggregator-44] Traceback (most recent call last):
+[face_aggregator-44]   File "/home/fabian/ros2_ws/install/guide_robot_face/lib/guide_robot_face/face_aggregator", line 33, in <module>
+[face_aggregator-44]     sys.exit(load_entry_point('guide_robot_face==0.1.0', 'console_scripts', 'face_aggregator')())
+[face_aggregator-44]   File "/home/fabian/ros2_ws/install/guide_robot_face/lib/python3.10/site-packages/guide_robot_face/aggregator_node.py", line 147, in main
+[face_aggregator-44]     rclpy.shutdown()
+[face_aggregator-44]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+[face_aggregator-44]     _shutdown(context=context)
+[face_aggregator-44]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+[face_aggregator-44]     return context.shutdown()
+[face_aggregator-44]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+[face_aggregator-44]     self.__context.shutdown()
+[face_aggregator-44] rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241
+[laser_sector_blanker-7] Traceback (most recent call last):
+[laser_sector_blanker-7]   File "/home/fabian/ros2_ws/install/guide_robot_bringup/lib/guide_robot_bringup/laser_sector_blanker", line 33, in <module>
+[laser_sector_blanker-7]     sys.exit(load_entry_point('guide_robot_bringup==0.0.0', 'console_scripts', 'laser_sector_blanker')())
+[laser_sector_blanker-7]   File "/home/fabian/ros2_ws/install/guide_robot_bringup/lib/python3.10/site-packages/guide_robot_bringup/laser_sector_blanker.py", line 103, in main
+[laser_sector_blanker-7]     rclpy.shutdown()
+[laser_sector_blanker-7]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+[laser_sector_blanker-7]     _shutdown(context=context)
+[laser_sector_blanker-7]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+[laser_sector_blanker-7]     return context.shutdown()
+[laser_sector_blanker-7]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+[laser_sector_blanker-7]     self.__context.shutdown()
+[laser_sector_blanker-7] rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241
+[laser_sector_blanker-6] Traceback (most recent call last):
+[laser_sector_blanker-6]   File "/home/fabian/ros2_ws/install/guide_robot_bringup/lib/guide_robot_bringup/laser_sector_blanker", line 33, in <module>
+[laser_sector_blanker-6]     sys.exit(load_entry_point('guide_robot_bringup==0.0.0', 'console_scripts', 'laser_sector_blanker')())
+[laser_sector_blanker-6]   File "/home/fabian/ros2_ws/install/guide_robot_bringup/lib/python3.10/site-packages/guide_robot_bringup/laser_sector_blanker.py", line 103, in main
+[laser_sector_blanker-6]     rclpy.shutdown()
+[laser_sector_blanker-6]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+[laser_sector_blanker-6]     _shutdown(context=context)
+[laser_sector_blanker-6]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+[laser_sector_blanker-6]     return context.shutdown()
+[laser_sector_blanker-6]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+[laser_sector_blanker-6]     self.__context.shutdown()
+[laser_sector_blanker-6] rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241
+[INFO] [mission_container-41]: process has finished cleanly [pid 8313]
+[INFO] [route_planner-38]: process has finished cleanly [pid 8288]
+[ERROR] [sonar_node_mult.py-9]: process has died [pid 8046, exit code 1, cmd '/home/fabian/ros2_ws/install/guide_robot_sonar/lib/guide_robot_sonar/sonar_node_mult.py --ros-args -r __node:=sonar_node --params-file /tmp/launch_params_j7wthfs3'].
+[INFO] [tool_broker-45]: process has finished cleanly [pid 8349]
+[INFO] [interaction_log-47]: process has finished cleanly [pid 8371]
+[INFO] [supervisor-28]: process has finished cleanly [pid 8206]
+[INFO] [presence_monitor-40]: process has finished cleanly [pid 8308]
+[INFO] [content_server-36]: process has finished cleanly [pid 8272]
+[INFO] [vad_node-30]: process has finished cleanly [pid 8238]
+[INFO] [location_server-37]: process has finished cleanly [pid 8274]
+[ERROR] [face_node-43]: process has died [pid 8329, exit code 1, cmd '/home/fabian/ros2_ws/install/guide_robot_face/lib/guide_robot_face/face_node --ros-args --log-level info --ros-args -r __node:=face_node --params-file /tmp/launch_params_m9av4ag_'].
+fabian@orin-nano:~/ros2_ws$ 

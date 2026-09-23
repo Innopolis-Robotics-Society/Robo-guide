@@ -89,6 +89,10 @@ _RUN_TOUR_OUTCOME_NAMES = {
     RunTour.Result.OUTCOME_NO_VISITOR: "NO_VISITOR",
 }
 
+# A1: ~/request_stop -- имя состояния, из которого остановили (обратное к
+# _STATE_ENUM), для Trigger.Response.message.
+_STATE_NAME_BY_VALUE = {value: name for name, value in _STATE_ENUM.items()}
+
 
 def _wait_future(future: Future, context: object, timeout_s: float) -> bool:
     """Дождаться future реальными миллисекундами. True -- успел, False -- таймаут/shutdown."""
@@ -135,6 +139,11 @@ class MissionFsmNode(LifecycleNode):
         self._exec_lock = threading.Lock()
         self._active_ctx: FsmContext | None = None
         self._active_goal_handle: object | None = None
+        # A2: True, пока _active_ctx занят standalone-возвратом (~/go_home),
+        # а не обычным RunTour-туром -- различает "tour_active" от
+        # "already_returning" в _srv_go_home, оба читают один и тот же слот
+        # _active_ctx (даёт бесплатное взаимное исключение RunTour<->go_home).
+        self._standalone_return_active = False
         self._last_state_msg: MissionState | None = None
         self._state_lock = threading.Lock()
 
@@ -251,6 +260,17 @@ class MissionFsmNode(LifecycleNode):
             self._srv_request_resume,
             callback_group=self._cb_reentrant,
         )
+        # A1: остановить активный прогон (RunTour или standalone go_home) на
+        # месте -- симметрично request_pause/request_resume выше.
+        self._stop_srv = self.create_service(
+            Trigger, "~/request_stop", self._srv_request_stop, callback_group=self._cb_reentrant
+        )
+        # A2: поехать домой без тура. Сервисный коллбек обязан ответить
+        # немедленно (см. _srv_go_home) -- сама поездка идёт в отдельном
+        # потоке, не в этом callback_group-потоке.
+        self._go_home_srv = self.create_service(
+            Trigger, "~/go_home", self._srv_go_home, callback_group=self._cb_reentrant
+        )
         self._confirm_srv = self.create_service(
             SetBool,
             "~/submit_confirm",
@@ -361,6 +381,7 @@ class MissionFsmNode(LifecycleNode):
         self._estop = False
         self._supervisor_state = ""
         self._speaking = False
+        self._standalone_return_active = False
 
     # -- голос (stage2 блок E: транзитный нарратив ждёт тишины) --------------
 
@@ -691,6 +712,12 @@ class MissionFsmNode(LifecycleNode):
         if ctx is not None:
             ctx.request_resume()
 
+    def request_stop(self) -> None:
+        """Запросить немедленную остановку активного прогона (A1) -- см. `~/request_stop`."""
+        ctx = self._log_hook_call("request_stop")
+        if ctx is not None:
+            ctx.request_stop()
+
     def redirect(self, location_id: str) -> tuple[bool, str]:
         """«Отведи к X» во время тура (stage2 B2) -- зовётся и `~/redirect`, и тестами напрямую.
 
@@ -749,6 +776,102 @@ class MissionFsmNode(LifecycleNode):
         response.success = has_ctx
         response.message = "" if has_ctx else "нет активного тура"
         return response
+
+    def _srv_request_stop(
+        self, request: Trigger.Request, response: Trigger.Response
+    ) -> Trigger.Response:
+        """A1: остановить активный прогон (RunTour или standalone go_home) на месте."""
+        del request
+        with self._exec_lock:
+            ctx = self._active_ctx
+        if ctx is None:
+            response.success = False
+            response.message = "no_active_tour"
+            return response
+        # Имя состояния на момент запроса -- лучшее доступное приближение
+        # "состояния, из которого остановились" (A1): сам стоп асинхронный,
+        # FSM-поток заберёт stop_requested на своём ближайшем poll-тике.
+        with self._state_lock:
+            last = self._last_state_msg
+        response.message = (
+            _STATE_NAME_BY_VALUE.get(last.state, "") if last is not None else ""
+        )
+        ctx.request_stop()
+        response.success = True
+        return response
+
+    def go_home(self) -> tuple[bool, str]:
+        """A2: standalone-возврат на базу без тура -- решает синхронно, едет асинхронно.
+
+        Тот же паттерн, что и `redirect()` -- (accepted, message) сразу, а
+        FSM-работа уходит своим путём (там -- в уже идущий FSM-поток тура,
+        здесь -- в новый поток, см. `_run_standalone_return`, т.к. вне тура
+        нет action-execute_callback, за который можно было бы спрятать
+        блокирующий прогон).
+        """
+        if not self._active:
+            return False, "not_active"
+        with self._exec_lock:
+            if self._active_ctx is not None:
+                # Тот же слот _active_ctx занят либо обычным туром (REJECT,
+                # оператор сначала жмёт "Стоп"), либо уже идущим
+                # standalone-возвратом (идемпотентно, второй goal не шлём).
+                if self._standalone_return_active:
+                    return True, "already_returning"
+                return False, "tour_active"
+            if self._safety_hold_event.is_set():
+                return False, "safety_hold"
+            ctx = self._make_context(None, {})
+            self._active_ctx = ctx
+            self._standalone_return_active = True
+        threading.Thread(target=self._run_standalone_return, args=(ctx,), daemon=True).start()
+        return True, ""
+
+    def _srv_go_home(
+        self, request: Trigger.Request, response: Trigger.Response
+    ) -> Trigger.Response:
+        del request
+        response.success, response.message = self.go_home()
+        return response
+
+    def _run_standalone_return(self, ctx: FsmContext) -> None:
+        """Прогнать `ReturningState` вне тура (A2) в отдельном потоке.
+
+        Тот же `_active_ctx`-слот, что и у `RunTour` (`_execute_run_tour`) --
+        новый `RunTour` и повторный `~/go_home` отклоняются, пока этот прогон
+        идёт (`_on_run_tour_goal`/`_srv_go_home` читают один и тот же флаг),
+        а `~/request_stop` находит этот `ctx` точно так же, как активный тур
+        -- отдельной обработки standalone-возврата там не нужно.
+
+        `TourPlan` с пустыми `stop_ids` безопасен: `ReturningState` читает
+        только `tour.return_home` (fsm/states/returning.py), а
+        `current_stop_id`/`current_exhibit_id` на пустом списке отдают ""
+        (fsm/blackboard_keys.py), не падают с `IndexError`.
+        """
+        blackboard = Blackboard(
+            tour=TourPlan(
+                stop_ids=[],
+                exhibit_ids=[],
+                greet=False,
+                narrate=False,
+                confirm_between_stops=False,
+                return_home=True,
+            )
+        )
+        try:
+            RootStateMachine(ctx).run_tour(blackboard, start_state="returning")
+        except Exception:
+            self.get_logger().exception("standalone go_home завершился исключением")
+        finally:
+            # try/finally, а не только happy path -- иначе исключение из
+            # run_tour() (например, необработанный исход состояния) навсегда
+            # занимает _active_ctx, и ни RunTour, ни повторный go_home больше
+            # не запустятся до перезапуска ноды.
+            with self._exec_lock:
+                self._active_ctx = None
+                self._standalone_return_active = False
+            if self._active:
+                self._publish_idle_state()
 
     def _srv_submit_confirm(
         self, request: SetBool.Request, response: SetBool.Response
@@ -809,6 +932,10 @@ class MissionFsmNode(LifecycleNode):
         msg.next_exhibit_id = blackboard.tour.next_exhibit_id
         msg.resume_token = blackboard.resume_token
         msg.resume_available = bool(blackboard.resume_token)
+        # A3: почанковый прогресс NARRATING -- см. fsm/states/narrating.py.
+        # 0/0 везде, кроме NARRATING (обнуляется на её on_exit).
+        msg.chunk_index = blackboard.chunk_index
+        msg.chunk_total = blackboard.chunk_total
         # stage2 D3: hold_position -- единственный сейчас реальный источник
         # pause_reason (PAUSE_SAFETY/PAUSE_PRESENCE не заведены, см.
         # fsm/states/paused.py и recompute_safety_hold -- тот идёт через
@@ -818,6 +945,7 @@ class MissionFsmNode(LifecycleNode):
         self.get_logger().info(
             f"-> {name.upper()} (остановка {msg.stop_index + 1}/{msg.stop_total}, "
             f"stop_id={msg.stop_id or '-'}, exhibit_id={msg.exhibit_id or '-'}, "
+            f"chunk={msg.chunk_index}/{msg.chunk_total}, "
             f"resume={'да' if msg.resume_available else 'нет'})"
         )
         with self._state_lock:
@@ -854,6 +982,8 @@ class MissionFsmNode(LifecycleNode):
             msg.next_exhibit_id = last.next_exhibit_id
             msg.resume_token = last.resume_token
             msg.resume_available = last.resume_available
+            msg.chunk_index = last.chunk_index
+            msg.chunk_total = last.chunk_total
             self._state_pub.publish(msg)
 
 

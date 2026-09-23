@@ -35,7 +35,7 @@
     barge_in_enabled: true
     barge_in_min_windows: 2
     # true: без AEC колонка в мик = VAD CancelAll, робот рвёт сам себя.
-    # Interrupt голосом во время TTS -- только «робот»/«стоп» (wakeword);
+    # Interrupt голосом во время TTS -- только «Фирая»/«стоп» (wakeword);
     # VAD barge-in после AEC.
     require_aec_for_barge_in: true
 
@@ -53,14 +53,16 @@
     short_path_max_ms: 0.0
     min_final_chars: 2
     gate_on_tts: true
-    # Партиалы во время TTS → wakeword («робот»/«стоп»), без финалов в диалог.
+    # Партиалы во время TTS → wakeword («Фирая»/«стоп»), без финалов в диалог.
     # VAD barge-in выключен (require_aec); иначе колонка рвёт речь сама.
     wakeword_listen_during_tts: true
 
 /**/wakeword_node:
   ros__parameters:
     backend: "asr_kws"
-    activation_phrases: ["робот", "слушай робот"]
+    # Имя робота + типичные ошибки ASR («фирайя», «фира я», «фи рая»):
+    # под TTS матч только точный и с начала фразы, поэтому варианты явно.
+    activation_phrases: ["фирая", "фирайя", "фира я", "фи рая", "эй фирая", "слушай фирая"]
     stop_phrases: ["стоп", "стой", "хватит", "замолчи"]
     fuzzy_max_distance: 1
     min_confidence: 0.5
@@ -73,12 +75,24 @@
     speaker: xenia
     speaker_id: 0
     length_scale: 1.0
+    # Темп и паузы (замер 15.09.2026, 4 предложения / 7.05 с как есть):
+    # 110% -> ~-10% времени, 120% -> 5.76 с; модельная пауза на точке
+    # 350-430 мс, break 150 мс её заменяет; хвост клаузы 230 мс -> 80.
+    silero_rate: "110%"
+    sentence_pause_ms: 150
+    trailing_silence_ms: 80
     device: "pulse"
     device_rate: 48000
     allow_shared: true
     block_ms: 20
     periods: 8
     fade_out_ms: 80              # мягкое затухание при «робот»/стоп; estop -- сразу
+    # Донгл Generic AB13X (с 14.09.2026 вместо UM2) глушит выход после ~1 с
+    # нулей и просыпается 250-400 мс -- съедал начало каждой реплики.
+    # Порог его детектора между -66 и -72 dBFS (измерено 15.09.2026),
+    # -60 -- с запасом; 20 Гц колонка не воспроизводит. См. README.
+    keepalive_dbfs: -60.0
+    keepalive_hz: 20.0
     max_clause_chars: 180
     max_queue: 8
     heartbeat_hz: 5.0

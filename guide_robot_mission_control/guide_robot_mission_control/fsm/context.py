@@ -98,10 +98,37 @@ class FsmContext:
         self._pause_queue: queue.Queue[bool] = queue.Queue()
         self._resume_queue: queue.Queue[bool] = queue.Queue()
         self._redirect_queue: queue.Queue[str] = queue.Queue()
+        # A1: ~/request_stop. Не переиспользует goal_handle.is_cancel_requested --
+        # standalone `~/go_home` (A2) не имеет RunTour-goal-а вовсе
+        # (goal_handle=None), а флаг обязан работать в обоих случаях.
+        # Level-triggered на весь прогон, как safety_hold_event/
+        # deactivating_event, а не одноразовый, как очереди выше -- ctx и так
+        # пересоздаётся на каждый RunTour/go_home, сбрасывать нечего.
+        self._stop_event = threading.Event()
 
     def is_cancel_requested(self) -> bool:
-        """Вернуть True, если клиент запросил отмену текущего `RunTour`-goal-а."""
+        """Вернуть True, если клиент запросил отмену текущего `RunTour`-goal-а.
+
+        `goal_handle=None` -- у standalone `~/go_home` (A2) нет реального
+        RunTour-goal-а, отменять через него нечего; единственный путь
+        отмены такого прогона -- `~/request_stop` (`is_stop_requested`).
+        """
+        if self.goal_handle is None:
+            return False
         return bool(self.goal_handle.is_cancel_requested)  # type: ignore[attr-defined]
+
+    def request_stop(self) -> None:
+        """Запросить немедленную остановку текущего прогона (A1 `~/request_stop`).
+
+        В отличие от `goal_handle.is_cancel_requested` (внешняя отмена
+        RunTour-goal-а), это не привязано к экшену вообще -- работает и для
+        standalone-возврата (A2), у которого `goal_handle is None`.
+        """
+        self._stop_event.set()
+
+    def is_stop_requested(self) -> bool:
+        """Вернуть True, если `request_stop()` уже был вызван для этого прогона."""
+        return self._stop_event.is_set()
 
     # -- тестовые/CLI хуки (design §5.4 п.6, §5.2 ANSWERED/YES/NO/RESUMED --
     #    без реального ASR/LLM-сигнала в v1, см. докстринги состояний) -----

@@ -105,7 +105,7 @@ class AsrNode(LifecycleNode):
         self.declare_parameter("gate_on_tts", False)
         self.declare_parameter("session_managed_input", False)
         # При gate_on_tts: всё равно копить окно и слать /asr/partial во время
-        # TTS (для wakeword «робот»/«стоп»), финалы в диалог не открывать.
+        # TTS (для wakeword «Фирая»/«стоп»), финалы в диалог не открывать.
         self.declare_parameter("wakeword_listen_during_tts", False)
         self.declare_parameter("frame_id", "mic_array")
 

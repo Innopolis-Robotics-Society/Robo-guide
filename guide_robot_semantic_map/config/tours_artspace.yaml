@@ -1,0 +1,12 @@
+version: 1
+tours:
+  # Экскурсии на ArtSpace нет -- тур только чтобы ListTours/operator UI не
+  # были пустыми. Штатная работа -- по одной точке через
+  # `ros2 run guide_robot_mission_control mission_cli tour --locations vybory_N --no-greet --no-confirm --no-return-home`.
+  - id: artspace_vybory
+    name: {ru: "Выборы в Артспейсе", en: "Elections at ArtSpace"}
+    default: false
+    stops:
+      - {location_id: vybory_1, exhibit_id: vybory_1, dwell_s: 60, mode: full}
+      - {location_id: vybory_2, exhibit_id: vybory_2, dwell_s: 60, mode: full}
+      - {location_id: vybory_3, exhibit_id: vybory_3, dwell_s: 60, mode: full}

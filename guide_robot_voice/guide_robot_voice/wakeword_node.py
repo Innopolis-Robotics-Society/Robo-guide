@@ -12,13 +12,18 @@
 
 Стоп-слова -- L1-путь, как и barge-in в vad_node: нода сама публикует
 CancelAll(scope=SCOPE_ALL, reason=REASON_WAKEWORD), не дожидаясь mission.
-Активационные фразы («робот») тоже CancelAll -- иначе прерывание рассказа
+Активационные фразы («Фирая») тоже CancelAll -- иначе прерывание рассказа
 только стоп-словом. Вне TTS CancelAll на пустом стоке -- no-op.
 
 Во время TTS партиалы всё ещё обрабатываются (asr: wakeword_listen_during_tts):
-без этого gate_on_tts глушит ASR и «робот» не слышен. Под TTS требуем
+без этого gate_on_tts глушит ASR и «Фирая» не слышна. Под TTS требуем
 почти точное совпадение (confidence ≥ 0.99) и совпадение с НАЧАЛА фразы:
 иначе эхо «я робот-экскурсовод» даёт CancelAll с confidence=1.0.
+
+Имя робота -- Фирая -- редкое, GigaAM пишет его по-разному («фирайя»,
+«фира я», «фи рая»). Варианты перечислены в activation_phrases явно:
+вне TTS их и так ловит Левенштейн, но под TTS нужен точный матч
+(confidence ≥ 0.99), и там побеждает только буквальное написание.
 
 tts_active берётся из последнего /voice/speaking. В отличие от vad_node
 и asr_node, протухший статус здесь не просто тихо считается false --
@@ -57,7 +62,10 @@ class WakewordNode(LifecycleNode):
         super().__init__("wakeword_node")
 
         self.declare_parameter("backend", "asr_kws")
-        self.declare_parameter("activation_phrases", ["робот", "слушай робот"])
+        self.declare_parameter(
+            "activation_phrases",
+            ["фирая", "фирайя", "фира я", "фи рая", "эй фирая", "слушай фирая"],
+        )
         self.declare_parameter("stop_phrases", ["стоп", "стой", "хватит", "замолчи"])
         self.declare_parameter("fuzzy_max_distance", 1)
         self.declare_parameter("min_confidence", 0.5)
@@ -237,7 +245,7 @@ class WakewordNode(LifecycleNode):
         self._publish_cancel_all(phrase)
 
     def _on_activation_phrase(self, phrase: str, confidence: float) -> None:
-        """Активация («робот») -- wakeword; CancelAll чтобы прервать рассказ/реплику."""
+        """Активация («Фирая») -- wakeword; CancelAll чтобы прервать рассказ/реплику."""
         self._publish_wakeword(phrase, confidence)
         self._publish_cancel_all(phrase)
 

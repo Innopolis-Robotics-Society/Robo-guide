@@ -131,7 +131,7 @@ def test_estop_reason_cancels_non_interruptible_outside_safety_scope() -> None:
 
 
 def test_wakeword_reason_cancels_non_interruptible() -> None:
-    """«робот» / «стоп» (REASON_WAKEWORD) гасят punchline с interruptible=False."""
+    """«Фирая» / «стоп» (REASON_WAKEWORD) гасят punchline с interruptible=False."""
     scheduler = Scheduler()
     scheduler.submit(make("punch", 50, 0, interruptible=False, scope=Scope.NARRATION))
     dropped_active, _ = scheduler.cancel(Scope.ALL, reason="wakeword")

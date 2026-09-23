@@ -1,0 +1,20 @@
+[core]
+idle-time=0
+backend=drm-backend.so
+repaint-window=16
+
+[shell]
+panel-position=none
+locking=false
+close-animation=none
+startup-animation=none
+background-color=0xff1a365d
+
+[output]
+name=HDMI-A-1
+# 1280x720@60 (CTA-861 VIC 4, 74.25 МГц): кадр 2.76 МБ вместо 6.22 МБ, поток FL2000 по USB
+# 373 -> ~166 МБ/с. PLL FL2000 даёт 890/12 = 74.1667 МГц (1122 ppm, как и для 1080p60).
+# Панель 1080p масштабирует 720p сама; интерфейс киоска рисуется в 720x1280 (rotate-90).
+# 30 Гц (1080p30 в двух вариантах таймингов) монитор не принял 19.09.2026 -- чёрный экран.
+mode=74.25 1280 1390 1430 1650 720 725 730 750 +hsync +vsync
+transform=rotate-90

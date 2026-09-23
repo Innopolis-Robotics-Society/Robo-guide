@@ -1,0 +1,182 @@
+--- a/fl2000_streaming.c
++++ b/fl2000_streaming.c
+@@ -19,7 +19,10 @@
+  *  - one buffer for DRM/KMS data copy
+  */
+ #define FL2000_SB_MIN 3
+-#define FL2000_SB_NUM (FL2000_SB_MIN + 1)
++/* +1 buffer just completed and free, +1 owned by fl2000_stream_compress() while it converts
++ * outside the spinlock (see below). With only 4 the transmit work could find render_list empty.
++ */
++#define FL2000_SB_NUM (FL2000_SB_MIN + 2)
+
+ #define FL2000_URB_TIMEOUT 100
+
+@@ -46,6 +49,12 @@
+ 	struct semaphore work_sem;
+ 	bool enabled;
+ 	struct usb_anchor anchor;
++	/* Cached bounce line for fl2000_stream_compress(): the DRM dumb buffer is CMA/write-combine
++	 * (uncached) memory; reading it pixel by pixel costs ~150 ms per 1080p frame, memcpy
++	 * with wide loads is an order of magnitude faster.
++	 */
++	void *line_buf;
++	size_t line_buf_size;
+ };
+
+ static void fl2000_free_sb(struct fl2000_stream_buf *sb)
+@@ -147,6 +156,7 @@
+ 	fl2000_stream_disable(stream);
+ 	destroy_workqueue(stream->work_queue);
+ 	fl2000_stream_put_buffers(stream);
++	kfree(stream->line_buf);
+ }
+
+ static void fl2000_stream_data_completion(struct urb *urb)
+@@ -156,9 +166,11 @@
+ 	struct fl2000_stream *stream = urb->context;
+
+ 	if (stream) {
+-		spin_lock_irq(&stream->list_lock);
++		unsigned long flags;
++
++		spin_lock_irqsave(&stream->list_lock, flags);
+ 		list_move_tail(&cur_sb->list, &stream->render_list);
+-		spin_unlock(&stream->list_lock);
++		spin_unlock_irqrestore(&stream->list_lock, flags);
+
+ 		drm_crtc_handle_vblank(stream->crtc);
+
+@@ -180,6 +192,7 @@
+ 	struct fl2000_stream_buf *cur_sb;
+ 	struct fl2000_stream_buf *last_sb;
+ 	struct urb *data_urb;
++	unsigned long flags;
+
+ 	while (stream->enabled) {
+ 		ret = down_interruptible(&stream->work_sem);
+@@ -189,12 +202,21 @@
+ 			return;
+ 		}
+
+-		spin_lock_irq(&stream->list_lock);
++		spin_lock_irqsave(&stream->list_lock, flags);
+
+ 		/* If no buffers are available for immediate transmission - then copy latest
+ 		 * transmission data
+ 		 */
+ 		if (list_empty(&stream->transmit_list)) {
++			if (list_empty(&stream->render_list)) {
++				/* All free buffers are busy (compress holds one). Give the token
++				 * back and let the compressor finish; it will land in transmit_list.
++				 */
++				spin_unlock_irqrestore(&stream->list_lock, flags);
++				up(&stream->work_sem);
++				usleep_range(500, 1000);
++				continue;
++			}
+ 			if (list_empty(&stream->wait_list))
+ 				last_sb = list_last_entry(&stream->render_list,
+ 							  struct fl2000_stream_buf, list);
+@@ -209,7 +231,7 @@
+ 						  list);
+ 		}
+ 		list_move_tail(&cur_sb->list, &stream->wait_list);
+-		spin_unlock(&stream->list_lock);
++		spin_unlock_irqrestore(&stream->list_lock, flags);
+
+ 		data_urb = usb_alloc_urb(0, GFP_KERNEL);
+ 		if (!data_urb) {
+@@ -262,24 +284,50 @@
+ 			    unsigned int width, unsigned int pitch)
+ {
+ 	struct fl2000_stream_buf *cur_sb;
++	unsigned long flags;
+ 	void *dst;
+ 	u32 dst_line_len;
++	size_t line_len = (size_t)width * 4;
+
+-	BUG_ON(list_empty(&stream->render_list));
++	/* Called from the atomic commit tail (process context, serialized per CRTC). The
++	 * conversion of a 1080p frame is milliseconds of work even from cached memory, so it must
++	 * not run under list_lock: the URB completion handler takes that lock in hardirq context
++	 * and every USB completion on the system stalls until the conversion finishes. Upstream
++	 * did exactly that; with the uncached dumb buffer it blocked IRQs for 130-160 ms per
++	 * redraw, starving the dongle (3 frames = 33 ms in flight) and dropping the TMDS link.
++	 */
++	if (!stream->line_buf || stream->line_buf_size < line_len) {
++		void *nb = kmalloc(line_len, GFP_KERNEL);
+
+-	spin_lock_irq(&stream->list_lock);
++		if (!nb)
++			return;
++		kfree(stream->line_buf);
++		stream->line_buf = nb;
++		stream->line_buf_size = line_len;
++	}
+
++	spin_lock_irqsave(&stream->list_lock, flags);
++	if (list_empty(&stream->render_list)) {
++		/* Should not happen with FL2000_SB_NUM buffers; drop the frame instead of BUG */
++		spin_unlock_irqrestore(&stream->list_lock, flags);
++		return;
++	}
+ 	cur_sb = list_first_entry(&stream->render_list, struct fl2000_stream_buf, list);
++	list_del_init(&cur_sb->list); /* owned by us until re-listed below */
++	spin_unlock_irqrestore(&stream->list_lock, flags);
++
+ 	dst = cur_sb->vaddr;
+ 	dst_line_len = width * stream->bytes_pix;
+
+ 	for (unsigned int y = 0; y < height; y++) {
++		/* Pull the line out of write-combine memory with wide loads first */
++		memcpy(stream->line_buf, src, line_len);
+ 		switch (stream->bytes_pix) {
+ 		case 2:
+-			fl2000_xrgb888_to_rgb565_line(dst, src, width);
++			fl2000_xrgb888_to_rgb565_line(dst, stream->line_buf, width);
+ 			break;
+ 		case 3:
+-			fl2000_xrgb888_to_rgb888_line(dst, src, width);
++			fl2000_xrgb888_to_rgb888_line(dst, stream->line_buf, width);
+ 			break;
+ 		default: /* Shouldn't happen */
+ 			break;
+@@ -288,8 +336,9 @@
+ 		dst += dst_line_len;
+ 	}
+
+-	list_move_tail(&cur_sb->list, &stream->transmit_list);
+-	spin_unlock(&stream->list_lock);
++	spin_lock_irqsave(&stream->list_lock, flags);
++	list_add_tail(&cur_sb->list, &stream->transmit_list);
++	spin_unlock_irqrestore(&stream->list_lock, flags);
+ }
+
+ int fl2000_stream_mode_set(struct fl2000_stream *stream, int pixels, u32 bytes_pix)
+@@ -341,6 +390,7 @@
+ void fl2000_stream_disable(struct fl2000_stream *stream)
+ {
+ 	struct fl2000_stream_buf *cur_sb;
++	unsigned long flags;
+
+ 	stream->enabled = false;
+
+@@ -349,7 +399,7 @@
+ 	if (!usb_wait_anchor_empty_timeout(&stream->anchor, 1000))
+ 		usb_kill_anchored_urbs(&stream->anchor);
+
+-	spin_lock_irq(&stream->list_lock);
++	spin_lock_irqsave(&stream->list_lock, flags);
+ 	while (!list_empty(&stream->transmit_list)) {
+ 		cur_sb = list_first_entry(&stream->transmit_list, struct fl2000_stream_buf, list);
+ 		list_move_tail(&cur_sb->list, &stream->render_list);
+@@ -358,7 +408,7 @@
+ 		cur_sb = list_first_entry(&stream->wait_list, struct fl2000_stream_buf, list);
+ 		list_move_tail(&cur_sb->list, &stream->render_list);
+ 	}
+-	spin_unlock(&stream->list_lock);
++	spin_unlock_irqrestore(&stream->list_lock, flags);
+ }
+
+ /**

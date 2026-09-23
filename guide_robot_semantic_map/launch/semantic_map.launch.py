@@ -31,13 +31,13 @@ route_planner -- единственный потребитель. Поднима
 """
 
 from ament_index_python.packages import get_package_share_directory
-from launch.actions import DeclareLaunchArgument, GroupAction
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 NODES = ["content_server", "location_server", "route_planner"]
 
@@ -68,7 +68,12 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument(
             "graph_file",
-            default_value=f"{pkg_share}/config/graph.geojson",
+            # ArtSpace -- текущая площадка по умолчанию (graph_artspace.geojson
+            # + semantic_map.yaml: graph_file/locations_file/tours_file для
+            # location_server и route_planner ниже). Лабораторный датасет
+            # (graph.geojson/locations.yaml/tours.yaml, "для тестов") -- явным
+            # override всех четырёх путей разом, они всегда меняются вместе.
+            default_value=f"{pkg_share}/config/graph_artspace.geojson",
             description="Граф для route_server -- владелец данных, не launch-аргумент",
         ),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
@@ -97,10 +102,12 @@ def generate_launch_description() -> LaunchDescription:
             executable=name,
             name=name,
             output="screen",
-            # allow_substs: пути в semantic_map.yaml пока пустые (резолвятся
-            # в коде через ament_index), но при развёртывании с данными вне
-            # пакета (design.md §2) сюда придёт $(find-pkg-share ...), как
-            # в guide_robot_voice/voice.yaml.
+            # allow_substs: пути в semantic_map.yaml -- явные
+            # $(find-pkg-share guide_robot_semantic_map)/config/*_innopark.*
+            # (датасет реальной площадки), как в guide_robot_voice/voice.yaml.
+            # Пустая строка тоже валидна -- сигнал коду резолвить путь
+            # через ament_index самому (см. _resolve_path() в каждой ноде);
+            # используется при развёртывании с данными вне пакета (design.md §2).
             parameters=[ParameterFile(params, allow_substs=True), {"use_sim_time": use_sim_time}],
             arguments=["--ros-args", "--log-level", log_level],
         )

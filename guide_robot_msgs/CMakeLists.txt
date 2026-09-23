@@ -56,6 +56,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/BeginPlayback.srv"
   "srv/FencePlayback.srv"
   "msg/DialogPhase.msg"
+  "msg/MediaItem.msg"
+  "srv/GetExhibitMedia.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs
 )
 

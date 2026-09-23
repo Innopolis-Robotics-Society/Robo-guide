@@ -1,0 +1,12 @@
+[Unit]
+Description=Auto-revert of an unconfirmed trial weston mode on the FL2000 dongle
+DefaultDependencies=no
+After=local-fs.target
+Before=fl2000-edid.service weston-dlhdmi.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fl2000-mode-trial boot
+
+[Install]
+WantedBy=graphical.target

@@ -409,7 +409,10 @@ class Supervisor(Node):
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = Supervisor()
-    executor = MultiThreadedExecutor(num_threads=4)
+    # 2 потока, не 4: _srv_bringup/_srv_shutdown блокируют один поток в
+    # call_sync, второго хватает, чтобы доставить ответ lifecycle-менеджера.
+    # Лишние потоки rclpy-executor'а на Orin -- чистый расход CPU на wait set.
+    executor = MultiThreadedExecutor(num_threads=2)
     executor.add_node(node)
     try:
         executor.spin()

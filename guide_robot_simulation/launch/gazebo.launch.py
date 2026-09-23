@@ -30,7 +30,6 @@ from launch.actions import (
     IncludeLaunchDescription,
     RegisterEventHandler,
     SetEnvironmentVariable,
-    TimerAction,
 )
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -54,6 +53,15 @@ def generate_launch_description():
         name="world",
         default_value=os.path.join(pkg_simulation, "worlds", "simple.world"),
         description="Path to the Gazebo world file",
+    )
+
+    spawn_yaw_arg = DeclareLaunchArgument(
+        name="spawn_yaw",
+        default_value="3.141592653589793",
+        description="Yaw (rad) of base_footprint at spawn. Must match "
+        "amcl.initial_pose.yaw in first_iter_nav2.yaml.in - default is pi "
+        "because the URDF yaw pi flip made +X footprint (casters) the "
+        "travel direction, and the map/dock pose was set up for that.",
     )
 
     model_arg = DeclareLaunchArgument(
@@ -109,6 +117,8 @@ def generate_launch_description():
             "guide_robot",
             "-z",
             "0.15",
+            "-Y",
+            LaunchConfiguration("spawn_yaw"),
         ],
     )
 
@@ -156,6 +166,7 @@ def generate_launch_description():
             use_sim_time_arg,
             model_arg,
             world_arg,
+            spawn_yaw_arg,
             gazebo_model_path,
             gazebo_no_online_db,
             robot_state_publisher_node,

@@ -20,10 +20,12 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import math
 import pathlib
+import re
 from collections.abc import Iterator
 from typing import Protocol
 
@@ -31,7 +33,15 @@ import numpy as np
 
 _logger = logging.getLogger(__name__)
 
-__all__ = ["NullBackend", "PiperBackend", "SileroBackend", "TtsBackend", "make_backend"]
+__all__ = [
+    "NullBackend",
+    "PiperBackend",
+    "SileroBackend",
+    "TtsBackend",
+    "build_silero_ssml",
+    "make_backend",
+    "trim_trailing_silence",
+]
 
 _SILERO_SAMPLE_RATES = frozenset({8000, 24000, 48000})
 
@@ -299,6 +309,48 @@ class PiperBackend:
         self._voice = None
 
 
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
+_TRAILING_SILENCE_THRESHOLD = 200  # LSB; хвост Silero -- не нули, а шум ~единиц LSB
+
+
+def build_silero_ssml(text: str, rate: str = "100%", sentence_pause_ms: int = 0) -> str | None:
+    """Собрать SSML для apply_tts(ssml_text=...) или None, если он не нужен.
+
+    Silero v5 понимает <prosody rate> (проценты и fast/x-fast) и
+    <break time>. Сама модель ставит на точке паузу ~350-430 мс; явный
+    <break> между предложениями заменяет её на заданную (измерено на
+    роботе 15.09.2026: 100 мс убирает все паузы >=150 мс). Текст
+    экранируется: ответ ЛЛМ с «&» или «<» иначе ломает разбор SSML.
+    """
+    rate = rate.strip() or "100%"
+    if rate == "100%" and sentence_pause_ms <= 0:
+        return None
+    if sentence_pause_ms > 0:
+        parts = [p for p in _SENTENCE_SPLIT.split(text.strip()) if p]
+        body = f'<break time="{int(sentence_pause_ms)}ms"/>'.join(html.escape(p) for p in parts)
+    else:
+        body = html.escape(text)
+    if rate != "100%":
+        body = f'<prosody rate="{html.escape(rate, quote=True)}">{body}</prosody>'
+    return f"<speak>{body}</speak>"
+
+
+def trim_trailing_silence(pcm: np.ndarray, keep_ms: int, sample_rate: int) -> np.ndarray:
+    """Оставить в конце не больше keep_ms тишины (keep_ms < 0 -- не трогать).
+
+    Каждая клауза Silero заканчивается ~230 мс тишины; на стыке клауз
+    чанкера она складывается с паузой следующей. Обрезка -- по порогу
+    |x| < 200 LSB, чтобы шум хвоста не считался речью.
+    """
+    if keep_ms < 0 or pcm.size == 0:
+        return pcm
+    loud = np.nonzero(np.abs(pcm.astype(np.int32)) >= _TRAILING_SILENCE_THRESHOLD)[0]
+    if loud.size == 0:
+        return pcm
+    end = min(pcm.size, int(loud[-1]) + 1 + int(sample_rate * keep_ms / 1000))
+    return pcm[:end]
+
+
 class SileroBackend:
     """Silero TTS v5 через torch.package (v5_ru.pt, спикер xenia).
 
@@ -307,12 +359,15 @@ class SileroBackend:
     load(): CI без CUDA/torch не должен падать на import backends.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 -- параметры ноды один к одному
         self,
         model_path: str,
         speaker: str = "xenia",
         sample_rate: int = 48000,
         block_ms: int = 20,
+        rate: str = "100%",
+        sentence_pause_ms: int = 0,
+        trailing_silence_ms: int = -1,
     ) -> None:
         """Запомнить параметры. Модель загружается в load()."""
         if sample_rate not in _SILERO_SAMPLE_RATES:
@@ -320,10 +375,20 @@ class SileroBackend:
             raise ValueError(
                 f"Silero TTS не поддерживает {sample_rate} Гц; допустимо: {supported}"
             )
+        """Запомнить параметры. Модель загружается в load().
+
+        rate -- <prosody rate> SSML ("100%" -- как есть); sentence_pause_ms --
+        явная пауза между предложениями вместо модельной (0 -- модельная);
+        trailing_silence_ms -- сколько тишины оставить в конце клаузы
+        (-1 -- не обрезать). См. build_silero_ssml / trim_trailing_silence.
+        """
         self._model_path = model_path
         self._speaker = speaker
         self.sample_rate = sample_rate
         self._block = max(1, int(sample_rate * block_ms / 1000))
+        self._rate = rate
+        self._sentence_pause_ms = sentence_pause_ms
+        self._trailing_silence_ms = trailing_silence_ms
         self._model: object | None = None
 
     def load(self) -> None:
@@ -345,10 +410,18 @@ class SileroBackend:
         if self._model is None:
             raise RuntimeError("SileroBackend.load() не вызван")
         speaker = voice if voice and not voice.lstrip("-").isdigit() else self._speaker
-        audio = self._model.apply_tts(  # type: ignore[union-attr]
-            text=text, speaker=speaker, sample_rate=self.sample_rate
+        ssml = build_silero_ssml(text, self._rate, self._sentence_pause_ms)
+        if ssml is not None:
+            audio = self._model.apply_tts(  # type: ignore[union-attr]
+                ssml_text=ssml, speaker=speaker, sample_rate=self.sample_rate
+            )
+        else:
+            audio = self._model.apply_tts(  # type: ignore[union-attr]
+                text=text, speaker=speaker, sample_rate=self.sample_rate
+            )
+        pcm = trim_trailing_silence(
+            _silero_to_int16(audio), self._trailing_silence_ms, self.sample_rate
         )
-        pcm = _silero_to_int16(audio)
         offset = 0
         while offset < pcm.size:
             yield pcm[offset : offset + self._block]

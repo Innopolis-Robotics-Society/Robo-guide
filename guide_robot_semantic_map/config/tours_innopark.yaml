@@ -1,0 +1,26 @@
+version: 1
+tours:
+  # expo_one переехал сюда из config/tours.yaml (лабораторная заглушка на
+  # координатах lab_105_full, площадка ещё не была размечена) вместе с
+  # config/locations_innopark.yaml + config/graph_innopark.geojson --
+  # площадка размечена, это реальный маршрут.
+  #
+  # confirm_between_stops=false ("идём дальше?" ломает темп шоу), greet=false
+  # (приветствие -- часть самого сценария, не заготовка GreetingState),
+  # return_home=true (финальный отъезд -- штатный RETURNING). Эти три флага
+  # -- аргументы RunTour.Goal у вызывающего, не поля тура: живой запуск --
+  # `ros2 run guide_robot_mission_control cli tour --tour expo_one
+  # --no-greet --no-confirm` (return_home остаётся дефолтным true).
+  #
+  # right_wing/left_wing -- новые остановки, добавленные вместе с переездом
+  # (площадка размечена полнее, чем лабораторная заглушка). Контент под них
+  # ещё не написан (см. TODO в locations_innopark.yaml) -- немые остановки
+  # до тех пор, пока content/right_wing.ru.yaml и content/left_wing.ru.yaml
+  # не появятся.
+  - id: expo_one
+    name: {ru: "Знакомство с Иннополисом", en: "Meet Innopolis"}
+    default: false
+    stops:
+      - {location_id: expo_meeting,      exhibit_id: expo_meeting,      dwell_s: 180, mode: full}
+      - {location_id: expo_city_model,   exhibit_id: expo_city_model,   dwell_s: 180, mode: full}
+      - {location_id: expo_handoff,      exhibit_id: expo_handoff,      dwell_s: 60,  mode: full}

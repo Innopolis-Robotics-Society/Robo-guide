@@ -44,6 +44,17 @@ def _write(tmp_path: Path, name: str, doc: dict) -> Path:
     return path
 
 
+def _write_media_file(tmp_path: Path, exhibit_id: str, filename: str) -> None:
+    """Положить заглушку под content/media/<exhibit_id>/<filename> (Task B, B2).
+
+    _check_media_files_exist проверяет только наличие файла, не формат --
+    заглушка годится для любого kind.
+    """
+    media_dir = tmp_path / "media" / exhibit_id
+    media_dir.mkdir(parents=True, exist_ok=True)
+    (media_dir / filename).write_bytes(b"placeholder")
+
+
 # -- load_content_file: happy path ---------------------------------------------
 
 
@@ -432,3 +443,127 @@ def test_resolve_exhibit_id_by_title(tmp_path: Path) -> None:
     assert resolve_exhibit_id("expo_meeting", catalog) == "expo_meeting"
     assert resolve_exhibit_id("Знакомство и приглашение в Иннополис", catalog) == "expo_meeting"
     assert resolve_exhibit_id("нет такого", catalog) is None
+
+
+# -- media (Task B, B2) ---------------------------------------------------------
+
+
+def test_media_defaults_to_empty_list(tmp_path: Path) -> None:
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", _content_doc())
+    content, _ = load_content_file(path)
+    assert content.media == []
+
+
+def test_media_parses_valid_items(tmp_path: Path) -> None:
+    _write_media_file(tmp_path, "kandinsky_viii", "overview.jpg")
+    _write_media_file(tmp_path, "kandinsky_viii", "flyover.mp4")
+    _write_media_file(tmp_path, "kandinsky_viii", "title.jpg")
+    doc = _content_doc(
+        media=[
+            {"id": "m1", "chunk_id": "c1", "kind": "image", "file": "overview.jpg"},
+            {
+                "id": "m2",
+                "chunk_id": "c2",
+                "kind": "video",
+                "file": "flyover.mp4",
+                "duration_s": 12.0,
+            },
+            {"id": "m0", "kind": "image", "file": "title.jpg", "caption": "Обложка"},
+        ]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    assert [m.id for m in content.media] == ["m1", "m2", "m0"]
+    assert content.media[0].chunk_id == "c1"
+    assert content.media[1].kind == "video"
+    assert content.media[1].duration_s == 12.0
+    assert content.media[2].chunk_id == ""
+    assert content.media[2].caption == "Обложка"
+
+
+def test_media_optional_fields_default(tmp_path: Path) -> None:
+    _write_media_file(tmp_path, "kandinsky_viii", "title.jpg")
+    doc = _content_doc(media=[{"id": "m0", "kind": "image", "file": "title.jpg"}])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    assert content.media[0].chunk_id == ""
+    assert content.media[0].duration_s == 0.0
+    assert content.media[0].caption == ""
+
+
+def test_rejects_duplicate_media_id(tmp_path: Path) -> None:
+    _write_media_file(tmp_path, "kandinsky_viii", "a.jpg")
+    doc = _content_doc(
+        media=[
+            {"id": "m1", "kind": "image", "file": "a.jpg"},
+            {"id": "m1", "kind": "image", "file": "a.jpg"},
+        ]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="дублирующийся id медиа"):
+        load_content_file(path)
+
+
+def test_rejects_unknown_media_kind(tmp_path: Path) -> None:
+    _write_media_file(tmp_path, "kandinsky_viii", "a.gif")
+    doc = _content_doc(media=[{"id": "m1", "kind": "gif", "file": "a.gif"}])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="kind"):
+        load_content_file(path)
+
+
+def test_rejects_media_chunk_id_not_found(tmp_path: Path) -> None:
+    _write_media_file(tmp_path, "kandinsky_viii", "a.jpg")
+    doc = _content_doc(
+        media=[{"id": "m1", "chunk_id": "no_such_chunk", "kind": "image", "file": "a.jpg"}]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="chunk_id"):
+        load_content_file(path)
+
+
+def test_rejects_non_numeric_media_duration_s(tmp_path: Path) -> None:
+    _write_media_file(tmp_path, "kandinsky_viii", "a.mp4")
+    doc = _content_doc(
+        media=[{"id": "m1", "kind": "video", "file": "a.mp4", "duration_s": "long"}]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="duration_s"):
+        load_content_file(path)
+
+
+def test_rejects_media_duration_s_above_max(tmp_path: Path) -> None:
+    _write_media_file(tmp_path, "kandinsky_viii", "a.mp4")
+    doc = _content_doc(media=[{"id": "m1", "kind": "video", "file": "a.mp4", "duration_s": 601}])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="duration_s"):
+        load_content_file(path)
+
+
+def test_accepts_media_duration_s_at_bounds(tmp_path: Path) -> None:
+    _write_media_file(tmp_path, "kandinsky_viii", "a.jpg")
+    _write_media_file(tmp_path, "kandinsky_viii", "b.mp4")
+    doc = _content_doc(
+        media=[
+            {"id": "m1", "kind": "image", "file": "a.jpg", "duration_s": 0},
+            {"id": "m2", "kind": "video", "file": "b.mp4", "duration_s": 600},
+        ]
+    )
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    content, _ = load_content_file(path)
+    assert content.media[0].duration_s == 0.0
+    assert content.media[1].duration_s == 600.0
+
+
+def test_rejects_media_file_missing_on_disk(tmp_path: Path) -> None:
+    doc = _content_doc(media=[{"id": "m1", "kind": "image", "file": "missing.jpg"}])
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="не найден"):
+        load_content_file(path)
+
+
+def test_rejects_non_list_media(tmp_path: Path) -> None:
+    doc = _content_doc(media={"id": "m1"})
+    path = _write(tmp_path, "kandinsky_viii.ru.yaml", doc)
+    with pytest.raises(ContentError, match="media"):
+        load_content_file(path)

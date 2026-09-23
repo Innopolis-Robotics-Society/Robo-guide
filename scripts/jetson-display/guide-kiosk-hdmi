@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Fullscreen Wayland kiosk for the HDMI hub. URL from /etc/guide-kiosk/url.
+
+Устанавливается в /usr/local/bin/guide-kiosk-hdmi, запускается
+kiosk-hdmi.service (см. README.md рядом).
+
+Почему тут есть повтор загрузки. Киоск стартует вместе с weston на
+загрузке, а operator_ui (http://127.0.0.1:8091) поднимают руками и позже.
+WebKit грузит URL один раз: если сервера ещё нет, на экране остаётся
+страница ошибки, JS страницы (со своим переподключением WebSocket) даже
+не загружен, и появление сервера киоск не замечает. Поэтому на
+load-failed повторяем загрузку каждые RETRY_S, а если WebKit убил свой
+web-процесс -- тоже перезагружаем.
+"""
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("WebKit2", "4.1")
+from gi.repository import Gdk, GLib, Gtk, WebKit2  # noqa: E402
+
+RETRY_S = 3
+
+url = Path("/etc/guide-kiosk/url").read_text(encoding="utf-8").strip() or "https://www.google.com/"
+
+win = Gtk.Window()
+win.set_title("kiosk")
+win.fullscreen()
+win.connect("destroy", Gtk.main_quit)
+
+
+def hide_cursor(window, *_args):
+    gdk_win = window.get_window()
+    if gdk_win is not None:
+        gdk_win.set_cursor(Gdk.Cursor.new(Gdk.CursorType.BLANK_CURSOR))
+
+
+win.connect("realize", hide_cursor)
+
+settings = WebKit2.Settings()
+settings.set_enable_javascript(True)
+settings.set_enable_media(True)
+settings.set_enable_media_stream(False)
+settings.set_enable_mediasource(True)
+settings.set_media_playback_requires_user_gesture(False)
+try:
+    settings.set_enable_webgl(False)
+except Exception:
+    pass
+wv = WebKit2.WebView()
+wv.set_settings(settings)
+
+retry_pending = False
+
+
+def schedule_reload():
+    global retry_pending
+    if retry_pending:
+        return
+    retry_pending = True
+
+    def _reload():
+        global retry_pending
+        retry_pending = False
+        wv.load_uri(url)
+        return False  # одноразовый таймер
+
+    GLib.timeout_add_seconds(RETRY_S, _reload)
+
+
+def on_load_failed(_wv, _event, failing_uri, error):
+    # Только главный документ: сбой подресурса (картинка, api) сюда не приходит.
+    print(f"guide-kiosk-hdmi: не загрузился {failing_uri}: {error.message}; повтор через {RETRY_S} с",
+          flush=True)
+    schedule_reload()
+    return True  # не показывать стандартную страницу ошибки WebKit
+
+
+def on_web_process_terminated(_wv, reason):
+    print(f"guide-kiosk-hdmi: web-процесс завершился ({reason}); перезагрузка", flush=True)
+    schedule_reload()
+
+
+wv.connect("load-failed", on_load_failed)
+wv.connect("web-process-terminated", on_web_process_terminated)
+wv.load_uri(url)
+win.add(wv)
+win.show_all()
+Gtk.main()

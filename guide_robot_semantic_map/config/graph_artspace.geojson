@@ -1,0 +1,200 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          20.30748748779297,
+          1.2830647230148315
+        ]
+      },
+      "properties": {
+        "id": 1,
+        "frame": "map",
+        "metadata": {
+          "name": "vybory_1"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          21.01218032836914,
+          -1.284934163093567
+        ]
+      },
+      "properties": {
+        "id": 2,
+        "frame": "map",
+        "metadata": {
+          "name": "vybory_2"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          16.537731170654297,
+          -0.6660043001174927
+        ]
+      },
+      "properties": {
+        "id": 3,
+        "frame": "map",
+        "metadata": {
+          "name": "vybory_3"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            20.30748748779297,
+            1.2830647230148315
+          ],
+          [
+            21.01218032836914,
+            -1.284934163093567
+          ]
+        ]
+      },
+      "properties": {
+        "id": 101,
+        "startid": 1,
+        "endid": 2,
+        "cost": 2.66,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            20.30748748779297,
+            1.2830647230148315
+          ],
+          [
+            16.537731170654297,
+            -0.6660043001174927
+          ]
+        ]
+      },
+      "properties": {
+        "id": 102,
+        "startid": 1,
+        "endid": 3,
+        "cost": 4.24,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            21.01218032836914,
+            -1.284934163093567
+          ],
+          [
+            20.30748748779297,
+            1.2830647230148315
+          ]
+        ]
+      },
+      "properties": {
+        "id": 103,
+        "startid": 2,
+        "endid": 1,
+        "cost": 2.66,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            21.01218032836914,
+            -1.284934163093567
+          ],
+          [
+            16.537731170654297,
+            -0.6660043001174927
+          ]
+        ]
+      },
+      "properties": {
+        "id": 104,
+        "startid": 2,
+        "endid": 3,
+        "cost": 4.52,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            16.537731170654297,
+            -0.6660043001174927
+          ],
+          [
+            20.30748748779297,
+            1.2830647230148315
+          ]
+        ]
+      },
+      "properties": {
+        "id": 105,
+        "startid": 3,
+        "endid": 1,
+        "cost": 4.24,
+        "overridable": true,
+        "metadata": {}
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            16.537731170654297,
+            -0.6660043001174927
+          ],
+          [
+            21.01218032836914,
+            -1.284934163093567
+          ]
+        ]
+      },
+      "properties": {
+        "id": 106,
+        "startid": 3,
+        "endid": 2,
+        "cost": 4.52,
+        "overridable": true,
+        "metadata": {}
+      }
+    }
+  ]
+}

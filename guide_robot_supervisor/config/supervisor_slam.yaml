@@ -67,7 +67,7 @@ supervisor:
       policy: {on_error: pause, target: navigation, debounce: 3, period: 1.0}
 
     - name: tf_map
-      class: guide_robot_supervisor.watchdogs.tf_available.TFWatchdog
+      class: guide_robot_supervisor.watchdogs.tf_raw.TFRawWatchdog
       params: {parent: map, child: odom, max_age: 5.0, grace: 30.0}
       policy: {on_error: pause, target: navigation, debounce: 5, period: 1.0}
 

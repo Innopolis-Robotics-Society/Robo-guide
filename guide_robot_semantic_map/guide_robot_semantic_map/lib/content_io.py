@@ -26,6 +26,7 @@ __all__ = [
     "Chunk",
     "ContentError",
     "ExhibitContent",
+    "Media",
     "load_content_dir",
     "load_content_file",
     "normalize_exhibit_key",
@@ -44,6 +45,12 @@ _SENTENCE_END = re.compile(r"[.!?…]+")
 # stage4 §1.1: длинная непрерываемая связка молчит дольше этого -- пауза
 # ощутимо длиннее уже не "пауза для реакции", а забытый Say/зависание.
 _MAX_PAUSE_AFTER_S = 15.0
+
+# Task B (B2): медиа-манифест экспоната -- слайды/видео, отдельная секция
+# от chunks, не влияет на путь нарратива (ExhibitChunk.msg/
+# GetExhibitContent.srv не трогаем).
+VALID_MEDIA_KINDS: frozenset[str] = frozenset(["image", "video"])
+_MAX_MEDIA_DURATION_S = 600.0
 
 
 class ContentError(ValueError):
@@ -74,6 +81,25 @@ class Chunk:
 
 
 @dataclass(frozen=True)
+class Media:
+    """Один медиа-элемент манифеста экспоната (Task B, B2) -- слайд или видео.
+
+    `chunk_id=""` -- медиа уровня экспоната, не привязано ни к одному
+    конкретному чанку (фолбэк на весь экспонат, design примера задачи).
+    `file` -- путь относительно `content/media/<exhibit_id>/`, не
+    абсолютный (см. докстринг `GetExhibitMedia.srv` в guide_robot_msgs --
+    operator UI сам клеит URL от своего корня статики).
+    """
+
+    id: str
+    kind: str
+    file: str
+    chunk_id: str = ""
+    duration_s: float = 0.0
+    caption: str = ""
+
+
+@dataclass(frozen=True)
 class ExhibitContent:
     """Разобранный и провалидированный content/<exhibit_id>.<language>.yaml.
 
@@ -85,6 +111,10 @@ class ExhibitContent:
     умолчанию `[exhibit_id]` для `kind == exhibit` (текст экспоната всегда
     привязан к его собственной локации), иначе пустой список -- контент про
     город/организацию не обязан ссылаться ни на одну локацию.
+
+    `media` (Task B, B2) -- опциональный список слайдов/видео, отдельная
+    секция от `chunks`: путь нарратива (`select_chunks`/`GetExhibitContent`)
+    её не читает вообще, только новый `~/get_exhibit_media`.
     """
 
     exhibit_id: str
@@ -96,6 +126,7 @@ class ExhibitContent:
     reviewed_at: str | None
     kind: str = _DEFAULT_KIND
     location_ids: list[str] = field(default_factory=list)
+    media: list[Media] = field(default_factory=list)
 
 
 def normalize_exhibit_key(text: str) -> str:
@@ -133,6 +164,7 @@ def load_content_file(path: str | Path) -> tuple[ExhibitContent, list[str]]:
     location = Path(path)
     document = _read_yaml(location)
     content = _parse_content(document, source=str(location))
+    _check_media_files_exist(content, location)
     warnings = _check_filename_consistency(location, content) + _soft_warnings(content)
     return content, warnings
 
@@ -231,6 +263,8 @@ def _parse_content(document: dict[str, Any], *, source: str) -> ExhibitContent:
     if not any(c.level == "short" for c in chunks):
         raise ContentError(f"{source}: нет ни одного чанка уровня short")
 
+    media = _parse_media(document, source, chunk_ids=seen_ids)
+
     return ExhibitContent(
         exhibit_id=exhibit_id,
         language=language,
@@ -241,6 +275,7 @@ def _parse_content(document: dict[str, Any], *, source: str) -> ExhibitContent:
         reviewed_at=reviewed_at if isinstance(reviewed_at, str) else None,
         kind=kind,
         location_ids=location_ids,
+        media=media,
     )
 
 
@@ -296,6 +331,90 @@ def _parse_pause_after_s(raw: dict[str, Any], index: int, source: str) -> float:
             f"[0, {_MAX_PAUSE_AFTER_S}]"
         )
     return value
+
+
+def _parse_media(
+    document: dict[str, Any], source: str, *, chunk_ids: set[str]
+) -> list[Media]:
+    raw_media = document.get("media", [])
+    if not isinstance(raw_media, list):
+        raise ContentError(f"{source}: media должен быть списком")
+
+    media: list[Media] = []
+    seen_ids: set[str] = set()
+    for index, raw_item in enumerate(raw_media):
+        item = _parse_media_item(raw_item, index, source, chunk_ids=chunk_ids)
+        if item.id in seen_ids:
+            raise ContentError(f"{source}: дублирующийся id медиа {item.id!r}")
+        seen_ids.add(item.id)
+        media.append(item)
+    return media
+
+
+def _parse_media_item(raw: Any, index: int, source: str, *, chunk_ids: set[str]) -> Media:
+    if not isinstance(raw, dict):
+        raise ContentError(f"{source}: media[{index}] должен быть отображением")
+    media_id = _require_str(raw, "id", source, where=f"media[{index}]")
+    kind = raw.get("kind")
+    if kind not in VALID_MEDIA_KINDS:
+        raise ContentError(
+            f"{source}: media[{index}].kind={kind!r} не входит в {sorted(VALID_MEDIA_KINDS)}"
+        )
+    file = _require_str(raw, "file", source, where=f"media[{index}]")
+
+    chunk_id = raw.get("chunk_id", "")
+    if not isinstance(chunk_id, str):
+        raise ContentError(f"{source}: media[{index}].chunk_id должен быть строкой")
+    if chunk_id and chunk_id not in chunk_ids:
+        raise ContentError(
+            f"{source}: media[{index}].chunk_id={chunk_id!r} не найден среди chunks"
+        )
+
+    duration_s = _parse_media_duration_s(raw, index, source)
+
+    caption = raw.get("caption", "")
+    if not isinstance(caption, str):
+        raise ContentError(f"{source}: media[{index}].caption должен быть строкой")
+
+    return Media(
+        id=media_id,
+        kind=kind,
+        file=file,
+        chunk_id=chunk_id,
+        duration_s=duration_s,
+        caption=caption,
+    )
+
+
+def _parse_media_duration_s(raw: dict[str, Any], index: int, source: str) -> float:
+    value = raw.get("duration_s", 0.0)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ContentError(f"{source}: media[{index}].duration_s должен быть числом")
+    value = float(value)
+    if not 0.0 <= value <= _MAX_MEDIA_DURATION_S:
+        raise ContentError(
+            f"{source}: media[{index}].duration_s={value} вне диапазона "
+            f"[0, {_MAX_MEDIA_DURATION_S}]"
+        )
+    return value
+
+
+def _check_media_files_exist(content: ExhibitContent, path: Path) -> None:
+    """Существование media[i].file на диске -- проверка при загрузке (design B2).
+
+    `path` -- сам файл content/<exhibit_id>.<language>.yaml; медиа лежит
+    рядом, в content/media/<exhibit_id>/ (та же директория, что и .yaml,
+    не абсолютный путь пакета -- работает и для тестового tmp_path).
+    """
+    if not content.media:
+        return
+    media_root = path.parent / "media" / content.exhibit_id
+    for item in content.media:
+        file_path = media_root / item.file
+        if not file_path.is_file():
+            raise ContentError(
+                f"{path}: media[{item.id!r}].file={item.file!r} не найден ({file_path})"
+            )
 
 
 def _check_filename_consistency(path: Path, content: ExhibitContent) -> list[str]:

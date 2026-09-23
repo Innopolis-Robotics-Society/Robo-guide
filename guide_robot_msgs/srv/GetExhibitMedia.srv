@@ -1,0 +1,11 @@
+# Слайды/видео экспоната (Task B, B3) -- отдельный сервис от
+# GetExhibitContent, тот же resolve_exhibit_id/pick_language, что и у него
+# (guide_robot_semantic_map/content_server.py).
+
+string exhibit_id
+string language
+---
+bool ok
+string message       # "unknown_exhibit", если ok=false
+MediaItem[] items
+string version        # тот же version, что у контента экспоната

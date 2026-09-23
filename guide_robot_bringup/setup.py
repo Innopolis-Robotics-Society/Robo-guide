@@ -31,6 +31,7 @@ setup(
             "laser_sector_blanker = guide_robot_bringup.laser_sector_blanker:main",
             "laser_blind_sector_finder = guide_robot_bringup.laser_blind_sector_finder:main",
             "scan_merger = guide_robot_bringup.scan_merger:main",
+            "usb_serial_preflight = guide_robot_bringup.usb_serial_preflight:main",
         ],
     },
 )

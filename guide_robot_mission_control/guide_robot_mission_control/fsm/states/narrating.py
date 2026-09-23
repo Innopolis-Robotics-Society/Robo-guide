@@ -37,16 +37,47 @@ class NarratingState(InterruptibleState):
         self._skip = not blackboard.tour.narrate
         self._goal_handle: object | None = None
         self._result_future: object | None = None
+        # A3: стейджинг для _on_narrate_feedback (см. её докстринг) -- poll()
+        # переносит их в blackboard на своём потоке.
+        self._pending_chunk_index = 0
+        self._pending_chunk_total = 0
         if self._skip:
             return
         goal = Narrate.Goal(
             exhibit_id=blackboard.tour.current_exhibit_id, resume_token=blackboard.resume_token
         )
-        self._send_future = self.ctx.narrate_client.send_goal_async(goal)
+        self._send_future = self.ctx.narrate_client.send_goal_async(
+            goal, feedback_callback=self._on_narrate_feedback
+        )
+
+    def _on_narrate_feedback(self, feedback_msg: object) -> None:
+        """Narrate.Feedback (A3) -- крутится на потоке ActionClient-а, не run_tour().
+
+        Только стейджинг в `self._pending_*`, НЕ в `blackboard` -- блэкборд
+        пишет исключительно поток `run_tour()` (design §5.3, docstring
+        `fsm/blackboard_keys.py`). `chunk_text`/`progress` сюда сознательно
+        не идут -- наружу в `/mission/state` текст не транслируется (A3).
+        """
+        feedback: Narrate.Feedback = feedback_msg.feedback  # type: ignore[attr-defined]
+        self._pending_chunk_index = feedback.chunk_index
+        self._pending_chunk_total = feedback.chunk_total
+
+    def _maybe_publish_chunk_progress(self, blackboard: Blackboard) -> None:
+        """Перенести почанковый прогресс в blackboard и опубликовать немедленно (A3.4).
+
+        Не ждём следующего перехода состояния -- NARRATING держится на весь
+        экспонат, без этого слайд отставал бы до heartbeat_s (design §7).
+        """
+        pending = (self._pending_chunk_index, self._pending_chunk_total)
+        if pending == (blackboard.chunk_index, blackboard.chunk_total):
+            return
+        blackboard.chunk_index, blackboard.chunk_total = pending
+        self.ctx.on_state_changed(self.name, blackboard)
 
     def poll(self, blackboard: Blackboard, now_ns: int) -> str | None:
         """Дождаться принятия goal-а, затем результата; параллельно следить за паузой."""
         del now_ns
+        self._maybe_publish_chunk_progress(blackboard)
         if self._skip:
             return self._advance(blackboard)
         if self.ctx.take_pause_request():
@@ -152,6 +183,11 @@ class NarratingState(InterruptibleState):
         blackboard.resume_token = result.resume_token
 
     def on_exit(self, blackboard: Blackboard, outcome: str) -> None:
-        """Снять goal_handle с блэкборда -- он больше не в полёте."""
+        """Снять goal_handle с блэкборда -- он больше не в полёте.
+
+        Обнулить chunk-прогресс (A3.5) -- не переживает выход из NARRATING.
+        """
         del outcome
         blackboard.narrate_goal_handle = None
+        blackboard.chunk_index = 0
+        blackboard.chunk_total = 0

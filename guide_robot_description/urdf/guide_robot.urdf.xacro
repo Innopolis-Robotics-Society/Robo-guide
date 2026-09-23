@@ -80,7 +80,9 @@
     <child  link="base_link"/>
     <!-- +X footprint = casters (travel). base_link (screen, old +X) is yaw pi
          so Nav2 uses +vx. Hardware: both signs flipped and swap_drives 0,
-         otherwise wz reverses with vx. -->
+         otherwise wz reverses with vx. Wheel joints below negate origin and
+         axis to compensate this same yaw pi for Gazebo, which has no
+         left_sign/right_sign/swap_drives equivalent. -->
     <origin xyz="0 0 ${base_z}" rpy="0 0 ${pi}"/>
   </joint>
 
@@ -109,8 +111,13 @@
     <joint name="${prefix}_wheel_joint" type="continuous">
       <parent link="base_link"/>
       <child  link="${prefix}_wheel_link"/>
-      <origin xyz="0 ${y_offset} 0" rpy="0 0 0"/>
-      <axis xyz="0 1 0"/>
+      <!-- Joint origin and axis are in base_link, which base_footprint_joint
+           turns by yaw pi. Both are negated so that in base_footprint the
+           result is the diff-drive canon: left at +b/2 with axis +Y. Without
+           this the sim drives -vx - GazeboSystem has no left_sign/right_sign/
+           swap_drives to flip it (see base_footprint_joint above). -->
+      <origin xyz="0 ${-y_offset} 0" rpy="0 0 0"/>
+      <axis xyz="0 -1 0"/>
     </joint>
   </xacro:macro>
 

@@ -64,7 +64,9 @@
 /**/wakeword_node:
   ros__parameters:
     backend: "asr_kws"              # asr_kws (Stage 1) | oww (Stage 3, не реализован)
-    activation_phrases: ["робот", "слушай робот"]
+    # Имя робота + типичные ошибки ASR («фирайя», «фира я», «фи рая»):
+    # под TTS матч только точный и с начала фразы, поэтому варианты явно.
+    activation_phrases: ["фирая", "фирайя", "фира я", "фи рая", "эй фирая", "слушай фирая"]
     stop_phrases: ["стоп", "стой", "хватит", "замолчи"]
     fuzzy_max_distance: 1
     min_confidence: 0.5
@@ -81,11 +83,16 @@
     silero_sample_rate: 48000       # частота модели; device_rate задаётся отдельно
     speaker_id: 0
     length_scale: 1.0
+    silero_rate: "100%"           # <prosody rate> Silero; см. voice_jetson.yaml
+    sentence_pause_ms: 0          # 0 -> пауза на точке от модели (~400 мс)
+    trailing_silence_ms: -1       # -1 -> хвост клаузы не обрезать
     device: ""                    # пусто -> устройство по умолчанию
     device_rate: 48000
     block_ms: 20                  # верхняя граница остатка при отмене
     periods: 3                    # 60 мс буфера воспроизведения, ИЗМЕРИТЬ
     fade_out_ms: 80               # мягкое затухание при перебивании
+    keepalive_dbfs: 0.0           # <0 -> тон в паузах против авто-mute USB-кодека, см. voice_jetson.yaml
+    keepalive_hz: 20.0
     max_clause_chars: 180
     max_queue: 8
     heartbeat_hz: 5.0

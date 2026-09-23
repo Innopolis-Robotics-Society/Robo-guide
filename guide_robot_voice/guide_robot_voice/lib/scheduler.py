@@ -24,7 +24,7 @@
   * interruptible=False защищает цель от мягкой отмены (barge-in) --
     аварийное "отойдите" / punchline не гасятся голосом посетителя;
   * hard-путь: scope=SCOPE_SAFETY, reason=REASON_ESTOP или
-    reason=REASON_WAKEWORD («стоп» / «робот») -- барьер interruptible
+    reason=REASON_WAKEWORD («стоп» / «Фирая») -- барьер interruptible
     не действует.
 
 Модуль без зависимостей от rclpy: тестируется в CI как обычный класс.

@@ -236,10 +236,19 @@ class RootStateMachine:
             "redirect_done": RedirectDoneState(ctx),
         }
 
-    def run_tour(self, blackboard: Blackboard) -> str:
-        """Прогнать весь тур, вернуть исход последнего исполненного состояния."""
+    def run_tour(self, blackboard: Blackboard, *, start_state: str | None = None) -> str:
+        """Прогнать тур, вернуть исход последнего исполненного состояния.
+
+        `start_state` (A2: standalone `~/go_home`) -- войти сразу в
+        произвольное состояние графа (`"returning"`), минуя
+        GREETING/NAVIGATING. По умолчанию (`None`) -- прежнее поведение.
+        Таблица переходов (`_TRANSITIONS`) при этом не меняется: из
+        `"returning"` она и так ведёт только в `"held"` либо терминально
+        (`None`) -- в тур-состояния попасть неоткуда.
+        """
         self.ctx.consume_barge_in()  # сбросить возможный хвост от предыдущего goal-а
-        current: str | None = "greeting" if blackboard.tour.greet else "navigating"
+        default_start = "greeting" if blackboard.tour.greet else "navigating"
+        current: str | None = start_state or default_start
         last_outcome = outcomes.SHUTDOWN
         while current is not None:
             last_outcome = self._states[current].run(blackboard)

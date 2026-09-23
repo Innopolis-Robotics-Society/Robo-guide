@@ -68,6 +68,12 @@ def generate_launch_description():
     declare_autostart_nav = DeclareLaunchArgument(
         "autostart_nav", default_value="false", description="Autostart Nav2 lifecycle nodes"
     )
+    declare_keepout_mask_file = DeclareLaunchArgument(
+        "keepout_mask_file",
+        default_value="",
+        description="Keepout costmap-filter mask yaml, must match `map`'s origin/resolution. "
+        "'none' -- filter off. Only used on the AMCL path (slam:=false); ignored under SLAM.",
+    )
     declare_launch_supervisor = DeclareLaunchArgument(
         "launch_supervisor", default_value="true", description="Launch guide_robot_supervisor"
     )
@@ -85,6 +91,7 @@ def generate_launch_description():
     nav_params_file = LaunchConfiguration("nav_params_file")
     slam_params_file = LaunchConfiguration("slam_params_file")
     autostart_nav = LaunchConfiguration("autostart_nav")
+    keepout_mask_file = LaunchConfiguration("keepout_mask_file")
     launch_supervisor = LaunchConfiguration("launch_supervisor")
     autostart_supervisor = LaunchConfiguration("autostart_supervisor")
 
@@ -114,6 +121,7 @@ def generate_launch_description():
                     "autostart_nav": autostart_nav,
                     "map": map_yaml_file,
                     "nav2_params_file": nav_params_file,
+                    "keepout_mask_file": keepout_mask_file,
                 }.items(),
             ),
         ],
@@ -174,6 +182,7 @@ def generate_launch_description():
             declare_nav_params,
             declare_slam_params,
             declare_autostart_nav,
+            declare_keepout_mask_file,
             declare_launch_supervisor,
             declare_autostart_supervisor,
             nav_group,
