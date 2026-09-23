@@ -61,7 +61,9 @@ precondition'ам (TF, частота скана/сонаров и т.д.) и з
 `launch_sensors` (true), `launch_sonar` (true), `launch_foxglove` (true),
 `slam` (false), `slam_params_file`, `map`, `nav` (true), `nav_params_file`,
 `launch_rviz` (true), `autostart_supervisor` (true), `autostart_nav` (false),
-`launch_high_level` (true), `launch_face` (true), `launch_llm` (true).
+`launch_high_level` (true), `launch_face` (true), `launch_llm` (true),
+`voice_profile` (`xvf3800`; `legacy` — старый USB-микрофон `USB PnP Audio Device`
+и `voice_params_file`).
 
 `autostart_supervisor:=false` оставляет супервизор в `INIT` — стек
 поднимается только по вызову сервиса `/supervisor/bringup`; политики
