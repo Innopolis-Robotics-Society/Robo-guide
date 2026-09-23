@@ -25,7 +25,7 @@ import rclpy
 from builtin_interfaces.msg import Time as TimeMsg
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from guide_robot_msgs.action import Say
-from guide_robot_msgs.msg import CancelAll, SpeakingStatus, SystemEvent
+from guide_robot_msgs.msg import CancelAll, SayStreamChunk, SpeakingStatus, SystemEvent
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -33,11 +33,17 @@ from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_voice.lib.backends import TtsBackend, make_backend
 from guide_robot_voice.lib.chunker import ChunkerConfig, TextChunker
-from guide_robot_voice.lib.qos import QOS_CANCEL_ALL, QOS_SYSTEM_EVENT, QOS_VOICE_SPEAKING
+from guide_robot_voice.lib.qos import (
+    QOS_CANCEL_ALL,
+    QOS_SAY_STREAM,
+    QOS_SYSTEM_EVENT,
+    QOS_VOICE_SPEAKING,
+)
 from guide_robot_voice.lib.remote_sink import RemoteSink
 from guide_robot_voice.lib.resampler import Resampler, resample_int16
 from guide_robot_voice.lib.scheduler import Action, Scheduler, Scope, Utterance
 from guide_robot_voice.lib.sink import EpochFencedSink, KeepAliveTone, SoundDeviceEmitter
+from guide_robot_voice.lib.text_stream import ClauseFeed, TextStreams
 
 
 class TtsNode(LifecycleNode):
@@ -81,6 +87,9 @@ class TtsNode(LifecycleNode):
         self.declare_parameter("max_queue", 8)
         self.declare_parameter("warmup_text", "Система готова")
         self.declare_parameter("default_priority", 50)
+        # Потоковая Say-цель (stream_id): сколько ждать следующего куска
+        # ответа, прежде чем считать реплику законченной без final.
+        self.declare_parameter("stream_idle_timeout_s", 10.0)
 
         self._backend: TtsBackend | None = None
         self._sink: EpochFencedSink | RemoteSink | None = None
@@ -88,9 +97,11 @@ class TtsNode(LifecycleNode):
         self._resampler: Resampler | None = None
         self._scheduler = Scheduler()
         self._scheduler_lock = threading.Lock()
+        self._text_streams = TextStreams()
 
         self._preempted: set[str] = set()
         self._active_goal_id = ""
+        self._active_stream_id = ""
         self._active_priority = 0
         self._active_scope = int(Scope.DIALOG)
         self._active_interruptible = True
@@ -103,6 +114,7 @@ class TtsNode(LifecycleNode):
         self._cb_cancel = MutuallyExclusiveCallbackGroup()
         self._cb_action = ReentrantCallbackGroup()
         self._cb_timer = MutuallyExclusiveCallbackGroup()
+        self._cb_stream = MutuallyExclusiveCallbackGroup()
 
         # Эти сущности создаются в on_configure(), а не в __init__().
         # Храним явные None, чтобы частично неудавшийся configure и повторный
@@ -112,9 +124,10 @@ class TtsNode(LifecycleNode):
             self._diag_pub,
             self._event_pub,
             self._cancel_sub,
+            self._stream_sub,
             self._action_server,
             self._status_timer,
-        ) = (None,) * 6
+        ) = (None,) * 7
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -210,6 +223,13 @@ class TtsNode(LifecycleNode):
             QOS_CANCEL_ALL,
             callback_group=self._cb_cancel,
         )
+        self._stream_sub = self.create_subscription(
+            SayStreamChunk,
+            "/speech/say_stream",
+            self._on_say_stream,
+            QOS_SAY_STREAM,
+            callback_group=self._cb_stream,
+        )
         self._action_server = ActionServer(
             self,
             Say,
@@ -283,6 +303,9 @@ class TtsNode(LifecycleNode):
         if self._cancel_sub is not None:
             self.destroy_subscription(self._cancel_sub)
             self._cancel_sub = None
+        if self._stream_sub is not None:
+            self.destroy_subscription(self._stream_sub)
+            self._stream_sub = None
         for attribute in ("_status_pub", "_diag_pub", "_event_pub"):
             publisher = getattr(self, attribute)
             if publisher is not None:
@@ -349,6 +372,19 @@ class TtsNode(LifecycleNode):
             now_ns = self.get_clock().now().nanoseconds
             self._pending_barge_in_latency_ms = (now_ns - onset_ns) / 1e6
 
+    def _on_say_stream(self, msg: SayStreamChunk) -> None:
+        """Продолжение потоковой Say-цели; cancel рвёт звук сразу, как goal cancel."""
+        self._text_streams.feed(msg.stream_id, msg.text, final=msg.final, cancel=msg.cancel)
+        if not msg.cancel or self._sink is None:
+            return
+        with self._scheduler_lock:
+            active_id = self._active_goal_id
+            is_active = bool(active_id) and self._active_stream_id == msg.stream_id
+        if is_active:
+            self._sink.bump("stream_cancel")
+            if self._resampler is not None:
+                self._resampler.reset()
+
     def _on_goal_cancel(self, goal_handle: object) -> CancelResponse:
         """Немедленно fenced-нуть PCM отменяемой активной Say-цели."""
         if self._sink is not None:
@@ -404,14 +440,19 @@ class TtsNode(LifecycleNode):
             # Вытеснение рвёт аудио предыдущей цели немедленно.
             self._sink.bump("preempted_by_higher_priority")
 
+        stream_id = str(request.stream_id)
         if decision.action is Action.QUEUE and not self._wait_for_turn(goal_id, goal_handle):
+            self._text_streams.release(stream_id)
             if goal_handle.is_cancel_requested:  # type: ignore[attr-defined]
                 goal_handle.canceled()  # type: ignore[attr-defined]
             else:
                 goal_handle.abort()  # type: ignore[attr-defined]
             return self._finish(goal_id, Say.Result(status=Say.Result.STATUS_CANCELLED))
 
-        return self._speak(goal_handle, utterance)
+        try:
+            return self._speak(goal_handle, utterance, stream_id)
+        finally:
+            self._text_streams.release(stream_id)
 
     def _wait_for_turn(self, goal_id: str, goal_handle: object) -> bool:
         """Дождаться, пока планировщик сделает цель активной."""
@@ -429,14 +470,23 @@ class TtsNode(LifecycleNode):
     # -- воспроизведение ----------------------------------------------------
 
     def _speak(  # noqa: PLR0912, PLR0915 -- линейная orchestration Say lifecycle
-        self, goal_handle: object, utterance: Utterance
+        self, goal_handle: object, utterance: Utterance, stream_id: str = ""
     ) -> Say.Result:
         """Основной цикл: клауза -> синтез -> сток, с проверкой epoch."""
         assert self._sink is not None
         assert self._chunker is not None
         assert self._backend is not None
 
-        clauses = self._chunker.split(utterance.text)
+        clauses = ClauseFeed(
+            self._chunker,
+            utterance.text,
+            streams=self._text_streams,
+            stream_id=stream_id,
+            should_stop=lambda: (
+                utterance.goal_id in self._preempted or goal_handle.is_cancel_requested  # type: ignore[attr-defined]
+            ),
+            idle_timeout_s=float(self.get_parameter("stream_idle_timeout_s").value),
+        )
         try:
             epoch = self._sink.begin(utterance.goal_id)
         except Exception as error:
@@ -455,6 +505,7 @@ class TtsNode(LifecycleNode):
         message = ""
 
         self._mark_active(utterance, started)
+        self._active_stream_id = stream_id
         self._publish_status()
 
         for clause in clauses:
@@ -473,8 +524,8 @@ class TtsNode(LifecycleNode):
 
             feedback = Say.Feedback(
                 clause_index=clause.index,
-                clause_count=len(clauses),
-                progress=spoken_chars / max(1, len(utterance.text)),
+                clause_count=clauses.count,
+                progress=spoken_chars / max(1, len(clauses.text)),
                 current_clause=clause.text,
             )
             goal_handle.publish_feedback(feedback)  # type: ignore[attr-defined]
@@ -511,6 +562,19 @@ class TtsNode(LifecycleNode):
             # с пропуском куска текста.
             spoken_chars = clause.char_end
 
+        if status == Say.Result.STATUS_COMPLETED and clauses.streaming:
+            # Потоковая цель выходит из цикла и по отмене, пока ждёт кусок.
+            if utterance.goal_id in self._preempted:
+                status, message = Say.Result.STATUS_PREEMPTED, "cancel_all"
+            elif goal_handle.is_cancel_requested:  # type: ignore[attr-defined]
+                status, message = Say.Result.STATUS_CANCELLED, "goal_cancel"
+            elif clauses.cancelled:
+                status, message = Say.Result.STATUS_PREEMPTED, "stream_cancel"
+            elif clauses.timed_out:
+                self.get_logger().warning(
+                    f"stream {stream_id}: нет final, реплика закрыта по таймауту"
+                )
+
         if status == Say.Result.STATUS_COMPLETED and not self._flush_resampler_tail(epoch):
             status, message = Say.Result.STATUS_PREEMPTED, "epoch_bumped"
 
@@ -519,7 +583,7 @@ class TtsNode(LifecycleNode):
 
         result = Say.Result(
             status=status,
-            spoken_text=utterance.text[:spoken_chars],
+            spoken_text=clauses.text[:spoken_chars],
             spoken_chars=spoken_chars,
             spoken_duration=float(time.monotonic() - started),
             message=message,
@@ -627,6 +691,7 @@ class TtsNode(LifecycleNode):
         if still_active is None or still_active.goal_id != self._active_goal_id:
             self._speaking = False
             self._active_goal_id = ""
+            self._active_stream_id = ""
         self._publish_status()
         return result
 

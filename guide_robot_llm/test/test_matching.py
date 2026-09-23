@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from guide_robot_llm.matching import (
+    focus_on_address,
     has_leading_wake_word,
     has_motion_intent,
     idle_turn_allowed,
@@ -320,3 +321,42 @@ def test_looks_like_chit_chat_greetings() -> None:
     assert looks_like_chit_chat("как дела") is True
     assert looks_like_chit_chat("проведи к кафе") is False
     assert looks_like_chit_chat("отведи в лабораторию") is False
+
+
+# -- focus_on_address: слитная речь до «фирая» не идёт в ЛЛМ --
+
+
+def test_focus_cuts_speech_before_mid_phrase_address() -> None:
+    heard = "ну и вот мы вчера ходили в кафе фирая отведи меня к входу"
+    assert focus_on_address(heard) == "фирая отведи меня к входу"
+    assert strip_wake_word(focus_on_address(heard)) == "отведи меня к входу"
+
+
+def test_focus_keeps_address_prefix() -> None:
+    heard = "да ладно тебе эй фирая, что такое лидар"
+    assert focus_on_address(heard) == "эй фирая, что такое лидар"
+
+
+def test_focus_uses_last_address_with_request() -> None:
+    heard = "фирая подожди, фирая расскажи про сонары"
+    assert focus_on_address(heard) == "фирая расскажи про сонары"
+
+
+def test_focus_keeps_trailing_name_without_request() -> None:
+    assert focus_on_address("как тебя зовут, фирая?") == "как тебя зовут, фирая?"
+    assert focus_on_address("фирая, как дела, фирая") == "фирая, как дела, фирая"
+
+
+def test_focus_without_address_is_identity() -> None:
+    assert focus_on_address("отведи меня в лабораторию") == "отведи меня в лабораторию"
+    assert focus_on_address("") == ""
+
+
+def test_focus_ignores_name_inside_other_word() -> None:
+    assert focus_on_address("в эфирая программа идёт") == "в эфирая программа идёт"
+
+
+def test_mid_phrase_address_allows_turn_without_armed_listen() -> None:
+    """Партиал с «фирая» могли пропустить -- обращение в финале всё равно считается."""
+    heard = focus_on_address("мы тут болтали фирая который час")
+    assert idle_turn_allowed(heard, listen_armed=False) is True
