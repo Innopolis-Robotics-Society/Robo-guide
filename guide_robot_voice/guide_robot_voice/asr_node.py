@@ -83,6 +83,8 @@ class _DecodeJob:
     device_session_id: str
     start_sample: int
     end_sample: int
+    submitted_at: float = 0.0
+    """time.monotonic() постановки в очередь -- для лога задержки финала."""
 
 
 class AsrNode(LifecycleNode):
@@ -768,6 +770,7 @@ class AsrNode(LifecycleNode):
                 self._utterance_device_session_id,
                 self._utterance_start_sample,
                 self._utterance_next_sample,
+                time.monotonic(),
             )
             if kind == "final":
                 if self._session_managed_input():
@@ -792,7 +795,12 @@ class AsrNode(LifecycleNode):
 
     def _run_decode(self, job: _DecodeJob) -> None:
         assert self._asr is not None
+        started = time.monotonic()
         result = self._asr.decode(job.pcm) if job.pcm.size else None
+        timing = (
+            f"очередь {1000 * (started - job.submitted_at):.0f} мс, "
+            f"декод {1000 * (time.monotonic() - started):.0f} мс"
+        )
         text = result.text.strip() if result is not None else ""
         confidence = result.confidence if result is not None else -1.0
 
@@ -842,7 +850,7 @@ class AsrNode(LifecycleNode):
                     )
                 return
 
-            self.get_logger().info(f"final {text!r} {job.speech_ms:.0f}ms")
+            self.get_logger().info(f"final {text!r} {job.speech_ms:.0f}ms ({timing})")
             self._publish_transcript(text, confidence, is_final=True, job=job)
             self._finals_published += 1
             if self._session_managed_input():
