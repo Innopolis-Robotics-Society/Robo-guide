@@ -166,8 +166,13 @@ class AsrNode(LifecycleNode):
         self._finals_dropped_short = 0
 
         self._decode_jobs: queue.Queue[_DecodeJob | None] = queue.Queue()
+        # Финалы -- своя очередь и поток, если бэкенд потокобезопасен
+        # (onnxruntime): иначе финал ждёт идущий партиал (замер 24.09.2026:
+        # 0.5-0.8 с в очереди). Для sherpa -- та же очередь, что у партиалов.
+        self._final_jobs: queue.Queue[_DecodeJob | None] = self._decode_jobs
         self._decode_stop = threading.Event()
         self._decode_worker: threading.Thread | None = None
+        self._final_worker: threading.Thread | None = None
 
     # -- lifecycle ------------------------------------------------------
 
@@ -733,17 +738,30 @@ class AsrNode(LifecycleNode):
 
     def _start_decode_worker(self) -> None:
         self._decode_stop.clear()
+        self._decode_jobs = queue.Queue()
         self._decode_worker = threading.Thread(
-            target=self._decode_loop, name="asr_decode", daemon=True
+            target=self._decode_loop, args=(self._decode_jobs,), name="asr_decode", daemon=True
         )
         self._decode_worker.start()
+        if isinstance(self._asr, OrtGigaAmCtc):
+            self._final_jobs = queue.Queue()
+            self._final_worker = threading.Thread(
+                target=self._decode_loop, args=(self._final_jobs,), name="asr_final", daemon=True
+            )
+            self._final_worker.start()
+        else:
+            self._final_jobs = self._decode_jobs
 
     def _stop_decode_worker(self) -> None:
         self._decode_stop.set()
         self._decode_jobs.put(None)
-        if self._decode_worker is not None:
-            self._decode_worker.join(timeout=5.0)
-            self._decode_worker = None
+        if self._final_jobs is not self._decode_jobs:
+            self._final_jobs.put(None)
+        for worker in (self._decode_worker, self._final_worker):
+            if worker is not None:
+                worker.join(timeout=5.0)
+        self._decode_worker = None
+        self._final_worker = None
 
     def _submit_decode(self, kind: str) -> None:
         """Снимок PCM под замком, декод на воркере. Партиал не копится, если воркер занят."""
@@ -778,20 +796,26 @@ class AsrNode(LifecycleNode):
                         UtteranceEvent.EVENT_ENDPOINT, "endpoint", job=job
                     )
                 self._close_utterance()
-        self._decode_jobs.put(job)
+        (self._final_jobs if kind == "final" else self._decode_jobs).put(job)
 
-    def _decode_loop(self) -> None:
+    def _decode_loop(self, jobs: queue.Queue[_DecodeJob | None]) -> None:
         while not self._decode_stop.is_set():
             try:
-                job = self._decode_jobs.get(timeout=0.05)
+                job = jobs.get(timeout=0.05)
             except queue.Empty:
                 continue
             if job is None:
                 return
+            if job.kind == "partial" and self._partial_is_stale(job):
+                continue  # фраза уже ушла в финал -- не отнимать у него CPU/GPU
             try:
                 self._run_decode(job)
             except Exception as error:
                 self.get_logger().error(f"сбой декода ASR: {error}")
+
+    def _partial_is_stale(self, job: _DecodeJob) -> bool:
+        with self._lock:
+            return not self._utterance_open or job.utterance_id != self._utterance_id
 
     def _run_decode(self, job: _DecodeJob) -> None:
         assert self._asr is not None
