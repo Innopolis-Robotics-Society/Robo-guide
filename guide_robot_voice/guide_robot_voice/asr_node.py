@@ -102,6 +102,9 @@ class AsrNode(LifecycleNode):
         # нет файла или сессия не поднялась -- откат на sherpa.
         self.declare_parameter("asr_backend", "sherpa")
         self.declare_parameter("ort_model_path", "")
+        # Порядок попыток onnxruntime. Только CPU -- int8-граф: на Jetson веса
+        # для CUDA лежат в той же RAM, fp32 (2+ ГБ с копиями) уводил систему в своп.
+        self.declare_parameter("asr_providers", ["CUDAExecutionProvider", "CPUExecutionProvider"])
         self.declare_parameter("pre_roll_ms", 300.0)
         self.declare_parameter("partial_rate_hz", 6.0)
         # НЕ из design §3.4 -- добавлено из-за отсутствия честного стриминга
@@ -284,6 +287,7 @@ class AsrNode(LifecycleNode):
             ort_model_path,
             tokens_path,
             num_threads=int(self.get_parameter("num_threads").value),
+            providers=list(self.get_parameter("asr_providers").value),
         )
         try:
             asr.load()
@@ -291,10 +295,11 @@ class AsrNode(LifecycleNode):
             self.get_logger().error(f"onnxruntime ASR не поднялся: {error} -- откат на sherpa/CPU")
             return None
         providers = asr.active_providers
-        if "CUDAExecutionProvider" in providers:
-            self.get_logger().info(f"ASR: onnxruntime на GPU, провайдеры {providers}")
-        else:
+        wanted_cuda = "CUDAExecutionProvider" in self.get_parameter("asr_providers").value
+        if wanted_cuda and "CUDAExecutionProvider" not in providers:
             self.get_logger().warning(f"ASR: onnxruntime без CUDA, провайдеры {providers}")
+        else:
+            self.get_logger().info(f"ASR: onnxruntime, провайдеры {providers}")
         return asr
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
