@@ -28,6 +28,7 @@ x-common: &common-setup
     # автоматически рядом с этим файлом. Пусто -- бэкенд просто не
     # сконфигурируется (on_configure FAILURE), локальный llm_server/ не задет.
     - SELECTEL_AIG_KEY
+    - ROS_DOMAIN_ID=152
   working_dir: /home/fabian/ros2_ws
   group_add:
     - "video"

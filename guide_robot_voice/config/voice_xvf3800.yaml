@@ -9,6 +9,7 @@
     fade_out_ms: 20
     heartbeat_hz: 20.0
     remote_service_timeout: 3.0
+    silero_rate: "130%"
 
 /**/vad_node:
   ros__parameters:
