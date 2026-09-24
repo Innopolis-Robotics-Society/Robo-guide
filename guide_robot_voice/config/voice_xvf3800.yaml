@@ -31,6 +31,10 @@
     # 24.09.2026). Та же причина, что в voice_jetson.yaml.
     partial_rate_hz: 2.0
     partial_window_s: 2.5
+    # GigaAM на GPU через onnxruntime (sherpa-onnx в образе только CPU).
+    # fp32-граф не в git: scripts/fetch_asr_model.sh. Нет файла -- откат на CPU.
+    asr_backend: onnxruntime
+    ort_model_path: "$(find-pkg-share guide_robot_voice)/models/gigaam_v3_ctc.onnx"
 
 /**/voice_session_manager:
   ros__parameters:

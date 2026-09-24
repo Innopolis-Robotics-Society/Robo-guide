@@ -35,3 +35,7 @@ Thumbs.db
 # guide-launcher: токен моста лежит в репозитории на роботе
 .guide_launcher/
 rfid_secret
+
+# fp32 GigaAM для onnxruntime/CUDA (885 МБ) -- качается scripts/fetch_asr_model.sh
+guide_robot_voice/models/gigaam_v3_ctc.onnx
+guide_robot_voice/models/*.part
