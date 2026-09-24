@@ -31,10 +31,13 @@
     # 24.09.2026). Та же причина, что в voice_jetson.yaml.
     partial_rate_hz: 2.0
     partial_window_s: 2.5
-    # GigaAM на GPU через onnxruntime (sherpa-onnx в образе только CPU).
-    # fp32-граф не в git: scripts/fetch_asr_model.sh. Нет файла -- откат на CPU.
+    # GigaAM через onnxruntime со своим препроцессингом: int8 на CPU в 2.3 раза
+    # быстрее sherpa-onnx при той же точности (265 против 610 мс на 1 с речи,
+    # замер 24.09.2026). fp32 на CUDA быстрее ещё, но держит 2+ ГБ RAM (веса
+    # для CPU и GPU) и уводит Orin Nano в своп -- не включать без fp16/замера памяти.
     asr_backend: onnxruntime
-    ort_model_path: "$(find-pkg-share guide_robot_voice)/models/gigaam_v3_ctc.onnx"
+    ort_model_path: "$(find-pkg-share guide_robot_voice)/models/gigaam_v3_ctc_int8.onnx"
+    asr_providers: ["CPUExecutionProvider"]
 
 /**/voice_session_manager:
   ros__parameters:
