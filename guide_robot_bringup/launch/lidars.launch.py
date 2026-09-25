@@ -88,7 +88,7 @@ def generate_launch_description():
     left_blind_sectors_deg = "-85.0,45.0"
     right_blind_sectors_deg = "-60.0,85.0"
 
-    def sllidar(name, port, frame_id, scan_topic):
+    def sllidar(name, port, frame_id, scan_topic, respawn=False):
         # inverted=False matches the real mount: sllidar_node.cpp reverses
         # the ranges-array order relative to the fixed angle array.
         return Node(
@@ -107,9 +107,15 @@ def generate_launch_description():
                 }
             ],
             remappings=[("/scan", scan_topic)],
+            # После сброса USB-хаба лидару нужно время; без respawn узел падает на первом
+            # открытии порта (sllidar: code 80008004) и /scan не будет.
+            respawn=respawn,
+            respawn_delay=5.0,
         )
 
-    lidar_left_node = sllidar("sllidar_left", left_port, "laser_frame_left", "/scan_left")
+    lidar_left_node = sllidar(
+        "sllidar_left", left_port, "laser_frame_left", "/scan_left", respawn=True
+    )
     lidar_right_node = TimerAction(
         period=lidar_delay,
         actions=[sllidar("sllidar_right", right_port, "laser_frame_right", "/scan_right")],

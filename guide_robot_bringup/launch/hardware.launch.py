@@ -338,8 +338,13 @@ def generate_launch_description():
         wanted = usb_preflight.perform(context).lower() in ("true", "1")
         if mock or not wanted:
             return hardware_actions
+        cmd = ["ros2", "run", "guide_robot_bringup", "usb_serial_preflight"]
+        if right_lidar.perform(context).lower() in ("false", "0", "no"):
+            # Один лидар: правый порт не трогаем. Его переходник висит на том же хабе, и попытка
+            # открыть его (cp210x -110) вешает хаб вместе с левым лидаром и микрофоном.
+            cmd += ["--ports", "/dev/tty_motors", "/dev/tty_sonar", "/dev/tty_lidar_left"]
         preflight = ExecuteProcess(
-            cmd=["ros2", "run", "guide_robot_bringup", "usb_serial_preflight"],
+            cmd=cmd,
             name="usb_preflight",
             output="screen",
         )
