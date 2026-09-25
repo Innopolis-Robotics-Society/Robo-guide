@@ -67,12 +67,12 @@ def generate_launch_description():
     declare_launch_sonar = DeclareLaunchArgument(
         "launch_sonar", default_value="true", description="Launch sonar range node"
     )
-    # ВРЕМЕННО false (правый лидар/его USB-переходник неисправен, 2026-09-25): один левый лидар,
-    # /scan идёт от него напрямую, supervisor не ждёт /scan_right. Справа и сзади лидар робота НЕ
-    # видит (остаётся сонар). Починили правый -- вернуть default_value="true".
+    # false -- один левый лидар (правый неисправен): /scan идёт от него напрямую, supervisor не
+    # ждёт /scan_right, справа и сзади лидар робота НЕ видит (остаётся сонар). Правый лидар
+    # снова в строю (CH340-переходник, 2026-09-25) -- по умолчанию true.
     declare_right_lidar = DeclareLaunchArgument(
         "right_lidar",
-        default_value="false",
+        default_value="true",
         description="true -- два лидара (слитый /scan); false -- только левый, /scan от него "
         "напрямую и без /scan_right в проверке scan_rate supervisor'а",
     )

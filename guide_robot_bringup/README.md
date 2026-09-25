@@ -63,11 +63,14 @@ precondition'ам (TF, частота скана/сонаров и т.д.) и з
 `launch_rviz` (true), `autostart_supervisor` (true), `autostart_nav` (false),
 `launch_high_level` (true), `launch_face` (true), `launch_llm` (true),
 `voice_profile` (`xvf3800`; `legacy` — старый USB-микрофон `USB PnP Audio Device`
-и `voice_params_file`), `right_lidar` (**false** — временно один левый лидар, см. ниже).
+и `voice_params_file`), `right_lidar` (`true`; `false` — один левый лидар, см. ниже).
 
-**Режим с одним лидаром (`right_lidar:=false`, сейчас по умолчанию в `hardware.launch.py`).**
+**Режим с одним лидаром (`right_lidar:=false`, включается явно).**
 Введён 2026-09-25, когда правый лидар/его USB-переходник перестал отвечать (`-110` у
-`cp210x`, `SL_RESULT_OPERATION_TIMEOUT`). Что меняется:
+`cp210x`, `SL_RESULT_OPERATION_TIMEOUT`). Причиной оказался CP2102-переходник `0001`; правый
+лидар теперь на CH340-переходнике в порту хаба `1-2.1.4` (`tty_lidar_right` по порту, не по
+серийнику, см. `scripts/99-Guide-Robot-devices.rules`) и по умолчанию снова два лидара.
+Что меняется в режиме с одним:
 
 - не запускаются `sllidar_right`, `laser_sector_blanker_right` и `dual_laser_merger` (он
   склеивает *пары* сообщений двух лидаров и с одним молчит);
@@ -82,8 +85,8 @@ precondition'ам (TF, частота скана/сонаров и т.д.) и з
 
 **Ограничение безопасности:** справа и сзади лидар робота не видит; Nav2 и collision monitor
 получают препятствия там только от сонара (7 датчиков). Ехать с людьми рядом справа стоит
-осторожно. Вернуть два лидара: в `hardware.launch.py` `default_value="true"` у `right_lidar`
-(или запуск с `right_lidar:=true`). Симуляция режим не затрагивает (по умолчанию `true`).
+осторожно. Вернуть два лидара: запуск без аргумента (по умолчанию `right_lidar:=true`).
+Симуляция режим не затрагивает.
 
 `autostart_supervisor:=false` оставляет супервизор в `INIT` — стек
 поднимается только по вызову сервиса `/supervisor/bringup`; политики
