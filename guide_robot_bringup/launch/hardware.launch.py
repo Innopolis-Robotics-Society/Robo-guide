@@ -67,6 +67,15 @@ def generate_launch_description():
     declare_launch_sonar = DeclareLaunchArgument(
         "launch_sonar", default_value="true", description="Launch sonar range node"
     )
+    # ВРЕМЕННО false (правый лидар/его USB-переходник неисправен, 2026-09-25): один левый лидар,
+    # /scan идёт от него напрямую, supervisor не ждёт /scan_right. Справа и сзади лидар робота НЕ
+    # видит (остаётся сонар). Починили правый -- вернуть default_value="true".
+    declare_right_lidar = DeclareLaunchArgument(
+        "right_lidar",
+        default_value="false",
+        description="true -- два лидара (слитый /scan); false -- только левый, /scan от него "
+        "напрямую и без /scan_right в проверке scan_rate supervisor'а",
+    )
     # navigation
     declare_nav = DeclareLaunchArgument(
         "nav", default_value="true", description="Launch Nav2 stack"
@@ -150,6 +159,7 @@ def generate_launch_description():
     usb_preflight = LaunchConfiguration("usb_preflight")
     launch_sensors = LaunchConfiguration("launch_sensors")
     launch_sonar = LaunchConfiguration("launch_sonar")
+    right_lidar = LaunchConfiguration("right_lidar")
     nav = LaunchConfiguration("nav")
     slam = LaunchConfiguration("slam")
     map_yaml_file = LaunchConfiguration("map")
@@ -222,6 +232,7 @@ def generate_launch_description():
             "use_sim_time": use_sim_time,
             "real_lidars": "true",
             "launch_sonar": launch_sonar,
+            "right_lidar": right_lidar,
             "merge_frame": "base_footprint",
         }.items(),
     )
@@ -240,6 +251,7 @@ def generate_launch_description():
             "autostart_nav": autostart_nav,
             "launch_supervisor": "true",
             "autostart_supervisor": autostart_supervisor,
+            "right_lidar": right_lidar,
         }.items(),
     )
 
@@ -343,6 +355,7 @@ def generate_launch_description():
             declare_usb_preflight,
             declare_launch_sensors,
             declare_launch_sonar,
+            declare_right_lidar,
             declare_nav,
             declare_slam,
             declare_map,

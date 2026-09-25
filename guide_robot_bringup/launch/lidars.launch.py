@@ -14,6 +14,11 @@ RPLIDAR C1 specs:
 Merger output:
   /scan      — merged LaserScan in base_footprint frame (fed to Nav2 / SLAM)
 
+right_lidar:=false (правый лидар неисправен/снят): драйвер, бланкер и мерджер справа не
+запускаются, /scan публикует левый бланкер напрямую (кадр laser_frame_left, слепой сектор
+-- NaN, а не inf, чтобы Nav2 не чистил costmap по лучам, где ничего не видно).
+Справа и сзади робот тогда слеп для лидара -- см. README bringup.
+
 Note: a local Python scan_merger with TF deskew exists (scan_merger.py) but is
 NOT launched here — on the Orin under the full stack it ate ~1.4 cores and
 published BEST_EFFORT /scan that RELIABLE tools (echo/Foxglove) showed empty.
@@ -21,7 +26,8 @@ Deskew needs a C++ port before it comes back on hardware.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.actions import DeclareLaunchArgument, LogInfo, TimerAction
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -62,7 +68,15 @@ def generate_launch_description():
         description="Seconds to wait before starting the RIGHT lidar (avoids power surge)",
     )
 
+    declare_right_lidar = DeclareLaunchArgument(
+        "right_lidar",
+        default_value="true",
+        description="false -- работать с одним (левым) лидаром: без драйвера, бланкера и "
+        "мерджера справа, /scan идёт напрямую от левого",
+    )
+
     left_port = LaunchConfiguration("left_port")
+    right_lidar = LaunchConfiguration("right_lidar")
     right_port = LaunchConfiguration("right_port")
     baudrate = LaunchConfiguration("baudrate")
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -99,6 +113,7 @@ def generate_launch_description():
     lidar_right_node = TimerAction(
         period=lidar_delay,
         actions=[sllidar("sllidar_right", right_port, "laser_frame_right", "/scan_right")],
+        condition=IfCondition(right_lidar),
     )
 
     left_blanker_node = Node(
@@ -106,6 +121,7 @@ def generate_launch_description():
         executable="laser_sector_blanker",
         name="laser_sector_blanker_left",
         output="screen",
+        condition=IfCondition(right_lidar),
         parameters=[
             {
                 "input_topic": "/scan_left",
@@ -115,11 +131,35 @@ def generate_launch_description():
             }
         ],
     )
+    # Один лидар: мерджера нет, /scan = левый скан. blank_value nan (не inf), иначе
+    # Nav2 (inf_is_valid) чистит costmap вдоль слепого сектора, где ничего не видно.
+    left_blanker_single_node = Node(
+        package="guide_robot_bringup",
+        executable="laser_sector_blanker",
+        name="laser_sector_blanker_left",
+        output="screen",
+        condition=UnlessCondition(right_lidar),
+        parameters=[
+            {
+                "input_topic": "/scan_left",
+                "output_topic": "/scan",
+                "blind_sectors_deg": left_blind_sectors_deg,
+                "blank_value": "nan",
+                "use_sim_time": use_sim_time,
+            }
+        ],
+    )
+    one_lidar_warning = LogInfo(
+        msg="!!! ОДИН ЛИДАР (right_lidar:=false): правый лидар не запускается, /scan идёт от "
+        "левого, справа и сзади лидар робота НЕ видит. Вернуть: right_lidar:=true !!!",
+        condition=UnlessCondition(right_lidar),
+    )
     right_blanker_node = Node(
         package="guide_robot_bringup",
         executable="laser_sector_blanker",
         name="laser_sector_blanker_right",
         output="screen",
+        condition=IfCondition(right_lidar),
         parameters=[
             {
                 "input_topic": "/scan_right",
@@ -139,6 +179,7 @@ def generate_launch_description():
         executable="dual_laser_merger_node",
         name="dual_laser_merger",
         output="screen",
+        condition=IfCondition(right_lidar),
         remappings=[
             ("merged", "/scan"),
             ("merged_cloud", "/scan_merged_cloud"),
@@ -175,9 +216,12 @@ def generate_launch_description():
             declare_use_sim_time,
             declare_merge_frame,
             declare_lidar_delay,
+            declare_right_lidar,
+            one_lidar_warning,
             lidar_left_node,
             lidar_right_node,  # delayed via TimerAction
             left_blanker_node,
+            left_blanker_single_node,
             right_blanker_node,
             merger_node,
         ]

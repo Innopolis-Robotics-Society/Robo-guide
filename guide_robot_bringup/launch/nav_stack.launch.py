@@ -74,6 +74,11 @@ def generate_launch_description():
         description="Keepout costmap-filter mask yaml, must match `map`'s origin/resolution. "
         "'none' -- filter off. Only used on the AMCL path (slam:=false); ignored under SLAM.",
     )
+    declare_right_lidar = DeclareLaunchArgument(
+        "right_lidar",
+        default_value="true",
+        description="false -- один (левый) лидар: supervisor не ждёт /scan_right",
+    )
     declare_launch_supervisor = DeclareLaunchArgument(
         "launch_supervisor", default_value="true", description="Launch guide_robot_supervisor"
     )
@@ -93,6 +98,7 @@ def generate_launch_description():
     autostart_nav = LaunchConfiguration("autostart_nav")
     keepout_mask_file = LaunchConfiguration("keepout_mask_file")
     launch_supervisor = LaunchConfiguration("launch_supervisor")
+    right_lidar = LaunchConfiguration("right_lidar")
     autostart_supervisor = LaunchConfiguration("autostart_supervisor")
 
     # ── Nav2 (+ локализация) ──────────────────────────────────────────────────
@@ -157,6 +163,7 @@ def generate_launch_description():
                     "use_sim_time": use_sim_time,
                     "autostart_supervisor": autostart_supervisor,
                     "config_file": os.path.join(pkg_supervisor, "config", "supervisor_slam.yaml"),
+                    "right_lidar": right_lidar,
                 }.items(),
             ),
             IncludeLaunchDescription(
@@ -168,6 +175,7 @@ def generate_launch_description():
                     "use_sim_time": use_sim_time,
                     "autostart_supervisor": autostart_supervisor,
                     "config_file": os.path.join(pkg_supervisor, "config", "supervisor.yaml"),
+                    "right_lidar": right_lidar,
                 }.items(),
             ),
         ],
@@ -185,6 +193,7 @@ def generate_launch_description():
             declare_keepout_mask_file,
             declare_launch_supervisor,
             declare_autostart_supervisor,
+            declare_right_lidar,
             nav_group,
             slam_only_group,
             supervisor_group,

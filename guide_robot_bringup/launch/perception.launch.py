@@ -56,8 +56,16 @@ def generate_launch_description():
         "right_port", default_value="/dev/tty_lidar_right", description="Serial port, RIGHT lidar"
     )
 
+    declare_right_lidar = DeclareLaunchArgument(
+        "right_lidar",
+        default_value="true",
+        description="false -- один (левый) лидар: без правого драйвера и мерджера, /scan от "
+        "левого (только железо, real_lidars:=true)",
+    )
+
     use_sim_time = LaunchConfiguration("use_sim_time")
     real_lidars = LaunchConfiguration("real_lidars")
+    right_lidar = LaunchConfiguration("right_lidar")
     launch_sonar = LaunchConfiguration("launch_sonar")
     merge_frame = LaunchConfiguration("merge_frame")
     left_port = LaunchConfiguration("left_port")
@@ -72,6 +80,7 @@ def generate_launch_description():
             "merge_frame": merge_frame,
             "left_port": left_port,
             "right_port": right_port,
+            "right_lidar": right_lidar,
         }.items(),
     )
 
@@ -124,6 +133,7 @@ def generate_launch_description():
             declare_merge_frame,
             declare_left_port,
             declare_right_port,
+            declare_right_lidar,
             lidars_launch,
             sim_merger,
             sonar_node,
