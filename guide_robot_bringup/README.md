@@ -257,6 +257,14 @@ ros2 launch guide_robot_bringup desk.launch.py \
   сонар — на своём хабе (udev-правила ловят их по номеру порта хаба).
   Лечение без передёргивания кабеля — `usb_serial_preflight` (выше) или
   вручную `USBDEVFS_RESET` на хаб.
+  **Обход для раскладки «оба лидара на `1-2.1`» (2026-09-25):** сам
+  `usb_serial_preflight` открывает и закрывает порты и после сброса хаба снова его вешает
+  (`sllidar code 80008004` сразу после preflight). Поэтому `scripts/jetson-launcher/
+  start_stack.sh` (кнопка «Запустить») сбрасывает хаб `1-2.1` целиком, ждёт 10 с и стартует с
+  `usb_preflight:=false`; драйверы лидаров открывают порты первыми и без сбоев. Настройка:
+  `STACK_USB_HUB` (пусто — не сбрасывать), `STACK_USB_SETTLE_S`. При прямом
+  `ros2 launch … hardware.launch.py` на такой раскладке запускать с `usb_preflight:=false`
+  после ручного `USBDEVFS_RESET`.
 
 - `scan_merger` не поднимается ни одним launch: Python-deskew откачен
   2026-08-11. `dual_laser_merger` остаётся, пока deskew не перепишут на C++.
