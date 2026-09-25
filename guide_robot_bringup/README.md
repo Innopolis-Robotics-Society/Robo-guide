@@ -73,7 +73,7 @@ precondition'ам (TF, частота скана/сонаров и т.д.) и з
   склеивает *пары* сообщений двух лидаров и с одним молчит);
 - `/scan` публикует левый бланкер напрямую, кадр `laser_frame_left` (а не `base_footprint`),
   слепой сектор тела помечен **NaN**, а не `inf`: с `inf_is_valid: True` Nav2 чистил бы costmap
-  вдоль лучей, где ничего не видно (`blank_value` у `laser_sector_blanker`);
+  вдоль лучей, где ничего не видно (`blank_with_nan` у `laser_sector_blanker`);
 - supervisor берёт копию конфига без `/scan_right` в `scan_rate`
   (`guide_robot_supervisor/config_tools.py`, файл `/tmp/supervisor_one_lidar_*.yaml`);
   само предусловие `scan_rate` группы `safety` остаётся и по-прежнему требует `/scan` и

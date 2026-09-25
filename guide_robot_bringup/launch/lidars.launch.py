@@ -131,7 +131,7 @@ def generate_launch_description():
             }
         ],
     )
-    # Один лидар: мерджера нет, /scan = левый скан. blank_value nan (не inf), иначе
+    # Один лидар: мерджера нет, /scan = левый скан. blank_with_nan (NaN, не inf), иначе
     # Nav2 (inf_is_valid) чистит costmap вдоль слепого сектора, где ничего не видно.
     left_blanker_single_node = Node(
         package="guide_robot_bringup",
@@ -144,7 +144,7 @@ def generate_launch_description():
                 "input_topic": "/scan_left",
                 "output_topic": "/scan",
                 "blind_sectors_deg": left_blind_sectors_deg,
-                "blank_value": "nan",
+                "blank_with_nan": True,
                 "use_sim_time": use_sim_time,
             }
         ],

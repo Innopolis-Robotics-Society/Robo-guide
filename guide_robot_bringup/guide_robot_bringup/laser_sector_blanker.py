@@ -46,20 +46,20 @@ class LaserSectorBlanker(Node):
         # frame - a string, not a double[], because rclpy can't infer a type
         # for an empty-list default and "" (no sectors yet) must be valid.
         self.declare_parameter("blind_sectors_deg", "")
-        # "inf": в паре с вторым лидаром слитый /scan берёт реальный луч с него;
-        # без пары (один лидар) inf в Nav2 (inf_is_valid) чистит costmap вдоль
-        # слепого сектора, хотя там ничего не видно -- нужен "nan" (луч игнорируется).
-        self.declare_parameter("blank_value", "inf")
+        # False (inf): в паре с вторым лидаром слитый /scan берёт реальный луч с него;
+        # без пары (один лидар) inf в Nav2 (inf_is_valid) чистит costmap вдоль слепого
+        # сектора, хотя там ничего не видно -- нужен NaN (луч игнорируется). Булев, а не
+        # строка "nan": launch кладёт её в YAML параметров, и она читается как double.
+        self.declare_parameter("blank_with_nan", False)
 
         input_topic = self.get_parameter("input_topic").value
         output_topic = self.get_parameter("output_topic").value
         raw = self.get_parameter("blind_sectors_deg").value.strip()
         sectors_deg = [float(x) for x in raw.split(",") if x.strip()] if raw else []
 
-        blank_value = str(self.get_parameter("blank_value").value).strip().lower()
-        if blank_value not in ("inf", "nan"):
-            raise ValueError(f'blank_value must be "inf" or "nan", got {blank_value!r}')
-        self._blank = float(blank_value)
+        blank_with_nan = bool(self.get_parameter("blank_with_nan").value)
+        self._blank = math.nan if blank_with_nan else math.inf
+        blank_name = "NaN" if blank_with_nan else "inf"
 
         if len(sectors_deg) % 2 != 0:
             raise ValueError("blind_sectors_deg must contain an even number of values (pairs)")
@@ -75,7 +75,7 @@ class LaserSectorBlanker(Node):
         if self._sectors_rad:
             self.get_logger().info(
                 f"{input_topic} -> {output_topic}: blanking {len(self._sectors_rad)} sector(s) "
-                f"{sectors_deg} deg (blank_value={blank_value})"
+                f"{sectors_deg} deg (blanked as {blank_name})"
             )
         else:
             self.get_logger().warn(
