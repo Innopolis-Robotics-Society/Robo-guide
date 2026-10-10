@@ -1,179 +1,136 @@
 # guide_robot_operator_ui
 
-Сенсорная панель оператора (Stage 1): четыре кнопки (Старт/Стоп/На базу/
-Сброс локализации) + индикация состояния. Живёт на втором экране —
-первый занят `guide_robot_face`. Слайды (Stage 2) — отдельная задача.
-Сессионная аутентификация оператора (Task E) — ниже, раздел «Аутентификация».
+Мост ROS ↔ HTTP для `guide-launcher`. Нода `operator_ui_node` слушает `127.0.0.1:8091`
+(внутри контейнера, `network_mode: host`, поэтому виден с хоста) и **не имеет своей страницы**:
+страница, промо, вход по PIN/RFID, текущий тур и управление стеком живут в хостовом сервисе
+`guide-launcher` (`scripts/jetson-launcher/README.md`). Экран большого дисплея —
+`docs/kiosk_operator_ui_explained.md`.
 
-Пакет **не** второй клиент Nav2: движение идёт только через сервисы
-`mission_fsm` (`~/request_stop`, `~/go_home`, `RunTour`). Единственное
-исключение — `/initialpose` при сбросе локализации, это не движение.
-`/admin_cmd_vel` в пакете не используется вообще ни в каком виде.
+Пакет **не** второй клиент Nav2: движение идёт только через сервисы `mission_fsm`
+(`~/request_stop`, `~/go_home`, `RunTour`). Единственное исключение — `/initialpose` при сбросе
+локализации, это не движение. `/admin_cmd_vel` в пакете не используется вообще.
 
 ## Запуск
 
+Обычно ничего запускать не нужно: нода входит в `robot.launch.py`
+(`hardware.launch.py` + `operator_ui.launch.py`), который поднимает `start_stack.sh` по кнопке
+«Запустить» в меню launcher'а. Отдельно:
+
 ```bash
 ros2 launch guide_robot_operator_ui operator_ui.launch.py
-# браузер: http://127.0.0.1:8091
 ```
 
-Требует `mission_fsm`/`location_server` для полной функциональности, но
-поднимается и без них — при холодном старте страница показывает «нет
-связи», кнопки заблокированы, и разблокируются сами по мере появления
-сервисов, без перезапуска ноды.
+Без `bridge_token_file` нода **не стартует** (см. ниже). Требует `mission_fsm`/`location_server`
+для полной функциональности, но поднимается и без них: команды отвечают 409/503, сервисы
+подхватываются по мере появления, без перезапуска ноды.
+
+## Токен моста и `X-Operator`
+
+Командные роуты принимают только запросы с заголовком `X-Bridge-Token`, равным общему секрету
+(сравнение `hmac.compare_digest`). Без токена или с неверным — `403 {"error":"forbidden"}`,
+причём **до** проверки тела и состояния робота (не 400, не 409). Открытые GET-роуты токена не
+требуют. Заголовок `X-Operator` (id из сессии launcher'а: имя карты, `pin` или `public`) нода
+пишет в свой лог вместе с путём и статусом; собственного журнала команд у ноды нет — его ведёт
+launcher.
+
+Секрет лежит в файле, параметр `bridge_token_file`. Файл один, путь к нему два (репозиторий
+смонтирован в контейнер):
+
+| Кто | Путь |
+|---|---|
+| нода (контейнер), параметр `bridge_token_file` | `/home/fabian/ros2_ws/src/.guide_launcher/bridge_token` |
+| launcher (хост), `bridge_token_file` в `/etc/guide-launcher/config.yaml` | `~/Desktop/Projects/Robo-guide/.guide_launcher/bridge_token` |
+
+Файл создаёт `scripts/jetson-launcher/install.sh` (если его нет; существующий не
+перезаписывается). Каталог `.guide_launcher/` в `.gitignore` и содержит `COLCON_IGNORE`. Пустой,
+отсутствующий или нечитаемый файл, а также пустой параметр — нода пишет `fatal` и завершается с
+ошибкой. Права `0640`, если UID:GID `jetson` на хосте совпадает с `fabian` в контейнере, иначе
+`0644` (токен защищает от посторонних процессов на loopback, а не от пользователей робота).
+
+Для ноутбука: `config_dev/operator_ui_dev.yaml` (не устанавливается colcon'ом) с токеном из
+`~/.guide_launcher/bridge_token`.
 
 ## Параметры
 
-См. `config/operator_ui.yaml` — имена сервисов/экшена `mission_fsm`/
-`location_server`/costmap-очистки все параметризованы, не хардкожены.
+См. `config/operator_ui.yaml`. Имена сервисов/экшена `mission_fsm`/`location_server`/
+`content_server`/costmap-очистки все параметризованы, не хардкожены.
 
-## Аутентификация (Task E)
+| Параметр | Дефолт | Смысл |
+|---|---|---|
+| `bind_host` / `http_port` | `127.0.0.1` / `8091` | 8090 занят `guide_robot_face` |
+| `bridge_token_file` | `""` (обязателен) | общий секрет с launcher'ом |
+| `media_root` | `<share guide_robot_semantic_map>/content/media` | файлы медиа экспонатов (`/media/*`) |
+| `service_timeout_s` | `5.0` | единственный источник 503 на ROS-вызовах |
+| `mission_state_stale_s` | `3.0` | старше — состояние `mission_fsm` устарело |
+| `initialpose_settle_s` | `0.5` | пауза после `/initialpose` перед очисткой костмапов |
+| `reset_covariance_xyyaw` | `[0.25, 0.25, 0.0685…]` | ковариация начальной позы |
+| `tours_language` / `content_language` | `ru` / `ru` | языки списка туров и контента |
+| `run_tour_action`, `request_stop_service`, `go_home_service`, `list_tours_service`, `list_locations_service`, `clear_global_costmap_service`, `clear_local_costmap_service`, `get_exhibit_content_service`, `get_exhibit_media_service` | см. yaml | имена ROS-интерфейсов |
 
-**Модель угроз.** Панель на корпусе робота, `bind_host: 127.0.0.1`, сети
-снаружи нет. Защищаемся от **посетителя музея** — любопытного подростка,
-случайного тыка, чужого ребёнка у экрана. **Не** от человека с Proxmark и
-**не** от того, у кого физический доступ к Jetson. Аварийный контур —
-физическая кнопка на корпусе, вне этой задачи: «Стоп» в UI — остановка
-задачи, а не аварийная остановка, и гейтится наравне с остальными командами.
-
-**Потолок стойкости всей схемы — PIN.** RFID (см. ниже) даёт удобство
-входа и атрибуцию оператора в логах, **не стойкость** — он остаётся
-резервом, доступным при отказе ридера, и обязан быть настроен как минимум
-так же тщательно, как если бы RFID вовсе не было. `operator_pin` короче
-8 символов — нода отказывается стартовать.
-
-Проверка — только на сервере (`/api/auth/verify`), не в браузере: старая
-схема Stage 1 отдавала PIN в `/api/tours` открытым текстом и сравнивала
-его в `app.js`, что обходилось одним `curl` по localhost. Сессия — одна
-активная на узел, токен только в памяти процесса, скользящий TTL
-(`session_ttl_s`, дефолт 600 с), локаут перебора после `max_failed_attempts`
-неудач подряд (дефолт 5, на `lockout_s` = 60 с).
-
-**RFID — известное ограничение.** Ридер (RC522/MIFARE Classic) проверяет
-карту по HMAC-подписи от секрета, зашитого в прошивку ESP, а не по UID
-(UID передаётся открытым текстом и подделывается «магической» картой за
-доллар). Но Crypto1 (шифр MIFARE Classic) вскрыт, и карта клонируется
-Proxmark'ом — эта схема поднимает планку с «клонировал за три секунды» до
-«нужна nested-атака», но **не является криптографической
-аутентификацией**. Общий секрет прошит в ESP и без паяльника не
-ротируется.
-
-`auth_backends` (список, дефолт `["rfid", "pin"]`) — порядок предложенных
-на экране входа методов; `"pin"` обязателен, убрать нельзя. `"mock"` в
-списке коротит всю проверку целиком (любой вход успешен) — только для
-стенда без железа, несъёмная плашка на экране и WARN в каждый heartbeat,
-пока активен; не попадает ни в один установленный `config/*.yaml` (см.
-`config_dev/`).
-
-**Настройка RFID.** `rfid_secret_file` пуст по умолчанию — RFID
-недоступен, вход только по PIN, узел всё равно поднимается. Чтобы включить
-ридер:
-
-```bash
-mkdir -p ~/.config/guide_robot
-echo "<секрет, зашитый в прошивку ESP>" > ~/.config/guide_robot/rfid_secret
-chmod 600 ~/.config/guide_robot/rfid_secret
-```
-
-и указать путь в `rfid_secret_file` (см. `config/operator_ui.yaml`). Секрет
-читается из файла, не из самого параметра — не должен осесть в `ros2 param
-dump`/логе запуска. `rfid_port` (дефолт `/dev/rfid0`) — символьная ссылка
-udev по серийнику USB-дескриптора (Task E5), не голый `/dev/ttyACM*`: тот
-перенумеровывается при каждом перетыке. Прошивка и правило udev —
-`firmware/rfid_bridge/README.md` (Task E5).
-
-## Промо-петля (Task F)
-
-В простое (`STATE_IDLE`, тура нет) медиа-слой не пустой — крутит промо-
-петлю по кругу, пока посетитель не запустит тур. Контент **не** в
-`guide_robot_semantic_map` (осознанное отступление от «semantic_map —
-единственный источник контента»: у промо нет ни чанков, ни нарратива, ни
-привязки к экспонату/локации, ни видимости для LLM — впихивать его в
-схему контента дороже, чем оно того стоит). Живёт прямо в пакете:
-
-```
-guide_robot_operator_ui/
-  promo/
-    promo.yaml
-    media/<файлы>
-```
-
-`promo.yaml` — та же форма, что у `media:` в манифесте экспоната (Task B):
-
-```yaml
-version: "2026-09-01.1"
-items:
-  - { id: p1, kind: image, file: hall.jpg, duration_s: 6.0, caption: "" }
-  - { id: p2, kind: video, file: teaser.mp4 }
-```
-
-Без `chunk_id` — привязывать не к чему. `duration_s` — только для
-изображений; если не задан, берётся `promo_interval_s` (параметр, дефолт
-`10.0`). Видео — немое, крутится до конца, дальше по кругу.
-
-**Контент промо — не забота этого пакета** (курировать/ревьюить его
-некому — не то же самое, что тексты туров). В репозитории лежит один
-синтетический пример под тесты (`promo/media/hall.jpg`, `promo/media/teaser.mp4`
-— однотонная заглушка, не настоящие материалы). Чтобы поставить реальный
-контент — положить файлы в `promo/media/`, перечислить их в `promo.yaml`
-и пересобрать пакет (`colcon build --packages-select guide_robot_operator_ui`).
-
-Манифест читается один раз при старте узла и **никогда не валит его**:
-отсутствующий/невалидный `promo.yaml`, неизвестный `kind`, отсутствующий
-на диске файл — WARN в лог и пропуск записи/всего манифеста, панель
-управления и туры при этом работают как обычно. На экране это видно как
-статичная заставка вместо петли — не чёрный экран.
+Вход (PIN/RFID/сессии), промо, `slide_interval_s`, `web_root` и `command_log_dir` из ноды
+**удалены**: они переехали в launcher (`operator_pin`, `auth_backends`, `rfid_*`,
+`session_ttl_s`, `promo_dir`, `slide_interval_s`, `always_promo`, `state_dir`).
 
 ## HTTP API
 
-| Метод | Путь | Назначение | Гейт |
+| Метод | Путь | Назначение | Токен |
 |---|---|---|---|
-| GET | `/` | страница | нет |
-| GET | `/static/*` | статика пакета (app.js/app.css) | нет |
-| GET | `/media/*` | статика `guide_robot_semantic_map/content/media` | нет |
-| GET | `/promo/*` | статика `promo/media/` | нет |
-| GET | `/ws` | push состояния | нет |
-| GET | `/api/tours` | список туров + статическая конфигурация (`auth: {mock, backends, session_ttl_s, close_session_on_panel_hide}`) | нет |
+| GET | `/ws` | push состояния (кадры, см. ниже) | нет |
+| GET | `/api/tours` | `{"tours":[{"id","name"}]}` | нет |
 | GET | `/api/media/<id>` | манифест слайдов экспоната | нет |
-| GET | `/api/promo` | манифест промо-петли (`items`, `promo_interval_s`) | нет |
-| POST | `/api/auth/challenge` | `{"nonce", "backends"}` | нет |
-| POST | `/api/auth/verify` | `{"nonce","backend","pin"?}` → `{"token","expires_at","operator"}` | нет |
-| POST | `/api/auth/logout` | `{"ok": true}` | нет |
-| GET | `/api/auth/status` | `{"active","expires_at","operator"}` | нет |
-| POST | `/api/tour/start` | `{"tour_id": "..."}` | **да** |
-| POST | `/api/tour/stop` | — | **да** |
-| POST | `/api/go_home` | — | **да** |
-| POST | `/api/localization/reset` | `{"confirm": true}` | **да** |
+| GET | `/media/*` | статика `guide_robot_semantic_map/content/media` | нет |
+| POST | `/api/tour/start` | `{"tour_id": "..."}` → `RunTour` (флаги `greet/narrate/confirm_between_stops/return_home` = True зашиты в ноде) | **да** |
+| POST | `/api/tour/stop` | `request_stop` | **да** |
+| POST | `/api/go_home` | `go_home` | **да** |
+| POST | `/api/localization/reset` | `{"confirm": true}`: `/initialpose` в точке `home` + очистка костмапов | **да** |
+| POST | `/api/costmaps/clear` | очистка global+local костмапов | **да** |
 
-Гейтованные пути требуют `Authorization: Bearer <token>` из
-`/api/auth/verify`; без него или с истёкшим/неверным токеном —
-`401 {"error":"auth_required"}` **до** проверки состояния робота.
+Коды: `200` успех, `400` невалидное тело, `403` нет/неверный токен, `409` команда отклонена по
+состоянию робота (`mission_state_stale`, `tour_active`, `home_location_missing`, `rejected`,
+`message` в теле), `503` ROS-сервис недоступен/таймаут (`service_timeout_s`; недоступность и
+медленность неразличимы намеренно). Очистка костмапов: 200 либо 503 при таймауте сервиса.
+Браузер к этим роутам напрямую не ходит: GET-роуты отдаёт прокси launcher'а `/ros/*`, POST —
+`/api/op/*` после входа.
 
-Коды: `200` успех, `400` невалидное тело, `401` не аутентифицирован (или
-неверный PIN/nonce), `409` команда отклонена по состоянию робота
-(`message` в теле), `429` локаут перебора (`retry_after_s` в теле), `503`
-ROS-сервис недоступен/таймаут (таймаут — параметр `service_timeout_s`,
-дефолт 5.0 с; недоступность и медленность неразличимы намеренно, единый
-механизм).
+### Кадры `/ws`
 
-## Второй экран / kiosk
+Сервер → клиент, JSON. Кадр приходит на каждое сообщение `/mission/state`, `/supervisor/estop`,
+`/supervisor/state` **и heartbeat-кадром раз в 1 с** (таймер ноды пересобирает кадр, поэтому
+`mission_state_age_s` растёт, а молчащий мост отличим от живого; launcher считает кадр старше 3 с
+отсутствующим). Ключи: `seq`, `stamp`, `state`, `state_name` (`idle`, `greeting`, `navigating`,
+`narrating`, `answering`, `awaiting_confirm`, `paused`, `held`, `returning`, `unknown`),
+`tour_id`, `stop_index`, `stop_total`, `stop_id`, `exhibit_id`, `next_exhibit_id`,
+`chunk_index`, `chunk_total`, `paused_reason`, `estop`, `supervisor_state`,
+`mission_state_age_s` (`null`, пока `/mission/state` ни разу не приходил). Явного поля «связь с
+mission_fsm» нет: это `mission_state_age_s` не `null` и не больше 3.
 
-**В Stage 1 kiosk не трогается** — ни свой, ни `guide_robot_face`'s. Когда
-дойдёт очередь: текущий kiosk-механизм
-(`guide_robot_face/scripts/face_kiosk.sh` + XDG-autostart) жёстко
-однодисплейный и потребует расширения минимум в трёх местах:
+## RFID
 
-1. Выбор вывода (`DISPLAY`/`xrandr`) — сейчас скрипт полагается на
-   единственную активную X-сессию.
-2. Параметризация URL на инстанс — сейчас один `FACE_URL` на процесс.
-3. Вторая `.desktop`-автостарт-запись с другим именем — сейчас одна
-   фиксированная `guide-robot-face.desktop`.
+Ридер (ESP32-S3 + RC522), прошивка и правило udev остаются в этом пакете
+(`firmware/rfid_bridge/`, `firmware/RFID_README.md`, `scripts/99-guide-robot-rfid.rules`), но
+`/dev/rfid0` **всегда принадлежит launcher'у**: серийный порт открывает он, HMAC
+challenge-response проверяет он (`rfid_port`, `rfid_secret_file` в конфиге launcher'а).
+Настройка секрета и известные ограничения (MIFARE Classic клонируется, потолок стойкости — PIN) —
+`firmware/RFID_README.md` и `scripts/jetson-launcher/README.md`. Ноде `pyserial` больше не
+нужен.
 
-**Проверка второго физического дисплея.** `guide_robot_face/README.md`
-утверждает, что HDMI-выход не подключён (`DFP-0: disconnected`) и что это
-вне скоупа того пакета. Проверено на `2423411` + 4 коммита: `git log` по
-`guide_robot_face/` и по всему `dev` с тех пор не показывает ни одного
-изменения, касающегося display/X11/kiosk-конфигурации — репозиторий не
-фиксирует, что это изменилось. **Это не проверка физического железа** —
-только то, что в коде нет следа обновления. Подтверждать или опровергать
-фактическое состояние экрана должен владелец, не этот отчёт.
+## Промо
+
+`promo/promo.yaml` и `promo/media/` остаются в пакете **как источник** (не устанавливаются
+colcon'ом): launcher читает их прямо из чекаута (`promo_dir`) и перечитывает при смене mtime.
+Формат и способ добавить картинку — `docs/kiosk_operator_ui_explained.md`, раздел 5.
+
+## Тесты
+
+```bash
+cd guide_robot_operator_ui && python3 -m pytest test -q --ignore=test/test_state_frame.py
+```
+
+`test_state_frame.py` требует собранный `guide_robot_msgs` (запускать в контейнере после
+`colcon build`). Локально нода не импортируется (нет `rclpy`), поэтому тесты покрывают
+`lib/ui_server.py`: 403 без токена и с неверным токеном, 200 с верным для каждого командного
+роута, открытые GET, `costmaps/clear`, охранный тест «каждый POST `/api/` в `COMMAND_PATHS`».
+Тесты launcher'а — `python3 -m pytest scripts/jetson-launcher/tests -q` из корня репозитория.
+
+Модули `lib/auth.py`, `session.py`, `rfid_link.py`, `command_log.py`, `promo_io.py` и страница
+`web/` перенесены в `scripts/jetson-launcher/` (`git mv`, история сохранена).

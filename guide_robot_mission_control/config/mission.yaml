@@ -25,7 +25,7 @@
     greeting_text: "Здравствуйте! Я проведу для вас экскурсию."
     confirm_question_text: "Идём дальше?"
     home_frame: "map"
-    home_pose: [20.3075, 1.2831, 0.0]  # x, y, yaw (yaw пока не используется); ArtSpace P1 = vybory_1
+    home_pose: [-0.1868, -0.0299, 3.14159]  # x, y, yaw (yaw пока не используется); Innopark: вход = expo_meeting = home
 
 /**/narration_server:
   ros__parameters:

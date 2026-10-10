@@ -28,6 +28,7 @@ x-common: &common-setup
     # автоматически рядом с этим файлом. Пусто -- бэкенд просто не
     # сконфигурируется (on_configure FAILURE), локальный llm_server/ не задет.
     - SELECTEL_AIG_KEY
+    - ROS_DOMAIN_ID=152
   working_dir: /home/fabian/ros2_ws
   group_add:
     - "video"
@@ -38,7 +39,7 @@ x-common: &common-setup
   command: [
     "/bin/bash","-lc","
     sudo chown $(whoami):$(whoami) /home/fabian/ros2_ws /home/fabian/ros2_ws/build /home/fabian/ros2_ws/install /home/fabian/ros2_ws/log 2>/dev/null || true &&
-    grep -q ros2_ws/install/setup.bash ~/.bashrc || echo '[ -f /home/fabian/ros2_ws/install/setup.bash ] && source /home/fabian/ros2_ws/install/setup.bash' >> ~/.bashrc &&
+    grep -qxF '[ -f /home/fabian/ros2_ws/install/setup.bash ] && source /home/fabian/ros2_ws/install/setup.bash' ~/.bashrc || echo '[ -f /home/fabian/ros2_ws/install/setup.bash ] && source /home/fabian/ros2_ws/install/setup.bash' >> ~/.bashrc &&
     exec bash"
     ]
 

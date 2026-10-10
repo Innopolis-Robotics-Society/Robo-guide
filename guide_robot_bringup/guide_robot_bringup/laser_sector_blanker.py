@@ -34,7 +34,7 @@ def _in_sector(angle, lo, hi):
 
 
 class LaserSectorBlanker(Node):
-    """Republishes a LaserScan with configured angular sectors set to infinity."""
+    """Republishes a LaserScan with configured angular sectors blanked (inf or NaN)."""
 
     def __init__(self):
         """Declare parameters and set up the subscription/publisher pair."""
@@ -46,11 +46,20 @@ class LaserSectorBlanker(Node):
         # frame - a string, not a double[], because rclpy can't infer a type
         # for an empty-list default and "" (no sectors yet) must be valid.
         self.declare_parameter("blind_sectors_deg", "")
+        # False (inf): в паре с вторым лидаром слитый /scan берёт реальный луч с него;
+        # без пары (один лидар) inf в Nav2 (inf_is_valid) чистит costmap вдоль слепого
+        # сектора, хотя там ничего не видно -- нужен NaN (луч игнорируется). Булев, а не
+        # строка "nan": launch кладёт её в YAML параметров, и она читается как double.
+        self.declare_parameter("blank_with_nan", False)
 
         input_topic = self.get_parameter("input_topic").value
         output_topic = self.get_parameter("output_topic").value
         raw = self.get_parameter("blind_sectors_deg").value.strip()
         sectors_deg = [float(x) for x in raw.split(",") if x.strip()] if raw else []
+
+        blank_with_nan = bool(self.get_parameter("blank_with_nan").value)
+        self._blank = math.nan if blank_with_nan else math.inf
+        blank_name = "NaN" if blank_with_nan else "inf"
 
         if len(sectors_deg) % 2 != 0:
             raise ValueError("blind_sectors_deg must contain an even number of values (pairs)")
@@ -66,7 +75,7 @@ class LaserSectorBlanker(Node):
         if self._sectors_rad:
             self.get_logger().info(
                 f"{input_topic} -> {output_topic}: blanking {len(self._sectors_rad)} sector(s) "
-                f"{sectors_deg} deg"
+                f"{sectors_deg} deg (blanked as {blank_name})"
             )
         else:
             self.get_logger().warn(
@@ -80,7 +89,7 @@ class LaserSectorBlanker(Node):
             for i in range(len(msg.ranges)):
                 angle = _normalize(msg.angle_min + i * msg.angle_increment)
                 if any(_in_sector(angle, lo, hi) for lo, hi in self._sectors_rad):
-                    msg.ranges[i] = float("inf")
+                    msg.ranges[i] = self._blank
                     if i < len(msg.intensities):
                         msg.intensities[i] = 0.0
         self._pub.publish(msg)

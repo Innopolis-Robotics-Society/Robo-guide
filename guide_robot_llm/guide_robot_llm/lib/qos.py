@@ -19,6 +19,7 @@ __all__ = [
     "QOS_INTERACTION_EVENT",
     "QOS_MISSION_PRESENCE",
     "QOS_MISSION_STATE",
+    "QOS_SAY_STREAM",
     "QOS_VOICE_SPEAKING",
     "QOS_WAKEWORD",
 ]
@@ -98,6 +99,15 @@ QOS_ASR_TRANSCRIPT = QoSProfile(
 
 QOS_DIALOG_TURN_EVENT = QoSProfile(
     depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
+
+# /speech/say_stream -- продолжения потоковой Say-цели: каждый кусок -- часть
+# реплики, терять нельзя; поздний подписчик старые куски не ждёт.
+QOS_SAY_STREAM = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=64,
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,
 )

@@ -30,6 +30,11 @@ bool interruptible
 # Ограничение сверху на длительность. 0 -- без ограничения.
 # Защита от зацикленного LLM, сгенерировавшего абзац на пять минут.
 float32 max_duration
+
+# Непусто -- потоковая цель: text -- только начало ответа, продолжение
+# приходит в /speech/say_stream (SayStreamChunk с тем же stream_id), цель
+# завершается после final. Пусто -- обычная цель, text целиком.
+string stream_id
 ---
 uint8 STATUS_COMPLETED=0
 uint8 STATUS_PREEMPTED=1

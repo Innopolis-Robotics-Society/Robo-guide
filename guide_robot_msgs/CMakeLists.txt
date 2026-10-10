@@ -34,6 +34,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/RunTour.action"
   "action/AskUser.action"
   "action/Say.action"
+  "msg/SayStreamChunk.msg"
   "action/PlayPcm.action"
   "msg/SonarRanges.msg"
   "msg/AudioChunk.msg"

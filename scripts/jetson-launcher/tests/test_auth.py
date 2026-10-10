@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from guide_robot_operator_ui.lib.auth import AuthResult, PinBackend, make_auth_chain
+from guide_launcher.auth import AuthResult, PinBackend, make_auth_chain
 
 
 class _StubBackend:
@@ -61,7 +61,7 @@ def test_empty_backends_list_refuses_to_start() -> None:
 
 def test_missing_pin_refuses_to_start() -> None:
     with pytest.raises(ValueError, match='"pin" обязателен'):
-        make_auth_chain(["mock"], operator_pin="changeme")
+        make_auth_chain(["rfid"], operator_pin="changeme")
 
 
 def test_unknown_backend_name_refuses_to_start() -> None:
@@ -80,38 +80,7 @@ def test_rfid_with_rfid_backend_starts() -> None:
     assert chain.available_names() == ["rfid", "pin"]
 
 
-# -- AuthChain.verify(): mock коротит цепочку целиком (пользовательская правка) --
-
-
-def test_mock_present_succeeds_regardless_of_requested_backend_and_payload() -> None:
-    chain = make_auth_chain(["mock", "pin"], operator_pin="changeme")
-    result = chain.verify("nonce", "pin", {"pin": "totally wrong"})
-    assert result.ok is True
-    assert result.operator == "mock"
-
-
-def test_mock_present_at_any_position_still_shortcuts() -> None:
-    """["pin","mock"] и ["mock","pin"] обязаны вести себя одинаково."""
-    chain_a = make_auth_chain(["pin", "mock"], operator_pin="changeme")
-    chain_b = make_auth_chain(["mock", "pin"], operator_pin="changeme")
-    for chain in (chain_a, chain_b):
-        result = chain.verify("nonce", "pin", {"pin": "wrong"})
-        assert result.ok is True
-        assert result.operator == "mock"
-
-
-def test_mock_not_in_available_names() -> None:
-    """mock не выбираемый метод на экране входа -- глобальный обход, не опция."""
-    chain = make_auth_chain(["mock", "pin"], operator_pin="changeme")
-    assert "mock" not in chain.available_names()
-
-
-def test_mock_active_flag() -> None:
-    assert make_auth_chain(["pin"], operator_pin="changeme").mock_active is False
-    assert make_auth_chain(["mock", "pin"], operator_pin="changeme").mock_active is True
-
-
-# -- AuthChain.verify(): без mock -----------------------------------------------
+# -- AuthChain.verify() -----------------------------------------------------------
 
 
 def test_verify_dispatches_to_named_backend() -> None:

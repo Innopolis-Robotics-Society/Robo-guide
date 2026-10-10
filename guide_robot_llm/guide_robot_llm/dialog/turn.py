@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from guide_robot_llm.dialog.sanitize import sanitize_answer
+from guide_robot_llm.dialog.streaming import SentenceStreamer, SpeechStream, extract_reply_text
 from guide_robot_llm.llm_client import CompletionResult, build_tool_call_grammar
 from guide_robot_llm.llm_client.errors import BackendAborted, BackendError
 from guide_robot_llm.matching import looks_like_chit_chat, match_start_tour
@@ -196,6 +197,7 @@ def run_turn(
     utterance: str = "",
     default_tour_id: str = "",
     inline_reply: bool = False,
+    open_speech_stream: Callable[[], SpeechStream] | None = None,
 ) -> TurnResult:
     """Прогнать один ход: действие (GBNF) -> исполнение -> реплика -> `speak()`.
 
@@ -254,6 +256,12 @@ def run_turn(
     По умолчанию `False` -- локальный GBNF-бэкенд не кладёт текст в `args`
     (`llm_client.build_tool_call_grammar` даже не знает про `args.text`),
     поведение не меняется.
+
+    `open_speech_stream` (если задан) -- реплика озвучивается по мере
+    генерации (`dialog.streaming`): в inline-ходе -- `args.text` reply, в
+    фазе реплики -- её текст. Тогда `complete_action`/`complete_answer`
+    получают ещё `on_delta` и `on_attempt`. Ответ из одного предложения
+    стримить некуда -- он идёт обычным `speak()`.
     """
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
@@ -268,6 +276,20 @@ def run_turn(
     record: ToolCallRecord | None = None
     action_raw_text = ""
     action_finish_reason = ""
+    stream_inline = (
+        inline_reply
+        and open_speech_stream is not None
+        and not _start_tour_override(utterance, tool_names, default_tour_id)
+    )
+
+    def _on_stream_start() -> None:
+        # Первый звук -- следствия хода обязаны быть закоммичены ДО него.
+        if on_action_resolved is not None:
+            on_action_resolved(
+                ToolCallRecord(
+                    name="reply", args={}, result_ok=True, result_message="", result_data={}
+                )
+            )
 
     def _stop_when(text: str) -> bool:
         if _parse_tool_call(text) is not None:
@@ -279,11 +301,42 @@ def run_turn(
         return not inline_reply and _REPLY_TOOL_RE.search(text) is not None
 
     while True:
+        streamer: SentenceStreamer | None = None
         try:
-            action_completion = complete_action(messages, grammar, stop_when=_stop_when)
+            if stream_inline:
+                assert open_speech_stream is not None
+                streamer = SentenceStreamer(
+                    open_speech_stream(),
+                    extract=extract_reply_text,
+                    max_chars=answer_max_chars,
+                    on_start=_on_stream_start,
+                    check_aborted=check_aborted,
+                )
+                action_completion = complete_action(
+                    messages,
+                    grammar,
+                    stop_when=_stop_when,
+                    on_delta=streamer.on_delta,
+                    on_attempt=streamer.restart,
+                )
+            else:
+                action_completion = complete_action(messages, grammar, stop_when=_stop_when)
         except BackendAborted:
+            if streamer is not None:
+                streamer.abort()
             raise
         except BackendError:
+            if streamer is not None and streamer.started:
+                answer_text, say_result = streamer.finish()
+                return TurnResult(
+                    messages=messages,
+                    answer_text=answer_text,
+                    say_ok=say_result.ok,
+                    say_preempted=bool(say_result.data.get("preempted")),
+                    repair_used=repair_used,
+                    stopped_reason="action_backend_error",
+                    answer_source="inline",
+                )
             return TurnResult(
                 messages=messages,
                 action_raw_text=action_raw_text,
@@ -294,6 +347,14 @@ def run_turn(
 
         action_raw_text = action_completion.text
         action_finish_reason = action_completion.finish_reason
+        if streamer is not None and streamer.started:
+            return _finish_streamed_reply(
+                streamer,
+                messages=messages,
+                action_raw_text=action_raw_text,
+                action_finish_reason=action_finish_reason,
+                repair_used=repair_used,
+            )
         # Сырой текст попадает в messages ДО проверки парсинга -- иначе
         # `action_parse_error` (модель прислала не ту форму) теряет
         # единственную улику, что она вообще ответила, и чем именно.
@@ -314,13 +375,7 @@ def run_turn(
             )
         think, name, args = parsed
 
-        if (
-            name == "reply"
-            and utterance
-            and match_start_tour(utterance)
-            and "start_tour" in tool_names
-            and default_tour_id
-        ):
+        if name == "reply" and _start_tour_override(utterance, tool_names, default_tour_id):
             name = "start_tour"
             args = {"tour_id": default_tour_id}
 
@@ -418,6 +473,56 @@ def run_turn(
         action_finish_reason=action_finish_reason,
         repair_used=repair_used,
         utterance=utterance,
+        open_speech_stream=open_speech_stream,
+    )
+
+
+def _start_tour_override(utterance: str, tool_names: Sequence[str], default_tour_id: str) -> bool:
+    """Реплику «начни экскурсию» исполняем start_tour, даже если модель выбрала reply."""
+    return bool(
+        utterance
+        and match_start_tour(utterance)
+        and "start_tour" in tool_names
+        and default_tour_id
+    )
+
+
+def _finish_streamed_reply(
+    streamer: SentenceStreamer,
+    *,
+    messages: list[dict],
+    action_raw_text: str,
+    action_finish_reason: str,
+    repair_used: bool,
+) -> TurnResult:
+    """Inline-reply уже звучит: досказать хвост и собрать итог хода."""
+    parsed = _parse_tool_call(action_raw_text)
+    think, args = (parsed[0], parsed[2]) if parsed is not None else ("", {})
+    answer_text, say_result = streamer.finish(action_raw_text)
+    if parsed is None:
+        # Оборванный JSON (max_tokens) -- в историю то, что реально сказано.
+        action_raw_text = json.dumps(
+            {"tool": "reply", "args": {"text": answer_text}}, ensure_ascii=False
+        )
+    return TurnResult(
+        messages=[*messages, {"role": "assistant", "content": action_raw_text}],
+        answer_text=answer_text,
+        answer_raw_text=str(args.get("text", "")) or answer_text,
+        action_raw_text=action_raw_text,
+        action_finish_reason=action_finish_reason,
+        say_ok=say_result.ok,
+        say_preempted=bool(say_result.data.get("preempted")),
+        action=ToolCallRecord(
+            name="reply",
+            args=args,
+            result_ok=True,
+            result_message="",
+            result_data={},
+            think=think,
+        ),
+        repair_used=repair_used,
+        stopped_reason="ok",
+        answer_source="inline",
     )
 
 
@@ -434,11 +539,12 @@ def run_answer_phase(
     action_finish_reason: str = "",
     repair_used: bool = False,
     utterance: str = "",
+    open_speech_stream: Callable[[], SpeechStream] | None = None,
 ) -> TurnResult:
-    """Фаза реплики: итог действия -> ЛЛМ -> `sanitize` -> один `speak()`.
+    """Фаза реплики: итог действия -> ЛЛМ -> `sanitize` -> один Say.
 
-    Один Say на весь ответ (ранний TTS первого предложения давал разрыв
-    между двумя goal).
+    С `open_speech_stream` Say открывается на первом готовом предложении и
+    дописывается по мере генерации (одна цель на весь ответ).
     """
     action_stopped_reason = "ok" if record.result_ok else "action_invalid"
 
@@ -448,11 +554,35 @@ def run_answer_phase(
         answer_message += f"\n\nРеплика посетителя: «{utterance}»\nОтветь именно на неё."
     messages = [*messages, {"role": "user", "content": answer_message}]
 
+    streamer: SentenceStreamer | None = None
     try:
-        answer_completion = complete_answer(messages)
+        if open_speech_stream is not None:
+            streamer = SentenceStreamer(
+                open_speech_stream(), max_chars=answer_max_chars, check_aborted=check_aborted
+            )
+            answer_completion = complete_answer(
+                messages, on_delta=streamer.on_delta, on_attempt=streamer.restart
+            )
+        else:
+            answer_completion = complete_answer(messages)
     except BackendAborted:
+        if streamer is not None:
+            streamer.abort()
         raise
     except BackendError:
+        if streamer is not None and streamer.started:
+            answer_text, say_result = streamer.finish()
+            return TurnResult(
+                messages=messages,
+                answer_text=answer_text,
+                action_raw_text=action_raw_text,
+                action_finish_reason=action_finish_reason,
+                say_ok=say_result.ok,
+                say_preempted=bool(say_result.data.get("preempted")),
+                action=record,
+                repair_used=repair_used,
+                stopped_reason="answer_backend_error",
+            )
         return TurnResult(
             messages=messages,
             action_raw_text=action_raw_text,
@@ -464,8 +594,25 @@ def run_answer_phase(
 
     answer_raw_text = answer_completion.text
     answer_finish_reason = answer_completion.finish_reason
-    answer_text = sanitize_answer(answer_raw_text, max_chars=answer_max_chars)
     messages = [*messages, {"role": "assistant", "content": answer_raw_text}]
+
+    if streamer is not None and streamer.started:
+        answer_text, say_result = streamer.finish(answer_raw_text)
+        return TurnResult(
+            messages=messages,
+            answer_text=answer_text,
+            answer_raw_text=answer_raw_text,
+            answer_finish_reason=answer_finish_reason,
+            action_raw_text=action_raw_text,
+            action_finish_reason=action_finish_reason,
+            say_ok=say_result.ok,
+            say_preempted=bool(say_result.data.get("preempted")),
+            action=record,
+            repair_used=repair_used,
+            stopped_reason=action_stopped_reason,
+        )
+
+    answer_text = sanitize_answer(answer_raw_text, max_chars=answer_max_chars)
 
     say_ok = False
     say_preempted = False

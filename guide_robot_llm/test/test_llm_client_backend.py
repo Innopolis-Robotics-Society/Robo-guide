@@ -304,3 +304,43 @@ def test_gateway_warnings_and_usage_reach_completion_result(mock_server: MockLlm
     assert result.gateway_warnings == ["ignored unknown parameter 'grammar'"]
     assert result.usage["prompt_tokens"] == 2000
     assert result.usage["prompt_tokens_details"]["cached_tokens"] == 512
+
+
+def _wait_for(predicate, timeout_s: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+def test_prewarm_opens_connection_after_each_completion(mock_server: MockLlmServer) -> None:
+    """Стрим закрыт недочитанным -- бэкенд сразу готовит следующее соединение."""
+    mock_server.chunks = ["ok"]
+    backend = Backend(BackendConfig(base_url=mock_server.url, read_timeout_s=5.0, prewarm=True))
+
+    backend.complete(_MESSAGES)
+
+    assert _wait_for(lambda: mock_server.models_request_count == 1)
+    assert backend.complete(_MESSAGES).text == "ok"
+
+
+def test_warm_is_noop_without_prewarm(mock_server: MockLlmServer) -> None:
+    mock_server.chunks = ["ok"]
+    backend = Backend(BackendConfig(base_url=mock_server.url, read_timeout_s=5.0))
+
+    backend.warm()
+    backend.complete(_MESSAGES)
+    time.sleep(0.1)
+
+    assert mock_server.models_request_count == 0
+
+
+def test_warm_swallows_network_errors() -> None:
+    backend = Backend(
+        BackendConfig(base_url="http://127.0.0.1:9/v1", connect_timeout_s=0.2, prewarm=True)
+    )
+    backend.warm()
+    # Повторный вызов после неудачи снова разрешён -- лок освобождён.
+    assert _wait_for(lambda: backend._warming.acquire(blocking=False))

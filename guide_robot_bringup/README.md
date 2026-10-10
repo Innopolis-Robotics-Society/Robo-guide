@@ -61,7 +61,32 @@ precondition'ам (TF, частота скана/сонаров и т.д.) и з
 `launch_sensors` (true), `launch_sonar` (true), `launch_foxglove` (true),
 `slam` (false), `slam_params_file`, `map`, `nav` (true), `nav_params_file`,
 `launch_rviz` (true), `autostart_supervisor` (true), `autostart_nav` (false),
-`launch_high_level` (true), `launch_face` (true), `launch_llm` (true).
+`launch_high_level` (true), `launch_face` (true), `launch_llm` (true),
+`voice_profile` (`xvf3800`; `legacy` — старый USB-микрофон `USB PnP Audio Device`
+и `voice_params_file`), `right_lidar` (`true`; `false` — один левый лидар, см. ниже).
+
+**Режим с одним лидаром (`right_lidar:=false`, включается явно).**
+Введён 2026-09-25, когда правый лидар/его USB-переходник перестал отвечать (`-110` у
+`cp210x`, `SL_RESULT_OPERATION_TIMEOUT`). Причиной оказался CP2102-переходник `0001`; правый
+лидар теперь на CH340-переходнике в порту хаба `1-2.1.4` (`tty_lidar_right` по порту, не по
+серийнику, см. `scripts/99-Guide-Robot-devices.rules`) и по умолчанию снова два лидара.
+Что меняется в режиме с одним:
+
+- не запускаются `sllidar_right`, `laser_sector_blanker_right` и `dual_laser_merger` (он
+  склеивает *пары* сообщений двух лидаров и с одним молчит);
+- `/scan` публикует левый бланкер напрямую, кадр `laser_frame_left` (а не `base_footprint`),
+  слепой сектор тела помечен **NaN**, а не `inf`: с `inf_is_valid: True` Nav2 чистил бы costmap
+  вдоль лучей, где ничего не видно (`blank_with_nan` у `laser_sector_blanker`);
+- supervisor берёт копию конфига без `/scan_right` в `scan_rate`
+  (`guide_robot_supervisor/config_tools.py`, файл `/tmp/supervisor_one_lidar_*.yaml`);
+  само предусловие `scan_rate` группы `safety` остаётся и по-прежнему требует `/scan` и
+  `/scan_left` не ниже 5 Гц;
+- в `stack_log` при запуске есть строка `!!! ОДИН ЛИДАР … !!!`.
+
+**Ограничение безопасности:** справа и сзади лидар робота не видит; Nav2 и collision monitor
+получают препятствия там только от сонара (7 датчиков). Ехать с людьми рядом справа стоит
+осторожно. Вернуть два лидара: запуск без аргумента (по умолчанию `right_lidar:=true`).
+Симуляция режим не затрагивает.
 
 `autostart_supervisor:=false` оставляет супервизор в `INIT` — стек
 поднимается только по вызову сервиса `/supervisor/bringup`; политики
@@ -232,6 +257,14 @@ ros2 launch guide_robot_bringup desk.launch.py \
   сонар — на своём хабе (udev-правила ловят их по номеру порта хаба).
   Лечение без передёргивания кабеля — `usb_serial_preflight` (выше) или
   вручную `USBDEVFS_RESET` на хаб.
+  **Обход для раскладки «оба лидара на `1-2.1`» (2026-09-25):** сам
+  `usb_serial_preflight` открывает и закрывает порты и после сброса хаба снова его вешает
+  (`sllidar code 80008004` сразу после preflight). Поэтому `scripts/jetson-launcher/
+  start_stack.sh` (кнопка «Запустить») сбрасывает хаб `1-2.1` целиком, ждёт 10 с и стартует с
+  `usb_preflight:=false`; драйверы лидаров открывают порты первыми и без сбоев. Настройка:
+  `STACK_USB_HUB` (пусто — не сбрасывать), `STACK_USB_SETTLE_S`. При прямом
+  `ros2 launch … hardware.launch.py` на такой раскладке запускать с `usb_preflight:=false`
+  после ручного `USBDEVFS_RESET`.
 
 - `scan_merger` не поднимается ни одним launch: Python-deskew откачен
   2026-08-11. `dual_laser_merger` остаётся, пока deskew не перепишут на C++.

@@ -9,6 +9,7 @@
     fade_out_ms: 20
     heartbeat_hz: 20.0
     remote_service_timeout: 3.0
+    silero_rate: "130%"
 
 /**/vad_node:
   ros__parameters:
@@ -26,6 +27,18 @@
     gate_on_tts: false
     session_managed_input: true
     pre_roll_ms: 500.0
+    # voice.yaml (6 Гц по окну 5 с) на CPU Orin Nano держит единственный
+    # воркер декода занятым партиалами, и финал ждёт за ними 3-10 с (замер
+    # 24.09.2026). Та же причина, что в voice_jetson.yaml.
+    partial_rate_hz: 2.0
+    partial_window_s: 2.5
+    # GigaAM через onnxruntime со своим препроцессингом: int8 на CPU в 2.3 раза
+    # быстрее sherpa-onnx при той же точности (265 против 610 мс на 1 с речи,
+    # замер 24.09.2026). fp32 на CUDA быстрее ещё, но держит 2+ ГБ RAM (веса
+    # для CPU и GPU) и уводит Orin Nano в своп -- не включать без fp16/замера памяти.
+    asr_backend: onnxruntime
+    ort_model_path: "$(find-pkg-share guide_robot_voice)/models/gigaam_v3_ctc_int8.onnx"
+    asr_providers: ["CPUExecutionProvider"]
 
 /**/voice_session_manager:
   ros__parameters:

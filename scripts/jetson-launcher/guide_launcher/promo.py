@@ -1,28 +1,30 @@
-"""Загрузка и валидация promo/promo.yaml -- промо-петля в простое (design F1/F2).
+"""Загрузка и валидация promo/promo.yaml -- промо-петля, которую отдаёт launcher.
 
-Пуст/не найден/невалиден -- НЕ отказ узла, в отличие от
-`guide_robot_semantic_map`'s `content_io.py`: промо не курируется и не
-ревьюится ("Контент промо -- не твоя задача", design F, "Правила"),
-поэтому опечатка в `promo.yaml` не должна валить узел или брать вниз
-панель управления -- пустой манифест, WARN, клиент сам покажет статичную
-заставку (design F3, критерий 5).
+Пуст/не найден/невалиден -- НЕ отказ сервиса: промо не курируется, поэтому
+опечатка в `promo.yaml` не должна валить launcher, только промо-петлю
+(пустой манифест, WARN, страница покажет статичную заставку).
 
-Существование файла на диске -- тоже мягкая проверка (строка в
-`warnings`, не исключение), той же причины ради: битый путь всё равно
-ловится на клиенте через тот же брокен-медиа путь, что и слайды тура
-(design D5/F3, критерий 6), а отказ узла из-за забытого файла -- цена
-выше пользы.
+Существование файла на диске -- тоже мягкая проверка (строка в `warnings`,
+не исключение): битый путь ловится на клиенте тем же путём, что и слайды тура.
+
+`PromoStore` перечитывает файл при смене mtime/размера, поэтому новая картинка
+появляется на экране без пересборки и рестартов.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-__all__ = ["PromoItem", "load_promo"]
+__all__ = ["PromoItem", "PromoStore", "load_promo"]
+
+log = logging.getLogger(__name__)
+
+_UNSET: Any = object()
 
 _VALID_KINDS = frozenset(["image", "video"])
 _MAX_DURATION_S = 600.0
@@ -132,3 +134,51 @@ def _parse_item(raw: Any, index: int, source: Path) -> tuple[PromoItem | None, l
         PromoItem(id=item_id, kind=kind, file=file, duration_s=duration_s, caption=caption),
         [],
     )
+
+
+class PromoStore:
+    """Кэш манифеста промо с перечиткой promo.yaml при смене mtime или размера."""
+
+    def __init__(self, promo_dir: Path, default_interval_s: float) -> None:
+        """`promo_dir` содержит promo.yaml и media/."""
+        self.promo_yaml = promo_dir / "promo.yaml"
+        self.media_root = promo_dir / "media"
+        self._interval_s = default_interval_s
+        self._key: Any = _UNSET
+        self._items: list[PromoItem] = []
+
+    def _stat_key(self) -> tuple[int, int] | None:
+        try:
+            st = self.promo_yaml.stat()
+        except OSError:
+            return None
+        return st.st_mtime_ns, st.st_size
+
+    def items(self) -> list[PromoItem]:
+        """Текущие элементы; файл перечитывается, если он изменился с прошлого вызова."""
+        key = self._stat_key()
+        if key != self._key:
+            self._items, warnings = load_promo(self.promo_yaml, self.media_root)
+            self._key = key
+            for warning in warnings:
+                log.warning("promo: %s", warning)
+        return self._items
+
+    def manifest(self) -> dict:
+        """Тело GET /api/promo: элементы, интервал и rev (меняется вместе с файлом)."""
+        items = self.items()
+        rev = "none" if self._key is None else f"{self._key[0]}-{self._key[1]}"
+        return {
+            "rev": rev,
+            "items": [
+                {
+                    "id": i.id,
+                    "kind": i.kind,
+                    "path": i.file,
+                    "duration_s": i.duration_s,
+                    "caption": i.caption,
+                }
+                for i in items
+            ],
+            "promo_interval_s": self._interval_s,
+        }

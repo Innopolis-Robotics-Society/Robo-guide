@@ -9,8 +9,18 @@ from guide_robot_llm.dialog_agent_node import DialogAgentNode
 from guide_robot_msgs.msg import Transcript
 
 
-@pytest.mark.parametrize("admitted,expected", [(True, ["расскажи о картине"]), (False, [])])
-def test_acoustic_admission_survives_expired_textual_listen_window(admitted, expected):
+@pytest.mark.parametrize(
+    "text,admitted,expected",
+    [
+        ("расскажи о картине", True, ["расскажи о картине"]),
+        ("расскажи о картине", False, []),
+        ("расскажи о феррари и фирая", True, ["расскажи о феррари и фирая"]),
+        ("феррари это машина", True, ["феррари это машина"]),
+        ("расскажи фирая об экскурсии", True, ["расскажи фирая об экскурсии"]),
+        ("ферая расскажи о картине", True, ["расскажи о картине"]),
+    ],
+)
+def test_acoustic_admission_survives_expired_textual_listen_window(text, admitted, expected):
     handled = []
     fake = SimpleNamespace(
         _active=True,
@@ -23,7 +33,7 @@ def test_acoustic_admission_survives_expired_textual_listen_window(admitted, exp
         _handle_transcript=lambda text, **_kwargs: handled.append(text),
         get_logger=lambda: SimpleNamespace(info=lambda _text: None),
     )
-    msg = Transcript(text="расскажи о картине", is_final=True, wakeword_admitted=admitted)
+    msg = Transcript(text=text, is_final=True, wakeword_admitted=admitted)
     DialogAgentNode._on_transcript(fake, msg)
     assert handled == expected
 

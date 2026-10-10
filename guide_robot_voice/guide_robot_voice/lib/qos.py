@@ -21,6 +21,7 @@ __all__ = [
     "QOS_CANCEL_ALL",
     "QOS_DIALOG_TURN_EVENT",
     "QOS_PLAYBACK_STATE",
+    "QOS_SAY_STREAM",
     "QOS_SYSTEM_EVENT",
     "QOS_UTTERANCE_CONTROL",
     "QOS_UTTERANCE_EVENT",
@@ -142,6 +143,15 @@ QOS_CANCEL_ALL = QoSProfile(
 QOS_SYSTEM_EVENT = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
+
+# /speech/say_stream -- продолжения потоковой Say-цели: каждый кусок -- часть
+# реплики, терять нельзя; поздний подписчик старые куски не ждёт.
+QOS_SAY_STREAM = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=64,
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,
 )

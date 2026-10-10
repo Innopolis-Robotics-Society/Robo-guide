@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from guide_robot_semantic_map.lib.content_io import load_content_dir
@@ -84,6 +85,9 @@ def test_locations_innopark_yaml_is_valid_and_linked_to_graph() -> None:
     assert "expo_meeting" in locations.locations
     assert "right_wing" in locations.locations
     assert "left_wing" in locations.locations
+    # «Сброс локализации» в operator UI берёт базу по category=charging.
+    assert locations.locations["home"].category == "charging"
+    assert not locations.locations["home"].is_public
 
 
 def test_tours_innopark_yaml_references_valid_locations() -> None:
@@ -137,3 +141,11 @@ def test_artspace_points_have_content() -> None:
     # (mission_fsm_node._resolve_tour), контент обязан лежать под тем же id.
     content, _ = load_content_dir(_CONTENT_DIR)
     assert {("vybory_1", "ru"), ("vybory_2", "ru"), ("vybory_3", "ru")} <= set(content)
+
+
+def test_semantic_map_yaml_points_to_one_venue() -> None:
+    # Четыре пути меняются вместе (см. шапку semantic_map.yaml): суффикс площадки
+    # у locations/tours/graph во всех нодах должен совпадать.
+    text = (_CONFIG_DIR / "semantic_map.yaml").read_text()
+    suffixes = set(re.findall(r"config/(?:locations|tours|graph)_(\w+)\.(?:yaml|geojson)\"", text))
+    assert len(suffixes) == 1, suffixes

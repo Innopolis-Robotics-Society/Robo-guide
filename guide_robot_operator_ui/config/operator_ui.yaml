@@ -1,4 +1,4 @@
-# Параметры operator_ui (Stage 1+2). Имена сервисов -- параметры, не
+# Параметры operator_ui (мост ROS <-> HTTP для guide-launcher). Имена сервисов -- параметры, не
 # хардкод (task_C_operator_ui_stage1.md, раздел C3) -- переопредели здесь,
 # если mission_fsm/location_server/content_server живут не под
 # стандартными именами.
@@ -13,37 +13,13 @@
     reset_covariance_xyyaw: [0.25, 0.25, 0.06853891945200942]
     tours_language: "ru"
     content_language: "ru"      # отдельно от tours_language (design D2)
-    slide_interval_s: 8.0       # design D3 -- когда у элемента нет своего duration_s
-    promo_interval_s: 10.0      # design F2 -- то же самое, для промо-петли в простое
 
-    # -- аутентификация оператора (Task E) --------------------------------
-    # Модель угроз: посетитель музея, не человек с Proxmark и не тот, у
-    # кого физический доступ к Jetson (см. README.md). Потолок стойкости
-    # ВСЕЙ схемы -- PIN, потому что он остаётся резервом при отказе
-    # RFID-ридера. "changeme" -- валидный по длине (>=8) плейсхолдер,
-    # чтобы нода поднималась из коробки; смени перед деплоем -- WARN в
-    # логе, пока не сменён.
-    operator_pin: "00112233"
-    auth_backends: ["rfid", "pin"]
-    session_ttl_s: 600.0        # скользящее окно: каждая успешная команда продлевает
-    nonce_ttl_s: 30.0
-    max_failed_attempts: 30
-    lockout_s: 60.0
-    # Оператор сворачивает панель посмотреть на слайд и по умолчанию не
-    # должен логиниться заново.
-    close_session_on_panel_hide: false
-    command_log_dir: "~/.guide_robot/operator_ui"
-    # -- RFID (Task E4) -- удобство и атрибуция в логах, НЕ стойкость.
-    # Пусто/нет порта -- RFID недоступен, вход по PIN, узел всё равно
-    # поднимается (design E5). Секрет -- в файле вне git, не здесь:
-    #   echo "<секрет из прошивки ESP>" > ~/.config/guide_robot/rfid_secret
-    #   chmod 600 ~/.config/guide_robot/rfid_secret
-    rfid_port: "/dev/rfid0"
-    rfid_secret_file: "/home/fabian/ros2_ws/src/rfid_secret"
-    rfid_timeout_s: 0.3
-    # firmware/rfid_bridge/src/main.cpp:19-22 -- один REQA не всегда видит
-    # неподвижно лежащую карту, наблюдалось 3 подряд no_card перед успехом.
-    rfid_retries: 5
+    # Общий секрет с guide-launcher (хостовый сервис :8089). Командные роуты
+    # принимают только запросы с этим токеном в X-Bridge-Token; пустой или
+    # отсутствующий файл -- нода не стартует. Путь внутри контейнера; на
+    # хосте тот же файл: ~/Desktop/Projects/Robo-guide/.guide_launcher/bridge_token
+    # (создаёт scripts/jetson-launcher/install.sh).
+    bridge_token_file: "/home/fabian/ros2_ws/src/.guide_launcher/bridge_token"
     run_tour_action: "run_tour"
     request_stop_service: "/mission_fsm/request_stop"
     go_home_service: "/mission_fsm/go_home"

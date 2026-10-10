@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from guide_robot_operator_ui.lib.session import SessionManager
+from guide_launcher.session import SessionManager
 
 
 class _FakeClock:

@@ -27,22 +27,23 @@
     # Порядок = порядок лестницы деградации.
     llm.backends: ["selectel", "local", "lan"]
 
-    # Selectel AI Router (внешний OpenAI-совместимый шлюз, TASK_external_llm_
-    # backend.md §0): GBNF не понимает, reasoning модели не выключить ни
-    # одним параметром -- гейт инструментов строкой в промпте (structured=
-    # json_object), reasoning тарифицируется как output и учтён в
-    # reasoning_budget_tokens.
+    # Selectel AI Router (внешний OpenAI-совместимый шлюз): GBNF не понимает --
+    # гейт инструментов строкой в промпте (structured=json_object).
+    # Рассуждения выключаются `reasoning.enabled=false` (замер 24.09.2026:
+    # 0 reasoning-токенов; `thinking`/`chat_template_kwargs` роутер игнорирует).
     llm.selectel.base_url: "https://api.selectel.ru/aig/v1"
-    llm.selectel.model: "deepseek/deepseek-v4.1-flash"
+    llm.selectel.model: "google/gemini-3.5-flash-lite"
     llm.selectel.api_key_env: "SELECTEL_AIG_KEY"
     llm.selectel.structured: "json_object"
-    # reasoning у этой модели через роутер не выключается -- thinking/effort не передаём
-    llm.selectel.extra_body_json: '{"stream_options": {"include_usage": true}}'
-    llm.selectel.reasoning_budget_tokens: 1024  # замерено max 761 в фазе реплики
+    llm.selectel.extra_body_json: '{"stream_options": {"include_usage": true}, "reasoning": {"enabled": false}}'
+    llm.selectel.reasoning_budget_tokens: 0
     llm.selectel.connect_timeout_s: 3.0
     llm.selectel.read_timeout_s: 8.0
     llm.selectel.first_content_timeout_s: 6.0   # замерено max 4.9 с
     llm.selectel.max_attempts: 1
+    # Стрим закрывается недочитанным -- без прогрева каждый запрос платит
+    # TCP+TLS (замер 24.09.2026: ~1.2 с через VPN на ноутбуке).
+    llm.selectel.prewarm: true
 
     # Локальный llm_server/ (llama.cpp, GBNF per-request, см. llm_server/.env:
     # LLM_PORT=18080) -- вторая ступень лестницы, деградация при недоступности
@@ -90,6 +91,8 @@
     history.clear_after_absent_s: 60.0
 
     answer.max_chars: 400
+    # Первое предложение ответа звучит, пока модель дописывает остальное.
+    answer.stream_tts: true
 
     # После ответа разрешить одну естественную follow-up реплику без
     # повторного «Фирая» (например «давай» или «расскажи подробнее»).

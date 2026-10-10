@@ -31,8 +31,9 @@
 
 # FURO Sonar controller: прямо в порт 2 или 3 Jetson (1-2.2 / 1-2.3) ...
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ATTRS{devpath}=="2.[23]", SYMLINK+="tty_sonar", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
-# ... или порт 3/4 хаба, воткнутого в порт 1-3 Jetson (e.g. 1-2.3.4). Хаб в порту 4 -- моторный.
-SUBSYSTEM=="tty", KERNELS=="1-2.[1-3].[34]", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_sonar", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
+# ... или порт 3/4 хаба, воткнутого в порт 2-3 Jetson (e.g. 1-2.3.4). Хаб в порту 1 -- лидары/аудио
+# (там CH340-переходник правого лидара, см. ниже), хаб в порту 4 -- моторный.
+SUBSYSTEM=="tty", KERNELS=="1-2.[23].[34]", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_sonar", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
 
 # FURO Motor controller: прямо в порт 4 Jetson (1-2.4) ...
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ATTRS{devpath}=="2.4", SYMLINK+="tty_motors", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
@@ -42,5 +43,11 @@ SUBSYSTEM=="tty", KERNELS=="1-2.4.[1-4]", ATTRS{idVendor}=="1a86", ATTRS{idProdu
 # RPLIDAR C1 Left (Serial: LIDAR)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="LIDAR", SYMLINK+="tty_lidar_left", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
 
-# RPLIDAR C1 Right (Serial: 0001)
+# RPLIDAR C1 Right, CH340-переходник (1a86:7523, серийника нет -> по порту): порт 4 хаба в порту 1
+# Jetson (1-2.1.4). 2026-09-25: CP2102 "0001" не отвечал лидару (плата/кабель) и давал cp210x -110 на
+# хабе; на CH340 тот же лидар отвечает и без USB-ошибок. Правый лидар должен оставаться в этом порту.
+SUBSYSTEM=="tty", KERNELS=="1-2.1.4", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_lidar_right", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
+
+# RPLIDAR C1 Right на CP2102 (Serial: 0001) -- прежний переходник, неисправен; правило оставлено на
+# случай замены платы. Не держать оба правых переходника воткнутыми одновременно.
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0001", SYMLINK+="tty_lidar_right", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"

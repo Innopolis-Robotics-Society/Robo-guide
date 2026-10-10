@@ -68,12 +68,12 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument(
             "graph_file",
-            # ArtSpace -- текущая площадка по умолчанию (graph_artspace.geojson
+            # Innopark -- текущая площадка по умолчанию (graph_innopark.geojson
             # + semantic_map.yaml: graph_file/locations_file/tours_file для
             # location_server и route_planner ниже). Лабораторный датасет
             # (graph.geojson/locations.yaml/tours.yaml, "для тестов") -- явным
             # override всех четырёх путей разом, они всегда меняются вместе.
-            default_value=f"{pkg_share}/config/graph_artspace.geojson",
+            default_value=f"{pkg_share}/config/graph_innopark.geojson",
             description="Граф для route_server -- владелец данных, не launch-аргумент",
         ),
         DeclareLaunchArgument("use_sim_time", default_value="false"),

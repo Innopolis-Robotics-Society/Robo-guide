@@ -32,7 +32,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["AsrResult", "GigaAmCtc"]
+__all__ = ["AsrResult", "GigaAmCtc", "OrtGigaAmCtc"]
+
+_DEFAULT_PROVIDERS = ("CUDAExecutionProvider", "CPUExecutionProvider")
 
 
 @dataclass(frozen=True)
@@ -102,3 +104,86 @@ class GigaAmCtc:
     def close(self) -> None:
         """Освободить сессию."""
         self._recognizer = None
+
+
+class OrtGigaAmCtc:
+    """GigaAM v3 CTC напрямую через onnxruntime (CUDA, если доступна).
+
+    sherpa-onnx в образе собран без GPU: на CPU Orin Nano 2 с речи
+    распознаются за 1-1.6 с, и финал опаздывает на секунды. Здесь признаки
+    считаются в `gigaam_frontend`, граф гоняется onnxruntime-gpu. Нужна
+    fp32-модель: int8-граф (DynamicQuantizeLinear/MatMulInteger) CUDA EP
+    в основном исполняет на CPU с копированием, выигрыша почти нет.
+
+    Интерфейс -- как у GigaAmCtc: load(), decode(pcm), close().
+    """
+
+    def __init__(
+        self,
+        model_path: str,
+        tokens_path: str,
+        num_threads: int = 2,
+        providers: tuple[str, ...] | list[str] = _DEFAULT_PROVIDERS,
+    ) -> None:
+        """Запомнить пути; сессия создаётся в load()."""
+        self._model_path = model_path
+        self._tokens_path = tokens_path
+        self._num_threads = num_threads
+        self._providers = list(providers)
+        self._session: object | None = None
+        self._vocab: list[str] = []
+        self._blank = 0
+        self._ctc_frame_seconds = 0.04  # GigaAM v3: mel hop 10 мс, subsampling 4.
+
+    @property
+    def active_providers(self) -> list[str]:
+        """Провайдеры, реально подключённые сессией (CUDA мог не подняться)."""
+        if self._session is None:
+            return []
+        return list(self._session.get_providers())  # type: ignore[attr-defined]
+
+    def load(self) -> None:
+        """Создать сессию и прогреть её: первый прогон на CUDA -- секунды."""
+        import onnxruntime as ort
+
+        from guide_robot_voice.lib.gigaam_frontend import load_tokens
+
+        self._vocab = load_tokens(self._tokens_path)
+        vocab = self._vocab
+        self._blank = vocab.index("<blk>") if "<blk>" in vocab else len(vocab) - 1
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = self._num_threads
+        available = set(ort.get_available_providers())
+        providers = [p for p in self._providers if p in available] or ["CPUExecutionProvider"]
+        self._session = ort.InferenceSession(self._model_path, options, providers=providers)
+        metadata = self._session.get_modelmeta().custom_metadata_map
+        subsampling = int(metadata.get("subsampling_factor", "4"))
+        if subsampling <= 0:
+            raise ValueError("GigaAM subsampling_factor должен быть положительным")
+        self._ctc_frame_seconds = 0.01 * subsampling
+        self.decode(np.zeros(16000, dtype=np.int16))
+
+    def decode(self, pcm: np.ndarray) -> AsrResult:
+        """Распознать моно int16 @ 16 кГц одним проходом целиком."""
+        from guide_robot_voice.lib.gigaam_frontend import ctc_greedy_aligned, log_mel
+
+        if self._session is None:
+            raise RuntimeError("OrtGigaAmCtc.load() не вызван")
+        features = log_mel(pcm)
+        if features.shape[1] == 0:
+            return AsrResult(text="", confidence=-1.0)
+        log_probs = self._session.run(  # type: ignore[attr-defined]
+            None,
+            {
+                "features": features[None],
+                "feature_lengths": np.array([features.shape[1]], dtype=np.int64),
+            },
+        )[0][0]
+        text, confidence, tokens, timestamps = ctc_greedy_aligned(
+            log_probs, self._vocab, self._blank, frame_seconds=self._ctc_frame_seconds
+        )
+        return AsrResult(text=text, confidence=confidence, tokens=tokens, timestamps=timestamps)
+
+    def close(self) -> None:
+        """Освободить сессию (и память GPU)."""
+        self._session = None

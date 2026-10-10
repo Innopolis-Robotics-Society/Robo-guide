@@ -67,6 +67,15 @@ def generate_launch_description():
     declare_launch_sonar = DeclareLaunchArgument(
         "launch_sonar", default_value="true", description="Launch sonar range node"
     )
+    # false -- один левый лидар (правый неисправен): /scan идёт от него напрямую, supervisor не
+    # ждёт /scan_right, справа и сзади лидар робота НЕ видит (остаётся сонар). Правый лидар
+    # снова в строю (CH340-переходник, 2026-09-25) -- по умолчанию true.
+    declare_right_lidar = DeclareLaunchArgument(
+        "right_lidar",
+        default_value="true",
+        description="true -- два лидара (слитый /scan); false -- только левый, /scan от него "
+        "напрямую и без /scan_right в проверке scan_rate supervisor'а",
+    )
     # navigation
     declare_nav = DeclareLaunchArgument(
         "nav", default_value="true", description="Launch Nav2 stack"
@@ -78,12 +87,12 @@ def generate_launch_description():
     )
     declare_map = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(pkg_navigation, "map", "artspace_18.09_edited.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited.yaml"),
         description="Готовая карта для режима slam:=false (map_server + AMCL)",
     )
     declare_keepout_mask_file = DeclareLaunchArgument(
         "keepout_mask_file",
-        default_value=os.path.join(pkg_navigation, "map", "artspace_18.09_keepout.yaml"),
+        default_value=os.path.join(pkg_navigation, "map", "innopark_l_10.09_edited_keepout.yaml"),
         description="Keepout costmap-filter mask, must match `map`. 'none' -- filter off.",
     )
     declare_nav_params = DeclareLaunchArgument(
@@ -129,9 +138,11 @@ def generate_launch_description():
     )
     declare_voice_profile = DeclareLaunchArgument(
         "voice_profile",
-        default_value="legacy",
+        default_value="xvf3800",
         choices=["legacy", "xvf3800"],
-        description="Voice hardware profile passed through to high_level_stack",
+        description="Voice hardware profile passed through to high_level_stack: xvf3800 -- "
+        "ReSpeaker XVF3800 (single ALSA owner), legacy -- USB PnP mic + audio_frontend "
+        "(voice_params_file applies only to legacy)",
     )
     # tooling
     declare_wakeword_enabled = DeclareLaunchArgument("wakeword_enabled", default_value="false")
@@ -149,6 +160,7 @@ def generate_launch_description():
     usb_preflight = LaunchConfiguration("usb_preflight")
     launch_sensors = LaunchConfiguration("launch_sensors")
     launch_sonar = LaunchConfiguration("launch_sonar")
+    right_lidar = LaunchConfiguration("right_lidar")
     nav = LaunchConfiguration("nav")
     slam = LaunchConfiguration("slam")
     map_yaml_file = LaunchConfiguration("map")
@@ -221,6 +233,7 @@ def generate_launch_description():
             "use_sim_time": use_sim_time,
             "real_lidars": "true",
             "launch_sonar": launch_sonar,
+            "right_lidar": right_lidar,
             "merge_frame": "base_footprint",
         }.items(),
     )
@@ -239,6 +252,7 @@ def generate_launch_description():
             "autostart_nav": autostart_nav,
             "launch_supervisor": "true",
             "autostart_supervisor": autostart_supervisor,
+            "right_lidar": right_lidar,
         }.items(),
     )
 
@@ -326,8 +340,13 @@ def generate_launch_description():
         wanted = usb_preflight.perform(context).lower() in ("true", "1")
         if mock or not wanted:
             return hardware_actions
+        cmd = ["ros2", "run", "guide_robot_bringup", "usb_serial_preflight"]
+        if right_lidar.perform(context).lower() in ("false", "0", "no"):
+            # Один лидар: правый порт не трогаем. Его переходник висит на том же хабе, и попытка
+            # открыть его (cp210x -110) вешает хаб вместе с левым лидаром и микрофоном.
+            cmd += ["--ports", "/dev/tty_motors", "/dev/tty_sonar", "/dev/tty_lidar_left"]
         preflight = ExecuteProcess(
-            cmd=["ros2", "run", "guide_robot_bringup", "usb_serial_preflight"],
+            cmd=cmd,
             name="usb_preflight",
             output="screen",
         )
@@ -343,6 +362,7 @@ def generate_launch_description():
             declare_usb_preflight,
             declare_launch_sensors,
             declare_launch_sonar,
+            declare_right_lidar,
             declare_nav,
             declare_slam,
             declare_map,

@@ -43,10 +43,12 @@ from guide_robot_msgs.msg import (
     UtteranceControl,
     UtteranceEvent,
     VoiceActivity,
+    Wakeword,
 )
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
-from guide_robot_voice.lib.asr_model import GigaAmCtc
+from guide_robot_voice.lib.asr_model import GigaAmCtc, OrtGigaAmCtc
+from guide_robot_voice.lib.gap_fill import fill_small_gap
 from guide_robot_voice.lib.keyword_spotter import normalize_text
 from guide_robot_voice.lib.qos import (
     QOS_ASR_PARTIAL,
@@ -56,6 +58,7 @@ from guide_robot_voice.lib.qos import (
     QOS_UTTERANCE_EVENT,
     QOS_VAD,
     QOS_VOICE_SPEAKING,
+    QOS_WAKEWORD,
 )
 from guide_robot_voice.lib.ring import IndexedAudioRing, RingBuffer
 from guide_robot_voice.lib.turn_policy import TurnPolicy, TurnPolicyConfig
@@ -83,6 +86,8 @@ class _DecodeJob:
     start_sample: int
     end_sample: int
     reason: str = ""
+    submitted_at: float = 0.0
+    """time.monotonic() постановки в очередь -- для лога задержки финала."""
 
 
 class AsrNode(LifecycleNode):
@@ -95,6 +100,14 @@ class AsrNode(LifecycleNode):
         self.declare_parameter("model_path", "")
         self.declare_parameter("tokens_path", "")
         self.declare_parameter("num_threads", 2)
+        # "sherpa" -- sherpa-onnx (в образе только CPU), model_path.
+        # "onnxruntime" -- onnxruntime-gpu с CUDA, fp32-граф ort_model_path;
+        # нет файла или сессия не поднялась -- откат на sherpa.
+        self.declare_parameter("asr_backend", "sherpa")
+        self.declare_parameter("ort_model_path", "")
+        # Порядок попыток onnxruntime. Только CPU -- int8-граф: на Jetson веса
+        # для CUDA лежат в той же RAM, fp32 (2+ ГБ с копиями) уводил систему в своп.
+        self.declare_parameter("asr_providers", ["CUDAExecutionProvider", "CPUExecutionProvider"])
         self.declare_parameter("pre_roll_ms", 300.0)
         self.declare_parameter("partial_rate_hz", 6.0)
         # НЕ из design §3.4 -- добавлено из-за отсутствия честного стриминга
@@ -114,9 +127,18 @@ class AsrNode(LifecycleNode):
         # При gate_on_tts: всё равно копить окно и слать /asr/partial во время
         # TTS (для wakeword «Фирая»/«стоп»), финалы в диалог не открывать.
         self.declare_parameter("wakeword_listen_during_tts", False)
+        # «Фирая» посреди слитной речи: аудио до срабатывания режется до окна
+        # партиала, в котором его нашли, + этот запас на задержку декода и
+        # доставки; max_after_wake_s -- сколько ещё слушать просьбу, если фон
+        # не даёт VAD замолчать (0 -- только общий max_utterance_s).
+        self.declare_parameter("wake_trim_margin_s", 1.0)
+        self.declare_parameter("max_after_wake_s", 8.0)
+        # Пропуск в /audio/mic не длиннее этого -- тишина внутри фразы, а не
+        # разрыв захвата, выбрасывающий её целиком. 0 -- выключено.
+        self.declare_parameter("max_filled_gap_ms", 100.0)
         self.declare_parameter("frame_id", "mic_array")
 
-        self._asr: GigaAmCtc | None = None
+        self._asr: GigaAmCtc | OrtGigaAmCtc | None = None
         self._turn_policy: TurnPolicy | None = None
         self._pre_roll: RingBuffer | None = None
         self._indexed_pre_roll: IndexedAudioRing | None = None
@@ -136,6 +158,11 @@ class AsrNode(LifecycleNode):
         self._utterance_decision = UtteranceControl.DECISION_ADMIT
         self._utterance_reason = ""
         self._last_partial_text = ""
+        self._wake_cap_ms = 0.0
+        """utterance_ms, на котором финализировать после «Фирая» (0 -- нет лимита)."""
+        self._wake_trims = 0
+        self._gaps_filled = 0
+        self._max_fill_samples = 0
         self._latest_control_sequence = -1
         self._latest_control_utterance_id = 0
         self._pending_control: UtteranceControl | None = None
@@ -150,8 +177,13 @@ class AsrNode(LifecycleNode):
         self._finals_dropped_short = 0
 
         self._decode_jobs: queue.Queue[_DecodeJob | None] = queue.Queue()
+        # Финалы -- своя очередь и поток, если бэкенд потокобезопасен
+        # (onnxruntime): иначе финал ждёт идущий партиал (замер 24.09.2026:
+        # 0.5-0.8 с в очереди). Для sherpa -- та же очередь, что у партиалов.
+        self._final_jobs: queue.Queue[_DecodeJob | None] = self._decode_jobs
         self._decode_stop = threading.Event()
         self._decode_worker: threading.Thread | None = None
+        self._final_worker: threading.Thread | None = None
 
     # -- lifecycle ------------------------------------------------------
 
@@ -165,6 +197,9 @@ class AsrNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
     def _configure(self) -> TransitionCallbackReturn:
+        self._max_fill_samples = int(
+            float(self.get_parameter("max_filled_gap_ms").value) * _SAMPLE_RATE / 1000
+        )
         model_path = str(self.get_parameter("model_path").value)
         tokens_path = str(self.get_parameter("tokens_path").value)
         if not model_path or not tokens_path:
@@ -179,13 +214,15 @@ class AsrNode(LifecycleNode):
 
         self.get_logger().info("загружаю модель ASR (GigaAM v3 CTC)...")
         started = time.monotonic()
-        self._asr = GigaAmCtc(
-            model_path,
-            tokens_path,
-            sample_rate=_SAMPLE_RATE,
-            num_threads=int(self.get_parameter("num_threads").value),
-        )
-        self._asr.load()
+        self._asr = self._load_ort_asr(tokens_path)
+        if self._asr is None:
+            self._asr = GigaAmCtc(
+                model_path,
+                tokens_path,
+                sample_rate=_SAMPLE_RATE,
+                num_threads=int(self.get_parameter("num_threads").value),
+            )
+            self._asr.load()
         if (
             bool(self.get_parameter("wakeword_gated_input").value)
             and not self._session_managed_input()
@@ -233,6 +270,9 @@ class AsrNode(LifecycleNode):
         self._speaking_sub = self.create_subscription(
             SpeakingStatus, "/voice/speaking", self._on_speaking_status, QOS_VOICE_SPEAKING
         )
+        self._wakeword_sub = self.create_subscription(
+            Wakeword, "/speech/wakeword", self._on_wakeword, QOS_WAKEWORD
+        )
         self._input_control_sub = self.create_subscription(
             UtteranceControl,
             "/voice/input_control",
@@ -246,6 +286,36 @@ class AsrNode(LifecycleNode):
 
         self.get_logger().info("asr_node сконфигурирован")
         return TransitionCallbackReturn.SUCCESS
+
+    def _load_ort_asr(self, tokens_path: str) -> OrtGigaAmCtc | None:
+        """onnxruntime-бэкенд, если выбран и поднялся; иначе None (откат на sherpa)."""
+        if str(self.get_parameter("asr_backend").value) != "onnxruntime":
+            return None
+        ort_model_path = str(self.get_parameter("ort_model_path").value)
+        if not ort_model_path or not pathlib.Path(ort_model_path).exists():
+            self.get_logger().error(
+                f"asr_backend=onnxruntime, но нет ort_model_path={ort_model_path!r} "
+                "(fp32 gigaam_v3_ctc.onnx, scripts/fetch_asr_model.sh) -- откат на sherpa/CPU"
+            )
+            return None
+        asr = OrtGigaAmCtc(
+            ort_model_path,
+            tokens_path,
+            num_threads=int(self.get_parameter("num_threads").value),
+            providers=list(self.get_parameter("asr_providers").value),
+        )
+        try:
+            asr.load()
+        except Exception as error:  # любой сбой CUDA/ORT -> рабочий CPU-путь
+            self.get_logger().error(f"onnxruntime ASR не поднялся: {error} -- откат на sherpa/CPU")
+            return None
+        providers = asr.active_providers
+        wanted_cuda = "CUDAExecutionProvider" in self.get_parameter("asr_providers").value
+        if wanted_cuda and "CUDAExecutionProvider" not in providers:
+            self.get_logger().warning(f"ASR: onnxruntime без CUDA, провайдеры {providers}")
+        else:
+            self.get_logger().info(f"ASR: onnxruntime, провайдеры {providers}")
+        return asr
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         """Сбросить операционное состояние и начать обработку."""
@@ -329,16 +399,20 @@ class AsrNode(LifecycleNode):
     def _on_audio(self, msg: AudioChunk) -> None:
         timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
         samples = np.array(msg.data, dtype=np.int16)
+        first_sample = int(msg.first_sample)
         device_session_id = msg.device_session_id or "unknown-capture-session"
         with self._lock:
             if not self._is_active:
                 return
             assert self._pre_roll is not None
             assert self._indexed_pre_roll is not None
-            self._pre_roll.push(timestamp, samples)
             previous_session = self._indexed_pre_roll.device_session_id
+            first_sample, samples, timestamp = self._fill_gap_locked(
+                device_session_id, first_sample, samples, timestamp
+            )
+            self._pre_roll.push(timestamp, samples)
             discontinuity = self._indexed_pre_roll.push(
-                device_session_id, int(msg.first_sample), timestamp, samples
+                device_session_id, first_sample, timestamp, samples
             )
             if discontinuity and previous_session:
                 # Финал от старой непрерывной истории не может попасть в диалог.
@@ -347,7 +421,7 @@ class AsrNode(LifecycleNode):
                     self._discard_open_utterance("capture_discontinuity")
                 if self._pending_control is not None and (
                     self._pending_control.device_session_id != device_session_id
-                    or int(self._pending_control.onset_sample) < int(msg.first_sample)
+                    or int(self._pending_control.onset_sample) < first_sample
                 ):
                     self._pending_control = None
                 if self._pending_control is not None:
@@ -370,14 +444,14 @@ class AsrNode(LifecycleNode):
                 if (
                     discontinuity
                     or device_session_id != self._utterance_device_session_id
-                    or int(msg.first_sample) > self._utterance_next_sample
+                    or first_sample > self._utterance_next_sample
                 ):
                     self._discard_open_utterance("capture_discontinuity")
                     return
-                block_end = int(msg.first_sample) + int(samples.shape[0])
+                block_end = first_sample + int(samples.shape[0])
                 if block_end <= self._utterance_next_sample:
                     return
-                offset = max(0, self._utterance_next_sample - int(msg.first_sample))
+                offset = max(0, self._utterance_next_sample - first_sample)
                 appended = samples[offset:]
                 if appended.size:
                     self._utterance_chunks.append(appended)
@@ -386,6 +460,20 @@ class AsrNode(LifecycleNode):
             else:
                 self._utterance_chunks.append(samples)
                 self._utterance_samples += samples.shape[0]
+
+    def _fill_gap_locked(
+        self, device_session_id: str, first_sample: int, samples: np.ndarray, timestamp: float
+    ) -> tuple[int, np.ndarray, float]:
+        """Короткий пропуск внутри той же сессии захвата -- тишина, а не разрыв."""
+        assert self._indexed_pre_roll is not None
+        if self._indexed_pre_roll.device_session_id != device_session_id:
+            return first_sample, samples, timestamp
+        first_sample, samples, filled = fill_small_gap(
+            self._indexed_pre_roll.next_sample, first_sample, samples, self._max_fill_samples
+        )
+        if filled:
+            self._gaps_filled += 1
+        return first_sample, samples, timestamp - filled / _SAMPLE_RATE
 
     def _on_input_control(self, msg: UtteranceControl) -> None:
         """Применить только самое новое решение для конкретной реплики."""
@@ -500,8 +588,44 @@ class AsrNode(LifecycleNode):
             utterance_ms = self._utterance_speech_ms()
             last_partial = self._last_partial_text
             should = self._turn_policy.should_finalize(last_partial, silence_ms, utterance_ms)
+            if self._wake_cap_ms and utterance_ms >= self._wake_cap_ms:
+                # Фоновая речь не даёт тишины -- просьба после «Фирая» не ждёт
+                # общего max_utterance_s.
+                should = True
         if should:
             self._submit_decode("final")
+
+    def _on_wakeword(self, msg: Wakeword) -> None:
+        """«Фирая»/«стоп» внутри открытой фразы -- всё сказанное раньше не к роботу.
+
+        Слитная речь без паузы 600-800 мс копится одной фразой до
+        max_utterance_s, и финал нёс в диалог всё, что говорили до
+        обращения, а декод 20 с аудио ещё и медленный. Обрезаем накопитель
+        до хвоста, в котором wakeword_node нашёл слово (dialog_agent срежет
+        остаток текста до «Фирая»), и ограничиваем, сколько ждать просьбу.
+        """
+        del msg
+        if bool(self.get_parameter("wakeword_gated_input").value):
+            # KWS manager уже выбрал onset/pre-roll по sample index.
+            # Legacy trim не должен менять identity или окно admitted-команды.
+            return
+        keep_s = float(self.get_parameter("partial_window_s").value) + float(
+            self.get_parameter("wake_trim_margin_s").value
+        )
+        max_after_s = float(self.get_parameter("max_after_wake_s").value)
+        with self._lock:
+            if not self._is_active or not self._utterance_open:
+                return
+            dropped = self._trim_utterance_locked(int(keep_s * _SAMPLE_RATE))
+            if max_after_s > 0:
+                self._wake_cap_ms = self._utterance_speech_ms() + max_after_s * 1000.0
+            if dropped:
+                self._wake_trims += 1
+        if dropped:
+            self.get_logger().info(
+                f"wakeword в фразе {self._utterance_id}: отброшено "
+                f"{dropped / _SAMPLE_RATE:.1f} с речи до обращения"
+            )
 
     # -- высказывание ---------------------------------------------------
 
@@ -594,6 +718,7 @@ class AsrNode(LifecycleNode):
         self._utterance_decision = UtteranceControl.DECISION_ADMIT
         self._utterance_reason = ""
         self._last_partial_text = ""
+        self._wake_cap_ms = 0.0
 
     def _discard_open_utterance(self, reason: str) -> None:
         if not self._utterance_open:
@@ -634,6 +759,24 @@ class AsrNode(LifecycleNode):
             self._utterance_samples -= n
             self._prefix_samples = max(0, self._prefix_samples - n)
 
+    def _trim_utterance_locked(self, keep_samples: int) -> int:
+        """Оставить ровно последние keep_samples накопителя; вернуть, сколько отброшено.
+
+        В отличие от окна под TTS режет с точностью до сэмпла (чанки по
+        200-500 мс иначе съели бы начало «Фирая») и сдвигает начало фразы --
+        UtteranceEvent/Transcript должны описывать то, что реально декодируется.
+        """
+        excess = self._utterance_samples - keep_samples
+        if excess <= 0:
+            return 0
+        pcm = self._utterance_pcm()[excess:]
+        self._utterance_chunks = [pcm] if pcm.size else []
+        self._utterance_samples = int(pcm.shape[0])
+        self._prefix_samples = max(0, self._prefix_samples - excess)
+        self._utterance_start_sample += excess
+        self._utterance_timestamp += excess / _SAMPLE_RATE
+        return excess
+
     def _utterance_speech_ms(self) -> float:
         spoken_samples = max(0, self._utterance_samples - self._prefix_samples)
         return spoken_samples / _SAMPLE_RATE * 1000.0
@@ -645,17 +788,30 @@ class AsrNode(LifecycleNode):
 
     def _start_decode_worker(self) -> None:
         self._decode_stop.clear()
+        self._decode_jobs = queue.Queue()
         self._decode_worker = threading.Thread(
-            target=self._decode_loop, name="asr_decode", daemon=True
+            target=self._decode_loop, args=(self._decode_jobs,), name="asr_decode", daemon=True
         )
         self._decode_worker.start()
+        if isinstance(self._asr, OrtGigaAmCtc):
+            self._final_jobs = queue.Queue()
+            self._final_worker = threading.Thread(
+                target=self._decode_loop, args=(self._final_jobs,), name="asr_final", daemon=True
+            )
+            self._final_worker.start()
+        else:
+            self._final_jobs = self._decode_jobs
 
     def _stop_decode_worker(self) -> None:
         self._decode_stop.set()
         self._decode_jobs.put(None)
-        if self._decode_worker is not None:
-            self._decode_worker.join(timeout=5.0)
-            self._decode_worker = None
+        if self._final_jobs is not self._decode_jobs:
+            self._final_jobs.put(None)
+        for worker in (self._decode_worker, self._final_worker):
+            if worker is not None:
+                worker.join(timeout=5.0)
+        self._decode_worker = None
+        self._final_worker = None
 
     def _submit_decode(self, kind: str) -> None:
         """Снимок PCM под замком, декод на воркере. Партиал не копится, если воркер занят."""
@@ -682,7 +838,8 @@ class AsrNode(LifecycleNode):
                 self._utterance_device_session_id,
                 self._utterance_start_sample,
                 self._utterance_next_sample,
-                self._utterance_reason,
+                reason=self._utterance_reason,
+                submitted_at=time.monotonic(),
             )
             if kind == "final":
                 if self._session_managed_input():
@@ -690,16 +847,18 @@ class AsrNode(LifecycleNode):
                         UtteranceEvent.EVENT_ENDPOINT, "endpoint", job=job
                     )
                 self._close_utterance()
-        self._decode_jobs.put(job)
+        (self._final_jobs if kind == "final" else self._decode_jobs).put(job)
 
-    def _decode_loop(self) -> None:
+    def _decode_loop(self, jobs: queue.Queue[_DecodeJob | None]) -> None:
         while not self._decode_stop.is_set():
             try:
-                job = self._decode_jobs.get(timeout=0.05)
+                job = jobs.get(timeout=0.05)
             except queue.Empty:
                 continue
             if job is None:
                 return
+            if job.kind == "partial" and self._partial_is_stale(job):
+                continue  # фраза уже ушла в финал -- не отнимать у него CPU/GPU
             try:
                 self._run_decode(job)
             except Exception as error:
@@ -709,6 +868,10 @@ class AsrNode(LifecycleNode):
                         self._publish_utterance_event(
                             UtteranceEvent.EVENT_DISCARDED, "decode_error", job=job
                         )
+
+    def _partial_is_stale(self, job: _DecodeJob) -> bool:
+        with self._lock:
+            return not self._utterance_open or job.utterance_id != self._utterance_id
 
     # Admission and final publication must stay in one lock-protected transaction.
     def _run_decode(self, job: _DecodeJob) -> None:  # noqa: PLR0911, PLR0912
@@ -721,7 +884,12 @@ class AsrNode(LifecycleNode):
                 ):
                     return
         assert self._asr is not None
+        started = time.monotonic()
         result = self._asr.decode(job.pcm) if job.pcm.size else None
+        timing = (
+            f"очередь {1000 * (started - job.submitted_at):.0f} мс, "
+            f"декод {1000 * (time.monotonic() - started):.0f} мс"
+        )
         text = result.text.strip() if result is not None else ""
         confidence = result.confidence if result is not None else -1.0
 
@@ -795,7 +963,7 @@ class AsrNode(LifecycleNode):
                     )
                 return
 
-            self.get_logger().info(f"final {text!r} {job.speech_ms:.0f}ms")
+            self.get_logger().info(f"final {text!r} {job.speech_ms:.0f}ms ({timing})")
             if (
                 bool(self.get_parameter("wakeword_gated_input").value)
                 and job.reason not in ("command_after_name", "followup_without_wakeword")
@@ -867,6 +1035,8 @@ class AsrNode(LifecycleNode):
                 KeyValue(key="finals_published", value=str(self._finals_published)),
                 KeyValue(key="finals_dropped_short", value=str(self._finals_dropped_short)),
                 KeyValue(key="preroll_underflows", value=str(self._preroll_underflows)),
+                KeyValue(key="wake_trims", value=str(self._wake_trims)),
+                KeyValue(key="gaps_filled", value=str(self._gaps_filled)),
                 KeyValue(
                     key="session_managed_input",
                     value=str(self._session_managed_input()).lower(),

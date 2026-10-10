@@ -8,7 +8,7 @@
 
 Граница доверия: секрет не покидает ESP, по проводу едет только подпись
 (`resp`) -- не UID, не содержимое сектора. HMAC считается и сверяется на
-стороне узла (`RfidBackend` в lib/auth.py), этот модуль только гоняет
+стороне узла (`RfidBackend` в auth.py), этот модуль только гоняет
 JSON туда-обратно и парсит ответ до известной схемы (`ChallengeResult`):
 что бы ESP ни прислал лишнего, наружу уходят ровно `ok`/`resp`/`card`/`err`
 (design E4, критерий 17 -- ни в одном поле не должно быть UID).
@@ -22,10 +22,19 @@ JSON туда-обратно и парсит ответ до известной 
 from __future__ import annotations
 
 import json
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-__all__ = ["ChallengeResult", "MemorySerialPort", "PySerialPort", "RfidLink", "SerialPort"]
+__all__ = [
+    "ChallengeResult",
+    "MemorySerialPort",
+    "PySerialPort",
+    "ReconnectingRfidLink",
+    "RfidLink",
+    "SerialPort",
+]
 
 
 class SerialPort(Protocol):
@@ -136,3 +145,52 @@ class RfidLink:
         return ChallengeResult(
             ok=True, resp=str(data.get("resp", "")), card=str(data.get("card", "")), err=""
         )
+
+
+class ReconnectingRfidLink:
+    """RfidLink, который открывает порт лениво и переоткрывает после отключения ридера.
+
+    Ридер могут воткнуть после старта launcher или выдернуть на ходу: порт
+    открывается при первом обращении, а после `write_failed` закрывается,
+    чтобы следующий вызов открыл его заново. Вызовы сериализованы lock'ом --
+    verify() приходит из разных потоков `asyncio.to_thread`.
+    """
+
+    def __init__(self, port_factory: Callable[[], SerialPort], *, timeout_s: float = 0.3) -> None:
+        """`port_factory` открывает порт и бросает OSError, если устройства нет."""
+        self._factory = port_factory
+        self._timeout_s = timeout_s
+        self._port: SerialPort | None = None
+        self._lock = threading.Lock()
+
+    def available(self) -> bool:
+        """Порт открыт или открывается прямо сейчас."""
+        with self._lock:
+            return self._ensure_open() is not None
+
+    def challenge(self, nonce: str) -> ChallengeResult:
+        """Как `RfidLink.challenge`; нет порта -- `port_unavailable`, сбой записи -- reopen."""
+        with self._lock:
+            port = self._ensure_open()
+            if port is None:
+                return ChallengeResult(ok=False, resp="", card="", err="port_unavailable")
+            result = RfidLink(port, timeout_s=self._timeout_s).challenge(nonce)
+            if result.err == "write_failed":
+                self._close()
+            return result
+
+    def _ensure_open(self) -> SerialPort | None:
+        if self._port is None:
+            try:
+                self._port = self._factory()
+            except OSError:
+                return None
+        return self._port
+
+    def _close(self) -> None:
+        if self._port is not None:
+            try:
+                self._port.close()
+            except OSError:
+                pass
+            self._port = None

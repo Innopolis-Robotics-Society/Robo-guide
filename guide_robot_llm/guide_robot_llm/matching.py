@@ -28,6 +28,7 @@ import re
 import unicodedata
 
 __all__ = [
+    "focus_on_address",
     "has_leading_wake_word",
     "is_wake_keyword",
     "has_motion_intent",
@@ -112,7 +113,8 @@ _IDLE_DISMISS_WORDS = frozenset({"стоп", "стой", "хватит", "зам
 # «фи рая» -- отсюда не список, а шаблон: ф[еи] + необязательный пробел +
 # ра + необязательный пробел + 1-2 гласных/й. Не «[фв]»: «вера я хочу...»
 # резалось бы как обращение.
-_WAKE_NAME = r"ф[еи]\s?ра\s?[йяеюи]{1,2}(?![а-яё])"
+# Имя вне словаря ASR: «фирая», «ферая», «феррай», «феррари», «фираеи», «фи рая».
+_WAKE_NAME = r"ф[еи]\s?р{1,2}\s?а\s?(?:[йяеюи]{1,2}|ри)(?![а-яё])"
 # Необязательное обращение перед именем («эй фирая», «слушай фирая»).
 _WAKE_PREFIX = r"(?:(?:эй|слушай)[\s,]+)?"
 
@@ -120,6 +122,14 @@ _WAKE_PREFIX = r"(?:(?:эй|слушай)[\s,]+)?"
 # Анкер в начале строки НАМЕРЕННО: имя в середине/конце фразы -- часть
 # содержания («как тебя зовут, Фирая?»), вырезать нельзя.
 _LEADING_WAKE_RE = re.compile(rf"^\s*(?:{_WAKE_PREFIX}{_WAKE_NAME}[\s,.!?—–-]*)+", re.IGNORECASE)
+# Acoustic KWS уже подтвердил имя. Сохраняем прежний узкий разбор ASR,
+# не считаем «феррари» именем и не ищем новое обращение посреди команды.
+_ACOUSTIC_LEADING_WAKE_RE = re.compile(
+    rf"^\s*(?:{_WAKE_PREFIX}ф[еи]\s?ра\s?[йяеюи]{{1,2}}(?![а-яё])[\s,.!?—–-]*)+",
+    re.IGNORECASE,
+)
+# То же обращение в любом месте фразы, но не хвостом слова («эфирая»).
+_ANY_WAKE_RE = re.compile(rf"(?<![а-яё]){_WAKE_PREFIX}{_WAKE_NAME}", re.IGNORECASE)
 
 # Похоже на просьбу поехать/провести куда-то -- подстроки, не NLP.
 # «повтори»/«привет» сюда не входят намеренно (изначальный живой баг,
@@ -195,6 +205,22 @@ def _confident_gate(tokens: set[str]) -> bool:
     return not (tokens & _QUESTION_WORDS)
 
 
+def focus_on_address(text: str) -> str:
+    """Начать фразу с последнего обращения, после которого есть просьба.
+
+    Слитная речь без паузы приходит одним транскриптом: «...говорили о
+    своём фирая включи свет» -- к роботу только «фирая включи свет», а
+    сказанное до обращения ЛЛМ видеть не должна (живой баг). Имя в конце
+    фразы без просьбы после него («как тебя зовут, фирая») -- часть
+    содержания, фраза не меняется.
+    """
+    for match in reversed(list(_ANY_WAKE_RE.finditer(text))):
+        addressed = text[match.start() :]
+        if strip_wake_word(addressed):
+            return addressed.strip()
+    return text
+
+
 def has_leading_wake_word(text: str) -> bool:
     """Проверить, что фраза начинается с wake-слова («фирая», «эй фирая, ...»)."""
     return bool(_LEADING_WAKE_RE.match(text))
@@ -211,7 +237,7 @@ def idle_turn_allowed(raw: str, *, listen_armed: bool) -> bool:
     return listen_armed or has_leading_wake_word(raw)
 
 
-def strip_wake_word(text: str) -> str:
+def strip_wake_word(text: str, *, acoustic_admitted: bool = False) -> str:
     """Срезать ведущее wake-слово («фирая») из финального транскрипта.
 
     Пустая строка в ответе означает, что реплика состояла ТОЛЬКО из
@@ -220,7 +246,8 @@ def strip_wake_word(text: str) -> str:
     ход, который тут же был убит barge-in-ом). Wake-слово в середине или
     конце фразы ("как тебя зовут фирая") не трогается -- это часть содержания.
     """
-    return _LEADING_WAKE_RE.sub("", text, count=1).strip()
+    pattern = _ACOUSTIC_LEADING_WAKE_RE if acoustic_admitted else _LEADING_WAKE_RE
+    return pattern.sub("", text, count=1).strip()
 
 
 def is_wake_keyword(keyword: str) -> bool:

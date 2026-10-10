@@ -12,6 +12,7 @@ WebKit грузит URL один раз: если сервера ещё нет, 
 load-failed повторяем загрузку каждые RETRY_S, а если WebKit убил свой
 web-процесс -- тоже перезагружаем.
 """
+
 from pathlib import Path
 
 import gi
@@ -23,7 +24,19 @@ from gi.repository import Gdk, GLib, Gtk, WebKit2  # noqa: E402
 
 RETRY_S = 3
 
-url = Path("/etc/guide-kiosk/url").read_text(encoding="utf-8").strip() or "https://www.google.com/"
+
+def read_url():
+    """url-hdmi (только этот киоск), иначе общий url, который читает и лицо."""
+    for name in ("url-hdmi", "url"):
+        path = Path("/etc/guide-kiosk") / name
+        if path.is_file():
+            text = path.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+    return "https://www.google.com/"
+
+
+url = read_url()
 
 win = Gtk.Window()
 win.set_title("kiosk")
@@ -32,6 +45,7 @@ win.connect("destroy", Gtk.main_quit)
 
 
 def hide_cursor(window, *_args):
+    """Скрыть указатель после создания GDK-окна."""
     gdk_win = window.get_window()
     if gdk_win is not None:
         gdk_win.set_cursor(Gdk.Cursor.new(Gdk.CursorType.BLANK_CURSOR))
@@ -56,6 +70,7 @@ retry_pending = False
 
 
 def schedule_reload():
+    """Запланировать единственную повторную загрузку страницы."""
     global retry_pending
     if retry_pending:
         return
@@ -71,14 +86,19 @@ def schedule_reload():
 
 
 def on_load_failed(_wv, _event, failing_uri, error):
+    """Повторить загрузку после ошибки главного документа."""
     # Только главный документ: сбой подресурса (картинка, api) сюда не приходит.
-    print(f"guide-kiosk-hdmi: не загрузился {failing_uri}: {error.message}; повтор через {RETRY_S} с",
-          flush=True)
+    print(
+        f"guide-kiosk-hdmi: не загрузился {failing_uri}: {error.message}; "
+        f"повтор через {RETRY_S} с",
+        flush=True,
+    )
     schedule_reload()
     return True  # не показывать стандартную страницу ошибки WebKit
 
 
 def on_web_process_terminated(_wv, reason):
+    """Восстановить страницу после завершения процесса WebKit."""
     print(f"guide-kiosk-hdmi: web-процесс завершился ({reason}); перезагрузка", flush=True)
     schedule_reload()
 

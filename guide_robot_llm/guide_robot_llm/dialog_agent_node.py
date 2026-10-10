@@ -62,6 +62,7 @@ from guide_robot_llm.lib.qos import (
     QOS_INTERACTION_EVENT,
     QOS_MISSION_PRESENCE,
     QOS_MISSION_STATE,
+    QOS_SAY_STREAM,
     QOS_WAKEWORD,
 )
 from guide_robot_llm.llm_client import (
@@ -79,6 +80,7 @@ from guide_robot_msgs.msg import (
     InteractionEvent,
     MissionState,
     Presence,
+    SayStreamChunk,
     Transcript,
     Wakeword,
 )
@@ -126,6 +128,43 @@ class _RemoteToolResult:
     data: dict
 
 
+class _SayStream:
+    """`dialog.streaming.SpeechStream` поверх `say` (tool_broker) и /speech/say_stream.
+
+    `say` блокирует до конца реплики, поэтому первая цель уходит из
+    отдельного потока, а продолжения -- напрямую в tts_node топиком: куски,
+    обогнавшие цель, tts_node буферизует по stream_id.
+    """
+
+    def __init__(self, speak, publish) -> None:
+        self._speak = speak
+        self._publish = publish
+        self._stream_id = uuid.uuid4().hex
+        self._thread: threading.Thread | None = None
+        self._result: _RemoteToolResult | None = None
+
+    def say_first(self, text: str) -> None:
+        def _run() -> None:
+            self._result = self._speak(text, self._stream_id)
+
+        self._thread = threading.Thread(target=_run, name="say-stream", daemon=True)
+        self._thread.start()
+
+    def push(self, text: str) -> None:
+        self._publish(SayStreamChunk(stream_id=self._stream_id, text=text))
+
+    def close(self, tail: str) -> _RemoteToolResult:
+        self._publish(SayStreamChunk(stream_id=self._stream_id, text=tail, final=True))
+        if self._thread is not None:
+            self._thread.join()
+        if self._result is None:
+            return _RemoteToolResult(ok=False, message="say не вернул итог", data={})
+        return self._result
+
+    def cancel(self) -> None:
+        self._publish(SayStreamChunk(stream_id=self._stream_id, cancel=True))
+
+
 @dataclass
 class _EmptyPresence:
     """Заглушка, пока /mission/presence ещё не пришёл ни разу."""
@@ -162,6 +201,7 @@ class DialogAgentNode(LifecycleNode):
             self.declare_parameter(f"llm.{name}.reasoning_budget_tokens", 0)
             self.declare_parameter(f"llm.{name}.first_content_timeout_s", 0.0)
             self.declare_parameter(f"llm.{name}.max_attempts", 2)
+            self.declare_parameter(f"llm.{name}.prewarm", False)
         self.declare_parameter("llm.backoff_s", 0.5)
         self.declare_parameter("llm.max_tokens_answer", 160)
         self.declare_parameter("llm.max_tokens_action", 220)
@@ -192,6 +232,9 @@ class DialogAgentNode(LifecycleNode):
         self.declare_parameter("history.clear_after_absent_s", 60.0)
 
         self.declare_parameter("answer.max_chars", 400)
+        # Озвучивать реплику по предложениям, пока LLM ещё генерирует
+        # (Say.stream_id + /speech/say_stream); false -- одним Say в конце.
+        self.declare_parameter("answer.stream_tts", False)
         self.declare_parameter("wake_grace_s", 8.0)
         self.declare_parameter("ask_visitor_ttl_s", 30.0)
 
@@ -279,6 +322,7 @@ class DialogAgentNode(LifecycleNode):
         self._session_id = uuid.uuid4().hex[:12]
 
         self._answer_max_chars = int(self.get_parameter("answer.max_chars").value)
+        self._stream_tts = bool(self.get_parameter("answer.stream_tts").value)
 
         self._backends = self._build_backends()
         # TASK_external_llm_backend.md §4: гейт по состоянию (строка "Сейчас
@@ -320,6 +364,9 @@ class DialogAgentNode(LifecycleNode):
         )
         self._dialog_turn_pub = self.create_publisher(
             DialogTurnEvent, "/dialog/turn_event", QOS_DIALOG_TURN_EVENT
+        )
+        self._say_stream_pub = self.create_publisher(
+            SayStreamChunk, "/speech/say_stream", QOS_SAY_STREAM
         )
         self._last_dialog_phase = DialogPhase.IDLE
         self._last_dialog_presence = False
@@ -393,6 +440,7 @@ class DialogAgentNode(LifecycleNode):
             # 0.0 в параметре -- нет дедлайна (BackendConfig ждёт None, не 0.0).
             first_content_timeout_s = raw_first_content_timeout_s or None
             max_attempts = int(self.get_parameter(f"llm.{name}.max_attempts").value)
+            prewarm = bool(self.get_parameter(f"llm.{name}.prewarm").value)
 
             api_key = ""
             if api_key_env:
@@ -423,6 +471,7 @@ class DialogAgentNode(LifecycleNode):
                         reasoning_budget_tokens=reasoning_budget_tokens,
                         first_content_timeout_s=first_content_timeout_s,
                         max_attempts=max_attempts,
+                        prewarm=prewarm,
                     )
                 )
             )
@@ -441,6 +490,7 @@ class DialogAgentNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
     def _activate(self) -> TransitionCallbackReturn:
+        self._warm_llm()
         # Каталог -- ОДИН раз здесь, не на on_configure: tool_broker к
         # моменту конфигурации dialog_agent может быть ещё не активен.
         # Отсутствие каталога -- не мягкая деградация: агент без каталога
@@ -562,6 +612,10 @@ class DialogAgentNode(LifecycleNode):
         if turn_pub is not None:
             self.destroy_publisher(turn_pub)
             self._dialog_turn_pub = None
+        stream_pub = getattr(self, "_say_stream_pub", None)
+        if stream_pub is not None:
+            self.destroy_publisher(stream_pub)
+            self._say_stream_pub = None
 
     # -- кэш /mission/state, /mission/presence (свой, не tool_broker'а) ------
 
@@ -722,6 +776,14 @@ class DialogAgentNode(LifecycleNode):
             self.get_logger().debug(f"wakeword {keyword!r} -- не активация, окно не открываю")
             return
         self._arm_listen()
+        # Пока посетитель договаривает вопрос, TLS до шлюза уже готов.
+        self._warm_llm()
+
+    def _warm_llm(self) -> None:
+        """Прогреть соединение первого бэкенда лестницы (no-op без `prewarm`)."""
+        backends = getattr(self, "_backends", None)
+        if backends:
+            backends[0].warm()
 
     # -- ASR: свои вопросы, мимо fast-path'а tool_broker ----------------------
 
@@ -731,7 +793,11 @@ class DialogAgentNode(LifecycleNode):
         # Голое wake-слово ("фирая") -- не реплика: содержания для хода нет,
         # а ведущее "фирая, ..." срезается, чтобы ЛЛМ не видела обращения
         # (живой баг с прежним именем: "робот стоп" принято за существительное).
-        text = matching.strip_wake_word(msg.text)
+        # Обращение посреди слитной речи -- сказанное до него не к роботу.
+        raw = msg.text if msg.wakeword_admitted else matching.focus_on_address(msg.text)
+        if raw != msg.text.strip():
+            self.get_logger().info(f"срезано до обращения: {msg.text.strip()[: -len(raw)]!r}")
+        text = matching.strip_wake_word(raw, acoustic_admitted=msg.wakeword_admitted)
         if not text:
             self._arm_listen()
             self.get_logger().info("транскрипт -- только wake-слово, ход не запускаю")
@@ -743,7 +809,7 @@ class DialogAgentNode(LifecycleNode):
         # Acoustic admission уже подтверждён ASR/session manager. Не теряем
         # длинную команду, если textual wake/grace timeout истёк за время decode.
         if not msg.wakeword_admitted and not matching.idle_turn_allowed(
-            msg.text, listen_armed=followup_armed
+            raw, listen_armed=followup_armed
         ):
             if not self._pending_confirm_ready(text):
                 self.get_logger().info(f"без wakeword, игнор: {text!r}")
@@ -1245,7 +1311,7 @@ class DialogAgentNode(LifecycleNode):
             user_content = "\n".join(lines)
             self.get_logger().info(f"ASR: {text!r}")
 
-            def _complete_answer(messages: list[dict]):
+            def _complete_answer(messages: list[dict], *, on_delta=None, on_attempt=None):
                 start = time.monotonic()
                 try:
                     result = complete_with_fallback(
@@ -1260,6 +1326,8 @@ class DialogAgentNode(LifecycleNode):
                         frequency_penalty=self._answer_frequency_penalty,
                         abort_event=abort_event,
                         backoff_s=self._backoff_s,
+                        on_delta=on_delta,
+                        on_attempt=on_attempt,
                     )
                     self._log_completion_diagnostics(result)
                     return result
@@ -1268,7 +1336,14 @@ class DialogAgentNode(LifecycleNode):
                         {"stage": "llm_answer", "ms": (time.monotonic() - start) * 1000}
                     )
 
-            def _complete_action(messages: list[dict], grammar: str, *, stop_when=None):
+            def _complete_action(
+                messages: list[dict],
+                grammar: str,
+                *,
+                stop_when=None,
+                on_delta=None,
+                on_attempt=None,
+            ):
                 start = time.monotonic()
                 try:
                     result = complete_with_fallback(
@@ -1280,6 +1355,8 @@ class DialogAgentNode(LifecycleNode):
                         abort_event=abort_event,
                         stop_when=stop_when,
                         backoff_s=self._backoff_s,
+                        on_delta=on_delta,
+                        on_attempt=on_attempt,
                     )
                     self._log_completion_diagnostics(result)
                     return result
@@ -1288,12 +1365,15 @@ class DialogAgentNode(LifecycleNode):
                         {"stage": "llm_action", "ms": (time.monotonic() - start) * 1000}
                     )
 
-            def _speak(spoken_text: str) -> _RemoteToolResult:
+            def _speak(spoken_text: str, stream_id: str = "") -> _RemoteToolResult:
                 start = time.monotonic()
+                args = {"text": spoken_text}
+                if stream_id:
+                    args["stream_id"] = stream_id
                 try:
                     return self._execute_tool(
                         "say",
-                        {"text": spoken_text},
+                        args,
                         timeout_s=self._say_result_timeout_s,
                         mission_state=mission.state,
                     )
@@ -1379,6 +1459,11 @@ class DialogAgentNode(LifecycleNode):
                     utterance=text,
                     default_tour_id=next(iter(self._tour_name_by_id), ""),
                     inline_reply=self._prompt_gate,
+                    open_speech_stream=(
+                        (lambda: _SayStream(_speak, self._publish_say_stream))
+                        if self._stream_tts
+                        else None
+                    ),
                 )
             if result.action is not None and result.action.read_only and result.action.result_ok:
                 # Явный read_only-вызов модели (фаза 1) -- те же чанки, что
@@ -1550,6 +1635,11 @@ class DialogAgentNode(LifecycleNode):
             pub.publish(msg)
         except Exception as error:
             self.get_logger().debug(f"публикация результата хода не удалась: {error}")
+
+    def _publish_say_stream(self, msg: SayStreamChunk) -> None:
+        pub = getattr(self, "_say_stream_pub", None)
+        if pub is not None:
+            pub.publish(msg)
 
     def _execute_tool(
         self,
