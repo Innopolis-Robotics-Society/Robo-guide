@@ -15,6 +15,7 @@ __all__ = [
     "QOS_ASR_TRANSCRIPT",
     "QOS_CANCEL_ALL",
     "QOS_DIALOG_PHASE",
+    "QOS_DIALOG_TURN_EVENT",
     "QOS_INTERACTION_EVENT",
     "QOS_MISSION_PRESENCE",
     "QOS_MISSION_STATE",
@@ -90,6 +91,12 @@ QOS_DIALOG_PHASE = QoSProfile(
 # /asr/transcript -- финалы редкие и обязаны дойти все.
 QOS_ASR_TRANSCRIPT = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
+
+QOS_DIALOG_TURN_EVENT = QoSProfile(
     depth=10,
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,

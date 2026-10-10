@@ -8,28 +8,34 @@ XVF-профиле автоматическая отмена остаётся з
 
 from __future__ import annotations
 
+import math
 import threading
 
 import rclpy
 from guide_robot_msgs.msg import (
     CancelAll,
+    DialogTurnEvent,
     PlaybackState,
     SpeakingStatus,
     UtteranceControl,
     UtteranceEvent,
     VadObservation,
     VoiceSessionState,
+    Wakeword,
+    WakewordCandidate,
 )
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_voice.lib.qos import (
     QOS_CANCEL_ALL,
+    QOS_DIALOG_TURN_EVENT,
     QOS_PLAYBACK_STATE,
     QOS_UTTERANCE_CONTROL,
     QOS_UTTERANCE_EVENT,
     QOS_VAD_OBSERVATION,
     QOS_VOICE_SESSION_STATE,
     QOS_VOICE_SPEAKING,
+    QOS_WAKEWORD,
 )
 from guide_robot_voice.lib.session_policy import (
     OutputSnapshot,
@@ -37,9 +43,11 @@ from guide_robot_voice.lib.session_policy import (
     VadWindow,
     VoiceSessionPolicy,
 )
+from guide_robot_voice.lib.wakeword_session_policy import WakewordSessionPolicy
 
 _STATUS_STALE_SEC = 0.4
 _MAX_FUTURE_SKEW_SEC = 0.1
+_WAKE_MAX_AGE_SEC = 0.5
 _ACTIVE_PLAYBACK_STATES = {
     PlaybackState.STATE_BUFFERING,
     PlaybackState.STATE_PLAYING,
@@ -62,6 +70,14 @@ class VoiceSessionManager(LifecycleNode):
         self.declare_parameter("automatic_barge_in_enabled", False)
         self.declare_parameter("audio_profile_validated", False)
         self.declare_parameter("heartbeat_hz", 5.0)
+        self.declare_parameter("wakeword_gated", False)
+        self.declare_parameter("command_window_seconds", 5.0)
+        self.declare_parameter("followup_window_seconds", 0.0)
+        self.declare_parameter("echo_hold_seconds", 0.4)
+        self.declare_parameter("wakeword_barge_in_enabled", False)
+        self.declare_parameter("allow_unvalidated_wakeword_barge_in", False)
+        self.declare_parameter("wakeword_model_sha256", "")
+        self.declare_parameter("wakeword_min_confidence", 0.8601541979408264)
 
         self._policy: VoiceSessionPolicy | None = None
         self._latest_speaking: SpeakingStatus | None = None
@@ -69,18 +85,40 @@ class VoiceSessionManager(LifecycleNode):
         self._active = False
         self._lock = threading.Lock()
         self._last_cancel_epoch = 0
+        self._accepted_wakes = 0
+        self._rejected_wakes = 0
+        self._last_window_deadline = 0.0
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
         """Создать чистую FSM и её ROS-интерфейсы."""
         del state
         try:
-            self._policy = VoiceSessionPolicy(
+            gated = bool(self.get_parameter("wakeword_gated").value)
+            if gated and not str(self.get_parameter("wakeword_model_sha256").value):
+                raise ValueError("wakeword_gated требует wakeword_model_sha256")
+            policy_type = WakewordSessionPolicy if gated else VoiceSessionPolicy
+            options = (
+                {
+                    name: self.get_parameter(name).value
+                    for name in (
+                        "command_window_seconds",
+                        "followup_window_seconds",
+                        "echo_hold_seconds",
+                        "wakeword_barge_in_enabled",
+                        "allow_unvalidated_wakeword_barge_in",
+                    )
+                }
+                if gated
+                else {}
+            )
+            self._policy = policy_type(
                 speech_threshold=float(self.get_parameter("speech_threshold").value),
                 confirm_windows=int(self.get_parameter("barge_confirm_windows").value),
                 automatic_barge_in_enabled=bool(
                     self.get_parameter("automatic_barge_in_enabled").value
                 ),
                 audio_profile_validated=bool(self.get_parameter("audio_profile_validated").value),
+                **options,
             )
             self._control_pub = self.create_lifecycle_publisher(
                 UtteranceControl, "/voice/input_control", QOS_UTTERANCE_CONTROL
@@ -91,6 +129,22 @@ class VoiceSessionManager(LifecycleNode):
             self._cancel_pub = self.create_lifecycle_publisher(
                 CancelAll, "/speech/cancel_all", QOS_CANCEL_ALL
             )
+            if gated:
+                self._wakeword_pub = self.create_lifecycle_publisher(
+                    Wakeword, "/speech/wakeword", QOS_WAKEWORD
+                )
+                self._candidate_sub = self.create_subscription(
+                    WakewordCandidate,
+                    "/voice/wakeword_candidate",
+                    self._on_wakeword_candidate,
+                    QOS_WAKEWORD,
+                )
+                self._dialog_turn_sub = self.create_subscription(
+                    DialogTurnEvent,
+                    "/dialog/turn_event",
+                    self._on_dialog_turn,
+                    QOS_DIALOG_TURN_EVENT,
+                )
             self._vad_sub = self.create_subscription(
                 VadObservation,
                 "/voice/vad_observation",
@@ -125,7 +179,7 @@ class VoiceSessionManager(LifecycleNode):
         validated = bool(self.get_parameter("audio_profile_validated").value)
         self.get_logger().info(
             f"voice_session_manager сконфигурирован: automatic_barge_in={automatic}, "
-            f"audio_profile_validated={validated}"
+            f"audio_profile_validated={validated}, wakeword_gated={gated}"
         )
         return TransitionCallbackReturn.SUCCESS
 
@@ -137,7 +191,10 @@ class VoiceSessionManager(LifecycleNode):
         assert self._policy is not None
         with self._lock:
             self._policy.activate()
+            self._latest_speaking = None
+            self._latest_playback = None
             self._active = True
+            self._last_window_deadline = 0.0
         self._publish_state()
         return TransitionCallbackReturn.SUCCESS
 
@@ -146,6 +203,39 @@ class VoiceSessionManager(LifecycleNode):
         with self._lock:
             self._active = False
         return super().on_deactivate(state)
+
+    def on_cleanup(self, state: State) -> TransitionCallbackReturn:
+        """Удалить интерфейсы, чтобы reconfigure не дублировал admission."""
+        del state
+        with self._lock:
+            self._active = False
+            self._policy = None
+        for name in (
+            "_vad_sub",
+            "_speaking_sub",
+            "_playback_sub",
+            "_event_sub",
+            "_candidate_sub",
+            "_dialog_turn_sub",
+        ):
+            entity = getattr(self, name, None)
+            if entity is not None:
+                self.destroy_subscription(entity)
+                setattr(self, name, None)
+        timer = getattr(self, "_heartbeat", None)
+        if timer is not None:
+            self.destroy_timer(timer)
+            self._heartbeat = None
+        for name in ("_control_pub", "_state_pub", "_cancel_pub", "_wakeword_pub"):
+            entity = getattr(self, name, None)
+            if entity is not None:
+                self.destroy_lifecycle_publisher(entity)
+                setattr(self, name, None)
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_shutdown(self, state: State) -> TransitionCallbackReturn:
+        """То же безопасное освобождение, что при cleanup."""
+        return self.on_cleanup(state)
 
     def _on_vad_observation(self, msg: VadObservation) -> None:
         timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
@@ -166,6 +256,49 @@ class VoiceSessionManager(LifecycleNode):
             self._publish_action(action)
         self._publish_state()
 
+    def _on_wakeword_candidate(self, msg: WakewordCandidate) -> None:
+        """Только принятое событие становится публичным wake и admission."""
+        timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        age = self.get_clock().now().nanoseconds / 1e9 - timestamp
+        with self._lock:
+            if not self._active or not isinstance(self._policy, WakewordSessionPolicy):
+                return
+            if (
+                not -_MAX_FUTURE_SKEW_SEC <= age <= _WAKE_MAX_AGE_SEC
+                or msg.keyword != "фирая"
+                or msg.model_sha256 != str(self.get_parameter("wakeword_model_sha256").value)
+                or not math.isfinite(msg.confidence)
+                or not float(self.get_parameter("wakeword_min_confidence").value)
+                <= msg.confidence
+                <= 1
+            ):
+                self._rejected_wakes += 1
+                return
+            output = self._output_snapshot(msg.device_session_id)
+            actions = self._policy.accept_wake(
+                msg.device_session_id, int(msg.end_sample), timestamp, output
+            )
+            if not actions:
+                self._rejected_wakes += 1
+                return
+            self._accepted_wakes += 1
+        # Wake ДО control: ASR может быстро закончить короткую реплику.
+        accepted = Wakeword()
+        accepted.header.stamp = self.get_clock().now().to_msg()
+        accepted.header.frame_id = msg.header.frame_id
+        accepted.keyword = msg.keyword
+        accepted.confidence = msg.confidence
+        accepted.tts_active = output.speaking
+        accepted.azimuth = float("nan")
+        self._wakeword_pub.publish(accepted)
+        for action in actions:
+            self._publish_action(action)
+        self.get_logger().info(
+            f"KWS принят: score={msg.confidence:.3f}, end_sample={msg.end_sample}, "
+            f"utterance_id={actions[-1].utterance_id}"
+        )
+        self._publish_state()
+
     def _on_speaking(self, msg: SpeakingStatus) -> None:
         with self._lock:
             self._latest_speaking = msg
@@ -180,15 +313,51 @@ class VoiceSessionManager(LifecycleNode):
         self._publish_state()
 
     def _on_utterance_event(self, msg: UtteranceEvent) -> None:
-        if msg.event not in (UtteranceEvent.EVENT_FINAL, UtteranceEvent.EVENT_DISCARDED):
+        if msg.event not in (
+            UtteranceEvent.EVENT_FINAL,
+            UtteranceEvent.EVENT_DISCARDED,
+            UtteranceEvent.EVENT_ENDPOINT,
+        ):
             return
         with self._lock:
             if not self._active or self._policy is None:
                 return
             if msg.device_session_id != self._policy.device_session_id:
                 return
-            self._policy.finish_utterance(int(msg.utterance_id), msg.status)
+            if msg.event == UtteranceEvent.EVENT_ENDPOINT:
+                if isinstance(self._policy, WakewordSessionPolicy):
+                    self._policy.endpoint(int(msg.utterance_id))
+            else:
+                if isinstance(self._policy, WakewordSessionPolicy):
+                    self._policy.finish_utterance(
+                        int(msg.utterance_id), msg.status, int(msg.start_sample)
+                    )
+                else:
+                    self._policy.finish_utterance(int(msg.utterance_id), msg.status)
+                if (
+                    isinstance(self._policy, WakewordSessionPolicy)
+                    and self._policy.state_reason == "wakeword_only"
+                ):
+                    self.get_logger().info(
+                        f"Имя принято, окно команды: {self._policy.command_window_seconds:.1f} с "
+                        "(без повторного имени)"
+                    )
             self._policy.update_output(self._output_snapshot(self._policy.device_session_id))
+        self._publish_state()
+
+    def _on_dialog_turn(self, msg: DialogTurnEvent) -> None:
+        if not self._stamp_is_fresh(msg.stamp):
+            return
+        with self._lock:
+            if not self._active or not isinstance(self._policy, WakewordSessionPolicy):
+                return
+            self._policy.reply_finished(
+                msg.device_session_id,
+                int(msg.utterance_id),
+                int(msg.start_sample),
+                msg.stamp.sec + msg.stamp.nanosec / 1e9,
+                bool(msg.reply_completed),
+            )
         self._publish_state()
 
     def _output_snapshot(self, device_session_id: str) -> OutputSnapshot:
@@ -214,7 +383,11 @@ class VoiceSessionManager(LifecycleNode):
             interruptible=bool(
                 speaking is not None and speaking.interruptible and speaking_status_fresh
             ),
-            speaking_fresh=speaking_status_fresh or playback_status_fresh,
+            # Для акустического wake не угадываем отсутствие output по одному
+            # heartbeat: TTS и hardware-owner должны быть оба свежими.
+            speaking_fresh=(speaking_status_fresh and playback_status_fresh)
+            if bool(self.get_parameter("wakeword_gated").value)
+            else speaking_status_fresh or playback_status_fresh,
             playback_fresh=playback_active,
             playback_stopped=bool(
                 playback_status_fresh
@@ -239,6 +412,12 @@ class VoiceSessionManager(LifecycleNode):
         control.control_sequence = action.control_sequence
         control.reason = action.reason
         self._control_pub.publish(control)
+        if action.reason in ("command_after_name", "followup_without_wakeword"):
+            self.get_logger().info(
+                f"Команда без повторного имени принята ({action.reason}): "
+                f"utterance_id={action.utterance_id}, "
+                f"onset_sample={action.onset_sample}"
+            )
 
         if not action.cancel_output:
             return
@@ -260,6 +439,20 @@ class VoiceSessionManager(LifecycleNode):
             if not self._active or self._policy is None:
                 return
             state = VoiceSessionState()
+            if isinstance(self._policy, WakewordSessionPolicy):
+                self._policy.tick(
+                    self.get_clock().now().nanoseconds / 1e9,
+                    self._output_snapshot(self._policy.device_session_id),
+                )
+                if (
+                    self._policy.command_window_open
+                    and self._policy.command_until != self._last_window_deadline
+                ):
+                    self._last_window_deadline = self._policy.command_until
+                    self.get_logger().info(
+                        f"Окно без повторного имени открыто ({self._policy.command_window_kind}): "
+                        f"до {self._policy.command_until:.3f}"
+                    )
             state.stamp = self.get_clock().now().to_msg()
             state.state = int(self._policy.state)
             state.device_session_id = self._policy.device_session_id

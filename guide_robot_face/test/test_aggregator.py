@@ -54,3 +54,20 @@ def test_listening_cues() -> None:
 
 def test_sleep_without_presence_when_idle_pipeline() -> None:
     assert decide(FaceInputs(dialog_phase=PHASE_IDLE, presence=False)) == "sleep"
+
+
+def test_managed_listening_ignores_crowd_and_implicit_dialog_prompt():
+    assert (
+        decide(
+            FaceInputs(
+                session_managed=True,
+                presence=True,
+                vad_active=True,
+                wakeword_hold=True,
+                dialog_phase=PHASE_AWAITING,
+            )
+        )
+        == "idle"
+    )
+    assert decide(FaceInputs(session_managed=True, session_listening=True)) == "listening"
+    assert decide(FaceInputs(session_managed=True, session_recognizing=True)) == "thinking"

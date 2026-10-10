@@ -58,6 +58,7 @@ from guide_robot_llm.lib.qos import (
     QOS_ASR_TRANSCRIPT,
     QOS_CANCEL_ALL,
     QOS_DIALOG_PHASE,
+    QOS_DIALOG_TURN_EVENT,
     QOS_INTERACTION_EVENT,
     QOS_MISSION_PRESENCE,
     QOS_MISSION_STATE,
@@ -74,6 +75,7 @@ from guide_robot_llm.tools import schema
 from guide_robot_msgs.msg import (
     CancelAll,
     DialogPhase,
+    DialogTurnEvent,
     InteractionEvent,
     MissionState,
     Presence,
@@ -206,6 +208,7 @@ class DialogAgentNode(LifecycleNode):
         # не выбрасывается (живой баг «со второго раза»), а ждёт конца хода;
         # хранится только ПОСЛЕДНЯЯ реплика -- новое намерение побеждает.
         self._pending_text: str | None = None
+        self._pending_voice_origin: tuple[str, int, int] | None = None
         # Слот отложенного да/нет-ответа на ask_visitor (тот же живой баг
         # «со второго раза», но для fast-path пары da/net): в отличие от
         # _pending_text слот `_pending_question` к этому моменту уже снят
@@ -314,6 +317,9 @@ class DialogAgentNode(LifecycleNode):
         # публикуем ТОЛЬКО на смену (phase, presence), см. _publish_dialog_phase.
         self._dialog_phase_pub = self.create_publisher(
             DialogPhase, "/dialog/phase", QOS_DIALOG_PHASE
+        )
+        self._dialog_turn_pub = self.create_publisher(
+            DialogTurnEvent, "/dialog/turn_event", QOS_DIALOG_TURN_EVENT
         )
         self._last_dialog_phase = DialogPhase.IDLE
         self._last_dialog_presence = False
@@ -512,6 +518,7 @@ class DialogAgentNode(LifecycleNode):
         with self._turn_lock:
             self._pending_text = None
             self._pending_answer_replay = None
+            self._pending_voice_origin = None
         with self._state_lock:
             self._last_mission_state = None
             self._last_presence = None
@@ -551,6 +558,10 @@ class DialogAgentNode(LifecycleNode):
         if phase_pub is not None:
             self.destroy_publisher(phase_pub)
             self._dialog_phase_pub = None
+        turn_pub = getattr(self, "_dialog_turn_pub", None)
+        if turn_pub is not None:
+            self.destroy_publisher(turn_pub)
+            self._dialog_turn_pub = None
 
     # -- кэш /mission/state, /mission/presence (свой, не tool_broker'а) ------
 
@@ -697,8 +708,9 @@ class DialogAgentNode(LifecycleNode):
     def _on_wakeword(self, msg: Wakeword) -> None:
         """Открыть окно слушания на активацию.
 
-        tts_active не гейтит: «Фирая» во время рассказа -- штатный interrupt;
-        эхо колонки режется exact-match в wakeword_node.
+        tts_active здесь не гейтит: в acoustic-gated профиле событие уже
+        прошло guards session manager. Защита от эха требует аппаратного AEC,
+        проверка текста/keyword сама по себе собственный голос не исключает.
 
         Стоп-слова тоже приходят как `Wakeword` -- окно они не открывают.
         Лексика имени -- только в `matching` (одна на транскрипт и на keyword):
@@ -728,7 +740,11 @@ class DialogAgentNode(LifecycleNode):
         if mission is None:
             return
         followup_armed = self._listen_armed() or self._wake_grace_active()
-        if not matching.idle_turn_allowed(msg.text, listen_armed=followup_armed):
+        # Acoustic admission уже подтверждён ASR/session manager. Не теряем
+        # длинную команду, если textual wake/grace timeout истёк за время decode.
+        if not msg.wakeword_admitted and not matching.idle_turn_allowed(
+            msg.text, listen_armed=followup_armed
+        ):
             if not self._pending_confirm_ready(text):
                 self.get_logger().info(f"без wakeword, игнор: {text!r}")
                 return
@@ -736,7 +752,13 @@ class DialogAgentNode(LifecycleNode):
         # прерывает ход в полёте (`ход в полёте -- текущий прерван`).
         self._disarm_listen()
         self._disarm_wake_grace()
-        self._handle_transcript(text)
+        if msg.wakeword_admitted:
+            self._handle_transcript(
+                text,
+                voice_origin=(msg.device_session_id, int(msg.utterance_id), int(msg.start_sample)),
+            )
+        else:
+            self._handle_transcript(text)
 
     def _arm_listen(self) -> None:
         with self._state_lock:
@@ -803,7 +825,13 @@ class DialogAgentNode(LifecycleNode):
             return {"kind": "no", "question": pending["question"], "on_no": pending["on_no"]}
         return None
 
-    def _handle_transcript(self, text: str, *, is_replay: bool = False) -> None:
+    def _handle_transcript(
+        self,
+        text: str,
+        *,
+        is_replay: bool = False,
+        voice_origin: tuple[str, int, int] | None = None,
+    ) -> None:
         """Обработать реплику: гейты -> fast-path -> старт хода (или отложить).
 
         `is_replay=True` -- реплика пришла из слота `_pending_text` после
@@ -823,7 +851,12 @@ class DialogAgentNode(LifecycleNode):
         pending_answer = None if self._raw_llm else self._consume_pending_question(text)
         if pending_answer is not None:
             self._start_pending_answer_turn(
-                mission, text, history_cleared, utterance_ts, pending_answer
+                mission,
+                text,
+                history_cleared,
+                utterance_ts,
+                pending_answer,
+                voice_origin=voice_origin,
             )
             return
 
@@ -849,6 +882,7 @@ class DialogAgentNode(LifecycleNode):
                 # побеждает, каким бы он ни был.
                 self._pending_text = text
                 self._pending_answer_replay = None
+                self._pending_voice_origin = voice_origin
                 if self._abort_event is not None:
                     self._abort_event.set()
                 self.get_logger().info(
@@ -863,6 +897,7 @@ class DialogAgentNode(LifecycleNode):
         threading.Thread(
             target=self._run_turn,
             args=(turn_id, mission, text, history_cleared, utterance_ts),
+            kwargs={"voice_origin": voice_origin, "origin_session_id": self._session_id},
             daemon=True,
         ).start()
 
@@ -875,6 +910,7 @@ class DialogAgentNode(LifecycleNode):
         pending_answer: dict,
         *,
         is_replay: bool = False,
+        voice_origin: tuple[str, int, int] | None = None,
     ) -> None:
         """Старт хода по да/нет на `ask_visitor` (stage2 C2).
 
@@ -898,6 +934,7 @@ class DialogAgentNode(LifecycleNode):
                     return
                 self._pending_answer_replay = (text, pending_answer)
                 self._pending_text = None
+                self._pending_voice_origin = voice_origin
                 if self._abort_event is not None:
                     self._abort_event.set()
                 self.get_logger().info(
@@ -912,6 +949,7 @@ class DialogAgentNode(LifecycleNode):
         threading.Thread(
             target=self._run_turn,
             args=(turn_id, mission, text, history_cleared, utterance_ts, pending_answer),
+            kwargs={"voice_origin": voice_origin, "origin_session_id": self._session_id},
             daemon=True,
         ).start()
 
@@ -1086,6 +1124,8 @@ class DialogAgentNode(LifecycleNode):
         history_cleared: bool,
         utterance_ts: float,
         pending_answer: dict | None = None,
+        voice_origin: tuple[str, int, int] | None = None,
+        origin_session_id: str | None = None,
     ) -> None:
         with self._turn_lock:
             abort_event = self._abort_event
@@ -1387,11 +1427,23 @@ class DialogAgentNode(LifecycleNode):
                 self._pending_text = None
                 pending_answer_replay = self._pending_answer_replay
                 self._pending_answer_replay = None
+                pending_voice_origin = self._pending_voice_origin
+                self._pending_voice_origin = None
                 self._turn_in_flight = False
                 self._abort_event = None
             if pending_text is None and pending_answer_replay is None:
                 self._disarm_listen()
             self._arm_wake_grace()
+            completed = bool(
+                result is not None
+                and result.stopped_reason == "ok"
+                and result.say_ok
+                and not result.say_preempted
+                and not (abort_event is not None and abort_event.is_set())
+                and pending_text is None
+                and pending_answer_replay is None
+            )
+            self._publish_turn_event(voice_origin, turn_id, origin_session_id, completed)
 
         if result is not None:
             now = time.time()
@@ -1451,7 +1503,9 @@ class DialogAgentNode(LifecycleNode):
         # (последний голос побеждает), оба реплея сюда попасть не могут.
         if pending_text is not None:
             self.get_logger().info("стартую отложенную реплику из слота")
-            self._handle_transcript(pending_text, is_replay=True)
+            self._handle_transcript(
+                pending_text, is_replay=True, voice_origin=pending_voice_origin
+            )
         elif pending_answer_replay is not None:
             replay_text, replay_answer = pending_answer_replay
             self.get_logger().info("стартую отложенный ответ на ask_visitor из слота")
@@ -1466,7 +1520,36 @@ class DialogAgentNode(LifecycleNode):
                     time.time(),
                     replay_answer,
                     is_replay=True,
+                    voice_origin=pending_voice_origin,
                 )
+
+    def _publish_turn_event(
+        self,
+        origin: tuple[str, int, int] | None,
+        turn_id: int,
+        session_id: str | None,
+        completed: bool,
+    ) -> None:
+        """Приёмка голоса использует результат Say, а не latched DialogPhase."""
+        pub = getattr(self, "_dialog_turn_pub", None)
+        if (
+            pub is None
+            or not self._active
+            or origin is None
+            or not origin[0]
+            or session_id != self._session_id
+        ):
+            return
+        msg = DialogTurnEvent()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.device_session_id, msg.utterance_id, msg.start_sample = origin
+        msg.dialog_session_id = session_id
+        msg.turn_id = turn_id
+        msg.reply_completed = completed
+        try:
+            pub.publish(msg)
+        except Exception as error:
+            self.get_logger().debug(f"публикация результата хода не удалась: {error}")
 
     def _execute_tool(
         self,

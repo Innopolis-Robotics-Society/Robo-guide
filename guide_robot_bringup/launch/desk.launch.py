@@ -37,6 +37,16 @@ def generate_launch_description():
         default_value="true",
         description="Launch the face HTTP/SVG node",
     )
+    declare_wakeword_enabled = DeclareLaunchArgument("wakeword_enabled", default_value="false")
+    dialogue_arguments = [
+        DeclareLaunchArgument("followup_window_seconds", default_value="8.0"),
+        DeclareLaunchArgument("wakeword_barge_in_enabled", default_value="false"),
+        DeclareLaunchArgument(
+            "allow_unvalidated_wakeword_barge_in",
+            default_value="false",
+            description="Experimental stand only: allow KWS interruption before AEC validation",
+        ),
+    ]
     declare_tts_backend = DeclareLaunchArgument(
         "tts_backend",
         default_value="silero",
@@ -70,6 +80,12 @@ def generate_launch_description():
             # therefore cannot accidentally inherit USB/Pulse parameters.
             "voice_params_file": os.path.join(pkg_voice, "config", "voice_jetson.yaml"),
             "voice_profile": voice_profile,
+            "wakeword_enabled": LaunchConfiguration("wakeword_enabled"),
+            "followup_window_seconds": LaunchConfiguration("followup_window_seconds"),
+            "wakeword_barge_in_enabled": LaunchConfiguration("wakeword_barge_in_enabled"),
+            "allow_unvalidated_wakeword_barge_in": LaunchConfiguration(
+                "allow_unvalidated_wakeword_barge_in"
+            ),
             "launch_face": launch_face,
             "tts_backend": tts_backend,
             "automatic_barge_in_enabled": automatic_barge_in_enabled,
@@ -82,8 +98,10 @@ def generate_launch_description():
     )
     return LaunchDescription(
         [
+            *dialogue_arguments,
             declare_autostart,
             declare_voice_profile,
+            declare_wakeword_enabled,
             declare_launch_face,
             declare_tts_backend,
             declare_automatic_barge_in_enabled,

@@ -47,6 +47,7 @@ from guide_robot_msgs.msg import (
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_voice.lib.asr_model import GigaAmCtc
+from guide_robot_voice.lib.keyword_spotter import normalize_text
 from guide_robot_voice.lib.qos import (
     QOS_ASR_PARTIAL,
     QOS_ASR_TRANSCRIPT,
@@ -58,6 +59,7 @@ from guide_robot_voice.lib.qos import (
 )
 from guide_robot_voice.lib.ring import IndexedAudioRing, RingBuffer
 from guide_robot_voice.lib.turn_policy import TurnPolicy, TurnPolicyConfig
+from guide_robot_voice.lib.wakeword_command import command_after_wake
 
 _SAMPLE_RATE = 16000
 _SPEAKING_STATUS_STALE_SEC = 0.4
@@ -80,12 +82,13 @@ class _DecodeJob:
     device_session_id: str
     start_sample: int
     end_sample: int
+    reason: str = ""
 
 
 class AsrNode(LifecycleNode):
     """Lifecycle-нода распознавания речи."""
 
-    def __init__(self) -> None:
+    def __init__(self) -> None:  # noqa: PLR0915 -- one lifecycle parameter registry
         """Объявить параметры. Модель загружается в on_configure."""
         super().__init__("asr_node")
 
@@ -104,6 +107,10 @@ class AsrNode(LifecycleNode):
         self.declare_parameter("min_final_chars", 2)
         self.declare_parameter("gate_on_tts", False)
         self.declare_parameter("session_managed_input", False)
+        self.declare_parameter("wakeword_gated_input", False)
+        self.declare_parameter("warmup_on_configure", False)
+        self.declare_parameter("wakeword_only_phrases", ["фирая", "фирайя", "фира я", "фи рая"])
+        self.declare_parameter("command_pre_roll_ms", 160.0)
         # При gate_on_tts: всё равно копить окно и слать /asr/partial во время
         # TTS (для wakeword «Фирая»/«стоп»), финалы в диалог не открывать.
         self.declare_parameter("wakeword_listen_during_tts", False)
@@ -127,6 +134,7 @@ class AsrNode(LifecycleNode):
         self._utterance_start_sample = 0
         self._utterance_next_sample = 0
         self._utterance_decision = UtteranceControl.DECISION_ADMIT
+        self._utterance_reason = ""
         self._last_partial_text = ""
         self._latest_control_sequence = -1
         self._latest_control_utterance_id = 0
@@ -178,6 +186,13 @@ class AsrNode(LifecycleNode):
             num_threads=int(self.get_parameter("num_threads").value),
         )
         self._asr.load()
+        if (
+            bool(self.get_parameter("wakeword_gated_input").value)
+            and not self._session_managed_input()
+        ):
+            raise ValueError("wakeword_gated_input требует session_managed_input=true")
+        if bool(self.get_parameter("warmup_on_configure").value):
+            self._asr.decode(np.zeros(_SAMPLE_RATE, dtype=np.int16))
         self.get_logger().info(f"модель ASR загружена за {(time.monotonic() - started):.1f} с")
 
         self._turn_policy = TurnPolicy(
@@ -256,6 +271,10 @@ class AsrNode(LifecycleNode):
         """Перестать обрабатывать входящие кадры."""
         with self._lock:
             self._is_active = False
+            if bool(self.get_parameter("wakeword_gated_input").value):
+                self._admission.clear()
+                self._pending_control = None
+                self._close_utterance()
         return super().on_deactivate(state)
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
@@ -383,11 +402,17 @@ class AsrNode(LifecycleNode):
             # не может вытеснить новый даже при переупорядочивании DDS.
             self._latest_control_sequence = int(msg.control_sequence)
             self._latest_control_utterance_id = int(msg.utterance_id)
-            self._admission[key] = int(msg.decision)
+            decision = int(msg.decision)
+            if (
+                bool(self.get_parameter("wakeword_gated_input").value)
+                and decision != UtteranceControl.DECISION_ADMIT
+            ):
+                decision = UtteranceControl.DECISION_REJECT
+            self._admission[key] = decision
             if len(self._admission) > _MAX_ADMISSION_RECORDS:
                 self._admission.pop(next(iter(self._admission)))
 
-            if msg.decision == UtteranceControl.DECISION_REJECT:
+            if decision == UtteranceControl.DECISION_REJECT:
                 if (
                     self._pending_control is not None
                     and (
@@ -464,6 +489,13 @@ class AsrNode(LifecycleNode):
                 if msg.active and not self._session_managed_input():
                     self._open_utterance()
                 return
+            if bool(self.get_parameter("wakeword_gated_input").value):
+                vad_end = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9 + 0.032
+                onset = self._utterance_timestamp + self._prefix_samples / _SAMPLE_RATE
+                if vad_end <= onset:
+                    # DDS control может обогнать VAD. Старое состояние тишины
+                    # до принятого wake не имеет права финализировать новую реплику.
+                    return
             silence_ms = 0.0 if msg.active else msg.state_duration * 1000.0
             utterance_ms = self._utterance_speech_ms()
             last_partial = self._last_partial_text
@@ -505,9 +537,16 @@ class AsrNode(LifecycleNode):
     def _open_managed_utterance(self, control: UtteranceControl) -> None:
         """Открыть segment по точному onset_sample с настраиваемым pre-roll."""
         assert self._indexed_pre_roll is not None
-        pre_roll_samples = int(
-            _SAMPLE_RATE * float(self.get_parameter("pre_roll_ms").value) / 1000.0
-        )
+        pre_roll_ms = float(self.get_parameter("pre_roll_ms").value)
+        if bool(self.get_parameter("wakeword_gated_input").value) and control.reason in (
+            "command_after_name",
+            "followup_without_wakeword",
+        ):
+            # Команда после паузы: не захватывать имя повторно из 1,2-с pre-roll.
+            pre_roll_ms = min(
+                pre_roll_ms, max(0.0, float(self.get_parameter("command_pre_roll_ms").value))
+            )
+        pre_roll_samples = int(_SAMPLE_RATE * pre_roll_ms / 1000.0)
         requested_start = max(0, int(control.onset_sample) - pre_roll_samples)
         snapshot = self._indexed_pre_roll.snapshot_from(control.device_session_id, requested_start)
         if snapshot is None:
@@ -533,6 +572,7 @@ class AsrNode(LifecycleNode):
         self._utterance_start_sample = snapshot.first_sample
         self._utterance_next_sample = snapshot.next_sample
         self._utterance_decision = int(control.decision)
+        self._utterance_reason = control.reason
         self._last_partial_text = ""
         self._utterances_total += 1
         if snapshot.underflow:
@@ -552,6 +592,7 @@ class AsrNode(LifecycleNode):
         self._utterance_start_sample = 0
         self._utterance_next_sample = 0
         self._utterance_decision = UtteranceControl.DECISION_ADMIT
+        self._utterance_reason = ""
         self._last_partial_text = ""
 
     def _discard_open_utterance(self, reason: str) -> None:
@@ -641,6 +682,7 @@ class AsrNode(LifecycleNode):
                 self._utterance_device_session_id,
                 self._utterance_start_sample,
                 self._utterance_next_sample,
+                self._utterance_reason,
             )
             if kind == "final":
                 if self._session_managed_input():
@@ -662,8 +704,22 @@ class AsrNode(LifecycleNode):
                 self._run_decode(job)
             except Exception as error:
                 self.get_logger().error(f"сбой декода ASR: {error}")
+                if job.kind == "final" and self._session_managed_input():
+                    with self._lock:
+                        self._publish_utterance_event(
+                            UtteranceEvent.EVENT_DISCARDED, "decode_error", job=job
+                        )
 
-    def _run_decode(self, job: _DecodeJob) -> None:
+    # Admission and final publication must stay in one lock-protected transaction.
+    def _run_decode(self, job: _DecodeJob) -> None:  # noqa: PLR0911, PLR0912
+        if bool(self.get_parameter("wakeword_gated_input").value):
+            with self._lock:
+                if (
+                    not self._is_active
+                    or self._admission.get((job.device_session_id, job.utterance_id))
+                    != UtteranceControl.DECISION_ADMIT
+                ):
+                    return
         assert self._asr is not None
         result = self._asr.decode(job.pcm) if job.pcm.size else None
         text = result.text.strip() if result is not None else ""
@@ -690,6 +746,8 @@ class AsrNode(LifecycleNode):
         # Проверка admission и публикация -- один критический участок.
         # Иначе поздний REJECT может проскочить между ними.
         with self._lock:
+            if bool(self.get_parameter("wakeword_gated_input").value) and not self._is_active:
+                return
             decision = self._admission.get(
                 (job.device_session_id, job.utterance_id),
                 UtteranceControl.DECISION_ADMIT
@@ -705,6 +763,28 @@ class AsrNode(LifecycleNode):
                 )
                 return
 
+            if (
+                bool(self.get_parameter("wakeword_gated_input").value)
+                and job.reason == "acoustic_wakeword"
+            ):
+                command, aligned = command_after_wake(
+                    text,
+                    tuple(getattr(result, "tokens", ())),
+                    tuple(getattr(result, "timestamps", ())),
+                    job.prefix_samples / _SAMPLE_RATE,
+                    list(self.get_parameter("wakeword_only_phrases").value),
+                )
+                if not command:
+                    self.get_logger().info(
+                        f"wake fragment {text!r}: жду команду, "
+                        f"ctc_timing={aligned}, utterance_id={job.utterance_id}"
+                    )
+                    self._publish_utterance_event(
+                        UtteranceEvent.EVENT_FINAL, "wakeword_only", job=job
+                    )
+                    return
+                text = command
+
             min_chars = int(self.get_parameter("min_final_chars").value)
             if len(text) < min_chars:
                 self._finals_dropped_short += 1
@@ -716,6 +796,17 @@ class AsrNode(LifecycleNode):
                 return
 
             self.get_logger().info(f"final {text!r} {job.speech_ms:.0f}ms")
+            if (
+                bool(self.get_parameter("wakeword_gated_input").value)
+                and job.reason not in ("command_after_name", "followup_without_wakeword")
+                and normalize_text(text)
+                in {
+                    normalize_text(phrase)
+                    for phrase in self.get_parameter("wakeword_only_phrases").value
+                }
+            ):
+                self._publish_utterance_event(UtteranceEvent.EVENT_FINAL, "wakeword_only", job=job)
+                return
             self._publish_transcript(text, confidence, is_final=True, job=job)
             self._finals_published += 1
             if self._session_managed_input():
@@ -734,8 +825,16 @@ class AsrNode(LifecycleNode):
         msg.header.stamp = self._seconds_to_time_msg(job.timestamp)
         msg.header.frame_id = str(self.get_parameter("frame_id").value)
         msg.utterance_id = job.utterance_id
+        msg.device_session_id = job.device_session_id
+        msg.start_sample = job.start_sample
         msg.text = text
         msg.is_final = is_final
+        msg.wakeword_admitted = (
+            is_final
+            and bool(self.get_parameter("wakeword_gated_input").value)
+            and self._admission.get((job.device_session_id, job.utterance_id))
+            == UtteranceControl.DECISION_ADMIT
+        )
         msg.confidence = confidence
         msg.speech_start = job.prefix_samples / _SAMPLE_RATE
         msg.speech_end = job.total_samples / _SAMPLE_RATE

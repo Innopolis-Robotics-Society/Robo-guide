@@ -24,5 +24,5 @@ convention = "pep257"
 "setup.py" = ["D"]
 
 [tool.codespell]
-# HDA (High Definition Audio) приходит дословно из вывода ALSA.
-ignore-words-list = "hda"
+# HDA (High Definition Audio) -- вывод ALSA; AFE -- audio front-end.
+ignore-words-list = "hda,afe"

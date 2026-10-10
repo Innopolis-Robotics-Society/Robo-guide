@@ -1,0 +1,7 @@
+# Install into a separate --target directory; use existing CPU PyTorch/ONNX Runtime.
+# Training below uses real recordings only, not the TTS training CLI.
+openwakeword==0.6.0
+onnx==1.16.2
+scikit-learn==1.5.2
+joblib==1.4.2
+threadpoolctl==3.5.0

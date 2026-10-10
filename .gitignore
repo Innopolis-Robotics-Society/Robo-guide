@@ -25,6 +25,10 @@ guide_robot_navigation/generated_config/
 odom_test_runs/
 asr_takes/
 
+# Локальные голосовые датасеты, WAV и резервные копии записей
+/datasets/wakeword/
+/recordings/
+
 # Secrets (SELECTEL_AIG_KEY и т.п.) -- cp .env.example .env, см. compose.yaml
 .env
 

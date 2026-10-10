@@ -42,6 +42,9 @@ class AsrResult:
     text: str
     confidence: float
     """[0..1], среднее по токенам. -1.0, если бэкенд не отдаёт log-вероятности."""
+    tokens: tuple[str, ...] = ()
+    timestamps: tuple[float, ...] = ()
+    """CTC эмиссии в секундах от начала переданного PCM, не wall clock."""
 
 
 class GigaAmCtc:
@@ -89,7 +92,12 @@ class GigaAmCtc:
 
         log_probs = result.ys_log_probs
         confidence = min(max(float(np.exp(np.mean(log_probs))), 0.0), 1.0) if log_probs else -1.0
-        return AsrResult(text=result.text, confidence=confidence)
+        return AsrResult(
+            text=result.text,
+            confidence=confidence,
+            tokens=tuple(result.tokens),
+            timestamps=tuple(result.timestamps),
+        )
 
     def close(self) -> None:
         """Освободить сессию."""

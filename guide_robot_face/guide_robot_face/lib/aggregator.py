@@ -32,6 +32,9 @@ class FaceInputs:
     vad_active: bool = False
     wakeword_hold: bool = False
     presence: bool = False
+    session_managed: bool = False
+    session_listening: bool = False
+    session_recognizing: bool = False
 
 
 def decide(inp: FaceInputs) -> str:
@@ -41,11 +44,16 @@ def decide(inp: FaceInputs) -> str:
     Езда бьёт thinking/speaking: иначе ACTION старта тура и транзитный
     TTS держат «думаю»/«говорю» всю дорогу до остановки.
     """
-    listening = inp.vad_active or inp.wakeword_hold or inp.dialog_phase == PHASE_AWAITING
+    listening = (
+        inp.session_listening
+        if inp.session_managed
+        else (inp.vad_active or inp.wakeword_hold or inp.dialog_phase == PHASE_AWAITING)
+    )
     flags = {
         "error": inp.supervisor_fault,
         "speaking": inp.speaking,
-        "thinking": inp.dialog_phase in (PHASE_ACTION, PHASE_ANSWER),
+        "thinking": (inp.session_managed and inp.session_recognizing)
+        or inp.dialog_phase in (PHASE_ACTION, PHASE_ANSWER),
         "driving": inp.navigating,
         "listening": listening,
     }

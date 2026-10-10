@@ -24,6 +24,12 @@ python3 -m pip install --no-cache-dir \
     rank_bm25 \
     snowballstemmer
 
+# openWakeWord imports these even when only CPU ONNX inference is used.
+# --no-deps keeps the platform-specific ONNX/CUDA installation untouched
+# and avoids pulling the unrelated tflite runtime on Jetson.
+python3 -m pip install --no-cache-dir "numpy<2" scipy scikit-learn tqdm requests
+python3 -m pip install --no-cache-dir --no-deps openwakeword==0.6.0
+
 # apt's python3-pytest (6.2.5, Ubuntu 22.04) can't load anyio's pytest11
 # plugin (needs pytest>=7's _pytest.scope) -- anyio arrives transitively via
 # ultralytics -> huggingface_hub -> httpx in the ML layer below, nothing to

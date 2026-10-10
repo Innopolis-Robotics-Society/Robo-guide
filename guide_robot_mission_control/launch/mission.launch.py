@@ -45,14 +45,14 @@ barge-in -> пауза нарратива. use_container:=false поднимае
 "narration_server"), совпадают с именами отдельных executables.
 """
 
-from launch.actions import DeclareLaunchArgument, GroupAction
-from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.conditions import IfCondition, UnlessCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 
 # design §10: presence_monitor -> narration_server -> mission_fsm. Порядок
 # существен только для lifecycle-переходов при autostart:=true (mission_fsm
@@ -84,6 +84,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument("autostart", default_value="false"),
         DeclareLaunchArgument("log_level", default_value="info"),
+        DeclareLaunchArgument("wakeword_gated", default_value="false"),
     ]
 
     node_params = [ParameterFile(params, allow_substs=True), {"use_sim_time": use_sim_time}]
@@ -93,7 +94,29 @@ def generate_launch_description() -> LaunchDescription:
         executable="presence_monitor",
         name="presence_monitor",
         output="screen",
-        parameters=node_params,
+        parameters=[
+            *node_params,
+            ParameterFile(
+                PythonExpression(
+                    [
+                        "'",
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare("guide_robot_mission_control"),
+                                "config",
+                                "mission_wakeword.yaml",
+                            ]
+                        ),
+                        "' if '",
+                        LaunchConfiguration("wakeword_gated"),
+                        "'.lower() in ('true', '1', 'yes') else '",
+                        params,
+                        "'",
+                    ]
+                ),
+                allow_substs=True,
+            ),
+        ],
         arguments=["--ros-args", "--log-level", log_level],
     )
 

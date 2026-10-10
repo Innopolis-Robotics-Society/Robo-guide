@@ -134,6 +134,7 @@ def generate_launch_description():
         description="Voice hardware profile passed through to high_level_stack",
     )
     # tooling
+    declare_wakeword_enabled = DeclareLaunchArgument("wakeword_enabled", default_value="false")
     declare_launch_foxglove = DeclareLaunchArgument(
         "launch_foxglove", default_value="false", description="Launch Foxglove Bridge"
     )
@@ -251,6 +252,7 @@ def generate_launch_description():
             "use_sim_time": use_sim_time,
             "voice_params_file": LaunchConfiguration("voice_params_file"),
             "voice_profile": voice_profile,
+            "wakeword_enabled": LaunchConfiguration("wakeword_enabled"),
             "launch_face": launch_face,
         }.items(),
     )
@@ -354,6 +356,7 @@ def generate_launch_description():
             declare_launch_llm,
             declare_voice_params_file,
             declare_voice_profile,
+            declare_wakeword_enabled,
             declare_launch_foxglove,
             declare_launch_rviz,
             robot_state_publisher_node,

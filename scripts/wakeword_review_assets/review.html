@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Проверка нарезки «Фирая»</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #172b3a; }
+    body { max-width: 1120px; margin: 24px auto; padding: 0 16px; background: #f7f9fb; }
+    h1 { font-size: 26px; } p { line-height: 1.55; }
+    button, select, input { font: inherit; }
+    button, select { border: 1px solid #9baaba; border-radius: 6px; padding: 9px 12px; }
+    button { cursor: pointer; background: white; }
+    button:hover { filter: brightness(.96); }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid #2476c2; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .toolbar { position: sticky; top: 0; z-index: 2; background: #fff; padding: 14px;
+      border: 1px solid #b9c7d5; border-radius: 8px; box-shadow: 0 2px 8px #172b3a12; }
+    .filters, .actions, .files { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .filters { margin: 12px 0; } .files { margin-top: 12px; }
+    #progress { font-weight: 650; } #storage-status, #message { font-size: 14px; }
+    #message { min-height: 22px; color: #174778; } #message.error { color: #ab1721; }
+    details { border: 1px solid #c6d0da; background: white; padding: 14px; margin: 12px 0;
+      border-radius: 8px; }
+    details[data-decision="accepted"] { border-left: 5px solid #238749; }
+    details[data-decision="rejected"] { border-left: 5px solid #b63039; }
+    summary { cursor: pointer; overflow-wrap: anywhere; }
+    .badge { display: inline-block; font-size: 13px; padding: 3px 6px; border-radius: 4px;
+      background: #e7edf4; margin-right: 8px; }
+    [data-decision="accepted"] .badge { background: #d6f2df; color: #16592d; }
+    [data-decision="rejected"] .badge { background: #fce1e3; color: #841e25; }
+    .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .comparison section { background: #f0f3f7; padding: 12px; border-radius: 6px; }
+    .comparison .candidate { background: #edf8f0; border: 1px solid #8dbd9b; }
+    h3 { margin: 0 0 12px; font-size: 16px; } audio { width: 100%; max-width: 480px; }
+    .question { font-weight: 650; } .accept { background: #238749; color: white; }
+    .reject { background: #b63039; color: white; }
+    button[aria-pressed="true"] { outline: 3px solid #172b3a; outline-offset: 2px; }
+    .note-label { display: block; margin: 14px 0; }
+    .note { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #b9c7d5;
+      border-radius: 5px; margin-top: 6px; }
+    .warnings, .transcript { font-size: 14px; color: #526476; }
+    [hidden] { display: none !important; }
+    @media (max-width: 720px) { .comparison { grid-template-columns: 1fr; }
+      .toolbar { position: static; } }
+  </style>
+</head>
+<body>
+  <h1>Проверка нарезки «Фирая» · <!-- RUN_NAME --></h1>
+  <p>Во всех положительных <strong>оригиналах</strong> имя есть по вашей разметке.
+    Здесь проверяем, осталось ли оно <strong>целиком во фрагменте</strong>.
+    Другие голоса и шум допустимы — удалять их не нужно.</p>
+  <p>«Да» принимает фрагмент. «Нет» отклоняет только фрагмент: исходник не удаляется,
+    а положительная запись не становится отрицательной. Для negative «Да» означает,
+    что имени и его обрезанных частей нет. Если сомневаетесь — «Нет» или оставьте без решения.</p>
+  <div class="toolbar">
+    <div id="progress" role="status" aria-live="polite"></div>
+    <div class="filters">
+      <label>Записи:
+        <select id="kind-filter">
+          <option value="positive">Все положительные</option>
+          <option value="crowd">Шумные положительные</option>
+          <option value="quiet">Тихие положительные</option>
+          <option value="negative">Отрицательные фрагменты</option>
+          <option value="all">Все записи</option>
+        </select>
+      </label>
+      <label>Решение:
+        <select id="decision-filter">
+          <option value="pending">Не проверено</option>
+          <option value="all">Все</option>
+          <option value="accepted">Да — принято</option>
+          <option value="rejected">Нет — отклонено</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="warnings-only"> Только с предупреждениями</label>
+      <label><input type="checkbox" id="auto-next" checked> После решения — следующий</label>
+    </div>
+    <div id="storage-status" role="status"></div>
+    <div class="files">
+      <button type="button" id="export">Сохранить решения в JSON</button>
+      <button type="button" id="import">Загрузить решения из JSON</button>
+      <input type="file" id="import-file" accept=".json,application/json" hidden>
+      <a href="review.csv">Автоматический отчёт CSV</a>
+    </div>
+    <p style="margin-bottom:0">Кнопки не меняют WAV и исходный manifest.
+      Для передачи результатов обратно в датасет <strong>сохраните JSON</strong>.
+      Файл скачивается в папку загрузок браузера; для продолжения на другом компьютере загрузите его здесь.</p>
+    <div id="message" role="status" aria-live="polite"></div>
+  </div>
+  <p id="visible-count"></p>
+  <p id="empty" hidden>По выбранным фильтрам записей нет. Измените фильтр или сохраните решения.</p>
+  <main id="cards"><!-- REVIEW_CARDS --></main>
+  <details>
+    <summary>Полные фоновые исходники (без автоматического принятия всех фрагментов)</summary>
+    <p>Отсутствие подсказки ASR не доказывает отсутствие имени.
+      Решения для двухсекундных фрагментов принимайте в фильтре «Отрицательные фрагменты».</p>
+    <!-- BACKGROUND_PLAYERS -->
+  </details>
+  <noscript>Для кнопок проверки нужен JavaScript. Включите его в браузере.</noscript>
+  <script type="application/json" id="review-data">/* REVIEW_DATA */</script>
+  <script>/* REVIEW_SCRIPT */</script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+# Дополнительный opt-in оверлей ПОСЛЕ voice.yaml и voice_xvf3800.yaml.
+# frozen frames_06_confirmed из live_20261007_110955_UTC_4e2839.
+/**/wakeword_node:
+  ros__parameters:
+    backend: oww
+    model_bundle_path: "$(find-pkg-share guide_robot_voice)/models/firaya"
+
+/**/voice_session_manager:
+  ros__parameters:
+    wakeword_gated: true
+    command_window_seconds: 5.0
+    followup_window_seconds: 8.0
+    echo_hold_seconds: 0.4
+    wakeword_barge_in_enabled: false
+    allow_unvalidated_wakeword_barge_in: false
+    wakeword_model_sha256: "66402d6fd6a90be9780c073d254bf48eecf27f8387ea67f36cd70578aeba22e1"
+    wakeword_min_confidence: 0.8601541979408264
+
+/**/asr_node:
+  ros__parameters:
+    session_managed_input: true
+    wakeword_gated_input: true
+    wakeword_listen_during_tts: false
+    gate_on_tts: false
+    warmup_on_configure: true
+    pre_roll_ms: 1200.0
+    command_pre_roll_ms: 160.0
+    # Не расширять KWS/ASR fuzzy-лексикой. Первый wake fragment отделяется
+    # по CTC таймингам; список ниже только fallback для отсутствующих метаданных.
+    wakeword_only_phrases: ["фирая", "фирайя", "фира я", "фи рая"]

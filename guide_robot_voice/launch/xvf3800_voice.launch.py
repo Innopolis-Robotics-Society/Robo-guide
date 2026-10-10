@@ -11,7 +11,7 @@ from launch_ros.substitutions import FindPackageShare
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 
 VOICE_NODES = [
     "tts_node",
@@ -33,6 +33,8 @@ def generate_launch_description() -> LaunchDescription:
     publish_stereo_debug = LaunchConfiguration("publish_stereo_debug")
     automatic_barge_in_enabled = LaunchConfiguration("automatic_barge_in_enabled")
     audio_profile_validated = LaunchConfiguration("audio_profile_validated")
+    wakeword_enabled = LaunchConfiguration("wakeword_enabled")
+    wakeword_params = LaunchConfiguration("wakeword_params")
 
     arguments = [
         DeclareLaunchArgument(
@@ -56,6 +58,20 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("tts_backend", default_value="silero"),
         DeclareLaunchArgument("autostart", default_value="true"),
         DeclareLaunchArgument("publish_stereo_debug", default_value="false"),
+        DeclareLaunchArgument("followup_window_seconds", default_value="8.0"),
+        DeclareLaunchArgument("wakeword_barge_in_enabled", default_value="false"),
+        DeclareLaunchArgument("allow_unvalidated_wakeword_barge_in", default_value="false"),
+        DeclareLaunchArgument(
+            "wakeword_enabled",
+            default_value="false",
+            description="Opt-in frozen local Firaya KWS gate before ASR",
+        ),
+        DeclareLaunchArgument(
+            "wakeword_params",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("guide_robot_voice"), "config", "voice_wakeword.yaml"]
+            ),
+        ),
         DeclareLaunchArgument(
             "automatic_barge_in_enabled",
             default_value="false",
@@ -86,6 +102,20 @@ def generate_launch_description() -> LaunchDescription:
         parameters: list[object] = [
             ParameterFile(voice_params, allow_substs=True),
             ParameterFile(xvf_voice_params, allow_substs=True),
+            ParameterFile(
+                PythonExpression(
+                    [
+                        "'",
+                        wakeword_params,
+                        "' if '",
+                        wakeword_enabled,
+                        "'.lower() in ('true', '1', 'yes') else '",
+                        xvf_voice_params,
+                        "'",
+                    ]
+                ),
+                allow_substs=True,
+            ),
         ]
         if name == "tts_node":
             parameters.append({"backend": ParameterValue(tts_backend, value_type=str)})
@@ -101,6 +131,15 @@ def generate_launch_description() -> LaunchDescription:
                     ),
                     "audio_profile_validated": ParameterValue(
                         audio_profile_validated, value_type=bool
+                    ),
+                    "followup_window_seconds": ParameterValue(
+                        LaunchConfiguration("followup_window_seconds"), value_type=float
+                    ),
+                    "wakeword_barge_in_enabled": ParameterValue(
+                        LaunchConfiguration("wakeword_barge_in_enabled"), value_type=bool
+                    ),
+                    "allow_unvalidated_wakeword_barge_in": ParameterValue(
+                        LaunchConfiguration("allow_unvalidated_wakeword_barge_in"), value_type=bool
                     ),
                 }
             )

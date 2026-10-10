@@ -43,6 +43,13 @@ x-common: &common-setup
     ]
 
 services:
+  # Voice-only computer stand: XVF USB, no mandatory motor UART /dev/ttyACM0.
+  voice-terminal:
+    <<: *common-setup
+    image: fabook/iros:x86-cpu
+    stdin_open: true
+    tty: true
+
   amd-terminal:
     <<: *common-setup
     image: fabook/iros:x86-cpu

@@ -22,6 +22,7 @@ setup(
             + glob("models/*_tokens.txt")
             + glob("models/*.pt"),
         ),
+        (f"share/{PACKAGE_NAME}/models/firaya", glob("models/firaya/*")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

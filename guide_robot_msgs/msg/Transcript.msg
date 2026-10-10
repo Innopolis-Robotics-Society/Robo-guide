@@ -30,3 +30,10 @@ string language
 # NaN если DoA недоступен. Нужен, чтобы связать реплику с конкретным
 # посетителем в группе.
 float32 azimuth
+# True только у final от ASR, допущенного акустическим wake-gate.
+# Не зависит от того, как ASR написал имя и сколько занял final decode.
+bool wakeword_admitted
+
+# Capture identity для корреляции ответа с конкретным admitted PCM-сегментом.
+string device_session_id
+uint64 start_sample

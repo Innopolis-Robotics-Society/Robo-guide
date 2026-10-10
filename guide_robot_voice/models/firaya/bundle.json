@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "runtime": "openwakeword==0.6.0",
+  "source_session": "live_20261007_110955_UTC_4e2839",
+  "inference_config": {
+    "model": "firaya_trial.onnx",
+    "threshold": 0.8601541979408264,
+    "consecutive_frames": 3,
+    "cooldown_seconds": 2,
+    "feature_frames": 16,
+    "feature_dim": 96,
+    "production": false
+  },
+  "sha256": {
+    "firaya_trial.onnx": "66402d6fd6a90be9780c073d254bf48eecf27f8387ea67f36cd70578aeba22e1",
+    "melspectrogram.onnx": "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f",
+    "embedding_model.onnx": "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f"
+  },
+  "status": "bench_candidate_not_production_validated"
+}

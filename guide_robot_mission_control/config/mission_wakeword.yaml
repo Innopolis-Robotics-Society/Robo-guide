@@ -1,0 +1,4 @@
+# В акустическом gated-профиле фоновая речь не удерживает presence=true.
+/**/presence_monitor:
+  ros__parameters:
+    sources: ["wakeword", "asr_final"]

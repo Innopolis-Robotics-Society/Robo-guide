@@ -95,6 +95,16 @@ def generate_launch_description():
         choices=["legacy", "xvf3800"],
         description="legacy uses audio_frontend; xvf3800 uses the single ALSA audio owner",
     )
+    declare_wakeword_enabled = DeclareLaunchArgument(
+        "wakeword_enabled",
+        default_value="false",
+        description="Enable local Firaya acoustic wake gate (XVF profile only)",
+    )
+    dialogue_arguments = [
+        DeclareLaunchArgument("followup_window_seconds", default_value="8.0"),
+        DeclareLaunchArgument("wakeword_barge_in_enabled", default_value="false"),
+        DeclareLaunchArgument("allow_unvalidated_wakeword_barge_in", default_value="false"),
+    ]
     declare_xvf_audio_params_file = DeclareLaunchArgument(
         "xvf_audio_params_file",
         default_value=os.path.join(pkg_audio, "config", "xvf3800.yaml"),
@@ -135,6 +145,7 @@ def generate_launch_description():
     autostart = LaunchConfiguration("autostart")
     voice_params_file = LaunchConfiguration("voice_params_file")
     voice_profile = LaunchConfiguration("voice_profile")
+    wakeword_enabled = LaunchConfiguration("wakeword_enabled")
     xvf_audio_params_file = LaunchConfiguration("xvf_audio_params_file")
     xvf_base_voice_params_file = LaunchConfiguration("xvf_base_voice_params_file")
     xvf_voice_params_file = LaunchConfiguration("xvf_voice_params_file")
@@ -193,6 +204,12 @@ def generate_launch_description():
                     "audio_params": xvf_audio_params_file,
                     "voice_params": xvf_base_voice_params_file,
                     "xvf_voice_params": xvf_voice_params_file,
+                    "wakeword_enabled": wakeword_enabled,
+                    "followup_window_seconds": LaunchConfiguration("followup_window_seconds"),
+                    "wakeword_barge_in_enabled": LaunchConfiguration("wakeword_barge_in_enabled"),
+                    "allow_unvalidated_wakeword_barge_in": LaunchConfiguration(
+                        "allow_unvalidated_wakeword_barge_in"
+                    ),
                     "tts_backend": tts_backend,
                     "autostart": autostart,
                     "automatic_barge_in_enabled": automatic_barge_in_enabled,
@@ -234,6 +251,15 @@ def generate_launch_description():
                 launch_arguments={
                     "use_sim_time": use_sim_time,
                     "params_file": os.path.join(pkg_mission_control, "config", "mission.yaml"),
+                    "wakeword_gated": PythonExpression(
+                        [
+                            "'",
+                            wakeword_enabled,
+                            "'.lower() in ('true', '1', 'yes') and '",
+                            voice_profile,
+                            "' == 'xvf3800'",
+                        ]
+                    ),
                     "autostart": autostart,
                 }.items(),
             ),
@@ -253,6 +279,15 @@ def generate_launch_description():
                 condition=IfCondition(launch_face),
                 launch_arguments={
                     "params_file": os.path.join(pkg_face, "config", "face_node.yaml"),
+                    "session_managed_listening": PythonExpression(
+                        [
+                            "'",
+                            wakeword_enabled,
+                            "'.lower() in ('true', '1', 'yes') and '",
+                            voice_profile,
+                            "' == 'xvf3800'",
+                        ]
+                    ),
                 }.items(),
             ),
         ],
@@ -260,6 +295,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            *dialogue_arguments,
             declare_use_sim_time,
             declare_launch_voice,
             declare_launch_semantic_map,
@@ -268,6 +304,7 @@ def generate_launch_description():
             declare_autostart,
             declare_voice_params_file,
             declare_voice_profile,
+            declare_wakeword_enabled,
             declare_xvf_audio_params_file,
             declare_xvf_base_voice_params_file,
             declare_xvf_voice_params_file,

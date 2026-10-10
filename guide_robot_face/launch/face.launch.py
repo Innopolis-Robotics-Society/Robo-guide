@@ -10,7 +10,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterFile
+from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -27,6 +27,7 @@ def generate_launch_description() -> LaunchDescription:
             ),
         ),
         DeclareLaunchArgument("log_level", default_value="info"),
+        DeclareLaunchArgument("session_managed_listening", default_value="false"),
     ]
 
     face_node = Node(
@@ -45,6 +46,13 @@ def generate_launch_description() -> LaunchDescription:
         executable="face_aggregator",
         name="face_aggregator",
         output="screen",
+        parameters=[
+            {
+                "session_managed_listening": ParameterValue(
+                    LaunchConfiguration("session_managed_listening"), value_type=bool
+                )
+            }
+        ],
         arguments=["--ros-args", "--log-level", log_level],
     )
 

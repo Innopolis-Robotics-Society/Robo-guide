@@ -30,6 +30,7 @@ class SessionState(IntEnum):
     USER_SPEAKING = 5
     RECOGNIZING = 6
     DEGRADED = 7
+    ARMED = 8
 
 
 @dataclass(frozen=True)

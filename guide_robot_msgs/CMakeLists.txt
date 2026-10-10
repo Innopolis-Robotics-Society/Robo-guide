@@ -47,6 +47,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/UtteranceEvent.msg"
   "msg/VoiceSessionState.msg"
   "msg/Wakeword.msg"
+  "msg/WakewordCandidate.msg"
   "msg/Presence.msg"
   "msg/InteractionEvent.msg"
   "msg/ContentHit.msg"
@@ -56,6 +57,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/BeginPlayback.srv"
   "srv/FencePlayback.srv"
   "msg/DialogPhase.msg"
+  "msg/DialogTurnEvent.msg"
   "msg/MediaItem.msg"
   "srv/GetExhibitMedia.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs action_msgs

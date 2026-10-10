@@ -19,6 +19,7 @@ __all__ = [
     "QOS_ASR_TRANSCRIPT",
     "QOS_AUDIO_MIC",
     "QOS_CANCEL_ALL",
+    "QOS_DIALOG_TURN_EVENT",
     "QOS_PLAYBACK_STATE",
     "QOS_SYSTEM_EVENT",
     "QOS_UTTERANCE_CONTROL",
@@ -69,6 +70,13 @@ QOS_UTTERANCE_CONTROL = QoSProfile(
 )
 QOS_UTTERANCE_EVENT = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
+
+# /dialog/turn_event -- причинно связанный результат хода, не latched phase.
+QOS_DIALOG_TURN_EVENT = QoSProfile(
     depth=10,
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,

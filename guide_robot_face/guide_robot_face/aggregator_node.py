@@ -25,6 +25,7 @@ from guide_robot_face.lib.qos import (
     QOS_MISSION_PRESENCE,
     QOS_MISSION_STATE,
     QOS_VAD,
+    QOS_VOICE_SESSION_STATE,
     QOS_VOICE_SPEAKING,
     QOS_WAKEWORD,
 )
@@ -35,6 +36,7 @@ from guide_robot_msgs.msg import (
     Presence,
     SpeakingStatus,
     VoiceActivity,
+    VoiceSessionState,
     Wakeword,
 )
 
@@ -49,7 +51,11 @@ class FaceAggregatorNode(Node):
     def __init__(self) -> None:
         """Подписаться на входы и один раз опубликовать стартовое состояние."""
         super().__init__("face_aggregator")
-        self._inp = FaceInputs()
+        self.declare_parameter("session_managed_listening", False)
+        self._inp = FaceInputs(
+            session_managed=bool(self.get_parameter("session_managed_listening").value)
+        )
+        self._latest_session: VoiceSessionState | None = None
         self._latest_speaking: SpeakingStatus | None = None
         self._wakeword_until = 0.0
         self._seq = 0
@@ -69,6 +75,9 @@ class FaceAggregatorNode(Node):
         )
         self.create_subscription(VoiceActivity, "/vad", self._on_vad, QOS_VAD)
         self.create_subscription(Wakeword, "/speech/wakeword", self._on_wakeword, QOS_WAKEWORD)
+        self.create_subscription(
+            VoiceSessionState, "/voice/session_state", self._on_session, QOS_VOICE_SESSION_STATE
+        )
         self.create_timer(_TICK_SEC, self._tick)
         self._publish_if_changed()
 
@@ -95,10 +104,25 @@ class FaceAggregatorNode(Node):
         self._publish_if_changed()
 
     def _on_vad(self, msg: VoiceActivity) -> None:
+        if self._inp.session_managed:
+            return
         active = bool(msg.active)
         if active == self._inp.vad_active:
             return
         self._inp = replace(self._inp, vad_active=active)
+        self._publish_if_changed()
+
+    def _on_session(self, msg: VoiceSessionState) -> None:
+        if not self._inp.session_managed:
+            return
+        previous = self._latest_session
+        stamp = msg.stamp.sec + msg.stamp.nanosec / 1e9
+        if previous is not None:
+            previous_stamp = previous.stamp.sec + previous.stamp.nanosec / 1e9
+            if stamp < previous_stamp:
+                return
+        self._latest_session = msg
+        self._sync_ephemeral()
         self._publish_if_changed()
 
     def _on_wakeword(self, _msg: Wakeword) -> None:
@@ -119,10 +143,36 @@ class FaceAggregatorNode(Node):
         return age <= _SPEAKING_STALE_SEC
 
     def _sync_ephemeral(self) -> None:
+        session = self._latest_session
+        age = (
+            float("inf")
+            if session is None
+            else (
+                self.get_clock().now().nanoseconds / 1e9
+                - session.stamp.sec
+                - session.stamp.nanosec / 1e9
+            )
+        )
+        fresh = -0.1 <= age <= 0.6
         self._inp = replace(
             self._inp,
             speaking=self._speaking_now(),
             wakeword_hold=time.monotonic() < self._wakeword_until,
+            session_listening=bool(
+                fresh
+                and session is not None
+                and session.state
+                in (
+                    VoiceSessionState.STATE_LISTENING,
+                    VoiceSessionState.STATE_USER_SPEAKING,
+                    VoiceSessionState.STATE_STOPPING_OUTPUT,
+                )
+            ),
+            session_recognizing=bool(
+                fresh
+                and session is not None
+                and session.state == VoiceSessionState.STATE_RECOGNIZING
+            ),
         )
 
     def _publish_if_changed(self) -> None:

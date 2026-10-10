@@ -17,6 +17,7 @@ __all__ = [
     "QOS_VAD",
     "QOS_VOICE_SPEAKING",
     "QOS_WAKEWORD",
+    "QOS_VOICE_SESSION_STATE",
 ]
 
 # /face/state -- TRANSIENT_LOCAL: поздно поднявшийся подписчик обязан
@@ -68,4 +69,11 @@ QOS_WAKEWORD = QoSProfile(
     depth=1,
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,
+)
+
+QOS_VOICE_SESSION_STATE = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
 )

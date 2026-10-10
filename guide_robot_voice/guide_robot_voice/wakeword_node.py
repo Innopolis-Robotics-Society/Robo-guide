@@ -5,15 +5,14 @@
     нечёткое сравнение по Левенштейну (lib/keyword_spotter.py). Даёт
     стоп-слово бесплатно, ценой задержки ASR (~300-500 мс) и зависимости
     от работающего asr_node.
-  oww (Stage 3) -- openWakeWord поверх окон 1280 сэмплов /audio/mic,
-    своя модель на синтетике Piper. НЕ реализован в этом шаге -- параметр
-    backend принимает значение, но переключения на него нет, ровно как
-    aec.* в audio_frontend и oww в дизайн-документе для vad_node.
+  oww -- локальная frozen ONNX-модель поверх окон 1280 сэмплов /audio/mic.
+    Публикует только /voice/wakeword_candidate; принятый /speech/wakeword,
+    admission и guarded CancelAll принадлежат voice_session_manager.
 
 Стоп-слова -- L1-путь, как и barge-in в vad_node: нода сама публикует
 CancelAll(scope=SCOPE_ALL, reason=REASON_WAKEWORD), не дожидаясь mission.
-Активационные фразы («Фирая») тоже CancelAll -- иначе прерывание рассказа
-только стоп-словом. Вне TTS CancelAll на пустом стоке -- no-op.
+В legacy asr_kws активационные фразы («Фирая») тоже CancelAll. В oww
+имя в ASR-партиале игнорируется: это не новое акустическое обращение.
 
 Во время TTS партиалы всё ещё обрабатываются (asr: wakeword_listen_during_tts):
 без этого gate_on_tts глушит ASR и «Фирая» не слышна. Под TTS требуем
@@ -36,20 +35,31 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 
+import numpy as np
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from guide_robot_msgs.msg import CancelAll, SpeakingStatus, Transcript, Wakeword
+from guide_robot_msgs.msg import (
+    AudioChunk,
+    CancelAll,
+    SpeakingStatus,
+    Transcript,
+    Wakeword,
+    WakewordCandidate,
+)
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_voice.lib.keyword_spotter import KeywordSpotter
 from guide_robot_voice.lib.qos import (
     QOS_ASR_PARTIAL,
     QOS_ASR_TRANSCRIPT,
+    QOS_AUDIO_MIC,
     QOS_CANCEL_ALL,
     QOS_VOICE_SPEAKING,
     QOS_WAKEWORD,
 )
+from guide_robot_voice.lib.wakeword_runtime import RATE, FrozenWakewordModel, WakewordStream
 
 _SPEAKING_STATUS_STALE_SEC = 0.4
 
@@ -71,6 +81,7 @@ class WakewordNode(LifecycleNode):
         self.declare_parameter("min_confidence", 0.5)
         self.declare_parameter("refractory_ms", 1500.0)
         self.declare_parameter("frame_id", "mic_array")
+        self.declare_parameter("model_bundle_path", "")
 
         self._activation_spotter: KeywordSpotter | None = None
         self._stop_spotter: KeywordSpotter | None = None
@@ -82,6 +93,10 @@ class WakewordNode(LifecycleNode):
         self._last_trigger_utterance: dict[str, int] = {}
         self._triggers_total = 0
         self._stale_speaking_warnings = 0
+        self._backend = "asr_kws"
+        self._oww_stream: WakewordStream | None = None
+        self._model_sha256 = ""
+        self._runtime_error = ""
 
     # -- lifecycle ------------------------------------------------------
 
@@ -99,11 +114,14 @@ class WakewordNode(LifecycleNode):
         if backend not in ("asr_kws", "oww"):
             raise ValueError(f"неизвестный backend: {backend!r}, ожидается asr_kws или oww")
         if backend == "oww":
-            raise NotImplementedError(
-                "backend=oww (openWakeWord, Stage 3) ещё не реализован -- "
-                "нужна модель, обученная на синтетике Piper (design §3.3). "
-                "Используйте backend=asr_kws (Stage 1)."
-            )
+            bundle = str(self.get_parameter("model_bundle_path").value)
+            if not bundle:
+                raise ValueError("backend=oww требует model_bundle_path")
+            model = FrozenWakewordModel(Path(bundle))
+            self._oww_stream = WakewordStream(model, model.manifest["inference_config"])
+            self._model_sha256 = model.manifest["sha256"]["firaya_trial.onnx"]
+        self._backend = backend
+        self._runtime_error = ""
 
         max_distance = int(self.get_parameter("fuzzy_max_distance").value)
         activation_phrases = list(self.get_parameter("activation_phrases").value)
@@ -118,6 +136,13 @@ class WakewordNode(LifecycleNode):
             CancelAll, "/speech/cancel_all", QOS_CANCEL_ALL
         )
         self._diag_pub = self.create_lifecycle_publisher(DiagnosticArray, "/diagnostics", 10)
+        if backend == "oww":
+            self._candidate_pub = self.create_lifecycle_publisher(
+                WakewordCandidate, "/voice/wakeword_candidate", QOS_WAKEWORD
+            )
+            self._mic_sub = self.create_subscription(
+                AudioChunk, "/audio/mic", self._on_audio, QOS_AUDIO_MIC
+            )
         self._partial_sub = self.create_subscription(
             Transcript, "/asr/partial", self._on_partial, QOS_ASR_PARTIAL
         )
@@ -141,6 +166,8 @@ class WakewordNode(LifecycleNode):
         self._last_trigger_utterance = {}
         self._latest_speaking = None
         with self._lock:
+            if self._oww_stream is not None:
+                self._oww_stream.reset()
             self._is_active = True
         return super().on_activate(state)
 
@@ -153,8 +180,25 @@ class WakewordNode(LifecycleNode):
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
         """Освободить споттеры."""
         del state
-        self._activation_spotter = None
-        self._stop_spotter = None
+        with self._lock:
+            self._is_active = False
+            self._oww_stream = None
+            self._activation_spotter = None
+            self._stop_spotter = None
+        for name in ("_partial_sub", "_transcript_sub", "_speaking_sub", "_mic_sub"):
+            entity = getattr(self, name, None)
+            if entity is not None:
+                self.destroy_subscription(entity)
+                setattr(self, name, None)
+        timer = getattr(self, "_diag_timer", None)
+        if timer is not None:
+            self.destroy_timer(timer)
+            self._diag_timer = None
+        for name in ("_wakeword_pub", "_cancel_pub", "_candidate_pub", "_diag_pub"):
+            entity = getattr(self, name, None)
+            if entity is not None:
+                self.destroy_lifecycle_publisher(entity)
+                setattr(self, name, None)
         return TransitionCallbackReturn.SUCCESS
 
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:
@@ -162,6 +206,47 @@ class WakewordNode(LifecycleNode):
         return self.on_cleanup(state)
 
     # -- вход -----------------------------------------------------------
+
+    def _on_audio(self, msg: AudioChunk) -> None:
+        """Акустический кандидат НЕ открывает диалог и НЕ отменяет TTS сам."""
+        with self._lock:
+            if not self._is_active or self._oww_stream is None:
+                return
+            try:
+                if msg.sample_rate != RATE or msg.channels != 1:
+                    raise ValueError("KWS требует processed mono PCM16 @ 16000 Hz")
+                timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+                detections = self._oww_stream.push(
+                    msg.device_session_id,
+                    int(msg.first_sample),
+                    timestamp,
+                    np.asarray(msg.data, dtype=np.int16),
+                )
+                self._runtime_error = ""
+                for detection in detections:
+                    candidate = WakewordCandidate()
+                    nanoseconds = round(detection.timestamp * 1e9)
+                    candidate.header.stamp.sec = nanoseconds // 1_000_000_000
+                    candidate.header.stamp.nanosec = nanoseconds % 1_000_000_000
+                    candidate.header.frame_id = str(self.get_parameter("frame_id").value)
+                    candidate.device_session_id = detection.device_session_id
+                    candidate.end_sample = detection.end_sample
+                    candidate.keyword = "фирая"
+                    candidate.confidence = detection.confidence
+                    candidate.model_sha256 = self._model_sha256
+                    self._candidate_pub.publish(candidate)
+                    self._triggers_total += 1
+                    self.get_logger().info(
+                        f"KWS candidate #{self._triggers_total}: ФИРАЯ "
+                        f"score={detection.confidence:.3f} "
+                        f"end_sample={detection.end_sample}"
+                    )
+            except Exception as error:
+                message = str(error)
+                if message != self._runtime_error:
+                    self.get_logger().error(f"KWS fail-closed: {message}")
+                self._runtime_error = message
+                self._oww_stream.reset()
 
     def _on_speaking_status(self, msg: SpeakingStatus) -> None:
         self._latest_speaking = msg
@@ -214,6 +299,11 @@ class WakewordNode(LifecycleNode):
         if stop_match is not None and stop_match.confidence >= min_confidence:
             if self._trigger(stop_match.phrase, msg.utterance_id):
                 self._on_stop_phrase(stop_match.phrase, stop_match.confidence)
+            return
+
+        if self._backend == "oww":
+            # ASR работает только после admission. Имя в его партиале не
+            # должно второй раз открывать окно/обходить output guards FSM.
             return
 
         activation_match = self._activation_spotter.find(msg.text, leading=speaking)
@@ -280,11 +370,25 @@ class WakewordNode(LifecycleNode):
         entry = DiagnosticStatus(
             name="voice/wakeword",
             hardware_id="wakeword_node",
-            level=DiagnosticStatus.OK,
-            message="idle",
+            level=DiagnosticStatus.ERROR if self._runtime_error else DiagnosticStatus.OK,
+            message=self._runtime_error or ("armed" if self._backend == "oww" else "idle"),
             values=[
                 KeyValue(key="triggers_total", value=str(self._triggers_total)),
                 KeyValue(key="stale_speaking_warnings", value=str(self._stale_speaking_warnings)),
+                KeyValue(key="backend", value=self._backend),
+                KeyValue(key="model_sha256", value=self._model_sha256),
+                KeyValue(
+                    key="last_score",
+                    value=str(
+                        self._oww_stream.last_score if self._oww_stream is not None else 0.0
+                    ),
+                ),
+                KeyValue(
+                    key="capture_resets",
+                    value=str(
+                        self._oww_stream.discontinuities if self._oww_stream is not None else 0
+                    ),
+                ),
             ],
         )
         diag.status.append(entry)

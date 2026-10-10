@@ -9,6 +9,7 @@ uint8 STATE_STOPPING_OUTPUT=4
 uint8 STATE_USER_SPEAKING=5
 uint8 STATE_RECOGNIZING=6
 uint8 STATE_DEGRADED=7
+uint8 STATE_ARMED=8
 
 builtin_interfaces/Time stamp
 uint8 state
