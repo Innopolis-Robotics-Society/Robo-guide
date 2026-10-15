@@ -6,8 +6,17 @@
     "eye_cx_right": 724,
     "cy": 384,
     "rotate_deg": 180,
-    "eye_color": "#eaf6ff",
-    "bg_color": "#05070a",
+    "theme": "light",
+    "themes": {
+      "dark": {
+        "eye_color": "#eaf6ff",
+        "bg_color": "#05070a"
+      },
+      "light": {
+        "eye_color": "#000000",
+        "bg_color": "#ffffff"
+      }
+    },
     "blink_interval_min_s": 2.5,
     "blink_interval_max_s": 6.0,
     "blink_duration_ms": 280
@@ -102,15 +111,6 @@
       "curve": 0.08,
       "gx": 8,
       "gy": -22
-    },
-    "sad": {
-      "w": 168,
-      "h": 138,
-      "rr": 34,
-      "rot": 10,
-      "curve": 0.16,
-      "gx": 0,
-      "gy": 10
     },
     "focused": {
       "w": 150,

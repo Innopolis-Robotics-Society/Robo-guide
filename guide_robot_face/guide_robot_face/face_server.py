@@ -13,6 +13,25 @@ from typing import Any
 from aiohttp import WSMsgType, web
 
 
+def apply_theme(states: dict[str, Any], theme: str) -> dict[str, Any]:
+    """Выбрать тему лица (``global.themes``) и записать её в ``global.theme``.
+
+    Пустая ``theme`` -- оставить ту, что в YAML. Неизвестная -- ValueError:
+    лицо с непредсказуемыми цветами хуже, чем упавшая на старте нода.
+    face.js берёт ``eye_color``/``bg_color`` из ``global.themes[global.theme]``.
+    """
+    g = states.setdefault("global", {})
+    themes = g.get("themes") or {}
+    name = theme or g.get("theme", "")
+    if not name:
+        return states
+    if name not in themes:
+        known = ", ".join(sorted(themes)) or "нет"
+        raise ValueError(f"неизвестная тема лица {name!r} (есть: {known})")
+    g["theme"] = name
+    return states
+
+
 class FaceServer:
     """Отдаёт web/, /states.json и держит websocket с последним кадром."""
 
