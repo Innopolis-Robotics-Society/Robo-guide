@@ -13,7 +13,7 @@ import time
 
 import pytest
 from guide_robot_msgs.action import RunTour
-from guide_robot_msgs.msg import MissionState
+from guide_robot_msgs.msg import CancelAll, MissionState
 from rclpy.action import ActionClient
 
 from test.mission_fsm_test_helpers import (
@@ -606,3 +606,149 @@ def test_redirect_mid_tour_skips_home_and_ends_in_place(harness: MissionTestHarn
     wait_until(state_is(state, MissionState.STATE_IDLE), timeout_s=15.0)
     assert "редирект" in state["latest"].detail
     del client_node
+
+
+
+def _start_driving_tour(harness: MissionTestHarness, *, leg_s: float = 2.0):
+    stop_ids = _setup_three_stop_tour(harness)
+    client_node, run_tour_client, state, fsm_node = _base_stack(harness)
+    harness.nav.duration_s = leg_s
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=stop_ids,
+            greet=False,
+            narrate=True,
+            confirm_between_stops=False,
+            return_home=False,
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    assert harness.nav.goals_received == 1
+    cancel_all_pub = client_node.create_publisher(CancelAll, "/speech/cancel_all", 1)
+    return client_node, goal_handle, state, fsm_node, cancel_all_pub
+
+
+def _cancel_tour(harness: MissionTestHarness, goal_handle) -> None:
+    """Довести RunTour до конца -- живой поток тура между тестами роняет rclpy (segfault)."""
+    wait_for_future(goal_handle.cancel_goal_async(), timeout_s=15.0)
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.1, max_iterations=200)
+    wait_for_future(result_future, timeout_s=15.0)
+
+
+def _wakeword(pub, reason: str = CancelAll.REASON_WAKEWORD) -> None:
+    pub.publish(CancelAll(scope=CancelAll.SCOPE_ALL, reason=reason))
+
+
+def test_question_while_driving_keeps_driving_and_defers_narration_until_answered(
+    harness: MissionTestHarness,
+) -> None:
+    """Вопрос по дороге не останавливает робота; прибытие за время ответа не
+    запускает рассказ точки -- он начнётся только после конца ответа, без
+    повторного NavigateToPose."""
+    _client, goal_handle, state, fsm_node, cancel_all_pub = _start_driving_tour(harness)
+
+    _wakeword(cancel_all_pub)
+    wait_until(state_is(state, MissionState.STATE_ANSWERING), timeout_s=15.0)
+    assert state["latest"].base_state == MissionState.STATE_NAVIGATING
+
+    # Виртуальное время дольше перегона (2 с) -- робот доехал, ответ ещё идёт.
+    for _ in range(40):
+        harness.clock.advance(0.1)
+        time.sleep(0.01)
+    assert state["latest"].state == MissionState.STATE_ANSWERING
+    assert harness.nav.goals_received == 1
+
+    fsm_node.submit_answer("это лаборатория")
+    wait_until(state_is(state, MissionState.STATE_NARRATING), timeout_s=15.0)
+    assert harness.nav.goals_received == 1, "доехавший goal не должен пересылаться"
+    assert state["latest"].stop_index == 0
+
+    _cancel_tour(harness, goal_handle)
+
+
+def test_question_while_driving_answer_before_arrival_continues_same_goal(
+    harness: MissionTestHarness,
+) -> None:
+    """Ответ закончился до прибытия -- NAVIGATING подхватывает тот же goal, не шлёт второй."""
+    _client, goal_handle, state, fsm_node, cancel_all_pub = _start_driving_tour(
+        harness, leg_s=100.0
+    )
+
+    _wakeword(cancel_all_pub)
+    wait_until(state_is(state, MissionState.STATE_ANSWERING), timeout_s=15.0)
+    fsm_node.submit_answer("это по дороге")
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    time.sleep(0.2)
+    assert harness.nav.goals_received == 1
+
+    _cancel_tour(harness, goal_handle)
+
+
+def test_stop_phrase_while_driving_pauses_navigation(harness: MissionTestHarness) -> None:
+    """Стоп-слово на ходу -- замолчать и встать (PAUSED); resume -- та же остановка."""
+    _client, goal_handle, state, fsm_node, cancel_all_pub = _start_driving_tour(
+        harness, leg_s=100.0
+    )
+
+    _wakeword(cancel_all_pub, CancelAll.REASON_STOP_PHRASE)
+    wait_until(state_is(state, MissionState.STATE_PAUSED), timeout_s=15.0)
+    assert state["latest"].pause_reason == MissionState.PAUSE_USER
+
+    fsm_node.request_resume()
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    assert harness.nav.goals_received == 2
+    assert state["latest"].stop_index == 0
+
+    _cancel_tour(harness, goal_handle)
+
+
+@pytest.mark.parametrize("how", ["stop_phrase", "hold_position"])
+def test_stop_while_answering_on_the_way_pauses_and_resumes_same_stop(
+    harness: MissionTestHarness, how: str
+) -> None:
+    """Стоп-слово/«подожди» посреди ответа на ходу -- PAUSED (не снова ехать после ответа)."""
+    _client, goal_handle, state, fsm_node, cancel_all_pub = _start_driving_tour(
+        harness, leg_s=100.0
+    )
+
+    _wakeword(cancel_all_pub)
+    wait_until(state_is(state, MissionState.STATE_ANSWERING), timeout_s=15.0)
+    if how == "stop_phrase":
+        _wakeword(cancel_all_pub, CancelAll.REASON_STOP_PHRASE)
+    else:
+        fsm_node.request_pause()
+    wait_until(state_is(state, MissionState.STATE_PAUSED), timeout_s=15.0)
+    assert state["latest"].interrupt == MissionState.IRQ_NONE
+
+    fsm_node.request_resume()
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    assert harness.nav.goals_received == 2, "после паузы goal к той же остановке шлётся заново"
+    assert state["latest"].stop_index == 0
+
+    _cancel_tour(harness, goal_handle)
+
+
+def test_hold_position_during_answering_after_narration_is_dropped(
+    harness: MissionTestHarness,
+) -> None:
+    """Стоящий робот: «подожди» в ANSWERING не должен остановить СЛЕДУЮЩИЙ перегон."""
+    _client, goal_handle, state, fsm_node, cancel_all_pub = _start_driving_tour(harness)
+    harness.nav.duration_s = 0.5
+    pump_clock(harness, state_is(state, MissionState.STATE_NARRATING), step=0.1)
+
+    _wakeword(cancel_all_pub)
+    wait_until(state_is(state, MissionState.STATE_ANSWERING), timeout_s=15.0)
+    fsm_node.request_pause()
+    time.sleep(0.2)
+    assert state["latest"].state == MissionState.STATE_ANSWERING
+    fsm_node.submit_answer("ок")
+
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.1, max_iterations=300)
+    wait_for_future(result_future, timeout_s=15.0)
+    assert result_future.result().result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    assert all(m.state != MissionState.STATE_PAUSED for m in state["history"])

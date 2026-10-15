@@ -296,6 +296,41 @@ def test_actual_wake_fragment_preserves_window_regardless_of_asr_spelling(ros, t
     assert second.reason == "command_after_name"
 
 
+@pytest.mark.parametrize(
+    "text,status", [("", "wake_not_confirmed"), ("пускай", "wake_not_confirmed"), ("ферая", "wakeword_only")]
+)
+def test_unconfirmed_wake_is_discarded_and_cannot_open_command_window(ros, text, status):
+    node = asr(ros, text)
+    node.set_parameters([Parameter("wake_confirm_max_distance", value=2.0)])
+    fill_audio(node)
+    command = control()
+    command.reason = "acoustic_wakeword"
+    node._on_input_control(command)
+    node._asr = SimpleNamespace(
+        decode=lambda pcm: SimpleNamespace(
+            text=text,
+            confidence=-1.0,
+            tokens=tuple(text),
+            timestamps=tuple(0.4 + i * 0.04 for i in range(len(text))),
+        )
+    )
+    node._submit_decode("final")
+    node._run_decode(node._decode_jobs.get_nowait())
+    event = node._utterance_event_pub.messages[-1]
+    assert event.status == status and node._transcript_pub.messages == []
+    confirmed = status == "wakeword_only"
+    assert (event.event == UtteranceEvent.EVENT_FINAL) == confirmed
+    policy = WakewordSessionPolicy()
+    policy.activate()
+    output = OutputSnapshot(speaking_fresh=True)
+    policy.observe(VadWindow("a", 0, 512, 0.0, 0.9, True), output)
+    (first,) = policy.accept_wake("a", 512, 0.032, output)
+    policy.observe(VadWindow("a", 512, 512, 0.032, 0.0, False), output)
+    policy.finish_utterance(first.utterance_id, event.status)
+    assert policy.command_window_open == confirmed
+    assert bool(policy.observe(VadWindow("a", 1024, 512, 2.0, 0.9, True), output)) == confirmed
+
+
 def test_command_after_name_uses_short_preroll_and_one_word_command_is_not_suppressed(ros):
     node = asr(ros, "привет")
     fill_audio(node)
@@ -342,7 +377,7 @@ def test_followup_wake_text_cannot_extend_command_window_again(ros):
     assert node._utterance_event_pub.messages[-1].status == "final"
 
 
-@pytest.mark.parametrize("kind", ["valid", "stale", "aborted", "wrong_capture", "wrong_sample"])
+@pytest.mark.parametrize("kind", ["valid", "stale", "aborted", "wrong_capture", "wrong_sample", "no_question"])
 def test_dialog_result_is_correlated_and_stale_results_cannot_rearm(ros, kind):
     node = manager(ros)
     node._policy = WakewordSessionPolicy(followup_window_seconds=8, echo_hold_seconds=0.0)
@@ -362,7 +397,11 @@ def test_dialog_result_is_correlated_and_stale_results_cannot_rearm(ros, kind):
     )
     node._on_utterance_event(final)
     event = DialogTurnEvent(
-        device_session_id="a", utterance_id=1, start_sample=123, reply_completed=True
+        device_session_id="a",
+        utterance_id=1,
+        start_sample=123,
+        reply_completed=True,
+        expects_reply=kind != "no_question",
     )
     event.stamp = node.get_clock().now().to_msg()
     if kind == "stale":

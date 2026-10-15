@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from guide_robot_mission_control.interrupt_stack import InterruptStack
 
-__all__ = ["Blackboard", "TourPlan"]
+__all__ = ["Blackboard", "NavCarry", "TourPlan"]
 
 
 @dataclass
@@ -78,6 +78,46 @@ class TourPlan:
 
 
 @dataclass
+class NavCarry:
+    """Живой `NavigateToPose`, переданный из NAVIGATING в ANSWERING без отмены.
+
+    Вопрос посетителя по дороге не останавливает робота: NAVIGATING отдаёт
+    сюда свои futures, ANSWERING держит их, а вернувшийся NAVIGATING
+    забирает обратно (`stop_id` защищает от чужой остановки) и видит
+    результат -- в том числе прибытие, случившееся за время ответа.
+    `cancelled` -- goal снят (стоп-слово и т.п.), возобновлять его нельзя.
+    """
+
+    stop_id: str
+    start_ns: int
+    send_future: object | None = None
+    goal_handle: object | None = None
+    result_future: object | None = None
+    cancelled: bool = False
+
+    def cancel(self) -> None:
+        """Снять nav-goal; если он ещё не принят -- снять сразу после принятия."""
+        self.cancelled = True
+        cancel_nav_goal(self.goal_handle, self.send_future)
+
+
+def cancel_nav_goal(goal_handle: object | None, send_future: object | None) -> None:
+    """`cancel_goal_async()` для принятого goal-а; для ещё не принятого -- по ответу сервера."""
+    if goal_handle is not None:
+        goal_handle.cancel_goal_async()  # type: ignore[attr-defined]
+        return
+    if send_future is None:
+        return
+
+    def _cancel_when_accepted(future: object) -> None:
+        handle = future.result()  # type: ignore[attr-defined]
+        if handle is not None and handle.accepted:
+            handle.cancel_goal_async()
+
+    send_future.add_done_callback(_cancel_when_accepted)  # type: ignore[attr-defined]
+
+
+@dataclass
 class Blackboard:
     """Изменяемое состояние одного прогона тура (одного `RunTour`-goal)."""
 
@@ -85,6 +125,7 @@ class Blackboard:
     resume_token: str = ""
     narrate_goal_handle: object | None = None
     nav_goal_handle: object | None = None
+    nav_carry: NavCarry | None = None
     stack: InterruptStack = field(default_factory=InterruptStack)
     last_answer: str = ""
     stops_completed: int = 0

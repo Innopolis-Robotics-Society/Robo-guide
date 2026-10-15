@@ -356,7 +356,8 @@ class VoiceSessionManager(LifecycleNode):
                 int(msg.utterance_id),
                 int(msg.start_sample),
                 msg.stamp.sec + msg.stamp.nanosec / 1e9,
-                bool(msg.reply_completed),
+                # Окно без имени -- только когда робот сам ждёт ответа.
+                bool(msg.reply_completed) and bool(msg.expects_reply),
             )
         self._publish_state()
 

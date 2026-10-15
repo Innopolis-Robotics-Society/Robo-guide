@@ -107,6 +107,8 @@ _TRANSITIONS: dict[str, dict[str, str | None]] = {
         outcomes.SKIP_STOP: SKIP_STOP_PSEUDO,
         outcomes.END_TOUR: "returning",
         outcomes.TIMEOUT: RESUME_BASE,
+        # Стоп-слово/hold_position во время ответа на ходу -- встать на месте.
+        outcomes.PAUSED: "paused",
         outcomes.SHUTDOWN: None,
         **_UNIVERSAL,
     },
@@ -257,7 +259,13 @@ class RootStateMachine:
                 msg = f"состояние {current!r} вернуло необрабатываемый исход {last_outcome!r}"
                 raise RuntimeError(msg)
             next_state = table[last_outcome]
-            if last_outcome in (outcomes.INTERRUPTED, outcomes.HELD, outcomes.PAUSED):
+            # PAUSED из ANSWERING -- остановка езды, прерванной вопросом:
+            # interrupted_from уже "navigating", resume обязан вернуть туда.
+            paused_on_the_way = current == "answering" and last_outcome == outcomes.PAUSED
+            if (
+                last_outcome in (outcomes.INTERRUPTED, outcomes.HELD, outcomes.PAUSED)
+                and not paused_on_the_way
+            ):
                 blackboard.interrupted_from = current
             if next_state == RESUME_BASE:
                 next_state = _resume_target(blackboard)

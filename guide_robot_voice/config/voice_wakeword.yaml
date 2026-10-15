@@ -23,8 +23,12 @@
     wakeword_listen_during_tts: false
     gate_on_tts: false
     warmup_on_configure: true
-    pre_roll_ms: 1200.0
+    # 1200 мс обрезали имя при позднем срабатывании KWS, 2000 мс замедляли декод.
+    pre_roll_ms: 1600.0
     command_pre_roll_ms: 160.0
+    # Вето ложного KWS-кандидата: до trigger в расшифровке должно стоять слово,
+    # близкое к «фирая» (взвешенный Левенштейн). Пусто/«пускай» окно не открывают.
+    wake_confirm_max_distance: 3.0
     # Не расширять KWS/ASR fuzzy-лексикой. Первый wake fragment отделяется
     # по CTC таймингам; список ниже только fallback для отсутствующих метаданных.
     wakeword_only_phrases: ["фирая", "фирайя", "фира я", "фи рая"]

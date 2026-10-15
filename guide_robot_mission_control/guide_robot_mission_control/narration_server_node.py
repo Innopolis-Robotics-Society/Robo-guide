@@ -664,7 +664,11 @@ class NarrationServerNode(LifecycleNode):
         """Барж-ин слушаем сами, не через FSM (design §4.2, реконсиляция §0.5)."""
         if not self._active:
             return
-        if msg.reason not in (CancelAll.REASON_BARGE_IN, CancelAll.REASON_WAKEWORD):
+        if msg.reason not in (
+            CancelAll.REASON_BARGE_IN,
+            CancelAll.REASON_WAKEWORD,
+            CancelAll.REASON_STOP_PHRASE,
+        ):
             return
         if msg.scope not in (CancelAll.SCOPE_ALL, self._say_scope):
             return

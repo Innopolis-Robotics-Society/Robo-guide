@@ -158,6 +158,21 @@ def test_repeated_kws_during_command_window_does_not_replace_or_extend_it():
     assert command.reason == "command_after_name"
 
 
+def test_name_repeated_later_in_command_window_is_a_new_wake_not_a_command():
+    policy = armed()
+    (action,) = policy.accept_wake("a", 512, 0.032, IDLE)
+    policy.observe(window(1, False), IDLE)
+    policy.finish_utterance(action.utterance_id, "wakeword_only")
+    for n in range(2, 63):
+        assert policy.observe(window(n, False), IDLE) == []
+    (command,) = policy.observe(window(63), IDLE)
+    assert command.reason == "command_after_name"
+    rejected, wake = policy.accept_wake("a", 64 * 512, 64 * 0.032, IDLE)
+    assert rejected.utterance_id == command.utterance_id
+    assert rejected.reason == "superseded_by_wakeword"
+    assert wake.reason == "acoustic_wakeword" and not policy.command_window_open
+
+
 def waiting_for_reply(**kwargs):
     policy = armed(followup_window_seconds=8, echo_hold_seconds=0.1, **kwargs)
     (action,) = policy.accept_wake("a", 512, 0.032, IDLE)

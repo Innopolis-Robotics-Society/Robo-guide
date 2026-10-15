@@ -53,7 +53,7 @@ def test_launch_switches_all_three_input_gate_components_together(enabled, barge
     assert parameters["voice_session_manager"].get("wakeword_gated", False) == enabled
     assert parameters["asr_node"].get("wakeword_gated_input", False) == enabled
     assert parameters["asr_node"]["session_managed_input"] is True
-    assert parameters["asr_node"]["pre_roll_ms"] == (1200.0 if enabled else 500.0)
+    assert parameters["asr_node"]["pre_roll_ms"] == (1600.0 if enabled else 500.0)
     assert parameters["voice_session_manager"]["automatic_barge_in_enabled"] is False
     assert parameters["voice_session_manager"]["audio_profile_validated"] is False
     assert parameters["voice_session_manager"]["followup_window_seconds"] == (

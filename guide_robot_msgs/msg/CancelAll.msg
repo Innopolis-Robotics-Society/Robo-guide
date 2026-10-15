@@ -12,6 +12,9 @@ uint8 SCOPE_SAFETY=3
 # Причины (для логов и разбора false-wake, не влияют на логику).
 string REASON_BARGE_IN=barge_in
 string REASON_WAKEWORD=wakeword
+# Стоп-слово («стоп», «стой», «хватит», «замолчи»): замолчать И остановить
+# езду. Активация/barge-in езду не трогают -- только прерывают речь.
+string REASON_STOP_PHRASE=stop_phrase
 string REASON_NAV_EVENT=nav_event
 string REASON_ESTOP=estop
 string REASON_OPERATOR=operator

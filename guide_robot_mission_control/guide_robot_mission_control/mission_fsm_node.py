@@ -423,13 +423,17 @@ class MissionFsmNode(LifecycleNode):
     def _on_cancel_all(self, msg: CancelAll) -> None:
         if not self._active:
             return
-        if msg.reason not in (CancelAll.REASON_BARGE_IN, CancelAll.REASON_WAKEWORD):
+        if msg.reason not in (
+            CancelAll.REASON_BARGE_IN,
+            CancelAll.REASON_WAKEWORD,
+            CancelAll.REASON_STOP_PHRASE,
+        ):
             return
         with self._exec_lock:
             ctx = self._active_ctx
         if ctx is not None:
             self.get_logger().info(f"barge-in получен (/speech/cancel_all reason={msg.reason})")
-            ctx.barge_in_event.set()
+            ctx.mark_barge_in(stop=msg.reason == CancelAll.REASON_STOP_PHRASE)
 
     # -- RunTour ----------------------------------------------------------
 

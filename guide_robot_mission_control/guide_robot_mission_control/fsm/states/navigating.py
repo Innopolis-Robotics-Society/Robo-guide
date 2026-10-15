@@ -50,7 +50,7 @@ from nav2_msgs.action import NavigateToPose
 
 from guide_robot_mission_control.fsm import outcomes
 from guide_robot_mission_control.fsm.base import InterruptibleState
-from guide_robot_mission_control.fsm.blackboard_keys import Blackboard
+from guide_robot_mission_control.fsm.blackboard_keys import Blackboard, NavCarry, cancel_nav_goal
 
 __all__ = ["NavigatingState"]
 
@@ -62,13 +62,23 @@ class NavigatingState(InterruptibleState):
     redirect_eligible = True
 
     def on_enter(self, blackboard: Blackboard) -> None:
-        """Отправить NavigateToPose на позу текущей остановки тура."""
-        goal = NavigateToPose.Goal()
-        goal.pose = self.ctx.resolve_pose(blackboard.tour.current_stop_id)
-        self._send_future = self.ctx.nav_client.send_goal_async(goal)
+        """Отправить NavigateToPose на позу текущей остановки (или забрать живой из ANSWERING)."""
         self._goal_handle: object | None = None
         self._result_future: object | None = None
-        self._start_ns = self.ctx.now_ns()
+        carry, blackboard.nav_carry = blackboard.nav_carry, None
+        stop_id = blackboard.tour.current_stop_id
+        if carry is not None and not carry.cancelled and carry.stop_id == stop_id:
+            # Ответ на вопрос шёл по дороге, робот всё это время ехал к той же
+            # точке -- продолжаем тот же goal, в том числе уже завершённый.
+            self._send_future = carry.send_future
+            self._goal_handle = carry.goal_handle
+            self._result_future = carry.result_future
+            self._start_ns = carry.start_ns
+        else:
+            goal = NavigateToPose.Goal()
+            goal.pose = self.ctx.resolve_pose(stop_id)
+            self._send_future = self.ctx.nav_client.send_goal_async(goal)
+            self._start_ns = self.ctx.now_ns()
         self._transit_fired = False
         self._transit_send_future: object | None = None
         self._transit_handle: object | None = None
@@ -83,21 +93,39 @@ class NavigatingState(InterruptibleState):
             blackboard.pause_reason = "user"
             self.cancel_active_work(blackboard, outcomes.PAUSED)
             return outcomes.PAUSED
-        if self.ctx.consume_barge_in():
-            # «робот» в пути -- остановить NavigateToPose, уйти в ANSWERING,
-            # RESUME_BASE вернёт на ту же остановку.
-            self.cancel_active_work(blackboard, outcomes.INTERRUPTED)
+        barge_in = self.ctx.take_barge_in()
+        if barge_in is not None:
+            if barge_in == "stop":
+                # Стоп-слово: замолчать и встать -- как hold_position.
+                blackboard.pause_reason = "user"
+                self.cancel_active_work(blackboard, outcomes.PAUSED)
+                return outcomes.PAUSED
+            # Вопрос по дороге: робот едет дальше, NavigateToPose не
+            # отменяется, а уходит в ANSWERING (`blackboard.nav_carry`).
+            # Остановит его только стоп-слово/аварийный стоп; прибытие за
+            # время ответа зафиксирует вернувшийся NAVIGATING.
+            blackboard.nav_carry = NavCarry(
+                stop_id=blackboard.tour.current_stop_id,
+                start_ns=self._start_ns,
+                send_future=self._send_future,
+                goal_handle=self._goal_handle,
+                result_future=self._result_future,
+            )
             return outcomes.INTERRUPTED
         self._maybe_fire_transit(blackboard, now_ns)
         self._bind_transit()
         if self._goal_handle is None:
             return self._poll_send(blackboard)
+        if self._result_future.done():  # type: ignore[attr-defined]
+            # Результат раньше таймаута: goal мог закончиться, пока шёл ответ на
+            # вопрос по дороге -- прибытие нельзя терять из-за прошедшего времени.
+            return self._poll_result(blackboard)
         elapsed_s = (now_ns - self._start_ns) / 1e9
         if elapsed_s >= self.ctx.nav_stop_timeout_s:
             self._goal_handle.cancel_goal_async()  # type: ignore[attr-defined]
             reason = f"nav_stop_timeout_s={self.ctx.nav_stop_timeout_s} истёк"
             return self._skip_stop(blackboard, reason)
-        return self._poll_result(blackboard)
+        return None
 
     def _maybe_fire_transit(self, blackboard: Blackboard, now_ns: int) -> None:
         """Сказать один транзитный чанк, если ход достаточно долгий (stage2 блок E).
@@ -200,10 +228,9 @@ class NavigatingState(InterruptibleState):
         return outcomes.NAV_FAILED
 
     def cancel_active_work(self, blackboard: Blackboard, outcome: str) -> None:
-        """CANCELED/HELD -- отменить активный NavigateToPose (транзит снимет on_exit)."""
+        """CANCELED/HELD/PAUSED -- отменить активный NavigateToPose (транзит снимет on_exit)."""
         del blackboard, outcome
-        if self._goal_handle is not None and self._result_future is not None:
-            self._goal_handle.cancel_goal_async()  # type: ignore[attr-defined]
+        cancel_nav_goal(self._goal_handle, self._send_future)
 
     def on_exit(self, blackboard: Blackboard, outcome: str) -> None:
         """Освободить слот Narrate до входа в NARRATING/PAUSED/HELD."""
