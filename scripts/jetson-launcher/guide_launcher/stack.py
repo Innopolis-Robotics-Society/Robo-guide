@@ -52,6 +52,14 @@ class StackError(Exception):
         self.reason = reason
 
 
+class ContainerState(str, Enum):
+    """Что `docker inspect` знает о контейнере стека."""
+
+    RUNNING = "RUNNING"
+    STOPPED = "STOPPED"
+    MISSING = "MISSING"
+
+
 @dataclass
 class Checks:
     """Три независимые проверки из TASK_launcher.md."""
@@ -179,7 +187,10 @@ class StackMonitor:
         """Запустить контейнер (если нужно) и выполнить start_cmd внутри."""
         self._begin()
         async with self._lock:
-            if not await self._container_running():
+            state = await self._container_state()
+            if state is ContainerState.MISSING:
+                await self._compose_up()
+            elif state is ContainerState.STOPPED:
                 await self._docker(["docker", "start", self._cfg.container], 60.0, "docker start")
             await self._exec_start()
 
@@ -192,6 +203,10 @@ class StackMonitor:
             raise StackError(409, reason)
         self._begin()
         async with self._lock:
+            if await self._container_state() is ContainerState.MISSING:
+                await self._compose_up()
+                await self._exec_start()
+                return
             await self._graceful_stop()
             await self._docker(
                 ["docker", "restart", "-t", str(DOCKER_RESTART_GRACE_S), self._cfg.container],
@@ -242,9 +257,28 @@ class StackMonitor:
         await self._docker([*argv, cfg.container, cfg.start_cmd], 30.0, "docker exec start_cmd")
 
     async def _container_running(self) -> bool:
+        return await self._container_state() is ContainerState.RUNNING
+
+    async def _container_state(self) -> ContainerState:
         argv = ["docker", "inspect", "-f", "{{.State.Running}}", self._cfg.container]
         res = await self._run(argv, 4.0)
-        return res.rc == 0 and res.out.strip() == "true"
+        if res.rc == 0:
+            return ContainerState.RUNNING if res.out.strip() == "true" else ContainerState.STOPPED
+        # После `docker compose down` контейнера нет совсем: `docker start` не поможет.
+        if "no such" in res.out.lower():
+            return ContainerState.MISSING
+        return ContainerState.STOPPED
+
+    async def _compose_up(self) -> None:
+        """Создать контейнер из compose.yaml (после `docker compose down`).
+
+        --no-recreate: существующий контейнер не пересоздаётся (это SIGKILL стека);
+        --pull never: образ уже на роботе, сеть не нужна.
+        """
+        cfg = self._cfg
+        argv = ["docker", "compose", "-f", cfg.compose_file, "up", "-d", "--no-recreate"]
+        argv += ["--pull", "never", cfg.compose_service]
+        await self._docker(argv, 120.0, "docker compose up")
 
     async def _exec(self, cmd: list[str], timeout: float) -> RunResult:
         return await self._run(["docker", "exec", self._cfg.container, *cmd], timeout)

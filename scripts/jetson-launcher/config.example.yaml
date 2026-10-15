@@ -3,6 +3,8 @@ bind_host: 127.0.0.1
 http_port: 8089
 container: robo-guide-jetson-1         # "" -> управление стеком выключено (разработка на ноутбуке)
 start_cmd: /home/fabian/ros2_ws/src/scripts/jetson-launcher/start_stack.sh   # путь в контейнере
+compose_file: ~/Desktop/Projects/Robo-guide/compose.yaml   # контейнера нет (compose down) -> compose up
+compose_service: jetson
 stack_log: /tmp/stack.log              # внутри контейнера
 bridge_url: http://127.0.0.1:8091
 bridge_token_file: ~/Desktop/Projects/Robo-guide/.guide_launcher/bridge_token   # хостовый путь

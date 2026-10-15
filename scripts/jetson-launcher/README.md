@@ -93,6 +93,8 @@ pip в системный Python не используется).
 |---|---|---|
 | `bind_host` / `http_port` | `127.0.0.1` / `8089` | адрес страницы |
 | `container` | `robo-guide-jetson-1` | `""` → управление стеком выключено (разработка на ноутбуке) |
+| `compose_file` | `~/Desktop/Projects/Robo-guide/compose.yaml` | откуда пересоздавать контейнер, если его нет (после `docker compose down`) |
+| `compose_service` | `jetson` | сервис в `compose_file`, из которого создаётся `container` |
 | `start_cmd` | `/home/fabian/ros2_ws/src/scripts/jetson-launcher/start_stack.sh` | путь **внутри контейнера** |
 | `stack_log` | `/tmp/stack.log` | лог стека внутри контейнера, перезаписывается при старте |
 | `bridge_url` / `bridge_token_file` | `http://127.0.0.1:8091` / см. выше | мост в ноду |
@@ -133,7 +135,9 @@ pip в системный Python не используется).
 `container: ""` проверки контейнера считаются пройденными, состояние определяет только мост, а
 раздел «ROS 2» в меню скрыт.
 
-- **start**: `docker start` (если контейнер не запущен), затем
+- **start**: `docker start` (если контейнер остановлен) или, если контейнера нет совсем (после
+  `docker compose down`), `docker compose -f <compose_file> up -d --no-recreate --pull never
+  <compose_service>`; затем
   `docker exec -d -e STACK_LOG=<stack_log> <container> <start_cmd>`. `start_stack.sh`
   идемпотентен (если `ros2 launch` жив — выходит с 0), сам делает `source` ROS (`docker exec` не
   читает `.bashrc`), пишет stdout+stderr в `stack_log` и запускает

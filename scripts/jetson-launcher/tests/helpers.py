@@ -46,7 +46,14 @@ class FakeDocker:
                 return RunResult(1, "No such object")
             return RunResult(0, "true\n" if self.running else "false\n")
         if verb == "start":
+            if not self.container_exists:
+                return RunResult(1, f"Error response from daemon: No such container: {self.name}")
             self.running = True
+            return RunResult(0, "")
+        if verb == "compose":
+            self.container_exists = True
+            self.running = True
+            self.launch_alive = False
             return RunResult(0, "")
         if verb == "restart":
             self.running = True
