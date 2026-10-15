@@ -39,6 +39,8 @@ class Config:
     promo_interval_s: float = 10.0
     slide_interval_s: float = 8.0
     always_promo: bool = True
+    # Кнопки «Да» / «Стоп» / «Задать вопрос» на экране, пока робот спрашивает «Идём дальше?».
+    visitor_confirm_buttons: bool = True
     default_tour: str = "expo_one"
     operator_pin: str = ""
     auth_backends: tuple[str, ...] = ("rfid", "pin")

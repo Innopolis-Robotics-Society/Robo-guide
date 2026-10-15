@@ -88,6 +88,7 @@ def test_index_static_and_config(tmp_path):
                 "slide_interval_s": 5.0,
                 "promo_interval_s": 10.0,
                 "stack_control": True,
+                "visitor_confirm_buttons": True,
             }
 
     run(go())

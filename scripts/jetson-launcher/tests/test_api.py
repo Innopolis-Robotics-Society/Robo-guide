@@ -11,9 +11,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
-from guide_launcher.api import API, COOKIE, MAX_FAILED_ATTEMPTS, PUBLIC_START_MIN_INTERVAL_S
+from guide_launcher.api import (
+    API,
+    COOKIE,
+    MAX_FAILED_ATTEMPTS,
+    PUBLIC_CONFIRM_MIN_INTERVAL_S,
+    PUBLIC_START_MIN_INTERVAL_S,
+)
 from guide_launcher.auth import RfidBackend, make_auth_chain
 from guide_launcher.bridge import FRAME_MAX_AGE_S, Bridge, Frame, FrameWatcher
 from guide_launcher.rfid_link import MemorySerialPort, RfidLink
@@ -67,6 +74,7 @@ def make_backend() -> web.Application:
         "/api/go_home",
         "/api/localization/reset",
         "/api/costmaps/clear",
+        "/api/confirm",
     ):
         app.router.add_post(path, command(path))
     return app
@@ -422,6 +430,100 @@ def test_public_start_rate_limited(tmp_path):
             e.advance(2)
             assert (await _public(e)).status == 200
             assert len(e.calls) == 2
+
+    run(go())
+
+
+# -- публичный ответ на «Идём дальше?» ------------------------------------------------
+
+
+async def _confirm(e: Env, answer: Any = "yes"):
+    return await e.client.post("/api/public/confirm", json={"answer": answer})
+
+
+@pytest.mark.parametrize("answer", ["yes", "stop", "question"])
+def test_public_confirm_forwards_answer_without_session(tmp_path, answer):
+    async def go():
+        async with env(tmp_path) as e:
+            e.set_frame(state_name="awaiting_confirm")
+            resp = await _confirm(e, answer)
+            assert resp.status == 200
+            assert await resp.json() == {"ok": True, "answer": answer, "listening": False}
+            (call,) = e.calls
+            assert call["path"] == "/api/confirm"
+            assert call["body"] == {"answer": answer}
+            assert call["headers"]["X-Operator"] == "public"
+            (entry,) = [r for r in e.journal() if r.get("event") == "public_confirm"]
+            assert entry["answer"] == answer and entry["ok"] is True
+
+    run(go())
+
+
+@pytest.mark.parametrize("answer", ["no", "", None, 1])
+def test_public_confirm_rejects_unknown_answer(tmp_path, answer):
+    async def go():
+        async with env(tmp_path) as e:
+            e.set_frame(state_name="awaiting_confirm")
+            resp = await _confirm(e, answer)
+            assert resp.status == 400
+            assert e.calls == []
+
+    run(go())
+
+
+def test_public_confirm_refusals(tmp_path):
+    async def go():
+        async with env(tmp_path) as e:
+
+            async def refused(reason: str) -> None:
+                e.advance(PUBLIC_CONFIRM_MIN_INTERVAL_S + 1)
+                resp = await _confirm(e)
+                assert resp.status == 409, reason
+                assert await resp.json() == {"error": "refused", "reason": reason}
+
+            e.monitor.state = StackState.DOWN
+            e.set_frame(state_name="awaiting_confirm")
+            await refused("ros_down")
+            e.monitor.state = StackState.UP
+
+            e.watcher.frame = None
+            await refused("no_mission_fsm")
+            e.set_frame(state_name="awaiting_confirm", mission_state_age_s=5.0)
+            await refused("no_mission_fsm")
+            e.set_frame(state_name="awaiting_confirm", estop=True)
+            await refused("estop")
+            for state in ("idle", "narrating", "answering", "navigating"):
+                e.set_frame(state_name=state)
+                await refused("not_awaiting_confirm")
+            assert e.calls == []
+
+            e.set_frame(state_name="awaiting_confirm")
+            e.backend.app["statuses"]["/api/confirm"] = 409
+            await refused("upstream_409")
+
+    run(go())
+
+
+def test_public_confirm_disabled_in_config(tmp_path):
+    async def go():
+        async with env(tmp_path, visitor_confirm_buttons=False) as e:
+            e.set_frame(state_name="awaiting_confirm")
+            resp = await _confirm(e)
+            assert resp.status == 409
+            assert (await resp.json())["reason"] == "disabled"
+            assert e.calls == []
+
+    run(go())
+
+
+def test_public_confirm_double_tap_is_rate_limited(tmp_path):
+    async def go():
+        async with env(tmp_path) as e:
+            e.set_frame(state_name="awaiting_confirm")
+            assert (await _confirm(e)).status == 200
+            resp = await _confirm(e, "stop")
+            assert (await resp.json())["reason"] == "rate_limited"
+            assert len(e.calls) == 1
 
     run(go())
 

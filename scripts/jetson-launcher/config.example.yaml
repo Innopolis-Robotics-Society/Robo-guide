@@ -15,6 +15,7 @@ promo_dir: ~/Desktop/Projects/Robo-guide/guide_robot_operator_ui/promo   # promo
 promo_interval_s: 10.0
 slide_interval_s: 8.0
 always_promo: true
+visitor_confirm_buttons: true          # кнопки «Да/Стоп/Задать вопрос» на «Идём дальше?»; false -- только голос
 default_tour: expo_one
 operator_pin: "00112233"               # не короче 8 символов, иначе сервис не стартует
 auth_backends: [rfid, pin]           # "pin" обязателен; rfid без порта/секрета просто недоступен

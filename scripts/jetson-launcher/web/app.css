@@ -372,6 +372,68 @@ dialog::backdrop {
   opacity: 0.9;
 }
 
+/* -- дублёр «Идём дальше?»: крупные кнопки внизу поверх слайдов/промо -- */
+#confirm-panel {
+  position: absolute;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: min(46rem, calc(100% - 2rem));
+  padding: 1rem 1.25rem 1.25rem;
+  border-radius: 18px;
+  background: rgba(18, 22, 29, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: center;
+}
+
+#confirm-title {
+  margin-bottom: 0.9rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+#confirm-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+.confirm-btn {
+  min-width: 0;
+  min-height: 5rem;
+  font-size: 1.4rem;
+}
+
+.confirm-btn[data-answer="question"] {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.confirm-btn:disabled {
+  opacity: 0.5;
+}
+
+#confirm-message {
+  margin-top: 0.75rem;
+  font-size: 1.1rem;
+  color: var(--warn);
+}
+
+#visitor-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 0.9rem 1.6rem;
+  border-radius: 999px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(47, 125, 225, 0.9);
+}
+
 .dialog-note {
   margin-top: 0.75rem;
   padding: 0.5rem 0.75rem;
