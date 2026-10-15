@@ -115,6 +115,8 @@ _TRANSITIONS: dict[str, dict[str, str | None]] = {
     "awaiting_confirm": {
         outcomes.YES: "navigating",
         outcomes.NO: "returning",
+        # «Задать вопрос» с экрана (~/request_question): ответ, затем снова «Идём дальше?».
+        outcomes.INTERRUPTED: "answering",
         outcomes.SHUTDOWN: None,
         **_UNIVERSAL,
     },

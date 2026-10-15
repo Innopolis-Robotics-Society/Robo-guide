@@ -99,6 +99,7 @@ class FsmContext:
         self._barge_in_lock = threading.Lock()
         self._answer_queue: queue.Queue[tuple[str, int]] = queue.Queue()
         self._confirm_queue: queue.Queue[bool] = queue.Queue()
+        self._question_queue: queue.Queue[bool] = queue.Queue()
         self._pause_queue: queue.Queue[bool] = queue.Queue()
         self._resume_queue: queue.Queue[bool] = queue.Queue()
         self._redirect_queue: queue.Queue[str] = queue.Queue()
@@ -165,6 +166,18 @@ class FsmContext:
             return self._confirm_queue.get_nowait()
         except queue.Empty:
             return None
+
+    def request_question(self) -> None:
+        """«Задать вопрос» с экрана в AWAITING_CONFIRM -- заберёт `AwaitingConfirmState.poll()`."""
+        self._question_queue.put(True)
+
+    def take_question_request(self) -> bool:
+        """Забрать запрос вопроса: True, если он был положен с прошлого вызова."""
+        try:
+            self._question_queue.get_nowait()
+        except queue.Empty:
+            return False
+        return True
 
     def request_pause(self) -> None:
         """Запросить паузу тура -- заберёт `NarratingState.poll()`."""

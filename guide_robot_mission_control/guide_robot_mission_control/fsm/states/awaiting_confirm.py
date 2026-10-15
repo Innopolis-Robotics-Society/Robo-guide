@@ -79,6 +79,13 @@ class AwaitingConfirmState(InterruptibleState):
             blackboard.stack.pop()
             return outcomes.YES if answer else outcomes.NO
 
+        if self.ctx.take_question_request():
+            # «Задать вопрос» с экрана: снять вопрос и его таймер, ответить в
+            # ANSWERING; RESUME_BASE вернёт сюда (interrupted_from) и спросит снова.
+            self.ctx.log("confirm: посетитель хочет задать вопрос -> ANSWERING")
+            blackboard.stack.pop()
+            return outcomes.INTERRUPTED
+
         if self.ctx.consume_barge_in():
             blackboard.stack.on_barge_in(now=now_s)  # confirm -> answer, design правило 4
             self._repeat_count += 1

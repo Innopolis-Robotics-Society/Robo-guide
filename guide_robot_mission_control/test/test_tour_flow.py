@@ -15,6 +15,7 @@ import pytest
 from guide_robot_msgs.action import RunTour
 from guide_robot_msgs.msg import CancelAll, MissionState
 from rclpy.action import ActionClient
+from std_srvs.srv import Trigger
 
 from test.mission_fsm_test_helpers import (
     make_fsm_node,
@@ -752,3 +753,67 @@ def test_hold_position_during_answering_after_narration_is_dropped(
     wait_for_future(result_future, timeout_s=15.0)
     assert result_future.result().result.outcome == RunTour.Result.OUTCOME_COMPLETED
     assert all(m.state != MissionState.STATE_PAUSED for m in state["history"])
+
+
+def test_question_button_in_awaiting_confirm_answers_then_asks_again(
+    harness: MissionTestHarness,
+) -> None:
+    """«Задать вопрос» с экрана: AWAITING_CONFIRM -> ANSWERING -> снова «Идём дальше?»."""
+    for i, stop_id in enumerate(("stop0", "stop1")):
+        harness.fixtures.add_exhibit(stop_id, ["Раз."], version="rev1")
+        harness.fixtures.add_location(stop_id, x=float(i), y=0.0)
+    harness.nav.duration_s = _NAV_DURATION_S
+    harness.say.chars_per_sec = 50.0
+    make_narration_node(harness, lookahead=0)
+    fsm_node = make_fsm_node(harness, nav_stop_timeout_s=3.0, confirm_timeout_s=100.0)
+    client_node, run_tour_client = make_run_tour_client(harness)
+    state = state_listener(client_node)
+
+    refused = fsm_node._srv_request_question(Trigger.Request(), Trigger.Response())
+    assert (refused.success, refused.message) == (False, "no_active_tour")
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=["stop0", "stop1"],
+            greet=False,
+            narrate=True,
+            confirm_between_stops=True,
+            return_home=False,
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    early = fsm_node._srv_request_question(Trigger.Request(), Trigger.Response())
+    assert (early.success, early.message) == (False, "not_awaiting_confirm")
+
+    pump_clock(
+        harness,
+        state_is(state, MissionState.STATE_AWAITING_CONFIRM),
+        step=_NAV_DURATION_S + 0.02,
+        max_iterations=200,
+    )
+    asks_before = harness.say.goals_received
+    ok = fsm_node._srv_request_question(Trigger.Request(), Trigger.Response())
+    assert ok.success
+    wait_until(state_is(state, MissionState.STATE_ANSWERING), timeout_s=15.0)
+
+    fsm_node.submit_answer("ответ")
+    pump_clock(
+        harness,
+        state_is(state, MissionState.STATE_AWAITING_CONFIRM),
+        step=0.05,
+        max_iterations=200,
+    )
+    # Вернулись в тот же вопрос между остановками и задали его снова.
+    wait_until(lambda: harness.say.goals_received > asks_before, timeout_s=5.0)
+
+    fsm_node.submit_confirm(is_yes=True)
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.1, max_iterations=200)
+    wait_for_future(result_future, timeout_s=15.0)
+    result: RunTour.Result = result_future.result().result
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    assert result.stops_completed == 2
