@@ -18,6 +18,7 @@
   <depend>python3-numpy</depend>
   <depend>python3-sounddevice</depend>
 
+  <exec_depend>std_srvs</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>

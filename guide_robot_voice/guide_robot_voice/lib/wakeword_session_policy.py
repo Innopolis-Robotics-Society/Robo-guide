@@ -218,6 +218,33 @@ class WakewordSessionPolicy(VoiceSessionPolicy):
         self._quiet_since = None
         return True
 
+    def prompt_listen(self, timestamp: float) -> bool:
+        """Окно без имени по кнопке «Задать вопрос» на экране (не по звуку).
+
+        Тот же путь, что follow-up после ответа: окно открывается, когда колонка
+        замолчит (echo hold), и живёт `followup_window_seconds`. Окно уже открыто
+        -- True без изменений; идёт реплика/ожидание final или follow-up
+        выключен -- False.
+        """
+        if self._awaiting_command or (
+            self._pending_window and self._pending_window == "followup_without_wakeword"
+        ):
+            return True
+        if (
+            not self.device_session_id
+            or not self.followup_window_seconds
+            or self.current_utterance_id
+            or self._awaiting_final_id
+            or self._pending_window
+        ):
+            return False
+        self._expected_reply = None
+        self._pending_window = "followup_without_wakeword"
+        self._pending_until = timestamp + 2 + self.echo_hold_seconds
+        self._pending_started = timestamp
+        self._quiet_since = None
+        return True
+
     def accept_wake(
         self, session: str, end_sample: int, timestamp: float, output: OutputSnapshot
     ) -> list[SessionAction]:

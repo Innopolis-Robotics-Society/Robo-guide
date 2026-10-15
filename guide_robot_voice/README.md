@@ -524,6 +524,12 @@ Supra и реальные динамики.
 **Подписан на**: `/voice/vad_observation`, `/voice/speaking`,
 `/audio/playback_state`, `/voice/utterance_event`.
 
+**Сервис** (только `wakeword_gated`): `~/prompt_listen` (`std_srvs/Trigger`) — кнопка
+«Задать вопрос» на экране. Открывает то же окно, что follow-up после ответа
+(`followup_without_wakeword`): после тишины колонки (`echo_hold_seconds`) реплика без
+«Фирая» допускается в ASR в течение `followup_window_seconds`. Окно уже открыто —
+`success=true` без изменений; идёт реплика или `followup_window_seconds=0` — `false`.
+
 ### `wakeword_node`
 
 `backend=asr_kws` (Stage 1, реализован): подписка на `/asr/partial`,
