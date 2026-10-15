@@ -14,6 +14,7 @@ from guide_robot_voice.lib.session_policy import (
 _MAX_WINDOW_SECONDS = 30.0
 _MAX_ECHO_HOLD_SECONDS = 2.0
 _SAMPLE_RATE = 16_000
+_REWAKE_MIN_SECONDS = 1.5
 
 
 class WakewordSessionPolicy(VoiceSessionPolicy):
@@ -230,8 +231,17 @@ class WakewordSessionPolicy(VoiceSessionPolicy):
             or abs(end_sample - self._last_window_end) > _SAMPLE_RATE
             or self._awaiting_final_id
             or self._pending_window
-            or (self.current_utterance_id and self._current_reason != "followup_without_wakeword")
-            or (self._awaiting_command and self._window_kind != "followup_without_wakeword")
+            # Повтор имени в окне -- новое обращение, а не текст команды. Второй
+            # кандидат от того же произнесения окно не заменяет и не продлевает.
+            or (
+                self.current_utterance_id
+                and self._current_reason not in ("followup_without_wakeword", "command_after_name")
+            )
+            or (
+                self._window_kind == "command_after_name"
+                and (self._awaiting_command or self.current_utterance_id)
+                and timestamp - self._last_wake_timestamp < _REWAKE_MIN_SECONDS
+            )
             or not output.speaking_fresh
         ):
             return []

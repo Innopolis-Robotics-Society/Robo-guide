@@ -2,7 +2,7 @@
 
 import pytest
 
-from guide_robot_voice.lib.wakeword_command import command_after_wake
+from guide_robot_voice.lib.wakeword_command import command_after_wake, wake_name_confirmed
 
 NAMES = ["фирая", "фирайя", "фира я", "фи рая"]
 
@@ -74,3 +74,36 @@ def test_unaligned_fallback_uses_only_existing_exact_names():
 def test_pretrigger_command_and_name_in_middle_or_end_are_not_cropped(text, starts):
     tokens, times = aligned(text, starts)
     assert command_after_wake(text, tokens, times, 1.2, NAMES) == (text, True)
+
+
+# Расшифровки принятых KWS-кандидатов из desk-журнала Jetson 11.10.2026.
+@pytest.mark.parametrize(
+    "text",
+    ["фирая", "ферая", "черая", "вчерая", "фрая", "трая", "тера", "фера", "ферраи", "фера я"],
+)
+def test_name_like_word_before_trigger_confirms_wake(text):
+    tokens, times = aligned(text, [0.4, 0.8])
+    assert wake_name_confirmed(text, tokens, times, 1.2, 2.0)
+
+
+@pytest.mark.parametrize("text", ["", "пускай", "хотели дать", "привет", "хорошо", "вчера"])
+def test_false_candidate_is_not_confirmed(text):
+    tokens, times = aligned(text, [0.4, 0.8])
+    assert not wake_name_confirmed(text, tokens, times, 1.2, 2.0)
+
+
+def test_command_keeps_wake_confirmed_by_leading_name():
+    text = "ферая расскажи про енополис"
+    tokens, times = aligned(text, [0.4, 1.3, 1.9, 2.3])
+    assert wake_name_confirmed(text, tokens, times, 1.2, 2.0)
+
+
+def test_name_like_word_after_trigger_does_not_confirm_wake():
+    text = "пускай вторая"
+    tokens, times = aligned(text, [0.4, 1.6])
+    assert not wake_name_confirmed(text, tokens, times, 1.2, 2.0)
+
+
+def test_unaligned_result_checks_leading_words_only():
+    assert wake_name_confirmed("эй ферая привет", (), (), 1.2, 2.0)
+    assert not wake_name_confirmed("хотели дать ему вторая", (), (), 1.2, 2.0)

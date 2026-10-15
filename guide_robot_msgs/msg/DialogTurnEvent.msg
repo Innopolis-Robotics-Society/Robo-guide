@@ -8,3 +8,6 @@ string dialog_session_id
 uint64 turn_id
 # true только при успешном, не прерванном и полностью озвученном ответе.
 bool reply_completed
+# true, если ответ ждёт реплики посетителя: ask_visitor или вопрос в конце.
+# Только такой ход открывает окно без повторного имени.
+bool expects_reply

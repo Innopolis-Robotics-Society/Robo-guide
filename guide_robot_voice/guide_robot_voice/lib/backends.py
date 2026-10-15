@@ -14,32 +14,44 @@
    реплика экскурсии стабильно приходит с лишней задержкой.
 
 Голос по умолчанию -- Silero TTS v5 `xenia` (v5_ru.pt). Piper оставлен
-как запасной бэкенд. Импорт torch/piper отложен внутрь load(): модуль
-обязан импортироваться в CI без моделей.
+как запасной бэкенд. Yandex SpeechKit v3 -- облачный эмоциональный голос
+(амплуа), ходит в сеть на каждую клаузу. Импорт torch/piper/requests
+отложен внутрь load(): модуль обязан импортироваться в CI без моделей.
 """
 
 from __future__ import annotations
 
+import base64
 import html
 import json
 import logging
 import math
+import os
 import pathlib
 import re
+import time
 from collections.abc import Iterator
+from http import HTTPStatus
 from typing import Protocol
 
 import numpy as np
 
+from guide_robot_voice.lib.resampler import resample_int16
+
 _logger = logging.getLogger(__name__)
 
 __all__ = [
+    "FallbackBackend",
     "NullBackend",
     "PiperBackend",
     "SileroBackend",
     "TtsBackend",
+    "TtsServiceError",
+    "YandexBackend",
     "build_silero_ssml",
     "make_backend",
+    "parse_yandex_voice",
+    "strip_yandex_markup",
     "trim_trailing_silence",
 ]
 
@@ -440,9 +452,329 @@ def _silero_to_int16(audio: object) -> np.ndarray:
     return np.clip(np.round(pcm * 32767.0), -32768, 32767).astype(np.int16)
 
 
+_YANDEX_TTS_URL = "https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis"
+# Разметка Yandex TTS: «+» -- ударение, «**слово**» -- акцент, «sil<[t]>»,
+# «<[small]>» -- паузы, «[[...]]» -- фонемы. В тексте ЛЛМ эти символы --
+# не разметка («C++», markdown), и прочитаны они должны быть как текст.
+_YANDEX_MARKUP_RE = re.compile(r"[*\[\]<>]")
+_SPACES_RE = re.compile(r"\s+")
+
+
+class TtsServiceError(RuntimeError):
+    """Облачный синтез отказал. persistent -- ключ, права или деньги.
+
+    persistent=True: HTTP 4xx (кроме 408/429) и gRPC PERMISSION_DENIED /
+    UNAUTHENTICATED -- сам не пройдёт, повторять каждую клаузу бессмысленно.
+    Иначе (сеть, таймаут, 5xx, 429) -- сбой временный.
+    """
+
+    def __init__(self, message: str, *, persistent: bool) -> None:
+        """Запомнить, временный ли сбой."""
+        super().__init__(message)
+        self.persistent = persistent
+
+
+_TRANSIENT_HTTP = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.TOO_MANY_REQUESTS})
+_PERSISTENT_GRPC = frozenset({7, 16})  # PERMISSION_DENIED, UNAUTHENTICATED
+
+
+def strip_yandex_markup(text: str) -> str:
+    """Убрать из текста всё, что SpeechKit примет за разметку."""
+    text = _YANDEX_MARKUP_RE.sub(" ", text.replace("+", " плюс "))
+    return _SPACES_RE.sub(" ", text).strip()
+
+
+def parse_yandex_voice(voice: str, default_voice: str, default_role: str) -> tuple[str, str]:
+    """Say.voice -> (голос, амплуа).
+
+    Формат «голос:амплуа»; «:амплуа» -- амплуа для голоса по умолчанию.
+    Голос без амплуа берёт амплуа голоса по умолчанию у самого SpeechKit,
+    а не default_role: у другого голоса такого амплуа может не быть.
+    Число (speaker_id Piper) -- не голос Яндекса, игнорируется.
+    """
+    voice = voice.strip()
+    if not voice or voice.lstrip("-").isdigit():
+        return default_voice, default_role
+    name, _, role = voice.partition(":")
+    name, role = name.strip(), role.strip()
+    if not name:
+        return default_voice, role or default_role
+    return name, role
+
+
+class YandexBackend:
+    """Yandex SpeechKit API v3 (REST utteranceSynthesis), сырой PCM.
+
+    Ответ -- поток JSON-сообщений с audioChunk.data (base64 PCM), кадры
+    отдаются по мере прихода. Если вызывающий бросает генератор (отмена),
+    HTTP-ответ закрывается в with -- запрос не висит до конца синтеза.
+
+    Ключ -- API-ключ сервисного аккаунта с ролью ai.speechkit-tts.user,
+    берётся из переменной окружения (в git не лежит). Заголовок
+    x-data-logging-enabled: false -- Яндекс иначе логирует тексты
+    реплик, а в ответах ЛЛМ бывают данные посетителей.
+    """
+
+    def __init__(  # noqa: PLR0913 -- параметры ноды один к одному
+        self,
+        voice: str = "dasha",
+        role: str = "",
+        model: str = "",
+        speed: str = "",
+        sample_rate: int = 48000,
+        api_key_env: str = "YANDEX_TTS_API_KEY",
+        folder_id: str = "",
+        connect_timeout_s: float = 3.0,
+        read_timeout_s: float = 10.0,
+        block_ms: int = 20,
+        url: str = _YANDEX_TTS_URL,
+    ) -> None:
+        """Запомнить параметры. Ключ читается и сессия создаётся в load().
+
+        model -- "" (general) или "livetts"; у livetts нет speed в API v3.
+        speed -- строка, как в API ("1.2"); пусто -- не передавать.
+        """
+        self._voice = voice
+        self._role = role
+        self._model = model
+        self._speed = speed
+        self.sample_rate = sample_rate
+        self._api_key_env = api_key_env
+        self._folder_id = folder_id
+        self._timeout = (connect_timeout_s, read_timeout_s)
+        self._block = max(1, int(sample_rate * block_ms / 1000))
+        self._url = url
+        self._session: object | None = None
+
+    def load(self) -> None:
+        """Прочитать ключ и открыть HTTP-сессию (keep-alive между клаузами)."""
+        api_key = os.environ.get(self._api_key_env, "").strip()
+        if not api_key:
+            raise RuntimeError(
+                f"переменная окружения {self._api_key_env} пуста: положите API-ключ "
+                "сервисного аккаунта SpeechKit в .env и пробросьте её в compose.yaml"
+            )
+        if self._model == "livetts" and self._speed:
+            raise ValueError("livetts не поддерживает speed в API v3: оставьте пустым")
+        import requests
+
+        session = requests.Session()
+        session.headers.update(
+            {"Authorization": f"Api-Key {api_key}", "x-data-logging-enabled": "false"}
+        )
+        if self._folder_id:
+            session.headers["x-folder-id"] = self._folder_id
+        self._session = session
+        _logger.info(
+            "Yandex SpeechKit: модель %s, голос %s, амплуа %s, %d Гц",
+            self._model or "general",
+            self._voice,
+            self._role or "по умолчанию",
+            self.sample_rate,
+        )
+
+    def build_request(self, text: str, voice: str = "") -> dict[str, object]:
+        """Тело запроса utteranceSynthesis -- отдельно, чтобы проверять без сети."""
+        name, role = parse_yandex_voice(voice, self._voice, self._role)
+        hints: list[dict[str, str]] = [{"voice": name}]
+        if role:
+            hints.append({"role": role})
+        if self._speed:
+            hints.append({"speed": self._speed})
+        body: dict[str, object] = {
+            "text": strip_yandex_markup(text),
+            "hints": hints,
+            "outputAudioSpec": {
+                "rawAudio": {
+                    "audioEncoding": "LINEAR16_PCM",
+                    "sampleRateHertz": str(self.sample_rate),
+                }
+            },
+        }
+        if self._model:
+            body["model"] = self._model
+        return body
+
+    def synthesize(self, text: str, voice: str = "") -> Iterator[np.ndarray]:
+        """Синтезировать фразу и отдавать PCM int16 кадрами по мере прихода."""
+        if self._session is None:
+            raise RuntimeError("YandexBackend.load() не вызван")
+        body = self.build_request(text, voice)
+        with self._session.post(  # type: ignore[attr-defined]
+            self._url, json=body, stream=True, timeout=self._timeout
+        ) as response:
+            code = response.status_code
+            if code != HTTPStatus.OK:
+                client_error = HTTPStatus.BAD_REQUEST <= code < HTTPStatus.INTERNAL_SERVER_ERROR
+                raise TtsServiceError(
+                    f"Yandex TTS HTTP {code}: {response.text[:300]}",
+                    persistent=client_error and code not in _TRANSIENT_HTTP,
+                )
+            carry = b""
+            for message in _iter_json_messages(response.iter_content(chunk_size=None)):
+                if "error" in message:
+                    error = message["error"]
+                    grpc_code = error.get("grpcCode") if isinstance(error, dict) else None
+                    raise TtsServiceError(
+                        f"Yandex TTS: {error}", persistent=grpc_code in _PERSISTENT_GRPC
+                    )
+                chunk = message.get("result", message).get("audioChunk") or {}
+                data = chunk.get("data")
+                if not data:
+                    continue
+                raw = carry + base64.b64decode(data)
+                usable = len(raw) - len(raw) % 2
+                carry = raw[usable:]
+                pcm = np.frombuffer(raw[:usable], dtype="<i2").astype(np.int16)
+                for offset in range(0, pcm.size, self._block):
+                    yield pcm[offset : offset + self._block]
+
+    def close(self) -> None:
+        """Закрыть HTTP-сессию."""
+        if self._session is not None:
+            self._session.close()  # type: ignore[attr-defined]
+            self._session = None
+
+
+def _iter_json_messages(chunks: Iterator[bytes]) -> Iterator[dict]:
+    """Разобрать поток подряд идущих JSON-объектов из произвольно нарезанных байтов.
+
+    REST-шлюз отдаёт серверный стрим как объекты {"result": ...} через
+    перевод строки; разделители (пробелы, «,», «[», «]») пропускаются,
+    чтобы не зависеть от того, завернёт ли шлюз стрим в массив. UTF-8
+    декодируется инкрементально: кириллица textChunk может разорваться
+    на границе сетевых чанков.
+    """
+    import codecs
+
+    decoder = json.JSONDecoder()
+    text_decoder = codecs.getincrementaldecoder("utf-8")()
+    buffer = ""
+    for chunk in chunks:
+        buffer += text_decoder.decode(chunk)
+        while True:
+            buffer = buffer.lstrip(" \t\r\n,[]")
+            if not buffer:
+                break
+            try:
+                message, end = decoder.raw_decode(buffer)
+            except json.JSONDecodeError:
+                break  # объект ещё не пришёл целиком
+            if isinstance(message, dict):
+                yield message
+            buffer = buffer[end:]
+    if buffer.lstrip(" \t\r\n,[]"):
+        raise TtsServiceError(f"Yandex TTS: оборванный ответ: {buffer[:200]!r}", persistent=False)
+
+
+class FallbackBackend:
+    """Облачный бэкенд с локальной страховкой: робот не замолкает.
+
+    Кончились деньги, отозван ключ, пропала сеть -- клауза синтезируется
+    запасным (Silero), а основной пропускается до retry_s (временный сбой)
+    или persistent_retry_s (TtsServiceError.persistent: ключ/права/деньги).
+    После паузы основной пробуется снова -- пополнили баланс, вернулась
+    сеть -- и голос возвращается сам, без перезапуска.
+
+    Подмена только до первого кадра основного: если он отвалился посреди
+    клаузы, часть звука уже у вызывающего, и дописать хвост другим голосом
+    нельзя -- исключение уходит в tts_node._push_clause, повтор клаузы
+    целиком придёт сюда же и уйдёт в запасной.
+
+    Запасной получает пустой voice: Say.voice -- в формате облака
+    («голос:амплуа»), Silero принял бы его за имя спикера. Его PCM
+    пересчитывается к частоте основного: tts_node строит ресемплер и
+    устройство под одну частоту бэкенда.
+    """
+
+    def __init__(  # noqa: PLR0913 -- параметры ноды один к одному
+        self,
+        primary: TtsBackend,
+        fallback: TtsBackend,
+        retry_s: float = 30.0,
+        persistent_retry_s: float = 300.0,
+        block_ms: int = 20,
+        warmup_text: str = "Проверка связи",
+        clock: object = time.monotonic,
+    ) -> None:
+        """Запомнить оба бэкенда. Загрузка -- в load()."""
+        self._primary = primary
+        self._fallback = fallback
+        self.sample_rate = primary.sample_rate
+        self._retry_s = retry_s
+        self._persistent_retry_s = persistent_retry_s
+        self._block = max(1, int(self.sample_rate * block_ms / 1000))
+        self._warmup_text = warmup_text
+        self._clock = clock
+        self._primary_loaded = False
+        self._retry_at = 0.0
+        self.degraded_reason = ""
+        """Пусто -- говорит основной; иначе причина перехода на запасной (для /diagnostics)."""
+
+    def load(self) -> None:
+        """Загрузить и разогреть запасной (обязан), затем основной (может не выйти).
+
+        Разогрев запасного -- здесь: tts_node разогревает только тот путь,
+        по которому пойдёт warmup_text, а это основной; холодный Silero
+        отдал бы первую же подменённую реплику с лишней задержкой.
+        """
+        self._fallback.load()
+        for _ in self._fallback.synthesize(self._warmup_text):
+            pass
+        try:
+            self._primary.load()
+        except Exception as error:
+            self.degraded_reason = f"основной бэкенд не загрузился: {error}"
+            _logger.error("%s -- говорю запасным до перезапуска", self.degraded_reason)
+            return
+        self._primary_loaded = True
+
+    def synthesize(self, text: str, voice: str = "") -> Iterator[np.ndarray]:
+        """Основной, если он не на паузе; иначе или при его отказе -- запасной."""
+        if self._primary_loaded and self._clock() >= self._retry_at:  # type: ignore[operator]
+            yielded = False
+            try:
+                for block in self._primary.synthesize(text, voice):
+                    yielded = True
+                    yield block
+            except Exception as error:
+                persistent = isinstance(error, TtsServiceError) and error.persistent
+                delay = self._persistent_retry_s if persistent else self._retry_s
+                self._retry_at = self._clock() + delay  # type: ignore[operator]
+                self.degraded_reason = f"{error} (повтор через {delay:.0f} с)"
+                _logger.warning("основной TTS отказал, перехожу на запасной: %s", error)
+                if yielded:
+                    raise
+            else:
+                if self.degraded_reason:
+                    _logger.info("основной TTS снова работает")
+                    self.degraded_reason = ""
+                return
+        yield from self._fallback_blocks(text)
+
+    def _fallback_blocks(self, text: str) -> Iterator[np.ndarray]:
+        """Запасной синтез, пересчитанный к частоте основного."""
+        blocks = list(self._fallback.synthesize(text, ""))
+        if not blocks:
+            return
+        pcm = resample_int16(np.concatenate(blocks), self._fallback.sample_rate, self.sample_rate)
+        for offset in range(0, pcm.size, self._block):
+            yield pcm[offset : offset + self._block]
+
+    def close(self) -> None:
+        """Отпустить оба бэкенда."""
+        self._primary.close()
+        self._fallback.close()
+
+
 def make_backend(kind: str, **kwargs: object) -> TtsBackend:
     """Собрать бэкенд по имени из параметров ноды."""
-    factories = {"null": NullBackend, "piper": PiperBackend, "silero": SileroBackend}
+    factories = {
+        "null": NullBackend,
+        "piper": PiperBackend,
+        "silero": SileroBackend,
+        "yandex": YandexBackend,
+    }
     if kind not in factories:
         raise ValueError(
             f"неизвестный бэкенд TTS: {kind!r}, ожидается один из {sorted(factories)}"

@@ -29,15 +29,23 @@ def _transcript(utterance_id, start_sample, text):
     )
 
 
-@pytest.mark.parametrize("say_fails", [False, True])
-def test_turn_result_follows_actual_say_result(say_fails):
+@pytest.mark.parametrize(
+    "say_fails,reply,expects_reply",
+    [
+        (False, "Привет!", False),
+        (True, "Привет!", False),
+        (False, "Рассказать про город или про университет?", True),
+        (True, "Рассказать про город или про университет?", False),
+    ],
+)
+def test_turn_result_follows_actual_say_result(say_fails, reply, expects_reply):
     harness = ToolBrokerTestHarness()
     try:
         wait_until(lambda: harness.dialog_agent.last_mission_state() is not None)
         harness.llm_server.chunks_with_grammar = [json.dumps({"tool": "reply", "args": {}})]
-        harness.llm_server.chunks_no_grammar = ["Привет!"]
+        harness.llm_server.chunks_no_grammar = [reply]
         if say_fails:
-            harness.say.fail_on_text.add("Привет!")
+            harness.say.fail_on_text.add(reply)
         events = []
         _, pub = _client(harness, events)
         pub.publish(_transcript(42, 12345, "расскажи о себе"))
@@ -51,6 +59,8 @@ def test_turn_result_follows_actual_say_result(say_fails):
         assert event.dialog_session_id == harness.dialog_agent._session_id
         assert event.turn_id > 0
         assert event.reply_completed is not say_fails
+        # Окно без имени открывает только озвученный вопрос, не любой ответ.
+        assert event.expects_reply is expects_reply
         assert harness.say.goals_received == 1
     finally:
         harness.shutdown()

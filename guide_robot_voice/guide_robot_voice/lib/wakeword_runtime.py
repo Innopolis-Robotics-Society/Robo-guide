@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -21,6 +22,15 @@ FILES = ("firaya_trial.onnx", "melspectrogram.onnx", "embedding_model.onnx")
 FEATURE_FRAMES = 16
 FEATURE_DIM = 96
 MAX_CONFIRMATION_FRAMES = 20
+# Mutable streaming state of the pinned openwakeword 0.6.0 AudioFeatures.
+# Keep ONNX sessions and prediction functions alive; only history is restored.
+_FEATURE_STATE = (
+    "raw_data_buffer",
+    "melspectrogram_buffer",
+    "accumulated_samples",
+    "raw_data_remainder",
+    "feature_buffer",
+)
 
 
 class _WakewordScorer(Protocol):
@@ -80,12 +90,30 @@ class FrozenWakewordModel:
             embedding_model_path=str(directory / FILES[2]),
             ncpu=1,
         )
+        self._reset_state: tuple[object, dict[str, object]] | None = None
 
     def reset(self) -> None:
-        """Сбросить историю; добавить 2 с нулей ДО потока, не после."""
-        self.model.reset()
-        for _ in range(25):
-            self.model.predict(np.zeros(FRAME, dtype=np.int16))
+        """Восстановить историю после 2 с нулей без повторного инференса."""
+        if self._reset_state is None:
+            # openWakeWord.reset() embeds 4 s of random audio; our subsequent
+            # 25 predictions replace the classifier context with silence.
+            # On Orin Nano this costs ~370 ms, exceeding the 320 ms ROS audio
+            # history and causing another gap/reset. Do it once at configure.
+            self.model.reset()
+            for _ in range(25):
+                self.model.predict(np.zeros(FRAME, dtype=np.int16))
+            self._reset_state = deepcopy(
+                (
+                    self.model.prediction_buffer,
+                    {name: getattr(self.model.preprocessor, name) for name in _FEATURE_STATE},
+                )
+            )
+            return
+
+        prediction_buffer, feature_state = deepcopy(self._reset_state)
+        self.model.prediction_buffer = prediction_buffer
+        for name, value in feature_state.items():
+            setattr(self.model.preprocessor, name, value)
 
     def score(self, pcm: np.ndarray) -> float:
         """Один score на реальные 80 мс моно PCM16."""

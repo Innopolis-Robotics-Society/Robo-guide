@@ -1528,7 +1528,14 @@ class DialogAgentNode(LifecycleNode):
                 and pending_text is None
                 and pending_answer_replay is None
             )
-            self._publish_turn_event(voice_origin, turn_id, origin_session_id, completed)
+            with self._state_lock:
+                awaiting_answer = self._pending_question is not None
+            expects_reply = completed and (
+                awaiting_answer or (result.answer_text or "").rstrip().endswith("?")
+            )
+            self._publish_turn_event(
+                voice_origin, turn_id, origin_session_id, completed, expects_reply
+            )
 
         if result is not None:
             now = time.time()
@@ -1614,6 +1621,7 @@ class DialogAgentNode(LifecycleNode):
         turn_id: int,
         session_id: str | None,
         completed: bool,
+        expects_reply: bool = False,
     ) -> None:
         """Приёмка голоса использует результат Say, а не latched DialogPhase."""
         pub = getattr(self, "_dialog_turn_pub", None)
@@ -1631,6 +1639,7 @@ class DialogAgentNode(LifecycleNode):
         msg.dialog_session_id = session_id
         msg.turn_id = turn_id
         msg.reply_completed = completed
+        msg.expects_reply = expects_reply
         try:
             pub.publish(msg)
         except Exception as error:

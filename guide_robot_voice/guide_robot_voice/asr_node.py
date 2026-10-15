@@ -62,7 +62,7 @@ from guide_robot_voice.lib.qos import (
 )
 from guide_robot_voice.lib.ring import IndexedAudioRing, RingBuffer
 from guide_robot_voice.lib.turn_policy import TurnPolicy, TurnPolicyConfig
-from guide_robot_voice.lib.wakeword_command import command_after_wake
+from guide_robot_voice.lib.wakeword_command import command_after_wake, wake_name_confirmed
 
 _SAMPLE_RATE = 16000
 _SPEAKING_STATUS_STALE_SEC = 0.4
@@ -124,6 +124,8 @@ class AsrNode(LifecycleNode):
         self.declare_parameter("warmup_on_configure", False)
         self.declare_parameter("wakeword_only_phrases", ["фирая", "фирайя", "фира я", "фи рая"])
         self.declare_parameter("command_pre_roll_ms", 160.0)
+        # Вето акустического wake по расшифровке: < 0 выключает проверку.
+        self.declare_parameter("wake_confirm_max_distance", -1.0)
         # При gate_on_tts: всё равно копить окно и слать /asr/partial во время
         # TTS (для wakeword «Фирая»/«стоп»), финалы в диалог не открывать.
         self.declare_parameter("wakeword_listen_during_tts", False)
@@ -161,6 +163,7 @@ class AsrNode(LifecycleNode):
         self._wake_cap_ms = 0.0
         """utterance_ms, на котором финализировать после «Фирая» (0 -- нет лимита)."""
         self._wake_trims = 0
+        self._wakes_unconfirmed = 0
         self._gaps_filled = 0
         self._max_fill_samples = 0
         self._latest_control_sequence = -1
@@ -874,7 +877,7 @@ class AsrNode(LifecycleNode):
             return not self._utterance_open or job.utterance_id != self._utterance_id
 
     # Admission and final publication must stay in one lock-protected transaction.
-    def _run_decode(self, job: _DecodeJob) -> None:  # noqa: PLR0911, PLR0912
+    def _run_decode(self, job: _DecodeJob) -> None:  # noqa: PLR0911, PLR0912, PLR0915
         if bool(self.get_parameter("wakeword_gated_input").value):
             with self._lock:
                 if (
@@ -935,11 +938,28 @@ class AsrNode(LifecycleNode):
                 bool(self.get_parameter("wakeword_gated_input").value)
                 and job.reason == "acoustic_wakeword"
             ):
+                tokens = tuple(getattr(result, "tokens", ()))
+                timestamps = tuple(getattr(result, "timestamps", ()))
+                wake_offset = job.prefix_samples / _SAMPLE_RATE
+                max_distance = float(self.get_parameter("wake_confirm_max_distance").value)
+                if max_distance >= 0 and not wake_name_confirmed(
+                    text, tokens, timestamps, wake_offset, max_distance
+                ):
+                    # Ложный кандидат не открывает окно и не уходит в диалог.
+                    self._wakes_unconfirmed += 1
+                    self.get_logger().info(
+                        f"wake не подтверждён расшифровкой {text!r}: "
+                        f"utterance_id={job.utterance_id}"
+                    )
+                    self._publish_utterance_event(
+                        UtteranceEvent.EVENT_DISCARDED, "wake_not_confirmed", job=job
+                    )
+                    return
                 command, aligned = command_after_wake(
                     text,
-                    tuple(getattr(result, "tokens", ())),
-                    tuple(getattr(result, "timestamps", ())),
-                    job.prefix_samples / _SAMPLE_RATE,
+                    tokens,
+                    timestamps,
+                    wake_offset,
                     list(self.get_parameter("wakeword_only_phrases").value),
                 )
                 if not command:
@@ -1036,6 +1056,7 @@ class AsrNode(LifecycleNode):
                 KeyValue(key="finals_dropped_short", value=str(self._finals_dropped_short)),
                 KeyValue(key="preroll_underflows", value=str(self._preroll_underflows)),
                 KeyValue(key="wake_trims", value=str(self._wake_trims)),
+                KeyValue(key="wakes_unconfirmed", value=str(self._wakes_unconfirmed)),
                 KeyValue(key="gaps_filled", value=str(self._gaps_filled)),
                 KeyValue(
                     key="session_managed_input",
