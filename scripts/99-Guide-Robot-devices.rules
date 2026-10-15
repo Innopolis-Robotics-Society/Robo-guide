@@ -40,14 +40,9 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ATTRS{devpa
 # ... или любой порт хаба, воткнутого в порт 4 Jetson (e.g. 1-2.4.4)
 SUBSYSTEM=="tty", KERNELS=="1-2.4.[1-4]", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_motors", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
 
-# RPLIDAR C1 Left (Serial: LIDAR)
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="LIDAR", SYMLINK+="tty_lidar_left", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
-
-# RPLIDAR C1 Right, CH340-переходник (1a86:7523, серийника нет -> по порту): порт 4 хаба в порту 1
-# Jetson (1-2.1.4). 2026-09-25: CP2102 "0001" не отвечал лидару (плата/кабель) и давал cp210x -110 на
-# хабе; на CH340 тот же лидар отвечает и без USB-ошибок. Правый лидар должен оставаться в этом порту.
-SUBSYSTEM=="tty", KERNELS=="1-2.1.4", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tty_lidar_right", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
-
-# RPLIDAR C1 Right на CP2102 (Serial: 0001) -- прежний переходник, неисправен; правило оставлено на
-# случай замены платы. Не держать оба правых переходника воткнутыми одновременно.
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0001", SYMLINK+="tty_lidar_right", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
+# RPLIDAR C1, новые переходники CP2102N с 15.10.2026 -- ловятся по серийнику переходника, порт
+# неважен. Сторона проверена отключением: левый лидар (S/N B6B3...) -- переходник 0a89..., правый
+# (S/N 70B3...) -- 9a3c.... Прежние переходники (CP2102 "LIDAR", CH340 на 1-2.1.4, CP2102 "0001")
+# сняты, их правила удалены: иначе заменённый переходник молча получил бы чужую сторону.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0a8936a0251ef11181f8c6e40f0f12f8", SYMLINK+="tty_lidar_left", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="9a3c0045191ef111b20bc6e40f0f12f8", SYMLINK+="tty_lidar_right", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
