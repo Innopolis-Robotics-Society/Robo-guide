@@ -23,6 +23,10 @@
     run_tour_action: "run_tour"
     request_stop_service: "/mission_fsm/request_stop"
     go_home_service: "/mission_fsm/go_home"
+    # POST /api/confirm (кнопки «Да»/«Стоп»/«Задать вопрос» на экране посетителя).
+    submit_confirm_service: "/mission_fsm/submit_confirm"
+    request_question_service: "/mission_fsm/request_question"
+    prompt_listen_service: "/voice_session_manager/prompt_listen"
     list_tours_service: "/location_server/list_tours"
     list_locations_service: "/location_server/list_locations"
     clear_global_costmap_service: "/global_costmap/clear_entirely_global_costmap"

@@ -22,7 +22,7 @@ from typing import Any, Protocol
 
 from aiohttp import WSMsgType, web
 
-__all__ = ["COMMAND_PATHS", "UiServer"]
+__all__ = ["COMMAND_PATHS", "CONFIRM_ANSWERS", "UiServer"]
 
 # Командные пути, требующие X-Bridge-Token. Тест-«сторож» (test_ui_server.py)
 # сверяет это множество с фактическим списком POST-роутов под /api/.
@@ -33,8 +33,12 @@ COMMAND_PATHS = frozenset(
         "/api/go_home",
         "/api/localization/reset",
         "/api/costmaps/clear",
+        "/api/confirm",
     }
 )
+
+# Ответы на «Идём дальше?» с экрана посетителя (POST /api/confirm {"answer": ...}).
+CONFIRM_ANSWERS = frozenset({"yes", "stop", "question"})
 
 BRIDGE_TOKEN_HEADER = "X-Bridge-Token"  # noqa: S105 -- имя заголовка, не секрет
 OPERATOR_HEADER = "X-Operator"
@@ -62,6 +66,7 @@ class UiServer:
         on_go_home: _CommandCallback,
         on_localization_reset: _CommandCallback,
         on_costmaps_clear: _CommandCallback,
+        on_confirm: _CommandCallback,
         on_media: _CommandCallback,
         on_command_logged: _CommandLoggedCallback,
     ) -> None:
@@ -76,6 +81,7 @@ class UiServer:
         self._on_go_home = on_go_home
         self._on_localization_reset = on_localization_reset
         self._on_costmaps_clear = on_costmaps_clear
+        self._on_confirm = on_confirm
         self._on_media = on_media
         self._on_command_logged = on_command_logged
 
@@ -90,6 +96,7 @@ class UiServer:
         self.app.router.add_post("/api/go_home", self._handle_go_home)
         self.app.router.add_post("/api/localization/reset", self._handle_localization_reset)
         self.app.router.add_post("/api/costmaps/clear", self._handle_costmaps_clear)
+        self.app.router.add_post("/api/confirm", self._handle_confirm)
         self.app.router.add_get("/api/media/{exhibit_id}", self._handle_media)
         # aiohttp.web.StaticResource требует существующую директорию УЖЕ ПРИ
         # РЕГИСТРАЦИИ (Path.resolve(strict=True) внутри add_static) -- падает
@@ -239,6 +246,14 @@ class UiServer:
     async def _handle_costmaps_clear(self, request: web.Request) -> web.Response:
         del request
         status, body = await self._on_costmaps_clear()
+        return web.json_response(body, status=status)
+
+    async def _handle_confirm(self, request: web.Request) -> web.Response:
+        data = await self._read_json_object(request)
+        answer = data.get("answer") if data is not None else None
+        if answer not in CONFIRM_ANSWERS:
+            return web.json_response({"message": "invalid_body"}, status=400)
+        status, body = await self._on_confirm(answer=answer)
         return web.json_response(body, status=status)
 
     async def _handle_media(self, request: web.Request) -> web.Response:

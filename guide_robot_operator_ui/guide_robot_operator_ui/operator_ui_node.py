@@ -34,7 +34,7 @@ from nav2_msgs.srv import ClearEntireCostmap
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 
 from guide_robot_msgs.action import RunTour
 from guide_robot_msgs.msg import MissionState
@@ -101,6 +101,9 @@ class OperatorUiNode(Node):
         self.declare_parameter("run_tour_action", "run_tour")
         self.declare_parameter("request_stop_service", "/mission_fsm/request_stop")
         self.declare_parameter("go_home_service", "/mission_fsm/go_home")
+        self.declare_parameter("submit_confirm_service", "/mission_fsm/submit_confirm")
+        self.declare_parameter("request_question_service", "/mission_fsm/request_question")
+        self.declare_parameter("prompt_listen_service", "/voice_session_manager/prompt_listen")
         self.declare_parameter("list_tours_service", "/location_server/list_tours")
         self.declare_parameter("list_locations_service", "/location_server/list_locations")
         self.declare_parameter(
@@ -157,6 +160,7 @@ class OperatorUiNode(Node):
             on_go_home=self._on_api_go_home,
             on_localization_reset=self._on_api_localization_reset,
             on_costmaps_clear=self._on_api_costmaps_clear,
+            on_confirm=self._on_api_confirm,
             on_media=self._on_api_media,
             on_command_logged=self._on_api_command_logged,
         )
@@ -190,6 +194,15 @@ class OperatorUiNode(Node):
         )
         self._go_home_client = self.create_client(
             Trigger, str(self.get_parameter("go_home_service").value)
+        )
+        self._submit_confirm_client = self.create_client(
+            SetBool, str(self.get_parameter("submit_confirm_service").value)
+        )
+        self._request_question_client = self.create_client(
+            Trigger, str(self.get_parameter("request_question_service").value)
+        )
+        self._prompt_listen_client = self.create_client(
+            Trigger, str(self.get_parameter("prompt_listen_service").value)
         )
         self._list_tours_client = self.create_client(
             ListTours, str(self.get_parameter("list_tours_service").value)
@@ -398,6 +411,42 @@ class OperatorUiNode(Node):
 
     async def _on_api_tour_stop(self) -> tuple[int, dict[str, Any]]:
         return await self._call_trigger(self._request_stop_client, name="request_stop")
+
+    async def _on_api_confirm(self, *, answer: str) -> tuple[int, dict[str, Any]]:
+        """Ответ на «Идём дальше?» с экрана: yes / stop / question.
+
+        Только в свежем AWAITING_CONFIRM: очередь submit_confirm в mission_fsm
+        состояние не проверяет, и «да», нажатое мимо вопроса, сработало бы
+        на следующей остановке. «Стоп» -- то же, что голосовое «стоп»/«нет»
+        на этот вопрос: закончить тур (робот едет на базу).
+        """
+        msg = self._last_mission_msg
+        received = self._mission_received_at_s
+        fresh = received is not None and self._now_s() - received <= self._mission_state_stale_s
+        if msg is None or not fresh or msg.state != MissionState.STATE_AWAITING_CONFIRM:
+            return 409, {"message": "not_awaiting_confirm"}
+        if answer == "question":
+            status, body = await self._call_trigger(
+                self._request_question_client, name="request_question"
+            )
+            if status != 200:
+                return status, body
+            # Окно без имени -- best effort: без него посетитель скажет «Фирая».
+            listen_status, _ = await self._call_trigger(
+                self._prompt_listen_client, name="prompt_listen"
+            )
+            return 200, {"message": "", "listening": listen_status == 200}
+        try:
+            response = await self._call_ros(
+                lambda: self._submit_confirm_client.call_async(
+                    SetBool.Request(data=answer == "yes")
+                ),
+                self._service_timeout_s,
+                name="submit_confirm",
+            )
+        except (TimeoutError, asyncio.TimeoutError):
+            return 503, {"message": "service_unavailable"}
+        return (200 if response.success else 409), {"message": response.message}
 
     async def _on_api_go_home(self) -> tuple[int, dict[str, Any]]:
         return await self._call_trigger(self._go_home_client, name="go_home")
