@@ -87,6 +87,26 @@
     silero_rate: "100%"           # <prosody rate> Silero; см. voice_jetson.yaml
     sentence_pause_ms: 0          # 0 -> пауза на точке от модели (~400 мс)
     trailing_silence_ms: -1       # -1 -> хвост клаузы не обрезать
+    # Yandex SpeechKit v3 (backend: yandex, launch: tts_backend:=yandex).
+    # Ключ -- в .env (YANDEX_TTS_API_KEY), compose пробрасывает в контейнер.
+    # Голоса/амплуа: general -- dasha|masha|marina... + good|friendly|strict;
+    # yandex_model: livetts -- sofia|vera|irina... + casual|narrator|support.
+    yandex_voice: vera            # LiveTTS «Вера»
+    yandex_role: casual           # разговорный; пусто -> амплуа голоса по умолчанию
+    yandex_model: livetts         # "" -> general; livetts -> без yandex_speed
+    yandex_speed: ""              # "1.2" и т.п.; пусто -> не передавать
+    yandex_sample_rate: 48000     # = device_rate, чтобы не ресемплировать
+    yandex_api_key_env: YANDEX_TTS_API_KEY
+    yandex_connect_timeout_s: 3.0
+    yandex_read_timeout_s: 5.0
+    # Страховка облака: отказ (нет денег/ключа/сети) -> реплика голосом
+    # Silero (параметры silero_* выше), WARN в /diagnostics. Яндекс
+    # пробуется снова через 30 с (сеть) / 300 с (ключ, права, баланс) --
+    # после пополнения голос вернётся сам. "" -- без страховки.
+    # Вернуться на Silero совсем: tts_backend:=silero (по умолчанию).
+    tts_fallback: silero
+    fallback_retry_s: 30.0
+    fallback_persistent_retry_s: 300.0
     device: ""                    # пусто -> устройство по умолчанию
     device_rate: 48000
     block_ms: 20                  # верхняя граница остатка при отмене

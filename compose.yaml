@@ -28,6 +28,10 @@ x-common: &common-setup
     # автоматически рядом с этим файлом. Пусто -- бэкенд просто не
     # сконфигурируется (on_configure FAILURE), локальный llm_server/ не задет.
     - SELECTEL_AIG_KEY
+    # guide_robot_voice tts_node, backend yandex (yandex_api_key_env,
+    # config/voice.yaml) -- так же из .env. Пусто -- tts_node с
+    # tts_backend:=yandex не сконфигурируется; silero не задет.
+    - YANDEX_TTS_API_KEY
     - ROS_DOMAIN_ID=152
   working_dir: /home/fabian/ros2_ws
   group_add:
