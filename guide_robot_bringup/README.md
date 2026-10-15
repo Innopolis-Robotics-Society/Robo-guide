@@ -77,8 +77,8 @@ precondition'ам (TF, частота скана/сонаров и т.д.) и з
 - `/scan` публикует левый бланкер напрямую, кадр `laser_frame_left` (а не `base_footprint`),
   слепой сектор тела помечен **NaN**, а не `inf`: с `inf_is_valid: True` Nav2 чистил бы costmap
   вдоль лучей, где ничего не видно (`blank_with_nan` у `laser_sector_blanker`);
-- supervisor берёт копию конфига без `/scan_right` в `scan_rate`
-  (`guide_robot_supervisor/config_tools.py`, файл `/tmp/supervisor_one_lidar_*.yaml`);
+- supervisor получает параметр `drop_topics: ["/scan_right"]` и убирает этот топик из
+  `scan_rate` при чтении конфига (`guide_robot_supervisor/launch/supervisor.launch.py`);
   само предусловие `scan_rate` группы `safety` остаётся и по-прежнему требует `/scan` и
   `/scan_left` не ниже 5 Гц;
 - в `stack_log` при запуске есть строка `!!! ОДИН ЛИДАР … !!!`.

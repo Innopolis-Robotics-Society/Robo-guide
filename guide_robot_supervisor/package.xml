@@ -2,25 +2,28 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>guide_robot_supervisor</name>
-  <version>0.1.0</version>
-  <description>System Supervisor: порядок запуска слоёв робота.</description>
-  <maintainer email="mook@example.com">mook</maintainer>
+  <version>0.2.0</version>
+  <description>System Supervisor: порядок запуска слоёв робота и watchdog'и.</description>
+  <maintainer email="mook@innopolis.university">mook</maintainer>
   <license>Apache-2.0</license>
 
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>nav2_msgs</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>tf2_msgs</exec_depend>
-  <exec_depend>rosidl_runtime_py</exec_depend>
-  <exec_depend>diagnostic_msgs</exec_depend>
-  <exec_depend>std_srvs</exec_depend>
-  <exec_depend>PyYAML</exec_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <test_depend>ament_copyright</test_depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>tf2_msgs</depend>
+  <depend>yaml_cpp_vendor</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>sensor_msgs</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>
