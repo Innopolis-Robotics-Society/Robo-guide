@@ -126,7 +126,7 @@ class CandidateTracker:
         return candidate
 
     def on_admit(self, session: str, onset_sample: int, utterance_id: int) -> None:
-        """Связать кандидата с wake-репликой: manager открывает её ровно с end_sample."""
+        """Привязать wake-реплику manager к кандидату, чей end_sample совпал с её началом."""
         for candidate in self.pending:
             if candidate.session == session and candidate.end_sample == onset_sample:
                 candidate.utterance_id = utterance_id

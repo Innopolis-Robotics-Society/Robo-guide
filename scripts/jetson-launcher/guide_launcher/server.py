@@ -52,6 +52,7 @@ async def _config(request: web.Request) -> web.Response:
             "slide_interval_s": cfg.slide_interval_s,
             "promo_interval_s": cfg.promo_interval_s,
             "stack_control": cfg.stack_control,
+            "visitor_confirm_buttons": cfg.visitor_confirm_buttons,
         }
     )
 

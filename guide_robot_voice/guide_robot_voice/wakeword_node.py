@@ -332,19 +332,19 @@ class WakewordNode(LifecycleNode):
     def _on_stop_phrase(self, phrase: str, confidence: float) -> None:
         """Стоп-слово -- L1: CancelAll + wakeword."""
         self._publish_wakeword(phrase, confidence)
-        self._publish_cancel_all(phrase)
+        self._publish_cancel_all(phrase, CancelAll.REASON_STOP_PHRASE)
 
     def _on_activation_phrase(self, phrase: str, confidence: float) -> None:
         """Активация («Фирая») -- wakeword; CancelAll чтобы прервать рассказ/реплику."""
         self._publish_wakeword(phrase, confidence)
-        self._publish_cancel_all(phrase)
+        self._publish_cancel_all(phrase, CancelAll.REASON_WAKEWORD)
 
-    def _publish_cancel_all(self, phrase: str) -> None:
+    def _publish_cancel_all(self, phrase: str, reason: str) -> None:
         cancel = CancelAll()
         cancel.stamp = self.get_clock().now().to_msg()
         cancel.epoch = self.get_clock().now().nanoseconds
         cancel.scope = CancelAll.SCOPE_ALL
-        cancel.reason = CancelAll.REASON_WAKEWORD
+        cancel.reason = reason
         self._cancel_pub.publish(cancel)
         self.get_logger().info(f"wakeword {phrase!r}: публикую CancelAll")
 

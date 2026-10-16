@@ -48,6 +48,19 @@ class AnsweringState(InterruptibleState):
             base_state=blackboard.interrupted_from, resume_token=blackboard.resume_token, now=now_s
         )
 
+    def on_exit(self, blackboard: Blackboard, outcome: str) -> None:
+        """Снять езду, оставшуюся с NAVIGATING, если тур дальше к той же остановке не идёт."""
+        carry = blackboard.nav_carry
+        if carry is None or outcome in (
+            outcomes.ANSWERED,
+            outcomes.TIMEOUT,
+            outcomes.SKIP_STOP,
+        ):
+            return
+        if not carry.cancelled:
+            carry.cancel()
+        blackboard.nav_carry = None
+
     def cancel_active_work(self, blackboard: Blackboard, outcome: str) -> None:
         """REDIRECTED (stage2 B2): тур продолжается по новому плану -- снять answer-фрейм.
 
@@ -70,8 +83,23 @@ class AnsweringState(InterruptibleState):
             blackboard.stack.pop()
             return _OUTCOME_TO_SM.get(sm_outcome, outcomes.ANSWERED)
 
-        if self.ctx.consume_barge_in():
+        # hold_position в ANSWERING имеет смысл только на ходу; без живой езды
+        # запрос забирается и выбрасывается, чтобы не остановить следующий NAVIGATING.
+        stop_driving = self.ctx.take_pause_request()
+        barge_in = self.ctx.take_barge_in()
+        if barge_in is not None:
             blackboard.stack.on_barge_in(now=now_s)
+            stop_driving = stop_driving or barge_in == "stop"
+        carry = blackboard.nav_carry
+        if stop_driving and carry is not None and not carry.cancelled:
+            # Стоп-слово/«подожди» во время ответа на ходу: встать, как
+            # hold_position из NAVIGATING. PAUSED -> resume вернёт NAVIGATING на
+            # ту же остановку (root_sm сохраняет interrupted_from="navigating").
+            carry.cancel()
+            blackboard.stack.pop()
+            blackboard.pause_reason = "user"
+            return outcomes.PAUSED
+        if barge_in is not None:
             return None
 
         if blackboard.stack.answer_timed_out(now=now_s, answer_max_s=self.ctx.answer_max_s):

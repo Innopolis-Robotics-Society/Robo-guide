@@ -11,9 +11,9 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
 from aiohttp.test_utils import TestClient, TestServer
-
-from guide_robot_face.face_server import FaceServer
+from guide_robot_face.face_server import FaceServer, apply_theme
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
 STATES = {
@@ -99,3 +99,33 @@ def test_push_broadcasts_to_multiple_clients() -> None:
             await ws_b.close()
 
     _run(body())
+
+
+def _themed(theme: str = "dark") -> dict:
+    return {
+        "global": {
+            "theme": theme,
+            "themes": {
+                "dark": {"eye_color": "#eaf6ff", "bg_color": "#05070a"},
+                "light": {"eye_color": "#000000", "bg_color": "#ffffff"},
+            },
+        },
+        "states": {},
+    }
+
+
+def test_apply_theme_overrides_yaml_theme() -> None:
+    assert apply_theme(_themed("dark"), "light")["global"]["theme"] == "light"
+
+
+def test_apply_theme_empty_keeps_yaml_theme() -> None:
+    assert apply_theme(_themed("dark"), "")["global"]["theme"] == "dark"
+
+
+def test_apply_theme_unknown_raises() -> None:
+    with pytest.raises(ValueError, match="sepia"):
+        apply_theme(_themed(), "sepia")
+
+
+def test_apply_theme_without_themes_is_noop_for_empty() -> None:
+    assert apply_theme(dict(STATES), "") == STATES

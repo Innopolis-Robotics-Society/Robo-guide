@@ -25,26 +25,31 @@ def test_face_states_yaml_has_required_keys() -> None:
         assert not missing, f"{name}: missing {missing}"
 
 
-def test_speaking_and_thinking_are_alert_not_sad() -> None:
+def test_speaking_and_thinking_are_alert() -> None:
     doc = _load_yaml()
     idle = doc["states"]["idle"]
-    sad = doc["states"]["sad"]
     for name in ("speaking", "thinking"):
         s = doc["states"][name]
         assert s["curve"] <= 0.05, f"{name}: нижнее веко не должно висеть"
         assert s["h"] >= idle["h"], f"{name}: глаза не ниже idle"
-        assert s["gy"] <= 0, f"{name}: взгляд не вниз как у sad"
-        assert s["h"] > sad["h"]
-        assert s["curve"] < sad["curve"]
+        assert s["gy"] <= 0, f"{name}: взгляд не вниз"
     thinking = doc["states"]["thinking"]
     assert thinking["gx"] == 0
     assert thinking["rot"] == 0
     listening = doc["states"]["listening"]
-    idle = doc["states"]["idle"]
     assert listening["w"] > idle["w"]
     assert listening["h"] > idle["h"]
-    assert sad["rot"] > 0  # +rot на левом опускает внешний угол
-    assert sad["h"] > doc["states"]["sleep"]["h"]
+
+
+def test_no_sad_state() -> None:
+    assert "sad" not in _load_yaml()["states"]
+
+
+def test_themes_light_is_black_on_white() -> None:
+    g = _load_yaml()["global"]
+    assert g["theme"] in g["themes"]
+    assert g["themes"]["light"] == {"eye_color": "#000000", "bg_color": "#ffffff"}
+    assert set(g["themes"]["dark"]) == {"eye_color", "bg_color"}
 
 
 def test_web_states_json_matches_yaml() -> None:

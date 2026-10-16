@@ -89,6 +89,41 @@ def test_start_skips_docker_start_when_container_running(tmp_path):
     assert ["docker", "start", "c"] not in d.calls
 
 
+def test_start_recreates_container_after_compose_down(tmp_path):
+    d = FakeDocker()
+    d.container_exists = d.running = d.launch_alive = False
+    m = _monitor(tmp_path, d, [False], Clock(), cfg={"compose_file": "/r/compose.yaml"})
+    asyncio.run(m.start())
+    assert m.state is StackState.STARTING
+    assert "start" not in d.verbs()
+    assert d.verbs().index("compose") < d.verbs().index("exec:-d")
+    assert [
+        "docker", "compose", "-f", "/r/compose.yaml", "up", "-d", "--no-recreate",
+        "--pull", "never", "jetson",
+    ] in d.calls  # fmt: skip
+
+
+def test_restart_recreates_missing_container_without_docker_restart(tmp_path):
+    d = FakeDocker()
+    d.container_exists = d.running = d.launch_alive = False
+    m = _monitor(tmp_path, d, [False], Clock())
+    asyncio.run(m.restart())
+    verbs = d.verbs()
+    assert "restart" not in verbs and "exec:pkill" not in verbs
+    assert verbs.index("compose") < verbs.index("exec:-d")
+
+
+def test_compose_failure_marks_failed_with_error(tmp_path):
+    d = FakeDocker()
+    d.container_exists = d.running = False
+    d.fail.add("compose")
+    m = _monitor(tmp_path, d, [False], Clock())
+    with pytest.raises(StackError):
+        asyncio.run(m.start())
+    assert m.state is StackState.FAILED
+    assert "docker compose up" in m.last_error
+
+
 def test_starting_timeout_is_failed_and_holds_until_up(tmp_path):
     d, clock, bridge = FakeDocker(), Clock(), [False]
     m = _monitor(tmp_path, d, bridge, clock)
@@ -156,9 +191,10 @@ def test_restart_order_graceful_stop_then_docker_restart_then_start(tmp_path):
     m = _monitor(tmp_path, d, [False], clock)
     asyncio.run(m.restart())
     assert d.verbs() == [
-        "exec:pkill", "exec:pgrep", "exec:pgrep", "exec:pgrep", "exec:pgrep", "restart", "exec:-d"
+        "inspect", "exec:pkill", "exec:pgrep", "exec:pgrep", "exec:pgrep", "exec:pgrep",
+        "restart", "exec:-d",
     ]  # fmt: skip
-    assert d.calls[0] == ["docker", "exec", "c", "pkill", "-INT", "-f", "ros2 launch"]
+    assert d.calls[1] == ["docker", "exec", "c", "pkill", "-INT", "-f", "ros2 launch"]
     assert ["docker", "restart", "-t", "20", "c"] in d.calls
     assert clock.slept == pytest.approx(1.5)
 

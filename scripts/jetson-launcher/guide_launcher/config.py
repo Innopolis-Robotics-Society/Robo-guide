@@ -27,6 +27,8 @@ class Config:
     http_port: int = 8089
     container: str = "robo-guide-jetson-1"
     start_cmd: str = "/home/fabian/ros2_ws/src/scripts/jetson-launcher/start_stack.sh"
+    compose_file: str = f"{_REPO}/compose.yaml"
+    compose_service: str = "jetson"
     stack_log: str = "/tmp/stack.log"
     bridge_url: str = "http://127.0.0.1:8091"
     bridge_token_file: str = f"{_REPO}/.guide_launcher/bridge_token"
@@ -37,6 +39,8 @@ class Config:
     promo_interval_s: float = 10.0
     slide_interval_s: float = 8.0
     always_promo: bool = True
+    # Кнопки «Да» / «Стоп» / «Задать вопрос» на экране, пока робот спрашивает «Идём дальше?».
+    visitor_confirm_buttons: bool = True
     default_tour: str = "expo_one"
     operator_pin: str = ""
     auth_backends: tuple[str, ...] = ("rfid", "pin")
@@ -87,7 +91,14 @@ def load_config(path: str | Path | None) -> Config:
         raise ConfigError(f"неизвестные ключи конфига: {', '.join(unknown)}")
 
     cfg = Config(**{k: (tuple(v) if k == "auth_backends" else v) for k, v in raw.items()})
-    for name in ("bridge_token_file", "promo_dir", "state_dir", "rfid_secret_file", "web_dir"):
+    for name in (
+        "bridge_token_file",
+        "compose_file",
+        "promo_dir",
+        "state_dir",
+        "rfid_secret_file",
+        "web_dir",
+    ):
         setattr(cfg, name, _expand(getattr(cfg, name)))
 
     if len(str(cfg.operator_pin)) < MIN_PIN_LEN:

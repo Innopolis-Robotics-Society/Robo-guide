@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-__all__ = ["MissionStateLike", "PresenceLike", "build_snapshot", "render_status_line"]
+__all__ = ["MissionStateLike", "PresenceLike", "build_snapshot", "is_driving", "render_status_line"]
 
 _STATE_NAMES = {
     0: "IDLE",
@@ -34,8 +34,20 @@ _STATE_NAMES = {
     7: "HELD",
     8: "RETURNING",
 }
+_STATE_NAVIGATING = 2
 _IRQ_NONE = 0
 _IRQ_NAMES = {0: "none", 1: "answer", 2: "confirm"}
+
+
+def is_driving(mission: MissionStateLike) -> bool:
+    """Робот едет к остановке (в том числе пока отвечает на вопрос по дороге).
+
+    Пока едет, он ещё НЕ у экспоната: `stop_id` уже указывает на цель, но
+    рассказывать про неё и говорить «мы на месте» рано.
+    """
+    if mission.state == _STATE_NAVIGATING:
+        return True
+    return mission.interrupt != _IRQ_NONE and mission.base_state == _STATE_NAVIGATING
 
 
 class MissionStateLike(Protocol):
@@ -83,6 +95,8 @@ def build_snapshot(
     if mission.stop_total:
         mission_section["stop"] = mission.stop_index + 1  # человеку/ЛЛМ удобнее с 1
         mission_section["of"] = mission.stop_total
+    if is_driving(mission):
+        mission_section["driving"] = True
     if mission.stop_id:
         mission_section["location"] = mission.stop_id
     if location_name:
@@ -131,17 +145,26 @@ def render_status_line(snap: dict) -> str:
     if mission.get("tour"):
         parts.append(f"тур \"{mission['tour']}\"")
     location = str(mission.get("location_name") or mission.get("location") or "")
+    driving = bool(mission.get("driving"))
     if mission.get("stop") and mission.get("of"):
-        stop_part = f"остановка {mission['stop']} из {mission['of']}"
+        if driving:
+            stop_part = f"едем к остановке {mission['stop']} из {mission['of']}"
+        else:
+            stop_part = f"остановка {mission['stop']} из {mission['of']}"
         if location:
             stop_part += f" — {location}"
+        if driving:
+            stop_part += " (ещё в пути, не на месте)"
         parts.append(stop_part)
     elif location:
-        parts.append(f"у локации {location}")
+        parts.append(f"едем к локации {location}" if driving else f"у локации {location}")
 
     interrupt = mission.get("interrupt")
     if isinstance(interrupt, dict):
-        parts.append(f"рассказ прерван ({interrupt.get('kind', 'unknown')})")
+        if driving:
+            parts.append(f"вопрос по дороге ({interrupt.get('kind', 'unknown')}), робот едет дальше")
+        else:
+            parts.append(f"рассказ прерван ({interrupt.get('kind', 'unknown')})")
 
     presence = snap.get("presence", {})
     if presence.get("present"):

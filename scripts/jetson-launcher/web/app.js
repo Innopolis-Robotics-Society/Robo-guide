@@ -27,6 +27,8 @@
   const COMMAND_TIMEOUT_MS = 20000;
   // Медиа экспонатов идут через мост (нужны только во время тура), промо --
   // с хоста, поэтому крутится и при мёртвом ROS.
+  // Подсказка после «Задать вопрос» живёт чуть дольше окна слушания (8 с).
+  const VISITOR_HINT_MS = 9000;
   const MEDIA_BASE_URL = "/ros/media";
   const PROMO_BASE_URL = "/promo";
 
@@ -61,6 +63,15 @@
     unknown_tour: "Этот тур сейчас недоступен",
   };
 
+  const CONFIRM_REFUSAL_RU = {
+    rate_limited: "Секунду…",
+    ros_down: "Робот пока не готов",
+    no_mission_fsm: "Нет связи с роботом",
+    estop: "Аварийная остановка",
+    not_awaiting_confirm: "Робот уже не ждёт ответа",
+    disabled: "Ответьте голосом",
+  };
+
   const COMMAND_ERROR_RU = {
     robot_moving: "Сначала нажмите «Стоп»",
     ros_down: "ROS не запущен",
@@ -87,6 +98,10 @@
   const startTourBtn = document.getElementById("start-tour-btn");
 
   // -- публичный старт ---------------------------------------------------------
+  const confirmPanel = document.getElementById("confirm-panel");
+  const confirmButtons = Array.from(confirmPanel.querySelectorAll(".confirm-btn"));
+  const confirmMessage = document.getElementById("confirm-message");
+  const visitorHint = document.getElementById("visitor-hint");
   const startDialog = document.getElementById("start-dialog");
   const startText = document.getElementById("start-text");
   const startMessage = document.getElementById("start-message");
@@ -154,6 +169,7 @@
   // -- настройки launcher'а (/api/config) --------------------------------------
   let alwaysPromo = true;
   let stackControl = true;
+  let visitorConfirmButtons = true;
   let slideIntervalS = DEFAULT_SLIDE_INTERVAL_S;
   let launcherOk = false; // предыдущий опрос дошёл до launcher'а
 
@@ -300,6 +316,9 @@
     const wasAlwaysPromo = alwaysPromo;
     if (typeof cfg.always_promo === "boolean") alwaysPromo = cfg.always_promo;
     if (typeof cfg.stack_control === "boolean") stackControl = cfg.stack_control;
+    if (typeof cfg.visitor_confirm_buttons === "boolean") {
+      visitorConfirmButtons = cfg.visitor_confirm_buttons;
+    }
     if (typeof cfg.slide_interval_s === "number") slideIntervalS = cfg.slide_interval_s;
     if (typeof cfg.promo_interval_s === "number" && promoManifest === null) {
       promoIntervalS = cfg.promo_interval_s;
@@ -561,6 +580,85 @@
     );
   });
 
+  // -- дублёр «Идём дальше?»: Да / Задать вопрос / Стоп ------------------------
+  // Кнопки создаются один раз в index.html; здесь только hidden/disabled --
+  // пересборка между pointerdown и click теряла бы нажатие.
+  let confirmShown = false;
+  let confirmInFlight = false;
+  let visitorHintTimer = null;
+
+  // Те же условия, что проверяет сервер в /api/public/confirm.
+  function confirmAllowed() {
+    return (
+      visitorConfirmButtons &&
+      stackState === "UP" &&
+      frameFresh() &&
+      !estopOrFault() &&
+      latestFrame.state_name === "awaiting_confirm"
+    );
+  }
+
+  function showConfirmMessage(text) {
+    confirmMessage.hidden = !text;
+    confirmMessage.textContent = text || "";
+  }
+
+  function setConfirmButtonsDisabled(disabled) {
+    for (const btn of confirmButtons) btn.disabled = disabled;
+  }
+
+  function updateConfirmPanel() {
+    const allowed = confirmAllowed();
+    if (allowed && !confirmShown) {
+      // Новый вопрос: прошлый ответ/ошибка к нему не относятся.
+      confirmInFlight = false;
+      setConfirmButtonsDisabled(false);
+      showConfirmMessage("");
+      clearTimeout(visitorHintTimer);
+      visitorHint.hidden = true;
+    }
+    confirmShown = allowed;
+    confirmPanel.hidden = !allowed;
+  }
+
+  function showVisitorHint(text) {
+    clearTimeout(visitorHintTimer);
+    visitorHint.textContent = text;
+    visitorHint.hidden = false;
+    visitorHintTimer = setTimeout(() => {
+      visitorHint.hidden = true;
+    }, VISITOR_HINT_MS);
+  }
+
+  async function sendConfirm(answer) {
+    if (confirmInFlight) return;
+    confirmInFlight = true;
+    setConfirmButtonsDisabled(true);
+    showConfirmMessage("");
+    const res = await request("POST", "/api/public/confirm", { answer });
+    if (res.ok) {
+      // Кнопки остаются выключенными, пока панель не скроется со сменой состояния.
+      if (answer === "question") {
+        showVisitorHint(
+          res.data && res.data.listening
+            ? "Слушаю — задайте вопрос"
+            : "Скажите «Фирая» и задайте вопрос"
+        );
+      }
+      return;
+    }
+    confirmInFlight = false;
+    setConfirmButtonsDisabled(false);
+    const reason = res.data && res.data.reason;
+    showConfirmMessage(
+      res.status === 0 ? "Нет связи с роботом" : CONFIRM_REFUSAL_RU[reason] || "Не получилось"
+    );
+  }
+
+  for (const btn of confirmButtons) {
+    btn.addEventListener("click", () => sendConfirm(btn.dataset.answer));
+  }
+
   // -- меню: отрисовка ---------------------------------------------------------
 
   function renderStatusHeader() {
@@ -691,6 +789,7 @@
     // плашки "нет связи" поверх замерших слайдов.
     renderMenu();
     updateStartButton();
+    updateConfirmPanel();
     updateMediaLayer();
     updateBadges();
     updateVideoPauseState();

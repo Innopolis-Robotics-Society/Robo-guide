@@ -43,6 +43,7 @@ __all__ = ["Action", "Decision", "Scheduler", "Scope", "Utterance"]
 # и от пакета сообщений.
 REASON_ESTOP = "estop"
 REASON_WAKEWORD = "wakeword"
+REASON_STOP_PHRASE = "stop_phrase"
 
 
 class Scope(int, Enum):
@@ -166,10 +167,14 @@ class Scheduler:
 
         Возвращает (вытесненное активное или None, снятые из очереди).
         Высказывания с interruptible=False переживают мягкую отмену
-        (barge-in). Hard: scope=SAFETY, reason=estop или reason=wakeword
+        (barge-in). Hard: scope=SAFETY, reason=estop или reason=wakeword/stop_phrase
         («стоп» / активация «робот»).
         """
-        hard = int(scope) == Scope.SAFETY or reason in (REASON_ESTOP, REASON_WAKEWORD)
+        hard = int(scope) == Scope.SAFETY or reason in (
+            REASON_ESTOP,
+            REASON_WAKEWORD,
+            REASON_STOP_PHRASE,
+        )
 
         dropped_active: Utterance | None = None
         if (

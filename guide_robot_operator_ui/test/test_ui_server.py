@@ -42,6 +42,11 @@ async def _ok_empty_manifest(*, exhibit_id: str) -> tuple[int, dict]:
     return 200, {"title": "", "chunk_ids": [], "items": []}
 
 
+async def _ok_confirm(*, answer: str) -> tuple[int, dict]:
+    del answer
+    return 200, {"message": ""}
+
+
 async def _noop_command_logged(*, path: str, operator: str, status: int) -> None:
     del path, operator, status
 
@@ -56,6 +61,7 @@ def _new_server(
     on_go_home: Any = _ok_no_message,
     on_localization_reset: Any = _ok_no_message,
     on_costmaps_clear: Any = _ok_no_message,
+    on_confirm: Any = _ok_confirm,
     on_media: Any = _ok_empty_manifest,
     on_command_logged: Any = _noop_command_logged,
 ) -> UiServer:
@@ -68,6 +74,7 @@ def _new_server(
         on_go_home=on_go_home,
         on_localization_reset=on_localization_reset,
         on_costmaps_clear=on_costmaps_clear,
+        on_confirm=on_confirm,
         on_media=on_media,
         on_command_logged=on_command_logged,
     )
@@ -84,6 +91,7 @@ _COMMANDS = [
     ("/api/go_home", None),
     ("/api/localization/reset", {"confirm": True}),
     ("/api/costmaps/clear", None),
+    ("/api/confirm", {"answer": "yes"}),
 ]
 
 
@@ -235,6 +243,7 @@ def test_command_without_token_is_403_and_callback_not_run(path: str, payload: A
             on_go_home=spy,
             on_localization_reset=spy,
             on_costmaps_clear=spy,
+            on_confirm=spy,
         )
         async with TestClient(TestServer(server.app)) as client:
             resp = await client.post(path, json=payload)
@@ -384,3 +393,41 @@ def test_command_paths_match_registered_post_routes() -> None:
         and route.resource.canonical.startswith("/api/")
     }
     assert post_api_paths == COMMAND_PATHS
+
+
+@pytest.mark.parametrize("answer", ["yes", "stop", "question"])
+def test_confirm_passes_answer_to_callback(answer: str) -> None:
+    seen: dict[str, Any] = {}
+
+    async def on_confirm(**kwargs: Any) -> tuple[int, dict]:
+        seen.update(kwargs)
+        return 200, {"message": ""}
+
+    async def body() -> None:
+        server = _new_server(on_confirm=on_confirm)
+        async with TestClient(TestServer(server.app)) as client:
+            resp = await client.post(
+                "/api/confirm", json={"answer": answer}, headers=_token_header()
+            )
+            assert resp.status == 200
+
+    _run(body())
+    assert seen == {"answer": answer}
+
+
+@pytest.mark.parametrize("payload", [None, {}, {"answer": "no"}, {"answer": True}, [1]])
+def test_confirm_rejects_bad_body_without_callback(payload: Any) -> None:
+    called = []
+
+    async def spy(**kwargs: Any) -> tuple[int, dict]:
+        called.append(kwargs)
+        return 200, {"message": ""}
+
+    async def body() -> None:
+        async with TestClient(TestServer(_new_server(on_confirm=spy).app)) as client:
+            resp = await client.post("/api/confirm", json=payload, headers=_token_header())
+            assert resp.status == 400
+            assert (await resp.json()) == {"message": "invalid_body"}
+
+    _run(body())
+    assert called == []

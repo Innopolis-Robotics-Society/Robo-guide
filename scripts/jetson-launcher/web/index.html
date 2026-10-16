@@ -22,6 +22,19 @@
       </div>
       <div id="returning-screen" hidden>Еду на базу…</div>
       <button id="start-tour-btn" type="button" hidden>Начать экскурсию</button>
+      <!-- Дублёр голосового ответа на «Идём дальше?» (visitor_confirm_buttons). -->
+      <div id="confirm-panel" role="group" aria-labelledby="confirm-title" hidden>
+        <div id="confirm-title">Идём дальше?</div>
+        <div id="confirm-buttons">
+          <button type="button" class="btn btn-primary confirm-btn" data-answer="yes">Да</button>
+          <button type="button" class="btn confirm-btn" data-answer="question">
+            Задать вопрос
+          </button>
+          <button type="button" class="btn btn-stop confirm-btn" data-answer="stop">Стоп</button>
+        </div>
+        <div id="confirm-message" hidden></div>
+      </div>
+      <div id="visitor-hint" hidden></div>
       <div id="unlock-corner" aria-hidden="true"></div>
       <div id="prefetch-pool" hidden aria-hidden="true"></div>
     </section>

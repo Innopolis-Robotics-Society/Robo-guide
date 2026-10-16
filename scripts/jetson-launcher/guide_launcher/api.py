@@ -27,6 +27,10 @@ NONCE_TTL_S = 30.0
 MAX_FAILED_ATTEMPTS = 10
 LOCKOUT_S = 60.0
 PUBLIC_START_MIN_INTERVAL_S = 10.0
+# Против двойного тапа: второе нажатие уже не застанет AWAITING_CONFIRM, но и не
+# должно дойти до моста, пока первое в полёте.
+PUBLIC_CONFIRM_MIN_INTERVAL_S = 1.5
+CONFIRM_ANSWERS = frozenset({"yes", "stop", "question"})
 MISSION_STALE_S = 3.0
 IDLE_STATES = frozenset({"idle", "unknown"})
 FAULT_SUPERVISOR_STATES = frozenset({"FAULT", "SHUTDOWN"})
@@ -95,6 +99,7 @@ class Api:
         self.tour = tour
         self.clock = clock
         self._last_public_start: float | None = None
+        self._last_public_confirm: float | None = None
         self._tasks: set[asyncio.Future] = set()
 
     def restart_guard(self) -> str | None:
@@ -122,6 +127,7 @@ class Api:
         add("POST", "/api/op/localization/reset", self._authed(reset))
         add("POST", "/api/op/costmaps/clear", self._authed(self._op("/api/costmaps/clear")))
         add("POST", "/api/public/start_tour", self.public_start_tour)
+        add("POST", "/api/public/confirm", self.public_confirm)
 
     # -- сессия -----------------------------------------------------------------
 
@@ -339,6 +345,53 @@ class Api:
         return web.json_response(
             {"error": "refused", "reason": reason}, status=409 if status < 500 else 502
         )
+
+    # -- публичный ответ на «Идём дальше?» ---------------------------------------
+
+    async def public_confirm(self, request: web.Request) -> web.Response:
+        """Кнопки «Да» / «Стоп» / «Задать вопрос» без входа, только в AWAITING_CONFIRM."""
+        answer = (await _json_object(request)).get("answer")
+        if answer not in CONFIRM_ANSWERS:
+            return web.json_response({"error": "invalid_answer"}, status=400)
+        reason = self._public_confirm_refusal()
+        if reason is not None:
+            self.journal.write("public_confirm", answer=answer, ok=False, reason=reason)
+            return web.json_response({"error": "refused", "reason": reason}, status=409)
+
+        status, upstream = await self.bridge.command("/api/confirm", {"answer": answer}, "public")
+        if 200 <= status < 300:
+            self.journal.write("public_confirm", answer=answer, ok=True, status=status)
+            listening = isinstance(upstream, dict) and upstream.get("listening") is True
+            return web.json_response({"ok": True, "answer": answer, "listening": listening})
+        detail = ""
+        if isinstance(upstream, dict):
+            detail = upstream.get("error") or upstream.get("message") or ""
+        reason = f"upstream_{status}"
+        self.journal.write(
+            "public_confirm", answer=answer, ok=False, reason=reason, detail=str(detail)
+        )
+        return web.json_response(
+            {"error": "refused", "reason": reason}, status=409 if status < 500 else 502
+        )
+
+    def _public_confirm_refusal(self) -> str | None:
+        if not self.cfg.visitor_confirm_buttons:
+            return "disabled"
+        now = self.clock()
+        last = self._last_public_confirm
+        if last is not None and now - last < PUBLIC_CONFIRM_MIN_INTERVAL_S:
+            return "rate_limited"
+        self._last_public_confirm = now
+        if self.monitor.state is not StackState.UP:
+            return "ros_down"
+        frame = self.watcher.latest()
+        if not mission_link_ok(frame):
+            return "no_mission_fsm"
+        if estop_active(frame):
+            return "estop"
+        if frame is None or frame.data.get("state_name") != "awaiting_confirm":
+            return "not_awaiting_confirm"
+        return None
 
     async def _public_refusal(self) -> str | None:
         now = self.clock()

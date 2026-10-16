@@ -65,7 +65,7 @@ launcher.
 | `initialpose_settle_s` | `0.5` | пауза после `/initialpose` перед очисткой костмапов |
 | `reset_covariance_xyyaw` | `[0.25, 0.25, 0.0685…]` | ковариация начальной позы |
 | `tours_language` / `content_language` | `ru` / `ru` | языки списка туров и контента |
-| `run_tour_action`, `request_stop_service`, `go_home_service`, `list_tours_service`, `list_locations_service`, `clear_global_costmap_service`, `clear_local_costmap_service`, `get_exhibit_content_service`, `get_exhibit_media_service` | см. yaml | имена ROS-интерфейсов |
+| `run_tour_action`, `request_stop_service`, `go_home_service`, `list_tours_service`, `list_locations_service`, `clear_global_costmap_service`, `clear_local_costmap_service`, `get_exhibit_content_service`, `get_exhibit_media_service`, `submit_confirm_service`, `request_question_service`, `prompt_listen_service` | см. yaml | имена ROS-интерфейсов |
 
 Вход (PIN/RFID/сессии), промо, `slide_interval_s`, `web_root` и `command_log_dir` из ноды
 **удалены**: они переехали в launcher (`operator_pin`, `auth_backends`, `rfid_*`,
@@ -84,6 +84,7 @@ launcher.
 | POST | `/api/go_home` | `go_home` | **да** |
 | POST | `/api/localization/reset` | `{"confirm": true}`: `/initialpose` в точке `home` + очистка костмапов | **да** |
 | POST | `/api/costmaps/clear` | очистка global+local костмапов | **да** |
+| POST | `/api/confirm` | `{"answer": "yes"\|"stop"\|"question"}` — ответ на «Идём дальше?» только в свежем `AWAITING_CONFIRM` (иначе 409 `not_awaiting_confirm`): yes/stop → `submit_confirm(true/false)`, question → `request_question` + `prompt_listen` (`{"listening": bool}`) | **да** |
 
 Коды: `200` успех, `400` невалидное тело, `403` нет/неверный токен, `409` команда отклонена по
 состоянию робота (`mission_state_stale`, `tour_active`, `home_location_missing`, `rejected`,

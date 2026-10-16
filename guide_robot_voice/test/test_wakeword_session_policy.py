@@ -293,3 +293,34 @@ def test_failed_stop_ack_closes_gate_and_late_reply_does_not_reopen_it():
     policy.accept_wake("a", 512, 0.032, SPEAKING)
     policy.tick(3.0, SPEAKING)
     assert policy.state == SessionState.ARMED and not policy._awaiting_command
+
+
+def test_prompt_listen_opens_window_without_name_after_output_quiet():
+    policy = armed(followup_window_seconds=8, echo_hold_seconds=0.1)
+    policy.observe(VadWindow("a", 512, 512, 0.5, 0.0, False), IDLE)
+    assert policy.prompt_listen(1.0)
+    policy.tick(1.0, SPEAKING)
+    assert not policy._awaiting_command
+    policy.tick(1.1, IDLE)
+    policy.tick(1.21, IDLE)
+    assert policy._awaiting_command and policy.state == SessionState.LISTENING
+    (command,) = policy.observe(VadWindow("a", 1024, 512, 1.3, 0.9, True), IDLE)
+    assert command.decision == InputDecision.ADMIT
+    assert command.reason == "followup_without_wakeword"
+
+
+def test_prompt_listen_is_idempotent_and_refused_while_utterance_open():
+    policy = armed(followup_window_seconds=8, echo_hold_seconds=0.1)
+    policy.observe(VadWindow("a", 512, 512, 0.5, 0.0, False), IDLE)
+    assert policy.prompt_listen(1.0)
+    assert policy.prompt_listen(1.05)  # уже ждёт тишины -- не перезаводит
+    busy = armed(followup_window_seconds=8)
+    busy.accept_wake("a", 512, 0.032, IDLE)
+    assert not busy.prompt_listen(0.1)
+
+
+def test_prompt_listen_refused_when_followup_disabled_or_no_capture():
+    assert not armed(followup_window_seconds=0).prompt_listen(1.0)
+    fresh = WakewordSessionPolicy(followup_window_seconds=8)
+    fresh.activate()
+    assert not fresh.prompt_listen(1.0)

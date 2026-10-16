@@ -37,8 +37,9 @@ def test_pause_only_allowed_narrating() -> None:
 
 
 def test_hold_position_only_allowed_navigating() -> None:
-    """stage2 D3: только NAVIGATING реально вычитывает take_pause_request()."""
+    """stage2 D3: take_pause_request() на ходу вычитывают NAVIGATING и ANSWERING (вопрос по дороге)."""
     assert is_tool_allowed("hold_position", _S.STATE_NAVIGATING)
+    assert is_tool_allowed("hold_position", _S.STATE_ANSWERING)
     assert not is_tool_allowed("hold_position", _S.STATE_NARRATING)
     assert not is_tool_allowed("hold_position", _S.STATE_IDLE)
 

@@ -18,7 +18,8 @@ GBNF-каталога и `tools_allowed` в снимке.
 рантайме; `estimate_route` продолжает использоваться внутри
 `_tool_tour_by_points`, но не как отдельный вызов модели.
 
-`pause`/`hold_position` разрешены только в NARRATING/NAVIGATING
+`pause`/`hold_position` разрешены только в NARRATING/NAVIGATING(+ANSWERING,
+вопрос по дороге -- робот продолжает ехать)
 соответственно не произвольно -- это единственные состояния, которые
 реально вычитывают `FsmContext.take_pause_request()`
 (guide_robot_mission_control/fsm/states/narrating.py,
@@ -102,8 +103,9 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "hold_position",
         "Остановиться на месте во время движения, не отменяя тур "
-        "(«постой», «подожди секунду»). Не для аварийной остановки.",
-        frozenset({_S.STATE_NAVIGATING}),
+        "(«постой», «подожди секунду»), в том числе пока отвечаешь на вопрос "
+        "по дороге. Не для аварийной остановки.",
+        frozenset({_S.STATE_NAVIGATING, _S.STATE_ANSWERING}),
     ),
     ToolSpec("resume", "Возобновить приостановленный тур.", frozenset({_S.STATE_PAUSED})),
     ToolSpec(

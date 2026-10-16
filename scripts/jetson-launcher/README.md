@@ -24,6 +24,7 @@ guide-launcher (хост, systemd)                              operator_ui_node
 ├─ /api/tour/current            текущий тур (state.json)           /api/localization/reset,
 ├─ /api/op/*     [вход]         команды роботу ──────────────────→ /api/costmaps/clear
 ├─ /api/public/start_tour       без входа, только текущий тур      (X-Bridge-Token + X-Operator)
+├─ /api/public/confirm          без входа, «Идём дальше?» ───────→ /api/confirm
 └─ /ros/*  GET-прокси на :8091 (включая WS /ros/ws)
 ```
 
@@ -93,6 +94,8 @@ pip в системный Python не используется).
 |---|---|---|
 | `bind_host` / `http_port` | `127.0.0.1` / `8089` | адрес страницы |
 | `container` | `robo-guide-jetson-1` | `""` → управление стеком выключено (разработка на ноутбуке) |
+| `compose_file` | `~/Desktop/Projects/Robo-guide/compose.yaml` | откуда пересоздавать контейнер, если его нет (после `docker compose down`) |
+| `compose_service` | `jetson` | сервис в `compose_file`, из которого создаётся `container` |
 | `start_cmd` | `/home/fabian/ros2_ws/src/scripts/jetson-launcher/start_stack.sh` | путь **внутри контейнера** |
 | `stack_log` | `/tmp/stack.log` | лог стека внутри контейнера, перезаписывается при старте |
 | `bridge_url` / `bridge_token_file` | `http://127.0.0.1:8091` / см. выше | мост в ноду |
@@ -102,6 +105,7 @@ pip в системный Python не используется).
 | `promo_dir` | `<репозиторий>/guide_robot_operator_ui/promo` | `promo.yaml` и `media/` |
 | `promo_interval_s` / `slide_interval_s` | `10.0` / `8.0` | длительность кадра, если у элемента нет своей |
 | `always_promo` | `true` | `true` — промо и во время тура; `false` — во время тура слайды экспоната |
+| `visitor_confirm_buttons` | `true` | панель «Да / Задать вопрос / Стоп» на «Идём дальше?»; `false` — только голос |
 | `default_tour` | `expo_one` | текущий тур, пока в `state.json` ничего не выбрано |
 | `operator_pin` | — | не короче 8 символов, иначе сервис не стартует (exit 2) |
 | `auth_backends` | `[rfid, pin]` | `pin` обязателен; `rfid` без порта/секрета просто недоступен |
@@ -133,7 +137,9 @@ pip в системный Python не используется).
 `container: ""` проверки контейнера считаются пройденными, состояние определяет только мост, а
 раздел «ROS 2» в меню скрыт.
 
-- **start**: `docker start` (если контейнер не запущен), затем
+- **start**: `docker start` (если контейнер остановлен) или, если контейнера нет совсем (после
+  `docker compose down`), `docker compose -f <compose_file> up -d --no-recreate --pull never
+  <compose_service>`; затем
   `docker exec -d -e STACK_LOG=<stack_log> <container> <start_cmd>`. `start_stack.sh`
   идемпотентен (если `ros2 launch` жив — выходит с 0), сам делает `source` ROS (`docker exec` не
   читает `.bashrc`), пишет stdout+stderr в `stack_log` и запускает
@@ -212,12 +218,36 @@ pid-namespace SIGKILL'ом. Поэтому `restart` делает по шага�
 Кнопка на экране видна при тех же условиях; название берётся из `/ros/api/tours`, если id тура
 там нет — кнопка скрыта.
 
+### Дублёр «Идём дальше?»
+
+Пока робот между остановками ждёт ответа (`state_name == "awaiting_confirm"`), внизу экрана
+показа — панель «Идём дальше?» с кнопками **Да**, **Задать вопрос**, **Стоп**. Это дублёр голоса,
+не замена: голосовой ответ работает как прежде. Выключается ключом
+`visitor_confirm_buttons: false` — тогда панели нет, а `/api/public/confirm` отвечает `409 disabled`.
+
+`POST /api/public/confirm {"answer": "yes"|"stop"|"question"}` — без входа, `X-Operator: public`,
+в мост `/api/confirm`:
+
+- **Да** — `submit_confirm(true)`, едем к следующей остановке.
+- **Стоп** — `submit_confirm(false)`, как голосовое «стоп»/«нет» на этот вопрос: тур закончен,
+  робот едет на базу.
+- **Задать вопрос** — `mission_fsm/request_question` (AWAITING_CONFIRM → ANSWERING, таймер
+  вопроса снят) и `voice_session_manager/prompt_listen` (окно реплики без «Фирая», 8 с после
+  тишины колонки). После ответа робот снова спрашивает «Идём дальше?». Если окно открыть не
+  удалось (`listening: false`), на экране подсказка сказать «Фирая».
+
+Отказ — `409 {"error":"refused","reason":…}`: `disabled`, `rate_limited` (меньше 1,5 с с прошлого
+нажатия), `ros_down`, `no_mission_fsm`, `estop`, `not_awaiting_confirm`, `upstream_<код>`;
+неизвестный `answer` — 400. Мост сам ещё раз проверяет свежий `AWAITING_CONFIRM`: очередь
+`submit_confirm` в mission_fsm состояние не проверяет, и «Да» мимо вопроса сработало бы на
+следующей остановке. Попытки пишутся в журнал как `public_confirm`.
+
 ## API launcher'а
 
 | Путь | Вход | Назначение |
 |---|---|---|
 | `GET /`, `/static/*` | нет | страница |
-| `GET /api/config` | нет | `always_promo`, интервалы, `stack_control` |
+| `GET /api/config` | нет | `always_promo`, интервалы, `stack_control`, `visitor_confirm_buttons` |
 | `GET /api/promo`, `/promo/*` | нет | манифест (с полем `rev`) и файлы промо |
 | `GET /api/stack/status` | нет | `{state, checks:{container,launch,bridge}, control, last_error}` |
 | `POST /api/stack/start`, `/restart` | да | 202 `{ok,state}`; 409 `starting`/`robot_moving`; 400 `stack_control_disabled` |
@@ -226,6 +256,7 @@ pid-namespace SIGKILL'ом. Поэтому `restart` делает по шага�
 | `GET /api/tour/current` / `POST /api/tour/current` | нет / да | текущий тур |
 | `POST /api/op/tour/start`, `/tour/stop`, `/go_home`, `/localization/reset`, `/costmaps/clear` | да | команды в мост; 409 `ros_down`, если не `UP` |
 | `POST /api/public/start_tour` | нет | см. выше |
+| `POST /api/public/confirm` | нет | ответ на «Идём дальше?», см. выше |
 | `GET /ros/*`, WS `/ros/ws` | нет | прокси на мост, allowlist: `api/tours`, `api/media/*`, `media/*`, `ws`; не-GET → 405 |
 
 Без сессии — `401 {"error":"auth_required"}`. Команды оператора всегда стартуют текущий тур,

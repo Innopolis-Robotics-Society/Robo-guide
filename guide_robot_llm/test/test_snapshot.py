@@ -177,3 +177,30 @@ def test_status_line_omits_tools_and_told_ids() -> None:
     line = render_status_line(snap)
     assert "start_tour" not in line
     assert "lab_demo" not in line
+
+
+def test_status_line_while_driving_says_not_arrived_yet() -> None:
+    snap = build_snapshot(
+        _MissionState(
+            state=2, tour_id="obzor", stop_index=1, stop_total=5, stop_id="lab_demo"
+        ),
+        _Presence(present=True, seconds_since_evidence=0.0),
+        tools_allowed=[],
+        location_name="Лаборатория",
+    )
+    line = render_status_line(snap)
+    assert "едем к остановке 2 из 5 — Лаборатория (ещё в пути, не на месте)" in line
+
+
+def test_status_line_question_while_driving_keeps_driving_marker() -> None:
+    snap = build_snapshot(
+        _MissionState(
+            state=4, interrupt=1, base_state=2, tour_id="obzor", stop_index=0, stop_total=3,
+            stop_id="lab_demo",
+        ),
+        _Presence(present=True, seconds_since_evidence=0.0),
+        tools_allowed=[],
+    )
+    line = render_status_line(snap)
+    assert "едем к остановке 1 из 3" in line
+    assert "робот едет дальше" in line

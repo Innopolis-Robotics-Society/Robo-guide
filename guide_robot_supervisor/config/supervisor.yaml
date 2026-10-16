@@ -38,8 +38,8 @@ supervisor:
       # requires: voice -- ждём, пока tts_node активен, прежде чем
       # активировать bt_navigator (см. комментарий выше). costmap_filters
       # НЕ в requires намеренно: это optional-группа (узлов может не быть
-      # вовсе, если для текущей карты нет keepout-маски), а _bringup() в
-      # supervisor_node.py -- один синхронный проход: FAILED-состояние
+      # вовсе, если для текущей карты нет keepout-маски), а bringup() в
+      # src/supervisor.cpp -- один синхронный проход: FAILED-состояние
       # optional-группы не считается "requires удовлетворён", и весь bring-up
       # уйдёт в FAULT для КАЖДОЙ не-optional группы, которая её потребует
       # (живой баг, если добавить). Costmap-фильтр не нуждается в жёстком
@@ -76,7 +76,7 @@ supervisor:
   # continuously afterwards according to `policy`.
   watchdogs:
     - name: sonar_rate
-      class: guide_robot_supervisor.watchdogs.topic_rate.TopicRateWatchdog
+      class: TopicRateWatchdog
       params:
         topics:
           - /sonar/range/sonar_sensor_1
@@ -98,7 +98,7 @@ supervisor:
         period: 1.0
 
     - name: scan_rate
-      class: guide_robot_supervisor.watchdogs.topic_rate.TopicRateWatchdog
+      class: TopicRateWatchdog
       params:
         topics: [/scan, /scan_left, /scan_right]
         msg_type: sensor_msgs/msg/LaserScan
@@ -112,31 +112,29 @@ supervisor:
         debounce: 3
         period: 1.0
 
-    # TFRawWatchdog вместо TFWatchdog: tf2 TransformListener разбирал каждое
-    # сообщение /tf (~75 Гц) в питоновские объекты ради двух штампов --
-    # основной расход CPU супервизора. Сырой проверяет только прямое ребро,
+    # TfEdgeWatchdog проверяет только прямое ребро на /tf, не цепочку,
     # поэтому child = base_footprint (его публикует diff_drive,
     # controllers.yaml.in base_frame_id), base_link к нему прибит статикой.
     - name: tf_odom
-      class: guide_robot_supervisor.watchdogs.tf_raw.TFRawWatchdog
+      class: TfEdgeWatchdog
       # 1.0 с ловило scheduling hitch (ros2 CLI / шторм /rosout) как
       # пропажу одометрии и вешало estop. pause navigation, не вся база.
       params: {parent: odom, child: base_footprint, max_age: 3.0, grace: 20.0}
       policy: {on_error: pause, target: navigation, debounce: 3, period: 0.5}
 
     - name: tf_map
-      class: guide_robot_supervisor.watchdogs.tf_raw.TFRawWatchdog
+      class: TfEdgeWatchdog
       params: {parent: map, child: odom, max_age: 5.0, grace: 30.0}
       policy: {on_error: pause, target: navigation, debounce: 5, period: 1.0}
 
     - name: control_stack
-      class: guide_robot_supervisor.watchdogs.node_alive.NodeAliveWatchdog
+      class: NodeAliveWatchdog
       params:
         nodes: [/controller_manager, /diff_drive_controller, /robot_state_publisher]
         grace: 20.0
       policy: {on_error: shutdown, debounce: 3, period: 1.0}
 
     - name: safety_alive
-      class: guide_robot_supervisor.watchdogs.node_alive.LifecycleManagerActiveWatchdog
+      class: LifecycleManagerActiveWatchdog
       params: {manager: /lifecycle_manager_safety, timeout: 2.0}
       policy: {on_error: pause, target: navigation, debounce: 2, period: 2.0}

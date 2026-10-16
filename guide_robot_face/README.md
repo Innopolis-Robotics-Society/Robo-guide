@@ -50,6 +50,12 @@ ros2 launch guide_robot_bringup hardware.launch.py
 
 На ноуте для отладки без переворота поставь `rotate_deg: 0` в YAML.
 
+Тема лица — `global.theme` в `face_states.yaml`: `light` (по умолчанию, чёрные глаза
+на белом фоне) или `dark` (светлые глаза на чёрном). Цвета тем — `global.themes`.
+ROS-параметр `face_node` `theme` (`config/face_node.yaml`, пусто — из YAML) перекрывает
+выбор без правки YAML: `ros2 run guide_robot_face face_node --ros-args -p theme:=dark`.
+В превью — `?preview=1&theme=dark`. Неизвестная тема — нода не стартует.
+
 Превью всех выражений **без ROS**, с той же страницы (`?preview=1`,
 `rotate_deg` в браузере сбрасывается в 0). Из каталога `web/`:
 
@@ -66,7 +72,7 @@ python3 -m http.server 8091
 ## Состояния
 
 `idle`, `listening`, `thinking`, `speaking`, `driving`, `sleep`, `error`,
-`happy`, `surprised`, `curious`, `sad`, `focused`, `shy`.
+`happy`, `surprised`, `curious`, `focused`, `shy`.
 
 Неизвестное имя — throttled warning, предыдущее выражение держится,
 в браузер не уходит. Добавить новое: блок в `config/face_states.yaml`,

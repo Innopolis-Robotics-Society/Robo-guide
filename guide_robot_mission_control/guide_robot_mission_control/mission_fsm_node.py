@@ -277,6 +277,13 @@ class MissionFsmNode(LifecycleNode):
             self._srv_submit_confirm,
             callback_group=self._cb_reentrant,
         )
+        # «Задать вопрос» с экрана посетителя: только в AWAITING_CONFIRM.
+        self._question_srv = self.create_service(
+            Trigger,
+            "~/request_question",
+            self._srv_request_question,
+            callback_group=self._cb_reentrant,
+        )
         self._answer_srv = self.create_service(
             SubmitAnswer,
             "~/submit_answer",
@@ -423,13 +430,17 @@ class MissionFsmNode(LifecycleNode):
     def _on_cancel_all(self, msg: CancelAll) -> None:
         if not self._active:
             return
-        if msg.reason not in (CancelAll.REASON_BARGE_IN, CancelAll.REASON_WAKEWORD):
+        if msg.reason not in (
+            CancelAll.REASON_BARGE_IN,
+            CancelAll.REASON_WAKEWORD,
+            CancelAll.REASON_STOP_PHRASE,
+        ):
             return
         with self._exec_lock:
             ctx = self._active_ctx
         if ctx is not None:
             self.get_logger().info(f"barge-in получен (/speech/cancel_all reason={msg.reason})")
-            ctx.barge_in_event.set()
+            ctx.mark_barge_in(stop=msg.reason == CancelAll.REASON_STOP_PHRASE)
 
     # -- RunTour ----------------------------------------------------------
 
@@ -881,6 +892,29 @@ class MissionFsmNode(LifecycleNode):
         self.submit_confirm(is_yes=request.data)
         response.success = has_ctx
         response.message = "" if has_ctx else "нет активного тура"
+        return response
+
+    def _srv_request_question(
+        self, request: Trigger.Request, response: Trigger.Response
+    ) -> Trigger.Response:
+        """AWAITING_CONFIRM -> ANSWERING по кнопке «Задать вопрос» (вне confirm -- отказ)."""
+        del request
+        with self._exec_lock:
+            ctx = self._active_ctx
+        with self._state_lock:
+            last = self._last_state_msg
+        if ctx is None:
+            response.success = False
+            response.message = "no_active_tour"
+            return response
+        if last is None or last.state != MissionState.STATE_AWAITING_CONFIRM:
+            # Очередь не проверяет состояние: запрос, положенный вне confirm,
+            # сработал бы на следующей остановке.
+            response.success = False
+            response.message = "not_awaiting_confirm"
+            return response
+        ctx.request_question()
+        response.success = True
         return response
 
     def _srv_submit_answer(

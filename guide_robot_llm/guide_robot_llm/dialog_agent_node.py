@@ -650,14 +650,23 @@ class DialogAgentNode(LifecycleNode):
         events: list[str] = []
         if old.state != new.state:
             events.append(f"перешёл в состояние {_STATE_NAMES.get(new.state, 'UNKNOWN')}")
-        if old.stop_id != new.stop_id and new.stop_id:
+        was_driving = snapshot.is_driving(old)
+        now_driving = snapshot.is_driving(new)
+        stop_changed = old.stop_id != new.stop_id and bool(new.stop_id)
+        # stop_id указывает на цель уже в начале хода -- «подошёл» говорим
+        # только по факту прибытия (переход к рассказу), пока едем -- «едем к».
+        arrived = was_driving and not now_driving and new.state == MissionState.STATE_NARRATING
+        if stop_changed or arrived:
             name = self._location_name_by_id.get(new.stop_id, new.stop_id)
             if new.stop_total:
                 position = f" ({new.stop_index + 1} из {new.stop_total})"
             else:
                 position = ""
-            events.append(f"подошёл к остановке «{name}»{position}")
-            self._told_ids.add(new.stop_id)
+            if now_driving:
+                events.append(f"едем к остановке «{name}»{position}, ещё не приехали")
+            else:
+                events.append(f"подошёл к остановке «{name}»{position}")
+                self._told_ids.add(new.stop_id)
         if old.interrupt == MissionState.IRQ_NONE and new.interrupt != MissionState.IRQ_NONE:
             events.append("посетитель перебил вопросом")
         elif old.interrupt != MissionState.IRQ_NONE and new.interrupt == MissionState.IRQ_NONE:
@@ -751,7 +760,11 @@ class DialogAgentNode(LifecycleNode):
     # -- barge-in: abort хода в полёте, не более -----------------------------
 
     def _on_cancel_all(self, msg: CancelAll) -> None:
-        if msg.reason not in (CancelAll.REASON_BARGE_IN, CancelAll.REASON_WAKEWORD):
+        if msg.reason not in (
+            CancelAll.REASON_BARGE_IN,
+            CancelAll.REASON_WAKEWORD,
+            CancelAll.REASON_STOP_PHRASE,
+        ):
             return
         with self._turn_lock:
             abort_event = self._abort_event
@@ -1240,7 +1253,9 @@ class DialogAgentNode(LifecycleNode):
             knowledge_block = "СПРАВКА: ничего не найдено."
             if not self._raw_llm:
                 lookup_data: dict | None = None
-                if mission.exhibit_id:
+                # Пока робот едет, он ещё не у экспоната -- справку по цели не
+                # подмешиваем (иначе модель начинает рассказывать точку с пути).
+                if mission.exhibit_id and not snapshot.is_driving(mission):
                     lookup_start = time.monotonic()
                     lookup_result = self._execute_tool(
                         "lookup_content",

@@ -7,6 +7,13 @@ STACK_LOG="${STACK_LOG:-/tmp/stack.log}"
 # Внешний USB-хаб с лидарами и микрофоном; пусто -- не сбрасывать (другой робот/раскладка).
 HUB="${STACK_USB_HUB-1-2.1}"
 HUB_SETTLE_S="${STACK_USB_SETTLE_S:-10}"
+# Голосовой стек кнопки меню: облачный голос Яндекса (без ключа/денег/сети --
+# Silero сам, см. guide_robot_voice README) и акустический wake «Фирая» с
+# перебиванием. Пусто -- дефолты launch-файлов (Silero, без wake-гейта).
+# launcher передаёт start_cmd одной строкой, аргументов у скрипта нет --
+# поэтому набор живёт здесь, а не в /etc/guide-launcher/config.yaml.
+read -r -a VOICE_ARGS <<<"${STACK_VOICE_ARGS-tts_backend:=yandex wakeword_enabled:=true \
+wakeword_barge_in_enabled:=true allow_unvalidated_wakeword_barge_in:=true}"
 
 if pgrep -f "ros2 launch" >/dev/null; then
   exit 0
@@ -39,5 +46,6 @@ fi
 
 # stdout не tty: без этого python-ноды буферизуют вывод и лог в меню отстаёт.
 export PYTHONUNBUFFERED=1
-echo "start_stack: $(date -Is) ros2 launch guide_robot_bringup robot.launch.py $*"
-exec ros2 launch guide_robot_bringup robot.launch.py ${PREFLIGHT_ARG:+"$PREFLIGHT_ARG"} "$@"
+echo "start_stack: $(date -Is) ros2 launch guide_robot_bringup robot.launch.py ${VOICE_ARGS[*]} $*"
+exec ros2 launch guide_robot_bringup robot.launch.py ${PREFLIGHT_ARG:+"$PREFLIGHT_ARG"} \
+  "${VOICE_ARGS[@]}" "$@"

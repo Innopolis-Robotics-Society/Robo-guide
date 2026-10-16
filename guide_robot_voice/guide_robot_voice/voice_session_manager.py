@@ -25,6 +25,7 @@ from guide_robot_msgs.msg import (
     WakewordCandidate,
 )
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
+from std_srvs.srv import Trigger
 
 from guide_robot_voice.lib.qos import (
     QOS_CANCEL_ALL,
@@ -139,6 +140,9 @@ class VoiceSessionManager(LifecycleNode):
                     self._on_wakeword_candidate,
                     QOS_WAKEWORD,
                 )
+                self._prompt_srv = self.create_service(
+                    Trigger, "~/prompt_listen", self._srv_prompt_listen
+                )
                 self._dialog_turn_sub = self.create_subscription(
                     DialogTurnEvent,
                     "/dialog/turn_event",
@@ -222,6 +226,10 @@ class VoiceSessionManager(LifecycleNode):
             if entity is not None:
                 self.destroy_subscription(entity)
                 setattr(self, name, None)
+        prompt_srv = getattr(self, "_prompt_srv", None)
+        if prompt_srv is not None:
+            self.destroy_service(prompt_srv)
+            self._prompt_srv = None
         timer = getattr(self, "_heartbeat", None)
         if timer is not None:
             self.destroy_timer(timer)
@@ -360,6 +368,23 @@ class VoiceSessionManager(LifecycleNode):
                 bool(msg.reply_completed) and bool(msg.expects_reply),
             )
         self._publish_state()
+
+    def _srv_prompt_listen(
+        self, request: Trigger.Request, response: Trigger.Response
+    ) -> Trigger.Response:
+        """Кнопка «Задать вопрос» на экране: окно реплики без имени."""
+        del request
+        with self._lock:
+            if not self._active or not isinstance(self._policy, WakewordSessionPolicy):
+                response.success = False
+                response.message = "inactive"
+                return response
+            response.success = self._policy.prompt_listen(self.get_clock().now().nanoseconds / 1e9)
+            response.message = "" if response.success else "busy"
+        outcome = "окно открывается" if response.success else "занято"
+        self.get_logger().info(f"prompt_listen: {outcome}")
+        self._publish_state()
+        return response
 
     def _output_snapshot(self, device_session_id: str) -> OutputSnapshot:
         speaking = self._latest_speaking

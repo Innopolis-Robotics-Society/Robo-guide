@@ -474,7 +474,7 @@ class TtsServiceError(RuntimeError):
         self.persistent = persistent
 
 
-_TRANSIENT_HTTP = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.TOO_MANY_REQUESTS})
+_TRANSIENT_HTTP = frozenset({408, 429})
 _PERSISTENT_GRPC = frozenset({7, 16})  # PERMISSION_DENIED, UNAUTHENTICATED
 
 
@@ -605,10 +605,10 @@ class YandexBackend:
         ) as response:
             code = response.status_code
             if code != HTTPStatus.OK:
-                client_error = HTTPStatus.BAD_REQUEST <= code < HTTPStatus.INTERNAL_SERVER_ERROR
                 raise TtsServiceError(
                     f"Yandex TTS HTTP {code}: {response.text[:300]}",
-                    persistent=client_error and code not in _TRANSIENT_HTTP,
+                    persistent=HTTPStatus.BAD_REQUEST <= code < HTTPStatus.INTERNAL_SERVER_ERROR
+                    and code not in _TRANSIENT_HTTP,
                 )
             carry = b""
             for message in _iter_json_messages(response.iter_content(chunk_size=None)):

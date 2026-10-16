@@ -28,8 +28,11 @@
       eye_cx_right: 724,
       cy: 384,
       rotate_deg: 0,
-      eye_color: "#eaf6ff",
-      bg_color: "#05070a",
+      theme: "light",
+      themes: {
+        dark: { eye_color: "#eaf6ff", bg_color: "#05070a" },
+        light: { eye_color: "#000000", bg_color: "#ffffff" },
+      },
       blink_interval_min_s: 2.5,
       blink_interval_max_s: 6.0,
       blink_duration_ms: 280,
@@ -93,10 +96,21 @@
     }
   }
 
+  // Цвета темы: global.themes[global.theme]; ?theme= в URL перекрывает
+  // (превью). Без themes -- плоские global.eye_color/bg_color (старый YAML).
+  function themeColors(g) {
+    const wanted = new URLSearchParams(location.search).get("theme") || g.theme;
+    const themes = g.themes || {};
+    const t = themes[wanted] || themes[g.theme];
+    if (t) return { eye: t.eye_color, bg: t.bg_color };
+    return { eye: g.eye_color || "#000000", bg: g.bg_color || "#ffffff" };
+  }
+
   function applyGlobalStyle() {
     const g = statesDoc.global;
-    document.documentElement.style.setProperty("--eye-color", g.eye_color);
-    document.documentElement.style.setProperty("--bg-color", g.bg_color);
+    const colors = themeColors(g);
+    document.documentElement.style.setProperty("--eye-color", colors.eye);
+    document.documentElement.style.setProperty("--bg-color", colors.bg);
     const rotate = typeof g.rotate_deg === "number" ? g.rotate_deg : 0;
     document.documentElement.style.setProperty("--face-rotate", `${rotate}deg`);
     svg.setAttribute("viewBox", `0 0 ${g.view_w} ${g.view_h}`);

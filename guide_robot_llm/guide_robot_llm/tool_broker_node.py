@@ -321,6 +321,12 @@ class ToolBrokerNode(LifecycleNode):
             if not matching.match_stop_phrase(text):
                 self.get_logger().info(f"answering: неуверенно ({text!r}), жду ЛЛМ")
                 return
+            if mission.base_state == MissionState.STATE_NAVIGATING:
+                # Вопрос по дороге: стоп-слово уже поставило езду на паузу через
+                # /speech/cancel_all (mission_fsm). SKIP_STOP отсюда вернул бы
+                # NAVIGATING к той же остановке -- робот поехал бы снова.
+                self.get_logger().info("answering на ходу: стоп-слово -- пауза, не SKIP_STOP")
+                return
             self.get_logger().info("answering: локально распознано стоп-слово -- SKIP_STOP")
             self._call_sync(
                 self._answer_client,

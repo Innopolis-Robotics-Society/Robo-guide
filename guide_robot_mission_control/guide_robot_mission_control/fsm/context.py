@@ -93,8 +93,13 @@ class FsmContext:
         self._log = log
 
         self.barge_in_event = threading.Event()
+        # Стоп-слово среди накопленных barge-in-ов (см. mark_barge_in): обычный
+        # barge-in только прерывает речь, стоп-слово ещё и останавливает езду.
+        self._barge_in_is_stop = False
+        self._barge_in_lock = threading.Lock()
         self._answer_queue: queue.Queue[tuple[str, int]] = queue.Queue()
         self._confirm_queue: queue.Queue[bool] = queue.Queue()
+        self._question_queue: queue.Queue[bool] = queue.Queue()
         self._pause_queue: queue.Queue[bool] = queue.Queue()
         self._resume_queue: queue.Queue[bool] = queue.Queue()
         self._redirect_queue: queue.Queue[str] = queue.Queue()
@@ -162,6 +167,18 @@ class FsmContext:
         except queue.Empty:
             return None
 
+    def request_question(self) -> None:
+        """«Задать вопрос» с экрана в AWAITING_CONFIRM -- заберёт `AwaitingConfirmState.poll()`."""
+        self._question_queue.put(True)
+
+    def take_question_request(self) -> bool:
+        """Забрать запрос вопроса: True, если он был положен с прошлого вызова."""
+        try:
+            self._question_queue.get_nowait()
+        except queue.Empty:
+            return False
+        return True
+
     def request_pause(self) -> None:
         """Запросить паузу тура -- заберёт `NarratingState.poll()`."""
         self._pause_queue.put(True)
@@ -197,12 +214,24 @@ class FsmContext:
         except queue.Empty:
             return None
 
+    def mark_barge_in(self, *, stop: bool) -> None:
+        """Зафиксировать barge-in; `stop=True` -- это стоп-слово, а не просто перебивание."""
+        with self._barge_in_lock:
+            pending_stop = self.barge_in_event.is_set() and self._barge_in_is_stop
+            self._barge_in_is_stop = stop or pending_stop
+            self.barge_in_event.set()
+
+    def take_barge_in(self) -> str | None:
+        """Забрать накопленный barge-in: `None`, `"stop"` (было стоп-слово) или `"talk"`."""
+        with self._barge_in_lock:
+            if not self.barge_in_event.is_set():
+                return None
+            self.barge_in_event.clear()
+            return "stop" if self._barge_in_is_stop else "talk"
+
     def consume_barge_in(self) -> bool:
         """Вернуть True и сбросить флаг, если с прошлого вызова было хотя бы одно barge-in."""
-        if self.barge_in_event.is_set():
-            self.barge_in_event.clear()
-            return True
-        return False
+        return self.take_barge_in() is not None
 
     def on_state_changed(self, name: str, blackboard: object) -> None:
         """Оповестить узел -- публикация /mission/state и feedback RunTour (design §2.4)."""

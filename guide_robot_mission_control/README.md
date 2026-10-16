@@ -225,6 +225,7 @@ ROS: и `narration_server`, и `mission_fsm`, и тесты обязаны по�
 | `run_tour` | `RunTour` (action) | mission_fsm |
 | `~/request_pause`, `~/request_resume` | `std_srvs/Trigger` | mission_fsm |
 | `~/submit_confirm` | `std_srvs/SetBool` | mission_fsm |
+| `~/request_question` | `std_srvs/Trigger` — «Задать вопрос» с экрана: AWAITING_CONFIRM → ANSWERING, после ответа снова «Идём дальше?»; вне AWAITING_CONFIRM — `success=false`, `not_awaiting_confirm` | mission_fsm |
 | `~/redirect` | `Redirect` (stage2 B2 — «отведи к X» во время тура) | mission_fsm |
 | `/mission/state` | `MissionState` (pub, TRANSIENT_LOCAL depth 1) | mission_fsm |
 | `narrate` | `Narrate` (action) | narration_server |

@@ -15,7 +15,7 @@
 определяет собственных `msg/srv/action` — то есть `guide_robot_msgs`
 задуман как центральный пакет интерфейсов, но фактически используется
 почти не по назначению: для межпроцессного обмена состояниями и
-диагностикой (например, супервизор в `guide_robot_supervisor/supervisor_node.py`)
+диагностикой (например, супервизор в `guide_robot_supervisor/src/supervisor.cpp`)
 применяются стандартные `diagnostic_msgs/DiagnosticArray`, `std_msgs/String`
 и т.п., а не типы из этого пакета.
 
