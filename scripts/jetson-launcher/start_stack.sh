@@ -46,6 +46,9 @@ fi
 
 # stdout не tty: без этого python-ноды буферизуют вывод и лог в меню отстаёт.
 export PYTHONUNBUFFERED=1
+# ROS только внутри робота: DDS не выходит в Wi-Fi (мультикаст-discovery на всю сеть, лишний
+# эфир, потери пакетов на старте). Нужен rviz с ноутбука -- STACK_ROS_LOCALHOST_ONLY=0.
+export ROS_LOCALHOST_ONLY="${STACK_ROS_LOCALHOST_ONLY-1}"
 echo "start_stack: $(date -Is) ros2 launch guide_robot_bringup robot.launch.py ${VOICE_ARGS[*]} $*"
 exec ros2 launch guide_robot_bringup robot.launch.py ${PREFLIGHT_ARG:+"$PREFLIGHT_ARG"} \
   "${VOICE_ARGS[@]}" "$@"
