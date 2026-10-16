@@ -1,11 +1,12 @@
 /* Контраст и размер фиксированы дистанцией просмотра 1-3 м: два плоских цвета,
-   никаких фильтров/блюра/градиентов. Цвета задаёт face.js из темы
+   никаких фильтров/блюра/градиентов. Три цвета (фон, глаз, ореол) задаёт face.js из темы
    (global.theme в face_states.yaml); здесь -- light, чтобы при загрузке не мигал фон.
    --face-rotate задаёт face.js из global.rotate_deg (панель на роботе вверх ногами). */
 
 :root {
   --eye-color: #000000;
   --bg-color: #ffffff;
+  --halo-color: #d6d6d6;
   --face-rotate: 0deg;
 }
 
@@ -33,8 +34,7 @@ body {
 }
 
 .eye .halo {
-  fill: var(--eye-color);
-  fill-opacity: 0.16;
+  fill: var(--halo-color);
   fill-rule: evenodd;
 }
 

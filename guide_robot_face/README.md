@@ -51,10 +51,29 @@ ros2 launch guide_robot_bringup hardware.launch.py
 На ноуте для отладки без переворота поставь `rotate_deg: 0` в YAML.
 
 Тема лица — `global.theme` в `face_states.yaml`: `light` (по умолчанию, чёрные глаза
-на белом фоне) или `dark` (светлые глаза на чёрном). Цвета тем — `global.themes`.
-ROS-параметр `face_node` `theme` (`config/face_node.yaml`, пусто — из YAML) перекрывает
-выбор без правки YAML: `ros2 run guide_robot_face face_node --ros-args -p theme:=dark`.
-В превью — `?preview=1&theme=dark`. Неизвестная тема — нода не стартует.
+на белом фоне) или `dark` (светлые глаза на чёрном). Темы описаны в `global.themes`,
+у каждой три цвета: `bg_color` (фон и веки), `eye_color` (глаз), `halo_color` (ореол
+вокруг глаза). Своя тема — новый ключ в `themes` со всеми тремя цветами и его имя
+в `theme`:
+
+```yaml
+  theme: night
+  themes:
+    night:
+      bg_color: "#000814"
+      eye_color: "#7fd4ff"
+      halo_color: "#0b3a5a"
+```
+
+Без правки YAML — ROS-параметры `face_node` (`config/face_node.yaml`): `theme`
+выбирает тему, `bg_color` / `eye_color` / `halo_color` перекрывают отдельные цвета
+выбранной темы (пусто — цвет из темы):
+`ros2 run guide_robot_face face_node --ros-args -p theme:=dark -p halo_color:="#ff0000"`.
+Цвета — `#rgb`, `#rrggbb` или `#rrggbbaa`. Неизвестная тема, тема без одного из трёх
+цветов или кривой цвет — нода не стартует.
+
+В превью подобрать цвета — `?preview=1&theme=dark&bg=000814&eye=7fd4ff&halo=0b3a5a`
+(«#» в URL не пишется).
 
 Превью всех выражений **без ROS**, с той же страницы (`?preview=1`,
 `rotate_deg` в браузере сбрасывается в 0). Из каталога `web/`:

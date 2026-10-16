@@ -106,8 +106,8 @@ def _themed(theme: str = "dark") -> dict:
         "global": {
             "theme": theme,
             "themes": {
-                "dark": {"eye_color": "#eaf6ff", "bg_color": "#05070a"},
-                "light": {"eye_color": "#000000", "bg_color": "#ffffff"},
+                "dark": {"bg_color": "#05070a", "eye_color": "#eaf6ff", "halo_color": "#2a2d31"},
+                "light": {"bg_color": "#ffffff", "eye_color": "#000000", "halo_color": "#d6d6d6"},
             },
         },
         "states": {},
@@ -129,3 +129,41 @@ def test_apply_theme_unknown_raises() -> None:
 
 def test_apply_theme_without_themes_is_noop_for_empty() -> None:
     assert apply_theme(dict(STATES), "") == STATES
+
+
+def test_apply_theme_manual_colors_override_theme() -> None:
+    colors = {"eye_color": "#123", "halo_color": "", "bg_color": ""}
+    g = apply_theme(_themed("dark"), "light", colors)["global"]
+    assert g["themes"]["light"] == {
+        "bg_color": "#ffffff",
+        "eye_color": "#123",
+        "halo_color": "#d6d6d6",
+    }
+
+
+def test_apply_theme_custom_theme_from_yaml() -> None:
+    doc = _themed("night")
+    doc["global"]["themes"]["night"] = {
+        "bg_color": "#000814",
+        "eye_color": "#7fd4ff",
+        "halo_color": "#0b3a5a80",
+    }
+    assert apply_theme(doc, "")["global"]["theme"] == "night"
+
+
+def test_apply_theme_missing_color_raises() -> None:
+    doc = _themed("dark")
+    del doc["global"]["themes"]["dark"]["halo_color"]
+    with pytest.raises(ValueError, match="halo_color"):
+        apply_theme(doc, "")
+
+
+@pytest.mark.parametrize("bad", ["red", "#12", "ffffff", "#gggggg"])
+def test_apply_theme_bad_color_raises(bad: str) -> None:
+    with pytest.raises(ValueError, match="eye_color"):
+        apply_theme(_themed(), "", {"eye_color": bad})
+
+
+def test_apply_theme_unknown_color_key_raises() -> None:
+    with pytest.raises(ValueError, match="lid_color"):
+        apply_theme(_themed(), "", {"lid_color": "#000"})
