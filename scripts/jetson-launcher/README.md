@@ -56,7 +56,7 @@ pip в системный Python не используется).
 | существуют `/etc/guide-kiosk/url` и `kiosk-hdmi.service` | киоск на роботе настроен иначе, чем описано в `scripts/jetson-display/README.md` |
 | `/usr/local/bin/guide-kiosk-hdmi` совпадает с копией в репозитории или с любой прошлой ревизией из git | на роботе правили руками: печатается diff, разберитесь и решите, что верно |
 | `guide-kiosk-face` читает `/etc/guide-kiosk/url` (печатается `grep -n url`) | лицо берёт адрес откуда-то ещё; ничего не менять, разобраться вручную |
-| в контейнере не заданы `ROS_DOMAIN_ID`, `RMW_IMPLEMENTATION`, `CYCLONEDDS_URI`, `ROS_LOCALHOST_ONLY`, `FASTRTPS_DEFAULT_PROFILES_FILE` | `start_stack.sh` их не выставляет; стек, поднятый кнопкой, не увидел бы ноды, запущенные руками |
+| в контейнере не заданы `ROS_DOMAIN_ID`, `RMW_IMPLEMENTATION`, `CYCLONEDDS_URI`, `ROS_LOCALHOST_ONLY`, `FASTRTPS_DEFAULT_PROFILES_FILE` | DDS стека задаёт только `ros_env.sh` (см. «DDS стека»); переменные из окружения контейнера разошлись бы с ним у нод, запущенных руками |
 | UID:GID `jetson` и `fabian` в контейнере | не FAIL: если равны, токен `0640`, иначе `0644` |
 
 Что делает установка (после успешного preflight):
@@ -72,6 +72,7 @@ pip в системный Python не используется).
   (`After=`/`Wants=` launcher), `guide-kiosk-hdmi` в `/usr/local/bin`;
 - `/etc/guide-kiosk/url-hdmi` = `http://127.0.0.1:8089` (адрес большого экрана),
   `/etc/guide-kiosk/url` = `http://127.0.0.1:8090` (лицо: его читает `guide-kiosk-face`);
+- `60-ros-dds-buffers.conf` → `/etc/sysctl.d/` и `sysctl -p` (UDP-буферы для DDS, см. «DDS стека»);
 - `daemon-reload`, `enable --now` и `restart` для `guide-launcher`, `restart kiosk-hdmi`.
 
 `systemctl restart guide-launcher` **не трогает стек**: launcher при старте только опрашивает
@@ -112,6 +113,20 @@ pip в системный Python не используется).
 | `rfid_port` / `rfid_secret_file` | `/dev/rfid0` / `""` | `/dev/rfid0` всегда принадлежит launcher'у; пустой секрет — вход только по PIN |
 | `session_ttl_s` | `600` | скользящее окно сессии |
 | `state_dir` | `~/.guide_robot/launcher` | `state.json` и журнал |
+
+## DDS стека
+
+`start_stack.sh`, `scripts/tour_loop.sh` и шелл контейнера делают `source ros_env.sh`, поэтому стек и
+ручные `ros2 ...` в одном DDS:
+
+- по умолчанию CycloneDDS только на loopback (`cyclonedds_local.xml`): в Wi-Fi DDS не выходит.
+  На FastDDS ~65 ROS-процессов тратили заметную долю CPU на discovery, а на старте теряли UDP;
+- `STACK_RMW=rmw_fastrtps_cpp` -- прежний FastDDS (тоже без сети); если `rmw_cyclonedds_cpp` нет
+  в образе, `ros_env.sh` переключается на него сам;
+- `STACK_DDS_LAN=1` -- DDS в Wi-Fi (rviz с ноутбука, см. `scripts/ros_dds_lan.sh`).
+
+Руками в контейнере: `source /home/fabian/ros2_ws/src/scripts/jetson-launcher/ros_env.sh`, иначе
+`ros2 node list` стека не увидит.
 
 ## Состояние стека
 

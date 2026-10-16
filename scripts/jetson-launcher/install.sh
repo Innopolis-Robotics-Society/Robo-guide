@@ -253,6 +253,8 @@ run install -m 644 "$DISPLAY_DIR/kiosk-hdmi.service.d/10-guide-launcher.conf" \
   "$UNIT_DIR/kiosk-hdmi.service.d/10-guide-launcher.conf"
 
 run install -m 755 "$DISPLAY_DIR/guide-kiosk-hdmi" "$BIN_DIR/guide-kiosk-hdmi"
+run install -m 644 "$SRC_DIR/60-ros-dds-buffers.conf" "$ETC_DIR/sysctl.d/60-ros-dds-buffers.conf"
+run sysctl -q -p "$ETC_DIR/sysctl.d/60-ros-dds-buffers.conf"
 write_if_changed "$ETC_DIR/guide-kiosk/url-hdmi" "$HDMI_URL"
 write_if_changed "$ETC_DIR/guide-kiosk/url" "$FACE_URL"
 
