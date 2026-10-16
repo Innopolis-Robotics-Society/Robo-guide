@@ -30,8 +30,8 @@
       rotate_deg: 0,
       theme: "light",
       themes: {
-        dark: { eye_color: "#eaf6ff", bg_color: "#05070a" },
-        light: { eye_color: "#000000", bg_color: "#ffffff" },
+        dark: { bg_color: "#05070a", eye_color: "#eaf6ff", halo_color: "#2a2d31" },
+        light: { bg_color: "#ffffff", eye_color: "#000000", halo_color: "#d6d6d6" },
       },
       blink_interval_min_s: 2.5,
       blink_interval_max_s: 6.0,
@@ -97,13 +97,26 @@
   }
 
   // Цвета темы: global.themes[global.theme]; ?theme= в URL перекрывает
-  // (превью). Без themes -- плоские global.eye_color/bg_color (старый YAML).
+  // (превью), ?bg= / ?eye= / ?halo= (hex, «#» можно не писать) -- отдельные
+  // цвета поверх темы. Без themes -- плоские global.*_color (старый YAML).
   function themeColors(g) {
-    const wanted = new URLSearchParams(location.search).get("theme") || g.theme;
+    const params = new URLSearchParams(location.search);
+    const wanted = params.get("theme") || g.theme;
     const themes = g.themes || {};
-    const t = themes[wanted] || themes[g.theme];
-    if (t) return { eye: t.eye_color, bg: t.bg_color };
-    return { eye: g.eye_color || "#000000", bg: g.bg_color || "#ffffff" };
+    const t = themes[wanted] || themes[g.theme] || g;
+    const eye = t.eye_color || "#000000";
+    const colors = {
+      bg: t.bg_color || "#ffffff",
+      eye: eye,
+      halo: t.halo_color || eye,
+    };
+    for (const key of ["bg", "eye", "halo"]) {
+      const raw = params.get(key);
+      if (raw && /^#?([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(raw)) {
+        colors[key] = raw.startsWith("#") ? raw : `#${raw}`;
+      }
+    }
+    return colors;
   }
 
   function applyGlobalStyle() {
@@ -111,6 +124,7 @@
     const colors = themeColors(g);
     document.documentElement.style.setProperty("--eye-color", colors.eye);
     document.documentElement.style.setProperty("--bg-color", colors.bg);
+    document.documentElement.style.setProperty("--halo-color", colors.halo);
     const rotate = typeof g.rotate_deg === "number" ? g.rotate_deg : 0;
     document.documentElement.style.setProperty("--face-rotate", `${rotate}deg`);
     svg.setAttribute("viewBox", `0 0 ${g.view_w} ${g.view_h}`);
@@ -253,7 +267,7 @@
     group.setAttribute("transform", `translate(${tx},${ty}) rotate(${rot})`);
 
     // Обод поверх века: evenodd-кольцо, внутренний вырез чуть меньше тела,
-    // чтобы серый край накрывал моргание. Веко рисуется под ним и видно
+    // чтобы край ореола накрывал моргание. Веко рисуется под ним и видно
     // в отверстии (не clipPath -- иначе твин высоты пропадает).
     const inset = 3;
     const holeX = -w / 2 + inset;

@@ -9,12 +9,14 @@
     "theme": "light",
     "themes": {
       "dark": {
+        "bg_color": "#05070a",
         "eye_color": "#eaf6ff",
-        "bg_color": "#05070a"
+        "halo_color": "#2a2d31"
       },
       "light": {
+        "bg_color": "#ffffff",
         "eye_color": "#000000",
-        "bg_color": "#ffffff"
+        "halo_color": "#d6d6d6"
       }
     },
     "blink_interval_min_s": 2.5,

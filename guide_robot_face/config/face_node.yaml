@@ -9,3 +9,7 @@
     # Тема лица: "" -- из face_states.yaml (global.theme), "light" -- чёрные глаза
     # на белом, "dark" -- светлые глаза на чёрном.
     theme: ""
+    # Цвета вручную поверх выбранной темы, "#rrggbb"; "" -- цвет из темы.
+    bg_color: ""
+    eye_color: ""
+    halo_color: ""

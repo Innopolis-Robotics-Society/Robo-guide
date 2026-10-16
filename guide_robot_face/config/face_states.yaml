@@ -16,14 +16,21 @@ global:
   rotate_deg: 180
   # Тема лица: light -- чёрные глаза на белом, dark -- светлые на чёрном.
   # Перекрывается ROS-параметром face_node `theme` и в браузере ?theme=.
+  # Своя тема -- добавь ключ в themes и укажи его здесь. У каждой темы все три
+  # цвета, "#rgb" / "#rrggbb" / "#rrggbbaa":
+  #   bg_color   -- фон (им же рисуются веки);
+  #   eye_color  -- тело глаза;
+  #   halo_color -- ореол вокруг глаза.
   theme: light
   themes:
     dark:
-      eye_color: "#eaf6ff"
       bg_color: "#05070a"
+      eye_color: "#eaf6ff"
+      halo_color: "#2a2d31"
     light:
-      eye_color: "#000000"
       bg_color: "#ffffff"
+      eye_color: "#000000"
+      halo_color: "#d6d6d6"
   blink_interval_min_s: 2.5
   blink_interval_max_s: 6.0
   blink_duration_ms: 280

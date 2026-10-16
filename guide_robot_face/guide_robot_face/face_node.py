@@ -18,7 +18,7 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 
-from guide_robot_face.face_server import FaceServer, apply_theme
+from guide_robot_face.face_server import THEME_COLOR_KEYS, FaceServer, apply_theme
 from guide_robot_face.lib.qos import QOS_FACE_STATE
 from guide_robot_msgs.msg import FaceState
 from guide_robot_msgs.srv import SetFaceState
@@ -41,12 +41,16 @@ class FaceNode(Node):
         self.declare_parameter("states_yaml", str(share / "config" / "face_states.yaml"))
         # "" -- тема из face_states.yaml (global.theme); light / dark -- перекрыть.
         self.declare_parameter("theme", "")
+        # "#rrggbb" -- цвет вручную поверх темы; "" -- цвет из темы.
+        for key in THEME_COLOR_KEYS:
+            self.declare_parameter(key, "")
 
         http_host = str(self.get_parameter("http_host").value)
         http_port = int(self.get_parameter("http_port").value)
         web_root = Path(str(self.get_parameter("web_root").value))
         states_yaml_path = Path(str(self.get_parameter("states_yaml").value))
         theme = str(self.get_parameter("theme").value)
+        colors = {key: str(self.get_parameter(key).value) for key in THEME_COLOR_KEYS}
 
         with states_yaml_path.open(encoding="utf-8") as f:
             states_doc = yaml.safe_load(f)
@@ -54,7 +58,7 @@ class FaceNode(Node):
         if not self._known_states:
             raise RuntimeError(f"{states_yaml_path}: не содержит ни одного состояния")
         try:
-            apply_theme(states_doc, theme)
+            apply_theme(states_doc, theme, colors)
         except ValueError as exc:
             raise RuntimeError(f"{states_yaml_path}: {exc}") from exc
 
@@ -77,9 +81,11 @@ class FaceNode(Node):
         self.create_subscription(FaceState, "/face/state", self._on_face_state, QOS_FACE_STATE)
         self.create_service(SetFaceState, "/face/set_state", self._on_set_state)
 
+        theme_name = states_doc["global"].get("theme", "")
+        theme_colors = (states_doc["global"].get("themes") or {}).get(theme_name, {})
         self.get_logger().info(
             f"face_node: http://{http_host}:{http_port}, web_root={web_root}, "
-            f"theme={states_doc['global'].get('theme', '')}"
+            f"theme={theme_name} {theme_colors}"
         )
 
     def _run_server(self, host: str, port: int) -> None:

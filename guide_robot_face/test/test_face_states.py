@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -48,8 +49,17 @@ def test_no_sad_state() -> None:
 def test_themes_light_is_black_on_white() -> None:
     g = _load_yaml()["global"]
     assert g["theme"] in g["themes"]
-    assert g["themes"]["light"] == {"eye_color": "#000000", "bg_color": "#ffffff"}
-    assert set(g["themes"]["dark"]) == {"eye_color", "bg_color"}
+    light = g["themes"]["light"]
+    assert (light["eye_color"], light["bg_color"]) == ("#000000", "#ffffff")
+
+
+def test_every_theme_has_three_hex_colors() -> None:
+    # Та же проверка, что apply_theme делает в face_node на старте.
+    hex_color = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
+    for name, theme in _load_yaml()["global"]["themes"].items():
+        assert set(theme) == {"bg_color", "eye_color", "halo_color"}, name
+        for key, value in theme.items():
+            assert hex_color.fullmatch(value), f"{name}.{key}={value!r}"
 
 
 def test_web_states_json_matches_yaml() -> None:

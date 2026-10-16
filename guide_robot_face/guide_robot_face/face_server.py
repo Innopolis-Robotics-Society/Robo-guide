@@ -7,27 +7,48 @@ CLAUDE_CODE_TASK_face_stage1.md §1.4), поэтому тестируется б
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from aiohttp import WSMsgType, web
 
+THEME_COLOR_KEYS = ("bg_color", "eye_color", "halo_color")
+_HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
-def apply_theme(states: dict[str, Any], theme: str) -> dict[str, Any]:
+
+def apply_theme(
+    states: dict[str, Any], theme: str, colors: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Выбрать тему лица (``global.themes``) и записать её в ``global.theme``.
 
-    Пустая ``theme`` -- оставить ту, что в YAML. Неизвестная -- ValueError:
-    лицо с непредсказуемыми цветами хуже, чем упавшая на старте нода.
-    face.js берёт ``eye_color``/``bg_color`` из ``global.themes[global.theme]``.
+    Пустая ``theme`` -- оставить ту, что в YAML. ``colors`` -- цвета вручную
+    (ключи из ``THEME_COLOR_KEYS``, пустое значение -- цвет темы), ложатся
+    поверх выбранной темы. Неизвестная тема, тема без одного из трёх цветов
+    или не-hex цвет -- ValueError: лицо с непредсказуемыми цветами хуже, чем
+    упавшая на старте нода. face.js берёт цвета из
+    ``global.themes[global.theme]``.
     """
     g = states.setdefault("global", {})
     themes = g.get("themes") or {}
     name = theme or g.get("theme", "")
+    overrides = {k: v for k, v in (colors or {}).items() if v}
+    unknown_keys = set(overrides) - set(THEME_COLOR_KEYS)
+    if unknown_keys:
+        raise ValueError(f"неизвестные цвета лица: {', '.join(sorted(unknown_keys))}")
     if not name:
+        if overrides:
+            raise ValueError("цвета лица заданы, а темы нет (global.theme)")
         return states
     if name not in themes:
         known = ", ".join(sorted(themes)) or "нет"
         raise ValueError(f"неизвестная тема лица {name!r} (есть: {known})")
+    resolved = {**themes[name], **overrides}
+    for key in THEME_COLOR_KEYS:
+        value = resolved.get(key)
+        if not isinstance(value, str) or not _HEX_COLOR.fullmatch(value):
+            raise ValueError(f"тема лица {name!r}: {key}={value!r}, нужен #rgb/#rrggbb/#rrggbbaa")
+    themes[name] = resolved
     g["theme"] = name
     return states
 
