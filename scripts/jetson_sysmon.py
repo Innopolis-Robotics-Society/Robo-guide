@@ -10,7 +10,8 @@ Report (on the Jetson or after copying the directory to a laptop):
     python3 jetson_sysmon.py report ~/sysmon --last 30m
 
 Files:
-    system.csv  one row per sample: CPU/RAM/swap/GPU/load/temps/power/net
+    system.csv  one row per sample: CPU/RAM/swap/GPU/load/temps/power/net,
+                udp_drops = UDP datagrams dropped on full socket buffers (DDS loss)
     procs.csv   per sample: top-K by CPU, top-K by RSS and anything >= --min-cpu
 Process CPU% is like top: 100 = one full core.
 """
@@ -86,6 +87,14 @@ def net_bytes():
         rx += int(f[0])
         tx += int(f[8])
     return rx, tx
+
+
+def udp_rcvbuf_errors():
+    lines = [l.split() for l in read('/proc/net/snmp').splitlines() if l.startswith('Udp:')]
+    try:
+        return int(lines[1][lines[0].index('RcvbufErrors')])
+    except (IndexError, ValueError):
+        return 0
 
 
 def find_gpu_load():
@@ -164,7 +173,7 @@ def record(args):
 
     sys_cols = (['time', 'cpu_pct', 'iowait_pct', 'cpu_max_core_pct', 'load1',
                  'mem_used_mb', 'mem_pct', 'swap_used_mb', 'gpu_pct',
-                 'net_rx_kbs', 'net_tx_kbs', 'nprocs']
+                 'net_rx_kbs', 'net_tx_kbs', 'udp_drops', 'nprocs']
                 + [f'core{c[3:]}_pct' for c in cores]
                 + [f't_{n}' for n, _ in zones]
                 + [f'p_{n}_mw' for n, _, _ in rails])
@@ -188,7 +197,7 @@ def record(args):
           f'(gpu={"yes" if gpu else "no"}, {len(zones)} temps, {len(rails)} rails)',
           file=sys.stderr)
 
-    prev_cpu, prev_net = cpu_times(), net_bytes()
+    prev_cpu, prev_net, prev_udp = cpu_times(), net_bytes(), udp_rcvbuf_errors()
     prev_procs, names = proc_snapshot(), {}
     prev_t = time.monotonic()
     try:
@@ -213,6 +222,7 @@ def record(args):
             mem_used = (m['MemTotal'] - m.get('MemAvailable', m['MemFree'])) / 1024
             swap_used = (m.get('SwapTotal', 0) - m.get('SwapFree', 0)) / 1024
             rx, tx = net_bytes()
+            udp = udp_rcvbuf_errors()
             gpu_pct = read_int(gpu) / 10 if gpu else ''
             temps = [(read_int(p) or 0) / 1000 for _, p in zones]
             power = []
@@ -233,7 +243,7 @@ def record(args):
                          f'{mem_used:.0f}', f'{100 * mem_used * 1024 / m["MemTotal"]:.1f}',
                          f'{swap_used:.0f}', gpu_pct,
                          f'{(rx - prev_net[0]) / 1024 / dt:.1f}',
-                         f'{(tx - prev_net[1]) / 1024 / dt:.1f}', len(procs)]
+                         f'{(tx - prev_net[1]) / 1024 / dt:.1f}', udp - prev_udp, len(procs)]
                         + [f'{c:.0f}' for c in per_core]
                         + [f'{t:.1f}' for t in temps] + power)
 
@@ -252,7 +262,8 @@ def record(args):
             for f in (fs, fp):
                 f.flush()
                 os.fsync(f.fileno())  # survive a power cut / hard hang
-            prev_cpu, prev_net, prev_procs, prev_t = cur_cpu, (rx, tx), procs, now
+            prev_cpu, prev_net, prev_udp = cur_cpu, (rx, tx), udp
+            prev_procs, prev_t = procs, now
     except KeyboardInterrupt:
         pass
     finally:
