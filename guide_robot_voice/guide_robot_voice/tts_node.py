@@ -31,7 +31,7 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallb
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
-from guide_robot_voice.lib.backends import TtsBackend, make_backend
+from guide_robot_voice.lib.backends import FallbackBackend, TtsBackend, make_backend
 from guide_robot_voice.lib.chunker import ChunkerConfig, TextChunker
 from guide_robot_voice.lib.qos import (
     QOS_CANCEL_ALL,
@@ -66,6 +66,23 @@ class TtsNode(LifecycleNode):
         self.declare_parameter("silero_rate", "100%")
         self.declare_parameter("sentence_pause_ms", 0)
         self.declare_parameter("trailing_silence_ms", -1)
+        # Yandex SpeechKit v3 (backend: yandex). Say.voice «голос:амплуа»
+        # переопределяет голос/амплуа на одну реплику. См. YandexBackend.
+        self.declare_parameter("yandex_voice", "dasha")
+        self.declare_parameter("yandex_role", "")
+        self.declare_parameter("yandex_model", "")
+        self.declare_parameter("yandex_speed", "")
+        self.declare_parameter("yandex_sample_rate", 48000)
+        self.declare_parameter("yandex_api_key_env", "YANDEX_TTS_API_KEY")
+        self.declare_parameter("yandex_folder_id", "")
+        self.declare_parameter("yandex_connect_timeout_s", 3.0)
+        self.declare_parameter("yandex_read_timeout_s", 5.0)
+        # Запасной локальный бэкенд облака (silero | piper | "" -- без
+        # страховки): отказ облака -> реплика им, облако на паузе retry_s,
+        # а при отказе ключа/денег -- persistent_retry_s. См. FallbackBackend.
+        self.declare_parameter("tts_fallback", "silero")
+        self.declare_parameter("fallback_retry_s", 30.0)
+        self.declare_parameter("fallback_persistent_retry_s", 300.0)
         self.declare_parameter("device", "")
         self.declare_parameter("device_rate", 0)
         self.declare_parameter("block_ms", 20)
@@ -264,15 +281,31 @@ class TtsNode(LifecycleNode):
             self._stage = "запуск вывода"
             self._sink.start()
             self._stage = "разогрев модели"
-            started = time.monotonic()
-            warmup_text = str(self.get_parameter("warmup_text").value)
-            for _ in self._backend.synthesize(warmup_text):
-                pass
-            self.get_logger().info(f"разогрев занял {(time.monotonic() - started) * 1e3:.0f} мс")
+            self._warmup()
         except Exception as error:
             self.get_logger().error(f"activate не удался на шаге '{self._stage}': {error}")
             return TransitionCallbackReturn.FAILURE
         return super().on_activate(state)
+
+    def _warmup(self) -> None:
+        """Прогнать warmup_text.
+
+        Сбой локальной модели валит activate: она сломана и не заговорит.
+        Сбой облака -- только в лог: нет сети или DNS на старте -- не повод
+        оставить робота без tts_node, сеть может появиться к первой реплике.
+        """
+        assert self._backend is not None
+        started = time.monotonic()
+        warmup_text = str(self.get_parameter("warmup_text").value)
+        try:
+            for _ in self._backend.synthesize(warmup_text):
+                pass
+        except Exception as error:
+            if str(self.get_parameter("backend").value) != "yandex":
+                raise
+            self.get_logger().error(f"разогрев не удался, продолжаю без него: {error}")
+            return
+        self.get_logger().info(f"разогрев занял {(time.monotonic() - started) * 1e3:.0f} мс")
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
         """Заглушить выход. Вызывается при постановке на зарядку."""
@@ -725,13 +758,17 @@ class TtsNode(LifecycleNode):
         self._status_pub.publish(status)
 
         metrics = self._sink.metrics
+        # Облако отказало и говорит запасной -- WARN, чтобы «кончились
+        # деньги» было видно оператору, а не только в логе ноды.
+        degraded = str(getattr(self._backend, "degraded_reason", ""))
+        message = "speaking" if status.speaking else "idle"
         diag = DiagnosticArray()
         diag.header.stamp = status.stamp
         entry = DiagnosticStatus(
             name="voice/tts",
             hardware_id="tts_node",
-            level=DiagnosticStatus.OK,
-            message="speaking" if status.speaking else "idle",
+            level=DiagnosticStatus.WARN if degraded else DiagnosticStatus.OK,
+            message=f"{message}, запасной голос: {degraded}"[:200] if degraded else message,
             values=[
                 KeyValue(key="epoch", value=str(self._sink.epoch)),
                 KeyValue(key="t_stop_ms", value=f"{metrics.t_stop_ms:.2f}"),
@@ -768,9 +805,40 @@ class TtsNode(LifecycleNode):
         """Собрать бэкенд по параметрам.
 
         backend по умолчанию -- silero (v5 xenia). "piper" -- запасной
-        ONNX-голос. "null" -- тон без модели, для CI и измерения t_stop.
+        ONNX-голос. "yandex" -- облачный SpeechKit v3 с амплуа, обёрнутый
+        в FallbackBackend со страховкой tts_fallback (silero). "null" --
+        тон без модели, для CI и измерения t_stop.
         """
         kind = str(self.get_parameter("backend").value)
+        if kind != "yandex":
+            return self._build_local_backend(kind)
+        cloud = make_backend(
+            "yandex",
+            voice=str(self.get_parameter("yandex_voice").value),
+            role=str(self.get_parameter("yandex_role").value),
+            model=str(self.get_parameter("yandex_model").value),
+            speed=str(self.get_parameter("yandex_speed").value),
+            sample_rate=int(self.get_parameter("yandex_sample_rate").value),
+            api_key_env=str(self.get_parameter("yandex_api_key_env").value),
+            folder_id=str(self.get_parameter("yandex_folder_id").value),
+            connect_timeout_s=float(self.get_parameter("yandex_connect_timeout_s").value),
+            read_timeout_s=float(self.get_parameter("yandex_read_timeout_s").value),
+            block_ms=int(self.get_parameter("block_ms").value),
+        )
+        fallback_kind = str(self.get_parameter("tts_fallback").value)
+        if not fallback_kind:
+            return cloud
+        return FallbackBackend(
+            cloud,
+            self._build_local_backend(fallback_kind),
+            retry_s=float(self.get_parameter("fallback_retry_s").value),
+            persistent_retry_s=float(self.get_parameter("fallback_persistent_retry_s").value),
+            block_ms=int(self.get_parameter("block_ms").value),
+            warmup_text=str(self.get_parameter("warmup_text").value),
+        )
+
+    def _build_local_backend(self, kind: str) -> TtsBackend:
+        """Локальный бэкенд: основной или страховка облачного."""
         if kind == "null":
             return make_backend("null")
         if kind == "piper":
@@ -792,7 +860,9 @@ class TtsNode(LifecycleNode):
                 sentence_pause_ms=int(self.get_parameter("sentence_pause_ms").value),
                 trailing_silence_ms=int(self.get_parameter("trailing_silence_ms").value),
             )
-        raise ValueError(f"неизвестный бэкенд: {kind!r}, ожидается 'silero', 'piper' или 'null'")
+        raise ValueError(
+            f"неизвестный бэкенд: {kind!r}, ожидается 'silero', 'piper', 'yandex' или 'null'"
+        )
 
 
 def main(args: list[str] | None = None) -> None:

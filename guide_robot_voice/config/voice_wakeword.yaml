@@ -1,5 +1,5 @@
 # Дополнительный opt-in оверлей ПОСЛЕ voice.yaml и voice_xvf3800.yaml.
-# frozen frames_06_confirmed из live_20261007_110955_UTC_4e2839.
+# frames_07_room_op066: frames_06 + шум робота 15.10.2026, порог выбран по val.
 /**/wakeword_node:
   ros__parameters:
     backend: oww
@@ -13,8 +13,8 @@
     echo_hold_seconds: 0.4
     wakeword_barge_in_enabled: false
     allow_unvalidated_wakeword_barge_in: false
-    wakeword_model_sha256: "66402d6fd6a90be9780c073d254bf48eecf27f8387ea67f36cd70578aeba22e1"
-    wakeword_min_confidence: 0.8601541979408264
+    wakeword_model_sha256: "99577fe4704d8e6494d5ae5368a07348486f5d3758932383c5566d74e3cd849b"
+    wakeword_min_confidence: 0.66
 
 /**/asr_node:
   ros__parameters:

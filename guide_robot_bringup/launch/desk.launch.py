@@ -50,7 +50,7 @@ def generate_launch_description():
     declare_tts_backend = DeclareLaunchArgument(
         "tts_backend",
         default_value="silero",
-        choices=["silero", "piper", "null"],
+        choices=["silero", "piper", "yandex", "null"],
         description="TTS backend used by the XVF profile",
     )
     declare_automatic_barge_in_enabled = DeclareLaunchArgument(

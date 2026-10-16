@@ -87,6 +87,10 @@ class VadNode(LifecycleNode):
         # Пропуск в /audio/mic не длиннее этого -- тишина, а не разрыв захвата
         # (иначе voice_session_manager выбрасывает всю фразу). 0 -- выключено.
         self.declare_parameter("max_filled_gap_ms", 100.0)
+        # Silero за десятки секунд непрерывного стационарного шума (вентиляция)
+        # «привыкает» к нему и потом не видит первую речь. Сбрасывать RNN каждые
+        # idle_reset_s тишины; гистерезис и state_duration не трогаются. 0 -- выкл.
+        self.declare_parameter("idle_reset_s", 0.0)
 
         self._vad: SileroVad | None = None
         self._hysteresis: VadHysteresis | None = None
@@ -103,6 +107,9 @@ class VadNode(LifecycleNode):
         self._last_probability = 0.0
         self._last_level_dbfs = _SILENCE_FLOOR_DBFS
         self._was_active = False
+        self._idle_reset_s = 0.0
+        self._idle_seconds = 0.0
+        self._idle_resets_total = 0
 
         self._latest_speaking: SpeakingStatus | None = None
         self._barge_in_streak = 0
@@ -127,6 +134,7 @@ class VadNode(LifecycleNode):
 
     def _configure(self) -> TransitionCallbackReturn:
         self._max_fill_samples = int(float(self.get_parameter("max_filled_gap_ms").value) * 16)
+        self._idle_reset_s = max(0.0, float(self.get_parameter("idle_reset_s").value))
         model_path = str(self.get_parameter("model_path").value)
         if not model_path:
             raise ValueError(
@@ -174,6 +182,7 @@ class VadNode(LifecycleNode):
         assert self._ring is not None
         self._vad.reset()
         self._hysteresis.reset()
+        self._idle_seconds = 0.0
         self._ring = RingBuffer(16000)
         self._expected_first_sample = None
         self._window_first_sample = None
@@ -302,6 +311,11 @@ class VadNode(LifecycleNode):
         self._was_active = result.active
         if result.segment_ended_too_short:
             self._short_segments_total += 1
+        self._idle_seconds = 0.0 if result.active else self._idle_seconds + window.shape[0] / 16000
+        if self._idle_reset_s and self._idle_seconds >= self._idle_reset_s:
+            self._vad.reset()
+            self._idle_seconds = 0.0
+            self._idle_resets_total += 1
         if not result.active:
             # Сегмент речи закончился (или ещё не начинался) -- взвести
             # барж-ин заново для следующего.
@@ -432,6 +446,7 @@ class VadNode(LifecycleNode):
                 KeyValue(key="short_segments_total", value=str(self._short_segments_total)),
                 KeyValue(key="barge_in_triggers_total", value=str(self._barge_in_triggers_total)),
                 KeyValue(key="gaps_filled_total", value=str(self._gaps_filled)),
+                KeyValue(key="idle_resets_total", value=str(self._idle_resets_total)),
             ],
         )
         diag.status.append(entry)
