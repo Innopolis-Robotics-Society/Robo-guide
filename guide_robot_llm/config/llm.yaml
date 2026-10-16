@@ -29,13 +29,14 @@
 
     # Yandex AI Studio (OpenAI-совместимый Completions API, совместимость
     # частичная). Модель -- URI с ID каталога, в котором выпущен ключ.
-    # Рассуждения у DeepSeek V4.1 Flash включены по умолчанию, выключаются
-    # `reasoning_effort: "none"` (карточка модели в AI Studio).
+    # YandexGPT Lite, не DeepSeek V4.1 Flash: замер 16.10.2026 -- у DeepSeek
+    # первый токен 8-30 с, у Lite 0.6-1.2 с. Без response_format=json_object
+    # Lite оборачивает JSON в ``` -- structured обязателен.
     llm.yandex.base_url: "https://ai.api.cloud.yandex.net/v1"
-    llm.yandex.model: "gpt://b1g9tcpkkqrequkl47mv/deepseek-v4.1-flash/latest"
+    llm.yandex.model: "gpt://b1g9tcpkkqrequkl47mv/yandexgpt-lite/latest"
     llm.yandex.api_key_env: "YANDEX_LLM_API_KEY"
     llm.yandex.structured: "json_object"
-    llm.yandex.extra_body_json: '{"stream_options": {"include_usage": true}, "reasoning_effort": "none"}'
+    llm.yandex.extra_body_json: '{"stream_options": {"include_usage": true}}'
     llm.yandex.reasoning_budget_tokens: 0
     llm.yandex.connect_timeout_s: 3.0
     llm.yandex.read_timeout_s: 8.0
