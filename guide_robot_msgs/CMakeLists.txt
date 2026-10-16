@@ -21,7 +21,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TourStop.msg"
   "msg/Tour.msg"
   "srv/ListLocations.srv"
-  "srv/EstimateRoute.srv"
   "srv/GetExhibitContent.srv"
   "srv/ResolveLocation.srv"
   "srv/ListTours.srv"
