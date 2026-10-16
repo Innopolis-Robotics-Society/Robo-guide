@@ -1,7 +1,0 @@
-string[] ids
-bool optimize
----
-string[] ordered_ids
-float32 distance_m
-float32 duration_min
-bool feasible

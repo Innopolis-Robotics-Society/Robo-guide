@@ -42,7 +42,6 @@ from guide_robot_msgs.action import Narrate, RunTour, Say
 from guide_robot_msgs.msg import MissionState, Presence, Transcript
 from guide_robot_msgs.srv import (
     CallTool,
-    EstimateRoute,
     GetExhibitContent,
     ListLocations,
     ListTours,
@@ -87,7 +86,7 @@ def _wait_future(future: Future, context: object, timeout_s: float) -> bool:
 
 
 class ToolBrokerNode(LifecycleNode):
-    """Lifecycle-нода: клиенты mission_fsm/location_server/route_planner/voice + кэш состояния."""
+    """Lifecycle-нода: клиенты mission_fsm/location_server/voice + кэш состояния."""
 
     def __init__(self, **node_kwargs: object) -> None:
         """Объявить параметры. Ресурсы ROS захватываются в on_configure."""
@@ -100,7 +99,6 @@ class ToolBrokerNode(LifecycleNode):
         self.declare_parameter("say_result_timeout_s", 45.0)
         self.declare_parameter("mission_fsm_ns", "/mission_fsm")
         self.declare_parameter("location_server_ns", "/location_server")
-        self.declare_parameter("route_planner_ns", "/route_planner")
         self.declare_parameter("content_server_ns", "/content_server")
 
         self._active = False
@@ -140,7 +138,6 @@ class ToolBrokerNode(LifecycleNode):
         self._say_result_timeout_s = float(self.get_parameter("say_result_timeout_s").value)
         mission_fsm_ns = str(self.get_parameter("mission_fsm_ns").value)
         location_server_ns = str(self.get_parameter("location_server_ns").value)
-        route_planner_ns = str(self.get_parameter("route_planner_ns").value)
         content_server_ns = str(self.get_parameter("content_server_ns").value)
 
         # -- действия: тур, речь, разовый рассказ вне тура --
@@ -177,11 +174,6 @@ class ToolBrokerNode(LifecycleNode):
         )
         self._list_tours_client = self.create_client(
             ListTours, f"{location_server_ns}/list_tours", callback_group=self._cb_reentrant
-        )
-        self._estimate_route_client = self.create_client(
-            EstimateRoute,
-            f"{route_planner_ns}/estimate_route",
-            callback_group=self._cb_reentrant,
         )
         self._resolve_location_client = self.create_client(
             ResolveLocation,
@@ -485,17 +477,11 @@ class ToolBrokerNode(LifecycleNode):
         return ToolResult(ok=bool(response.accepted), message=response.message)
 
     def _tool_tour_by_points(self, args: dict) -> ToolResult:
+        # Порядок -- как назвал посетитель: route_planner (оптимизация порядка через
+        # nav2_route) из стека убран, каждую остановку Nav2 строит сам.
         ids = [str(location_id) for location_id in args["location_ids"]]
-        route_result = self._call_sync(
-            self._estimate_route_client,
-            EstimateRoute.Request(ids=ids, optimize=bool(args.get("optimize", True))),
-        )
-        if route_result is None:
-            return ToolResult(ok=False, message="route_planner недоступен")
-        if not route_result.feasible:
-            return ToolResult(ok=False, message="маршрут по заданным точкам не построить")
         goal = RunTour.Goal(
-            location_ids=list(route_result.ordered_ids),
+            location_ids=ids,
             # greet=False по умолчанию -- см. комментарий в _tool_start_tour (stage2 A2).
             greet=bool(args.get("greet", False)),
             narrate=bool(args.get("narrate", True)),
@@ -503,8 +489,7 @@ class ToolBrokerNode(LifecycleNode):
             return_home=bool(args.get("return_home", True)),
         )
         result = self._send_run_tour(goal)
-        result.data["ordered_ids"] = list(route_result.ordered_ids)
-        result.data["distance_m"] = route_result.distance_m
+        result.data["ordered_ids"] = ids
         return result
 
     def _send_run_tour(self, goal: RunTour.Goal) -> ToolResult:
@@ -677,24 +662,6 @@ class ToolBrokerNode(LifecycleNode):
         ]
         return ToolResult(ok=True, data={"tours": tours})
 
-    def _tool_estimate_route(self, args: dict) -> ToolResult:
-        ids = [str(location_id) for location_id in args["ids"]]
-        response = self._call_sync(
-            self._estimate_route_client,
-            EstimateRoute.Request(ids=ids, optimize=bool(args.get("optimize", True))),
-        )
-        if response is None:
-            return ToolResult(ok=False, message="route_planner недоступен")
-        return ToolResult(
-            ok=response.feasible,
-            message="" if response.feasible else "маршрут не построить",
-            data={
-                "ordered_ids": list(response.ordered_ids),
-                "distance_m": response.distance_m,
-                "duration_min": response.duration_min,
-            },
-        )
-
     def _tool_lookup_content(self, args: dict) -> ToolResult:
         response = self._call_sync(
             self._get_exhibit_content_client,
@@ -799,7 +766,6 @@ class ToolBrokerNode(LifecycleNode):
         "ask_visitor": _tool_ask_visitor,
         "list_locations": _tool_list_locations,
         "list_tours": _tool_list_tours,
-        "estimate_route": _tool_estimate_route,
         "lookup_content": _tool_lookup_content,
         "search_content": _tool_search_content,
         "resolve_location": _tool_resolve_location,

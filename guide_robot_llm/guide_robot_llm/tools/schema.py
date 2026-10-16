@@ -12,11 +12,10 @@ GBNF-каталога и `tools_allowed` в снимке.
 `llm_visible=False` (DIALOG_REWORK_PLAN.md §0): `say` перестал быть
 выбором модели -- реплику определяет фаза 1 хода (свободный текст), а
 `say` в `tool_broker` только озвучивает уже готовый текст, зовёт его сам
-`dialog_agent`, не модель. `list_locations`/`list_tours`/`estimate_route`
+`dialog_agent`, не модель. `list_locations`/`list_tours`
 скрыты по той же причине, что убрано ReAct: каталог локаций/туров теперь
 целиком в системном промпте (`dialog/prompt.py`), а не read-only вызов в
-рантайме; `estimate_route` продолжает использоваться внутри
-`_tool_tour_by_points`, но не как отдельный вызов модели.
+рантайме.
 
 `pause`/`hold_position` разрешены только в NARRATING/NAVIGATING(+ANSWERING,
 вопрос по дороге -- робот продолжает ехать)
@@ -174,13 +173,6 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "list_tours",
         "Список заранее заданных туров (read-only).",
-        ALL_STATES,
-        llm_visible=False,
-        read_only=True,
-    ),
-    ToolSpec(
-        "estimate_route",
-        "Оценить маршрут по списку локаций (read-only).",
         ALL_STATES,
         llm_visible=False,
         read_only=True,

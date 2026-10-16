@@ -103,7 +103,6 @@ def test_read_only_tools_allowed_in_every_state() -> None:
     for name in (
         "list_locations",
         "list_tours",
-        "estimate_route",
         "lookup_content",
         "search_content",
         "resolve_location",
@@ -123,7 +122,6 @@ def test_read_only_flag_set_for_catalog_and_content_tools() -> None:
         "resolve_location",
         "list_locations",
         "list_tours",
-        "estimate_route",
     ):
         assert tool_spec(name).read_only is True
 
@@ -147,7 +145,6 @@ def test_allowed_tools_idle_matches_expected_set() -> None:
         "resolve_location",
         "list_locations",
         "list_tours",
-        "estimate_route",
     }
 
 
@@ -161,7 +158,6 @@ def test_llm_only_hides_say_and_read_only_catalog_tools() -> None:
     assert "say" not in visible
     assert "list_locations" not in visible
     assert "list_tours" not in visible
-    assert "estimate_route" not in visible
     assert "reply" in visible
     assert "start_tour" in visible
 

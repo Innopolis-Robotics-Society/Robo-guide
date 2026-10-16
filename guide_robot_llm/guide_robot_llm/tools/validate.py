@@ -121,9 +121,6 @@ def _validate_args(
     elif name == "say":
         if not str(args.get("text", "")).strip():
             raise ValidationError("say: пустой текст")
-    elif name in ("estimate_route",):
-        if not (args.get("ids") or []):
-            raise ValidationError("estimate_route: пустой список локаций")
     elif name == "lookup_content":
         if not str(args.get("content_id", "")).strip():
             raise ValidationError("lookup_content: content_id обязателен")

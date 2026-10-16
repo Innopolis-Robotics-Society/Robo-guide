@@ -1,4 +1,4 @@
-"""Моки трёх нод guide_robot_semantic_map (content_server/location_server/route_planner).
+"""Моки нод guide_robot_semantic_map (content_server/location_server).
 
 Копия guide_robot_mission_control/test/mocks/mock_semantic_map.py -- см.
 докстринг sim_clock.py про причину копии, не импорта.
@@ -16,7 +16,6 @@ from guide_robot_msgs.msg import Location as LocationMsg
 from guide_robot_msgs.msg import Tour as TourMsg
 from guide_robot_msgs.msg import TourStop as TourStopMsg
 from guide_robot_msgs.srv import (
-    EstimateRoute,
     GetExhibitContent,
     ListLocations,
     ListTours,
@@ -27,7 +26,6 @@ from guide_robot_msgs.srv import (
 __all__ = [
     "MockContentServer",
     "MockLocationServer",
-    "MockRoutePlanner",
     "SemanticMapFixtures",
 ]
 
@@ -52,9 +50,6 @@ class SemanticMapFixtures:
         self._call_counts: dict[tuple[str, str], int] = {}
         self._locations: dict[str, LocationMsg] = {}
         self._tours: dict[str, TourMsg] = {}
-        self.route_distance_m = 5.0
-        self.route_duration_min = 2.0
-        self.route_feasible = True
         self.search_hits: list[ContentHitMsg] = []
         self.resolve_candidates: list[LocationMsg] = []
         self.resolve_scores: list[float] = []
@@ -156,14 +151,6 @@ class SemanticMapFixtures:
         ]
         self._tours[tour_id] = tour
 
-    def set_route_estimate(
-        self, *, distance_m: float, duration_min: float, feasible: bool = True
-    ) -> None:
-        """Задать фиксированный результат EstimateRoute для всех запросов."""
-        self.route_distance_m = distance_m
-        self.route_duration_min = duration_min
-        self.route_feasible = feasible
-
     # -- обработчики, дёргаются нодами-обёртками ниже --------------------
 
     def get_exhibit_content(self, exhibit_id: str, language: str) -> _ExhibitFixture | None:
@@ -224,7 +211,7 @@ class MockContentServer(Node):
     ) -> SearchContent.Response:
         """Канонический результат из `set_search_hits()` -- без реального ранжирования.
 
-        Как `MockRoutePlanner`: тест задаёт фиксированный ответ, содержимое
+        Тест задаёт фиксированный ответ, содержимое
         запроса (`query`/`location_ids`/`kinds`) здесь не используется --
         реальный BM25-поиск живёт в guide_robot_semantic_map, не копируется.
         """
@@ -286,26 +273,3 @@ class MockLocationServer(Node):
         response.tours = self._fixtures.list_tours()
         return response
 
-
-class MockRoutePlanner(Node):
-    """`~/estimate_route` поверх SemanticMapFixtures."""
-
-    def __init__(
-        self,
-        fixtures: SemanticMapFixtures,
-        node_name: str = "route_planner",
-        **node_kwargs: object,
-    ) -> None:
-        """Поднять сервис estimate_route под именем узла route_planner (как в проде)."""
-        super().__init__(node_name, **node_kwargs)
-        self._fixtures = fixtures
-        self.create_service(EstimateRoute, "~/estimate_route", self._handle)
-
-    def _handle(
-        self, request: EstimateRoute.Request, response: EstimateRoute.Response
-    ) -> EstimateRoute.Response:
-        response.ordered_ids = list(request.ids)
-        response.distance_m = self._fixtures.route_distance_m
-        response.duration_min = self._fixtures.route_duration_min
-        response.feasible = self._fixtures.route_feasible
-        return response

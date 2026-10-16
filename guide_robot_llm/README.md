@@ -5,7 +5,7 @@
 процесс. Пакет ведёт диалог и дёргает `guide_robot_mission_control`
 (`RunTour`, `~/request_pause`/`~/request_resume`/`~/submit_confirm`/
 `~/submit_answer`) и `guide_robot_semantic_map` (`ListLocations`/
-`ListTours`/`EstimateRoute`) через их action/srv-интерфейсы; сам речь не
+`ListTours`) через их action/srv-интерфейсы; сам речь не
 синтезирует, картой не владеет, состояние тура не хранит. Инференс —
 внешний HTTP-сервер (`../llm_server/`, OpenAI-совместимый `/v1/chat/
 completions`), не ROS-нода и не зависимость этого пакета.
@@ -62,7 +62,7 @@ completions`), не ROS-нода и не зависимость этого па�
 считаются один раз на `on_activate` и передаются в `run_turn()`
 параметрами — обязаны быть побайтово одинаковыми на каждый ход (иначе
 теряется `CACHE_REUSE` префикса). Справочники (`list_locations`/
-`list_tours`/`estimate_route`) тоже скрыты от модели — локации и туры
+`list_tours`) тоже скрыты от модели — локации и туры
 едут в системном промпте, собранном один раз на `on_activate`.
 Подробности и мотивация — `DIALOG_REWORK_PLAN.md` §0/§1,
 `CLAUDE_CODE_TASK.md` пп.2/3/5.
@@ -76,7 +76,7 @@ completions`), не ROS-нода и не зависимость этого па�
                           │ tool_broker  │     ~/submit_confirm, ~/submit_answer
              ~/call_tool  │              │     (mission_fsm)
               (srv) ◄─────┤              │──► ListLocations, ListTours,
-                    │      └──────────────┘     EstimateRoute (semantic_map)
+                    │      └──────────────┘     (semantic_map)
                     │                     └──► Say, Narrate (voice/mission_control)
                     │
 /asr/transcript ────┼──┐
@@ -136,8 +136,8 @@ map/dict) + `confirmed` (stage2 D1, по умолчанию `false`) →
 **Клиенты-сервисы**: `~/request_pause`, `~/request_resume`
 (`std_srvs/Trigger`), `~/submit_confirm` (`std_srvs/SetBool`),
 `~/submit_answer` (`SubmitAnswer.srv`) — все на `mission_fsm`.
-Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
-`location_server`/`route_planner` (whitelist локаций/туров кэшируется
+Read-only: `~/list_locations`, `~/list_tours` на
+`location_server` (whitelist локаций/туров кэшируется
 ОДИН раз на `on_activate`, не на каждый `call_tool()`, сбрасывается на
 `on_deactivate`); `~/get_exhibit_content`, `~/search_content` на
 `content_server` и `~/resolve_location` на `location_server`
@@ -152,8 +152,7 @@ Read-only: `~/list_locations`, `~/list_tours`, `~/estimate_route` на
 ЛЛМ.
 
 **Параметры**: `service_call_timeout_s`(2.0), `mission_fsm_ns`
-(`/mission_fsm`), `location_server_ns` (`/location_server`),
-`route_planner_ns` (`/route_planner`).
+(`/mission_fsm`), `location_server_ns` (`/location_server`).
 
 ### `dialog_agent`
 
@@ -360,7 +359,7 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 |---|---|---|---|---|
 | `start_tour` | `RunTour(tour_id)` | `IDLE` | да | нет |
 | `guide_to` | `RunTour(location_ids=[id])` в `IDLE`, `~/redirect` вне (stage2 B3) | любое | да | нет |
-| `tour_by_points` | `EstimateRoute` → `RunTour(location_ids=ordered)` | `IDLE` | да | нет |
+| `tour_by_points` | `RunTour(location_ids=как назвал посетитель)`, без оптимизации порядка | `IDLE` | да | нет |
 | `stop_tour` | отмена активного `RunTour`-goal-а | любое, кроме `IDLE` | да | нет |
 | `pause` / `resume` | `~/request_pause` / `~/request_resume` | `NARRATING` / `PAUSED` | да | нет |
 | `hold_position` | `~/request_pause` (тот же вызов, что `pause`, stage2 D3) | `NAVIGATING` | да | нет |
@@ -373,7 +372,7 @@ GBNF-каталога/`tools_allowed` в снимке (`llm_only=True`, допо
 | `lookup_content` | `GetExhibitContent(exhibit_id=content_id)` | любое | да | **да** |
 | `search_content` | `SearchContent(query, boost=stop_id)` | любое | да | **да** |
 | `resolve_location` | `ResolveLocation(query)` | любое | да | **да** |
-| `list_locations` / `list_tours` / `estimate_route` | read-only, `semantic_map` | любое | **нет** — каталог в промпте | **да** |
+| `list_locations` / `list_tours` | read-only, `semantic_map` | любое | **нет** — каталог в промпте | **да** |
 
 ## Чистая логика без ROS
 
