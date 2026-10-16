@@ -249,8 +249,9 @@ def record(args):
                     wp.writerow([ts, pid, names[key], f'{cpu:.1f}', f'{rss:.0f}'])
             names = {k: v for k, v in names.items() if k[0] in procs}
 
-            fs.flush()
-            fp.flush()
+            for f in (fs, fp):
+                f.flush()
+                os.fsync(f.fileno())  # survive a power cut / hard hang
             prev_cpu, prev_net, prev_procs, prev_t = cur_cpu, (rx, tx), procs, now
     except KeyboardInterrupt:
         pass
