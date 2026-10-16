@@ -3,7 +3,7 @@
 # Запуск в контейнере при поднятом стеке:
 #   docker exec -d robo-guide-jetson-1 /home/fabian/ros2_ws/src/scripts/tour_loop.sh expo_one
 #   tour_loop.sh <tour_id> [флаги mission_cli tour, по умолчанию --no-confirm --no-return-home]
-# Остановка: kill <pid скрипта> -- текущий тур отменяется. Лог (одна строка на круг, fsync):
+# Остановка: kill <pid скрипта> -- текущий тур отменяется; «Стоп» тура в UI тоже завершает цикл. Лог (одна строка на круг, fsync):
 #   ~/ros2_ws/log/tour_loop.log в контейнере = <repo>/log/tour_loop.log на хосте.
 TOUR="${1:?tour_id, например expo_one}"
 shift
@@ -50,5 +50,10 @@ while true; do
   rm -f "$out"
   [[ "$res" == outcome=COMPLETED* ]] && ok=$((ok + 1))
   log "lap=$lap rc=$rc dur_s=$(( $(date +%s) - ts )) total_min=$(( ($(date +%s) - t0) / 60 )) ok=$ok $res"
+  # CANCELED = кто-то нажал «Стоп» (UI/голос) -- человек рядом хочет остановить робота, не перезапускаем.
+  if [[ "$res" == outcome=CANCELED* ]]; then
+    log "stop: tour canceled by operator, laps=$lap ok=$ok elapsed_min=$(( ($(date +%s) - t0) / 60 ))"
+    exit 0
+  fi
   [[ "$res" == outcome=COMPLETED* ]] || sleep "$RETRY_S"
 done
