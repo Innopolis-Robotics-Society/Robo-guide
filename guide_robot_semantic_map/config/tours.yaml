@@ -13,6 +13,6 @@ tours:
       - {location_id: livox_mid70,          exhibit_id: livox_mid70,           dwell_s: 60,  mode: full}
 
   # expo_one ("Знакомство с Иннополисом") переехал в config/tours_innopark.yaml
-  # вместе с config/locations_innopark.yaml + config/graph_innopark.geojson --
+  # вместе с config/locations_innopark.yaml --
   # реальная площадка размечена, тур больше не заглушка "для тестов" на
   # лабораторных координатах.

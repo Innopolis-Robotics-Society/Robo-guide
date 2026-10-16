@@ -1,19 +1,13 @@
 """Нода локаций и туров (design.md §1.1).
 
 Три сервиса: ~/list_locations, ~/resolve_location (fuzzy-резолв алиасов),
-~/list_tours. Читает locations.yaml, tours.yaml и graph.geojson -- граф
-нужен только для валидации ссылок graph_node на configure, сами сервисы
-его не используют (топологию и path-расстояния считает route_planner).
+~/list_tours. Читает locations.yaml и tours.yaml.
 
-Про Tour.msg.duration_min_estimate. Оценка длительности тура требует
-путевых расстояний между остановками -- это lib/estimate.py и
-lib/tsp.py, которые работают на результатах ComputeRoute, а location_server
-намеренно не зависит от route_server/Nav2 (design.md §1.1: только TF).
-Поле в ответе всегда 0 -- за реальной оценкой mission обращается к
-route_planner (`~/estimate_route`) со списком stop.location_id тура.
+Про Tour.msg.duration_min_estimate. Оценке длительности нужны путевые
+расстояния между остановками; их считал route_planner через nav2_route,
+он из стека убран. Поле в ответе всегда 0.
 
-Про near_only при недоступном TF. EstimateRoute (design.md §0.4) в этом
-случае отдаёт feasible=false -- у ListLocations такого канала нет
+Про near_only при недоступном TF. У ListLocations нет канала ошибки
 (ListLocations.srv не содержит поля-признака ошибки), поэтому падать
 обратно на пустой список было бы хуже, чем отдать нефильтрованный:
 локации существуют и валидны независимо от TF, только расстояние до них
@@ -37,7 +31,6 @@ from rclpy.time import Time
 
 from guide_robot_semantic_map.lib.content_io import pick_language
 from guide_robot_semantic_map.lib.geometry import yaw_to_quaternion_xyzw
-from guide_robot_semantic_map.lib.graph_io import load_graph
 from guide_robot_semantic_map.lib.locations_io import (
     Location,
     LocationsFile,
@@ -46,7 +39,6 @@ from guide_robot_semantic_map.lib.locations_io import (
     is_visible,
     load_locations,
     load_tours,
-    validate_graph_links,
     validate_tours,
 )
 from guide_robot_semantic_map.lib.matching import is_confident, resolve
@@ -65,7 +57,6 @@ class LocationServerNode(ServiceGuardMixin, LifecycleNode):
 
         self.declare_parameter("locations_file", "")
         self.declare_parameter("tours_file", "")
-        self.declare_parameter("graph_file", "")
         self.declare_parameter("default_language", "ru")
         self.declare_parameter("near_radius_m", 5.0)
 
@@ -94,16 +85,9 @@ class LocationServerNode(ServiceGuardMixin, LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
     def _configure(self) -> TransitionCallbackReturn:
-        # graph.geojson нужен только чтобы провалидировать graph_node --
-        # деталями графа location_server не пользуется за пределами
-        # этой проверки (топологию считает route_planner).
-        self._stage = "загрузка графа (только для валидации ссылок)"
-        graph = load_graph(self._resolve_path("graph_file", "config/graph.geojson"))
-
         self._stage = "загрузка локаций"
         locations_file = self._resolve_path("locations_file", "config/locations.yaml")
         self._locations = load_locations(locations_file)
-        validate_graph_links(self._locations, set(graph.nodes))
 
         self._stage = "загрузка туров"
         tours_file = self._resolve_path("tours_file", "config/tours.yaml")

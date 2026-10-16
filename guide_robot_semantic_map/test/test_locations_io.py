@@ -17,16 +17,14 @@ from guide_robot_semantic_map.lib.locations_io import (
     load_tours,
     parse_locations,
     parse_tours,
-    validate_graph_links,
     validate_locations,
     validate_tours,
 )
 
 
-def _location(location_id: str, graph_node: int = 1, **overrides: object) -> dict:
+def _location(location_id: str, **overrides: object) -> dict:
     base = {
         "id": location_id,
-        "graph_node": graph_node,
         "pose": {"x": 1.0, "y": 2.0, "yaw": 0.0},
         "zone": "hall_a",
         "category": "waypoint",
@@ -64,8 +62,8 @@ def _stop(location_id: str, exhibit_id: str = "x", dwell_s: int = 30, mode: str 
 
 def test_parses_valid_locations() -> None:
     doc = _locations_doc(
-        _location("entrance", graph_node=1, category="waypoint"),
-        _location("kandinsky", graph_node=4, category="exhibit", exhibit_id="kandinsky_viii"),
+        _location("entrance", category="waypoint"),
+        _location("kandinsky", category="exhibit", exhibit_id="kandinsky_viii"),
     )
     parsed = parse_locations(doc)
     assert set(parsed.locations) == {"entrance", "kandinsky"}
@@ -73,17 +71,9 @@ def test_parses_valid_locations() -> None:
     assert parsed.locations["entrance"].pose.x == pytest.approx(1.0)
 
 
-def test_rejects_missing_graph_node() -> None:
-    doc = _locations_doc(_location("entrance"))
-    del doc["locations"][0]["graph_node"]
-    with pytest.raises(LocationsError, match="graph_node обязателен"):
-        parse_locations(doc)
-
-
-def test_rejects_null_graph_node() -> None:
-    doc = _locations_doc(_location("entrance", graph_node=None))
-    with pytest.raises(LocationsError, match="graph_node обязателен"):
-        parse_locations(doc)
+def test_ignores_legacy_graph_node() -> None:
+    doc = _locations_doc(_location("entrance", graph_node=3))
+    assert set(parse_locations(doc).locations) == {"entrance"}
 
 
 def test_rejects_duplicate_location_id() -> None:
@@ -154,22 +144,6 @@ def test_alias_normalizing_to_empty_rejected() -> None:
     parsed = parse_locations(doc)
     with pytest.raises(LocationsError, match="пустую строку"):
         validate_locations(parsed)
-
-
-# -- validate_graph_links -------------------------------------------------------
-
-
-def test_graph_link_valid() -> None:
-    doc = _locations_doc(_location("entrance", graph_node=1))
-    parsed = parse_locations(doc)
-    validate_graph_links(parsed, graph_node_ids={1, 2, 3})  # не должно бросать
-
-
-def test_graph_link_dangling_rejected() -> None:
-    doc = _locations_doc(_location("entrance", graph_node=99))
-    parsed = parse_locations(doc)
-    with pytest.raises(LocationsError, match="graph_node=99"):
-        validate_graph_links(parsed, graph_node_ids={1, 2, 3})
 
 
 # -- tours.yaml -----------------------------------------------------------
@@ -281,7 +255,6 @@ def _loc(
 ) -> Location:
     return Location(
         id=location_id,
-        graph_node=1,
         pose=Pose2D(x=x, y=y, yaw=0.0),
         zone="hall_a",
         category=category,

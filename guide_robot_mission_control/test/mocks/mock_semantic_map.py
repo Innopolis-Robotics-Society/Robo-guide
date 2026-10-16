@@ -1,8 +1,8 @@
-"""Моки трёх нод guide_robot_semantic_map (design §9.1, реконсиляция §0.5).
+"""Моки нод guide_robot_semantic_map (design §9.1, реконсиляция §0.5).
 
-Реальная топология -- три отдельные lifecycle-ноды (content_server,
-location_server, route_planner), каждая со своими `~/...`-сервисами
-(guide_robot_semantic_map_design.md §1). Здесь три тонких ROS-обёртки
+Реальная топология -- отдельные lifecycle-ноды (content_server,
+location_server), каждая со своими `~/...`-сервисами
+(guide_robot_semantic_map_design.md §1). Здесь тонкие ROS-обёртки
 поверх одного общего хранилища фикстур: узлы под тестом (semantic_client.py
 в narration_server/mission_fsm) обращаются к тем же именам сервисов
 (`/content_server/get_exhibit_content` и т.д.), что и в проде -- никакой
@@ -23,13 +23,12 @@ from guide_robot_msgs.msg import ExhibitChunk as ExhibitChunkMsg
 from guide_robot_msgs.msg import Location as LocationMsg
 from guide_robot_msgs.msg import Tour as TourMsg
 from guide_robot_msgs.msg import TourStop as TourStopMsg
-from guide_robot_msgs.srv import EstimateRoute, GetExhibitContent, ListLocations, ListTours
+from guide_robot_msgs.srv import GetExhibitContent, ListLocations, ListTours
 from rclpy.node import Node
 
 __all__ = [
     "MockContentServer",
     "MockLocationServer",
-    "MockRoutePlanner",
     "SemanticMapFixtures",
 ]
 
@@ -52,9 +51,6 @@ class SemanticMapFixtures:
         self._rev_overrides: dict[tuple[str, str], tuple[int, str]] = {}
         self._locations: dict[str, LocationMsg] = {}
         self._tours: dict[str, TourMsg] = {}
-        self.route_distance_m = 5.0
-        self.route_duration_min = 2.0
-        self.route_feasible = True
 
     def add_exhibit(  # noqa: PLR0913 -- фикстура значения, не команда с побочными эффектами
         self,
@@ -128,14 +124,6 @@ class SemanticMapFixtures:
             for loc, exh, dwell, mode in stops
         ]
         self._tours[tour_id] = tour
-
-    def set_route_estimate(
-        self, *, distance_m: float, duration_min: float, feasible: bool = True
-    ) -> None:
-        """Задать фиксированный результат EstimateRoute для всех запросов."""
-        self.route_distance_m = distance_m
-        self.route_duration_min = duration_min
-        self.route_feasible = feasible
 
     # -- обработчики, дёргаются нодами-обёртками ниже --------------------
 
@@ -230,26 +218,3 @@ class MockLocationServer(Node):
         response.tours = self._fixtures.list_tours()
         return response
 
-
-class MockRoutePlanner(Node):
-    """`~/estimate_route` поверх SemanticMapFixtures."""
-
-    def __init__(
-        self,
-        fixtures: SemanticMapFixtures,
-        node_name: str = "route_planner",
-        **node_kwargs: object,
-    ) -> None:
-        """Поднять сервис estimate_route под именем узла route_planner (как в проде)."""
-        super().__init__(node_name, **node_kwargs)
-        self._fixtures = fixtures
-        self.create_service(EstimateRoute, "~/estimate_route", self._handle)
-
-    def _handle(
-        self, request: EstimateRoute.Request, response: EstimateRoute.Response
-    ) -> EstimateRoute.Response:
-        response.ordered_ids = list(request.ids)
-        response.distance_m = self._fixtures.route_distance_m
-        response.duration_min = self._fixtures.route_duration_min
-        response.feasible = self._fixtures.route_feasible
-        return response

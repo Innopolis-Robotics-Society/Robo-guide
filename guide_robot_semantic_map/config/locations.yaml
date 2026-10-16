@@ -1,13 +1,11 @@
 # Координаты pose сняты по реальной карте лаборатории
 # (guide_robot_navigation/map/lab_105_full.pgm, origin [-5.58, -15.7],
-# resolution 0.05) -- согласованы с config/graph.geojson (полный mesh на
-# тех же точках). yaw пока не измерен и везде 0.0 -- заменить на реальную
+# resolution 0.05). yaw пока не измерен и везде 0.0 -- заменить на реальную
 # ориентацию "лицом к экспонату" по месту.
 version: 1
 frame_id: map
 locations:
   - id: entrance
-    graph_node: 1
     pose: {x: 4.5, y: 7.6, yaw: 0.0}
     zone: lab
     category: waypoint
@@ -18,7 +16,6 @@ locations:
       en: ["entrance", "main entrance"]
 
   - id: robo_guide
-    graph_node: 2
     pose: {x: 4.6, y: 4.1, yaw: 0.0}
     zone: lab
     category: exhibit
@@ -29,7 +26,6 @@ locations:
       en: ["guide robot", "the robot itself"]
 
   - id: promobot_m13_artist
-    graph_node: 3
     pose: {x: 0.7, y: 3.6, yaw: 0.0}
     zone: lab
     category: exhibit
@@ -40,7 +36,6 @@ locations:
       en: ["promobot", "drawing robot"]
 
   - id: sam3_autolabeling
-    graph_node: 4
     pose: {x: 7.8, y: 1.8, yaw: 0.0}
     zone: lab
     category: exhibit
@@ -51,7 +46,6 @@ locations:
       en: ["autolabeling", "sam3"]
 
   - id: nav2_course
-    graph_node: 5
     pose: {x: 15.2, y: 0.6, yaw: 0.0}
     zone: lab
     category: exhibit
@@ -62,7 +56,6 @@ locations:
       en: ["nav2 course", "turtlebot"]
 
   - id: livox_mid70
-    graph_node: 7
     pose: {x: 0.5, y: -6.4, yaw: 0.0}
     zone: lab
     category: exhibit
@@ -73,7 +66,7 @@ locations:
       en: ["lidar", "livox mid-70"]
 
   # expo_one ("Знакомство с Иннополисом") переехал на реальную площадку:
-  # config/locations_innopark.yaml + config/graph_innopark.geojson. Здесь,
+  # config/locations_innopark.yaml. Здесь,
   # в лабораторном датасете, эти три точки были заглушками "для тестов"
   # (см. git-историю до переезда) -- больше не нужны, лаборатория
   # обслуживает только lab_demo.
@@ -82,10 +75,7 @@ locations:
   # guide_robot_navigation/config/first_iter_nav2.yaml.in:53-58 (там же
   # единственное явное указание, что это именно поза дока), не
   # guide_robot_mission_control/config/mission.yaml (её yaw не используется
-  # вовсе -- mission_fsm_node._make_context/_home_pose). graph_node=3 --
-  # (0,0) не совпадает физически ни с одним узлом графа; 3
-  # (promobot_m13_artist) ближайший по Евклидовой дистанции (~3.7 м) среди
-  # {1,2,3,4,5,7} -- решение, не факт, см. отчёт задачи. category=charging
+  # вовсе -- mission_fsm_node._make_context/_home_pose). category=charging
   # (не "base" -- такой категории нет в VALID_CATEGORIES,
   # lib/locations_io.py:45) -- вместе с is_public=false это единственная
   # комбинация, уже дающая нужное разделение без нового кода:
@@ -93,7 +83,6 @@ locations:
   # ListLocations()-запроса (whitelist guide_robot_llm), но отдаёт её по
   # явному category="charging" (operator UI, Task C).
   - id: home
-    graph_node: 3
     pose: {x: 0.0, y: 0.0, yaw: 3.141592653589793}
     zone: lab
     category: charging

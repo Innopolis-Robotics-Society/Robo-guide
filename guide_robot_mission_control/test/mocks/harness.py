@@ -31,7 +31,6 @@ from test.mocks.mock_say_server import MockSayServer
 from test.mocks.mock_semantic_map import (
     MockContentServer,
     MockLocationServer,
-    MockRoutePlanner,
     SemanticMapFixtures,
 )
 from test.mocks.sim_clock import SimClock
@@ -93,16 +92,12 @@ class MissionTestHarness:
         self.location_server = MockLocationServer(
             self.fixtures, context=self.context, parameter_overrides=_USE_SIM_TIME
         )
-        self.route_planner = MockRoutePlanner(
-            self.fixtures, context=self.context, parameter_overrides=_USE_SIM_TIME
-        )
         self._owned_nodes = [
             self.clock,
             self.say,
             self.nav,
             self.content_server,
             self.location_server,
-            self.route_planner,
         ]
         for node in self._owned_nodes:
             self.executor.add_node(node)

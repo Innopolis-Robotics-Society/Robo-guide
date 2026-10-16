@@ -13,7 +13,7 @@ import pytest
 from geometry_msgs.msg import PoseStamped
 from guide_robot_msgs.action import Say
 from guide_robot_msgs.msg import CancelAll
-from guide_robot_msgs.srv import EstimateRoute, GetExhibitContent, ListLocations, ListTours
+from guide_robot_msgs.srv import GetExhibitContent, ListLocations, ListTours
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 
@@ -188,7 +188,6 @@ def test_semantic_map_services_serve_fixtures(harness: MissionTestHarness) -> No
     harness.fixtures.add_tour(
         "main", "Основной тур", [("lab105a", "lab105a", 60, "full")], duration_min_estimate=10
     )
-    harness.fixtures.set_route_estimate(distance_m=12.5, duration_min=3.0, feasible=True)
 
     client_node = harness.make_client_node()
 
@@ -217,14 +216,6 @@ def test_semantic_map_services_serve_fixtures(harness: MissionTestHarness) -> No
     tours = future.result().tours
     assert tours[0].id == "main"
     assert tours[0].stops[0].exhibit_id == "lab105a"
-
-    route_client = client_node.create_client(EstimateRoute, "/route_planner/estimate_route")
-    assert route_client.wait_for_service(timeout_sec=5.0)
-    future = route_client.call_async(EstimateRoute.Request(ids=["lab105a"]))
-    wait_for_future(future)
-    route = future.result()
-    assert route.distance_m == pytest.approx(12.5)
-    assert route.feasible is True
 
 
 def test_change_rev_after_n_calls(harness: MissionTestHarness) -> None:

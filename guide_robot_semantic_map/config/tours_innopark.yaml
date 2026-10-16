@@ -2,7 +2,7 @@ version: 1
 tours:
   # expo_one переехал сюда из config/tours.yaml (лабораторная заглушка на
   # координатах lab_105_full, площадка ещё не была размечена) вместе с
-  # config/locations_innopark.yaml + config/graph_innopark.geojson --
+  # config/locations_innopark.yaml --
   # площадка размечена, это реальный маршрут.
   #
   # confirm_between_stops=false ("идём дальше?" ломает темп шоу), greet=false

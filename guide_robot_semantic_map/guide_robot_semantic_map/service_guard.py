@@ -7,7 +7,7 @@ rclpy не глушит create_service() сам, когда нода не в с�
 ответ без единого слова объяснения. design.md §1 требует "явную ошибку,
 а не молчание", а не просто отсутствие краша.
 
-Три ноды пакета (content_server, location_server, route_planner) отвечают
+Ноды пакета (content_server, location_server) отвечают
 на запросы плоскими response-сообщениями без выделенного кода ошибки --
 единственный канал сообщить "вызов вне active" это лог + SystemEvent,
 response при этом остаётся default-constructed (пустые chunks/candidates

@@ -637,19 +637,6 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /sonar_stop_polygon
       Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: MarkerArray
-      Namespaces:
-        route_graph: true
-        route_graph_ids: true
-      Topic:
-        Depth: 5
-        Durability Policy: Transient Local
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /route_graph
-      Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path

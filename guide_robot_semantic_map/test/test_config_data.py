@@ -1,7 +1,7 @@
 """Интеграционная сверка: реальные config/*.yaml и content/*.yaml валидны разом.
 
 Не юниты на отдельный модуль -- проверка того, что данные лаборатории
-(locations.yaml, tours.yaml, graph.geojson, content/*.yaml) реально
+(locations.yaml, tours.yaml, content/*.yaml) реально
 проходят через весь стек валидаторов lib/, а не только через фикстуры.
 """
 
@@ -11,11 +11,9 @@ import re
 from pathlib import Path
 
 from guide_robot_semantic_map.lib.content_io import load_content_dir
-from guide_robot_semantic_map.lib.graph_io import load_graph
 from guide_robot_semantic_map.lib.locations_io import (
     load_locations,
     load_tours,
-    validate_graph_links,
     validate_locations,
     validate_tours,
 )
@@ -25,16 +23,9 @@ _CONFIG_DIR = _PACKAGE_ROOT / "config"
 _CONTENT_DIR = _PACKAGE_ROOT / "content"
 
 
-def test_graph_geojson_is_valid() -> None:
-    graph = load_graph(_CONFIG_DIR / "graph.geojson")
-    assert len(graph.nodes) == 6
-
-
-def test_locations_yaml_is_valid_and_linked_to_graph() -> None:
-    graph = load_graph(_CONFIG_DIR / "graph.geojson")
+def test_locations_yaml_is_valid() -> None:
     locations = load_locations(_CONFIG_DIR / "locations.yaml")
     validate_locations(locations)
-    validate_graph_links(locations, set(graph.nodes))
     assert "entrance" in locations.locations
     assert "livox_mid70" in locations.locations
 
@@ -72,16 +63,9 @@ def test_lab_demo_tour_stops_have_content() -> None:
 # -- Innopark (expo_one, реальная площадка) --------------------------------
 
 
-def test_graph_innopark_geojson_is_valid() -> None:
-    graph = load_graph(_CONFIG_DIR / "graph_innopark.geojson")
-    assert len(graph.nodes) == 5
-
-
-def test_locations_innopark_yaml_is_valid_and_linked_to_graph() -> None:
-    graph = load_graph(_CONFIG_DIR / "graph_innopark.geojson")
+def test_locations_innopark_yaml_is_valid() -> None:
     locations = load_locations(_CONFIG_DIR / "locations_innopark.yaml")
     validate_locations(locations)
-    validate_graph_links(locations, set(graph.nodes))
     assert "expo_meeting" in locations.locations
     assert "right_wing" in locations.locations
     assert "left_wing" in locations.locations
@@ -116,16 +100,9 @@ def test_expo_one_tour_has_known_content_gaps() -> None:
 # -- ArtSpace (выборы, точка-в-точку без экскурсии) --------------------------
 
 
-def test_graph_artspace_geojson_is_valid() -> None:
-    graph = load_graph(_CONFIG_DIR / "graph_artspace.geojson")
-    assert len(graph.nodes) == 3
-
-
-def test_locations_artspace_yaml_is_valid_and_linked_to_graph() -> None:
-    graph = load_graph(_CONFIG_DIR / "graph_artspace.geojson")
+def test_locations_artspace_yaml_is_valid() -> None:
     locations = load_locations(_CONFIG_DIR / "locations_artspace.yaml")
     validate_locations(locations)
-    validate_graph_links(locations, set(graph.nodes))
     assert {"vybory_1", "vybory_2", "vybory_3", "home"} <= set(locations.locations)
 
 
@@ -144,8 +121,8 @@ def test_artspace_points_have_content() -> None:
 
 
 def test_semantic_map_yaml_points_to_one_venue() -> None:
-    # Четыре пути меняются вместе (см. шапку semantic_map.yaml): суффикс площадки
-    # у locations/tours/graph во всех нодах должен совпадать.
+    # Пути меняются вместе (см. шапку semantic_map.yaml): суффикс площадки
+    # у locations/tours во всех нодах должен совпадать.
     text = (_CONFIG_DIR / "semantic_map.yaml").read_text()
-    suffixes = set(re.findall(r"config/(?:locations|tours|graph)_(\w+)\.(?:yaml|geojson)\"", text))
+    suffixes = set(re.findall(r"config/(?:locations|tours)_(\w+)\.yaml\"", text))
     assert len(suffixes) == 1, suffixes

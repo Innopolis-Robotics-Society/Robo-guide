@@ -1,21 +1,18 @@
 # Локации реальной площадки экскурсии expo_one ("Знакомство с Иннополисом"),
 # карта guide_robot_navigation/map/innopark_l_10.09_edited.yaml (origin
-# [-12.812, -15.298], resolution 0.05) -- согласованы с
-# config/graph_innopark.geojson (полный mesh на тех же точках). Координаты
-# сняты через RViz Publish Point (/clicked_point) по месту. yaw пока не
+# [-12.812, -15.298], resolution 0.05). Координаты сняты через RViz Publish Point (/clicked_point) по месту. yaw пока не
 # измерен и везде 0.0 -- заменить на реальную ориентацию "лицом к
 # экспонату"/"лицом в проход" по месту.
 #
 # expo_meeting/expo_city_model/expo_handoff -- те же три остановки, что были
 # в config/locations.yaml лабораторной заглушкой (см. git-историю); теперь
-# с реальными позами и graph_node из этой площадки. right_wing/left_wing --
+# с реальными позами этой площадки. right_wing/left_wing --
 # новые остановки, добавленные вместе с переездом; exhibit_id не задан --
 # контента под них ещё нет (TODO(Mook): авторский текст в content/).
 version: 1
 frame_id: map
 locations:
   - id: expo_meeting
-    graph_node: 1
     pose: {x: -0.18678855895996094, y: -0.029946327209472656, yaw: 0.0}
     zone: innopark
     category: exhibit
@@ -27,7 +24,6 @@ locations:
       en: ["meeting point", "innopolis intro", "entrance"]
 
   - id: expo_city_model
-    graph_node: 2
     pose: {x: 17.917709350585938, y: 1.5098366737365723, yaw: 0.0}
     zone: innopark
     category: exhibit
@@ -38,7 +34,6 @@ locations:
       en: ["city model", "map"]
 
   - id: expo_handoff
-    graph_node: 3
     pose: {x: 11.985713958740234, y: 7.673947811126709, yaw: 0.0}
     zone: innopark
     category: exhibit
@@ -52,7 +47,6 @@ locations:
   # немая остановка тура (exhibit_id тура указывает сюда же, содержимого
   # не найдёт content_server).
   - id: right_wing
-    graph_node: 4
     pose: {x: 16.27227783203125, y: -7.82863187789917, yaw: 0.0}
     zone: innopark
     category: waypoint
@@ -65,7 +59,6 @@ locations:
   # TODO(Mook): контент content/left_wing.ru.yaml не написан -- см.
   # right_wing выше.
   - id: left_wing
-    graph_node: 5
     pose: {x: 10.109298706054688, y: 16.306438446044922, yaw: 0.0}
     zone: innopark
     category: waypoint
@@ -75,13 +68,12 @@ locations:
       ru: ["левое крыло"]
       en: ["left wing"]
 
-  # База = вход/точка встречи (expo_meeting, graph_node 1); дублирует mission.yaml
+  # База = вход/точка встречи (expo_meeting); дублирует mission.yaml
   # home_pose и стартовую позу AMCL (guide_robot_navigation/config/first_iter_nav2.yaml.in).
   # Скрыта от пустого ListLocations (is_public=false), отдаётся по category=charging
   # (operator UI, «Сброс локализации»). yaw π -- стартовый yaw Innopark в шаблоне AMCL
   # до ArtSpace; на месте не сверен.
   - id: home
-    graph_node: 1
     pose: {x: -0.18678855895996094, y: -0.029946327209472656, yaw: 3.141592653589793}
     zone: innopark
     category: charging

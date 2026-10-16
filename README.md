@@ -22,7 +22,7 @@ Target stack: ROS 2 Humble · Nav2 · SLAM Toolbox · `ros2_control` + `diff_dri
 | [`guide_robot_simulation`](guide_robot_simulation/README.md) | Python (ament) | Gazebo Classic simulation launch, worlds, sonar/sensor plugins |
 | [`guide_robot_supervisor`](guide_robot_supervisor/README.md) | Python (ament) | Lifecycle-node supervisor and watchdogs for coordinated bring-up |
 | [`guide_robot_voice`](guide_robot_voice/README.md) | Python (ament) | Audio stack: `audio_frontend`, VAD, wakeword, ASR, TTS (`tts_node` exposes the `Say` action) |
-| [`guide_robot_semantic_map`](guide_robot_semantic_map/README.md) | Python (ament) | `nav2_route`-backed graph of locations/exhibits/tours, content and routing services |
+| [`guide_robot_semantic_map`](guide_robot_semantic_map/README.md) | Python (ament) | Locations, tours and exhibit content services |
 | [`guide_robot_mission_control`](guide_robot_mission_control/README.md) | Python (ament) | Tour orchestration FSM (`mission_fsm`), narration/barge-in (`narration_server`), presence tracking (`presence_monitor`), `mission_cli` |
 | [`guide_robot_llm`](guide_robot_llm/) | Python (ament) | `chat_node` — LLM-backed conversational loop (`/asr/transcript` → LLM → `Say`); not yet wired into the supervisor or the tour FSM |
 | [`guide_robot_bringup`](guide_robot_bringup/README.md) | Python (ament) | Top-level launch orchestration (real hardware, simulation, RViz, tour stack) tying all packages together |

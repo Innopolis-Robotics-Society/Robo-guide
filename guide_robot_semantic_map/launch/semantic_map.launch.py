@@ -1,4 +1,4 @@
-"""Запуск семантической карты: route_server (nav2_route) + три наши ноды.
+"""Запуск семантической карты: content_server и location_server.
 
 Ноды lifecycle и НЕ поднимаются автоматически по умолчанию -- порядок
 переходов должен быть управляемым извне (mission-оркестратором тура или
@@ -17,20 +17,11 @@ guide_robot_navigation/launch/common.launch.py, тот же паттерн. Па
 MUST have autostart: false"); autostart:=true остаётся для разработки и
 ручной проверки без супервизора.
 
-Порядок bring-up (критичен при autostart:=true, подтверждено в фазах 4-5):
-  route_server -> content_server -> location_server -> route_planner
-route_planner на activate ждёт /compute_route (route_server) и сразу
-прогревает матрицу пар -- без активного route_server activate провалится.
-content_server/location_server от route_server не зависят, порядок между
-собой не важен.
-
-route_server -- чужой пакет (nav2_route), но в репозитории его больше
-никто не запускает: graph.geojson живёт в config/ этого пакета, и
-route_planner -- единственный потребитель. Поднимается здесь же, а не
-в guide_robot_navigation, чтобы владелец данных запускал их потребителя.
+route_server (nav2_route) и route_planner (оценка маршрута, порядок остановок)
+из стека убраны: миссия ведёт робота по точкам через Nav2 navigate_to_pose,
+а их держание стоило ~0.3 ядра Jetson в простое.
 """
 
-from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
@@ -39,21 +30,12 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
-NODES = ["content_server", "location_server", "route_planner"]
-
-# route_server первым -- route_planner требует его активным до своего
-# on_activate (прогрев матрицы пар, design.md §0.7/§1.2). content_server
-# и location_server от route_server не зависят, порядок между собой
-# не важен.
-BRINGUP_ORDER = ["route_server", "content_server", "location_server", "route_planner"]
+NODES = ["content_server", "location_server"]
 
 
 def generate_launch_description() -> LaunchDescription:
     """Собрать описание запуска."""
-    pkg_share = get_package_share_directory("guide_robot_semantic_map")
-
     params = LaunchConfiguration("params_file")
-    graph_file = LaunchConfiguration("graph_file")
     use_sim_time = LaunchConfiguration("use_sim_time")
     autostart = LaunchConfiguration("autostart")
     log_level = LaunchConfiguration("log_level")
@@ -64,37 +46,12 @@ def generate_launch_description() -> LaunchDescription:
             default_value=PathJoinSubstitution(
                 [FindPackageShare("guide_robot_semantic_map"), "config", "semantic_map.yaml"]
             ),
-            description="Параметры трёх наших нод (content_server/location_server/route_planner)",
-        ),
-        DeclareLaunchArgument(
-            "graph_file",
-            # Innopark -- текущая площадка по умолчанию (graph_innopark.geojson
-            # + semantic_map.yaml: graph_file/locations_file/tours_file для
-            # location_server и route_planner ниже). Лабораторный датасет
-            # (graph.geojson/locations.yaml/tours.yaml, "для тестов") -- явным
-            # override всех четырёх путей разом, они всегда меняются вместе.
-            default_value=f"{pkg_share}/config/graph_innopark.geojson",
-            description="Граф для route_server -- владелец данных, не launch-аргумент",
+            description="Параметры наших нод (content_server/location_server)",
         ),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("autostart", default_value="false"),
         DeclareLaunchArgument("log_level", default_value="info"),
     ]
-
-    route_server = Node(
-        package="nav2_route",
-        executable="route_server",
-        name="route_server",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": use_sim_time,
-                "graph_filepath": graph_file,
-                "graph_file_loader": "GeoJsonGraphFileLoader",
-            }
-        ],
-        arguments=["--ros-args", "--log-level", log_level],
-    )
 
     nodes = [
         Node(
@@ -130,16 +87,13 @@ def generate_launch_description() -> LaunchDescription:
                 # контракт супервизора: "Every lifecycle_manager referenced
                 # here MUST have autostart: false".
                 "autostart": autostart,
-                "node_names": BRINGUP_ORDER,
-                # route_server -- C++ nav2_util::LifecycleNode, создаёт bond;
-                # content_server/location_server/route_planner -- обычные
-                # rclpy.lifecycle.LifecycleNode, bond не создают (см.
-                # guide_robot_voice/launch/voice.launch.py). 0.0 отключает
-                # проверку bond для группы целиком -- смешанный состав
-                # менеджера иначе не поднять единым node_names.
+                "node_names": NODES,
+                # content_server/location_server -- rclpy.lifecycle.LifecycleNode,
+                # bond не создают (см. guide_robot_voice/launch/voice.launch.py);
+                # 0.0 отключает проверку bond.
                 "bond_timeout": 0.0,
             }
         ],
     )
 
-    return LaunchDescription([*arguments, GroupAction([route_server, *nodes, manager])])
+    return LaunchDescription([*arguments, GroupAction([*nodes, manager])])

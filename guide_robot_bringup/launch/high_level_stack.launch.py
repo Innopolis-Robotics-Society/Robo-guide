@@ -3,7 +3,7 @@
 #
 #  Аудио и высокоуровневый служебный слой поверх нав-стека:
 #    guide_robot_voice          — микрофон/динамик, ASR/VAD/wakeword, TTS
-#    guide_robot_semantic_map   — route_server + content/location/route_planner
+#    guide_robot_semantic_map   — content_server + location_server
 #    guide_robot_mission_control — mission_fsm + narration_server + presence_monitor
 #    guide_robot_face           — HTTP+SVG лицо на DP-панели (не lifecycle)
 #

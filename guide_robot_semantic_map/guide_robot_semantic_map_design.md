@@ -3,6 +3,12 @@
 `ament_python`, ROS 2 Humble. Read-only заземление: единственный источник истины по «где что»
 и «что про это можно сказать». Ничего не пишет, ничего не генерирует, не знает о FSM и LLM.
 
+> **2026-10-16: `route_server` (nav2_route) и `route_planner` удалены из стека** вместе с
+> `EstimateRoute.srv`, `graph*.geojson`, `graph_node` в локациях и `lib/{graph_io,tsp,estimate}.py`.
+> Туры идут от точки к точке через Nav2 `navigate_to_pose`, а держание графа и матрицы маршрутов
+> стоило ~0.3 ядра Jetson в простое. Разделы ниже про граф, `route_planner` и `EstimateRoute` —
+> история решения, а не текущий код.
+
 ---
 
 ## 0. Расхождения с ТЗ

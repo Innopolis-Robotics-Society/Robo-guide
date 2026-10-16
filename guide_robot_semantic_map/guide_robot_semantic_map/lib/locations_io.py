@@ -1,12 +1,9 @@
 """Загрузка и валидация config/locations.yaml и config/tours.yaml (design.md §1.1, §2).
 
-Разделение with graph_io.py умышленное (design.md §0.5): узел графа Route
-Server знает только координаты и проходимость, а "встать лицом к
-экспонату" -- это yaw, которого в графе нет. locations.yaml -- источник
-истины по позе, зоне, категории и алиасам; связь с графом -- обязательное
-целочисленное поле graph_node, проверяемое здесь против набора id узлов
-из graph_io.Graph. Битая ссылка -- ошибка данных, а не runtime-деградация:
-её ловит on_configure, а не посетитель музея.
+locations.yaml -- источник истины по позе (включая yaw "лицом к экспонату"),
+зоне, категории и алиасам. Ошибка данных ловится в on_configure, а не
+посетителем музея. Поле graph_node (узел графа nav2_route) осталось в старых
+файлах от route_planner, его больше нет -- поле игнорируется.
 """
 
 from __future__ import annotations
@@ -37,7 +34,6 @@ __all__ = [
     "load_tours",
     "parse_locations",
     "parse_tours",
-    "validate_graph_links",
     "validate_locations",
     "validate_tours",
 ]
@@ -65,7 +61,6 @@ class Location:
     """Одна запись locations.yaml."""
 
     id: str
-    graph_node: int
     pose: Pose2D
     zone: str
     category: str
@@ -155,12 +150,6 @@ def _parse_location(raw: dict[str, Any], index: int, source: str) -> Location:
     location_id = _require_str(raw, "id", source, where=f"locations[{index}]")
     where = f"{source}: локация {location_id!r}"
 
-    graph_node = raw.get("graph_node")
-    if isinstance(graph_node, bool) or not isinstance(graph_node, int):
-        raise LocationsError(
-            f"{where}.graph_node обязателен и должен быть целым числом узла графа"
-        )
-
     pose = _parse_pose(raw.get("pose"), where)
     zone = _require_str(raw, "zone", source, where=where)
     category = _require_str(raw, "category", source, where=where)
@@ -181,7 +170,6 @@ def _parse_location(raw: dict[str, Any], index: int, source: str) -> Location:
 
     return Location(
         id=location_id,
-        graph_node=graph_node,
         pose=pose,
         zone=zone,
         category=category,
@@ -239,16 +227,6 @@ def validate_locations(parsed: LocationsFile) -> None:
                         f"{owner!r} и {location.id!r}"
                     )
                 seen[key] = location.id
-
-
-def validate_graph_links(parsed: LocationsFile, graph_node_ids: set[int]) -> None:
-    """Проверить, что graph_node каждой локации существует в графе Route Server."""
-    for location in parsed.locations.values():
-        if location.graph_node not in graph_node_ids:
-            raise LocationsError(
-                f"локация {location.id!r}: graph_node={location.graph_node} "
-                "отсутствует в graph.geojson"
-            )
 
 
 # -- tours.yaml -----------------------------------------------------------
@@ -369,9 +347,7 @@ def filter_near(
 ) -> list[Location]:
     """Отсортировать по евклидову расстоянию от робота, отсечь дальше radius_m.
 
-    Евклид, не путевое расстояние -- путевое расстояние считает
-    route_planner через граф Route Server, дублировать эту зависимость
-    в location_server незачем (design.md §1.1).
+    Евклид, не путевое расстояние: путь строит Nav2 только при поездке.
     """
     scored = [
         (math.hypot(location.pose.x - robot_x, location.pose.y - robot_y), location)

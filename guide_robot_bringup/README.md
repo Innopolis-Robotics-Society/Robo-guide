@@ -162,7 +162,7 @@ RViz с `rviz/sim.rviz`. Аргументы: `slam` (false), `map`, `rviz` (true
 
 Слой экскурсий, общий для железа и симуляции: `guide_robot_voice`
 (микрофон/динамик, ASR/VAD/wakeword, TTS) + `guide_robot_semantic_map`
-(route_server + контент/локации/маршруты) + `guide_robot_mission_control`
+(контент и локации/туры) + `guide_robot_mission_control`
 (mission_fsm + narration_server + presence_monitor) + `guide_robot_face`
 (HTTP+SVG лицо на DP-панели, не lifecycle). Voice/semantic_map/mission
 поднимаются со своим `autostart:=false` — bring-up делает супервизор

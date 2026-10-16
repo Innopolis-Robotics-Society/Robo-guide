@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from guide_robot_semantic_map.lib.geometry import path_length_m, yaw_to_quaternion_xyzw
+from guide_robot_semantic_map.lib.geometry import yaw_to_quaternion_xyzw
 
 
 def test_zero_yaw_is_identity() -> None:
@@ -50,31 +50,3 @@ def test_unit_quaternion() -> None:
     for yaw in (0.0, 0.5, 1.5, -1.5, 3.0):
         x, y, z, w = yaw_to_quaternion_xyzw(yaw)
         assert x * x + y * y + z * z + w * w == pytest.approx(1.0)
-
-
-# -- path_length_m (design.md §1.2) ---------------------------------------------
-
-
-def test_path_length_empty() -> None:
-    assert path_length_m([]) == 0.0
-
-
-def test_path_length_single_point() -> None:
-    assert path_length_m([(1.0, 2.0)]) == 0.0
-
-
-def test_path_length_straight_line() -> None:
-    points = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]
-    assert path_length_m(points) == pytest.approx(2.0)
-
-
-def test_path_length_sums_segments() -> None:
-    # 3-4-5 треугольник в двух отрезках.
-    points = [(0.0, 0.0), (3.0, 0.0), (3.0, 4.0)]
-    assert path_length_m(points) == pytest.approx(3.0 + 4.0)
-
-
-def test_path_length_dense_path_close_to_straight() -> None:
-    # Плотный путь с мелким шагом -- сумма отрезков близка к прямой.
-    points = [(x / 10.0, 0.0) for x in range(101)]
-    assert path_length_m(points) == pytest.approx(10.0)
