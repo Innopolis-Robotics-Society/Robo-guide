@@ -72,6 +72,10 @@ apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-rosbridge-suite \
     ros-${ROS_DISTRO}-foxglove-bridge
 
+# DDS стека робота (scripts/jetson-launcher/ros_env.sh)
+apt-get install -y --no-install-recommends \
+    ros-${ROS_DISTRO}-rmw-cyclonedds-cpp
+
 # Gazebo (heavy; optional for headless / lightweight targets)
 if [ "$WITH_GAZEBO" = "1" ]; then
     apt-get install -y --no-install-recommends \

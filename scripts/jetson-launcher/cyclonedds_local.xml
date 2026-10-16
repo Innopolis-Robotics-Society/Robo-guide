@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- DDS стека только внутри робота: loopback, без мультикаста, discovery по unicast-пиру
+     localhost. ~65 участников в отдельных процессах — MaxAutoParticipantIndex с запасом
+     (дефолт 9 хватает только на 10 процессов). Подключается из ros_env.sh. -->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="lo"/>
+      </Interfaces>
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer address="127.0.0.1"/>
+      </Peers>
+    </Discovery>
+    <Internal>
+      <SocketReceiveBufferSize min="4MB"/>
+    </Internal>
+  </Domain>
+</CycloneDDS>

@@ -11,10 +11,12 @@ FLAGS=("$@")
 [ ${#FLAGS[@]} -eq 0 ] && FLAGS=(--no-confirm --no-return-home)
 LOG="${TOUR_LOOP_LOG:-/home/fabian/ros2_ws/log/tour_loop.log}"
 RETRY_S="${TOUR_LOOP_RETRY_S:-15}"
+# Под нагрузкой discovery нового процесса идёт ~10 с, дефолтные 5 с mission_cli не хватает.
+CALL_TIMEOUT_S="${TOUR_LOOP_TIMEOUT_S:-30}"
 
 source /opt/ros/humble/setup.bash
 source /home/fabian/ros2_ws/install/setup.bash
-export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-1}"  # как у стека, start_stack.sh
+source /home/fabian/ros2_ws/src/scripts/jetson-launcher/ros_env.sh  # тот же DDS, что у стека
 # Без job control фоновый child получает SIGINT=SIG_IGN, и отмена тура по kill не дойдёт.
 set -m
 
@@ -39,12 +41,12 @@ while true; do
   lap=$((lap + 1))
   ts=$(date +%s)
   out=$(mktemp)
-  ros2 run guide_robot_mission_control mission_cli tour --tour "$TOUR" "${FLAGS[@]}" >"$out" 2>&1 &
+  ros2 run guide_robot_mission_control mission_cli --timeout-s "$CALL_TIMEOUT_S" tour --tour "$TOUR" "${FLAGS[@]}" >"$out" 2>&1 &
   child=$!
   wait "$child"
   rc=$?
   child=""
-  res=$(grep -m1 '^outcome=' "$out" || tail -n1 "$out")
+  res=$(grep -m1 -E '^(outcome=|ошибка)' "$out" || tail -n1 "$out")
   rm -f "$out"
   [[ "$res" == outcome=COMPLETED* ]] && ok=$((ok + 1))
   log "lap=$lap rc=$rc dur_s=$(( $(date +%s) - ts )) total_min=$(( ($(date +%s) - t0) / 60 )) ok=$ok $res"
