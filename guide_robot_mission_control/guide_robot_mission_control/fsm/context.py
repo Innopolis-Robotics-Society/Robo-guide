@@ -52,6 +52,7 @@ class FsmContext:
         redirect_done_phrase: str = "",
         transit_after_s: float = 6.0,
         is_speaking: Callable[[], bool] = lambda: False,
+        prompt_listen: Callable[[], None] = lambda: None,
         on_state_changed: Callable[[str, object], None] | None = None,
         log: Callable[[str], None] | None = None,
     ) -> None:
@@ -65,6 +66,8 @@ class FsmContext:
         `transit_after_s`/`is_speaking` (stage2 блок E) -- транзитный
         нарратив в `NavigatingState`: молчание `is_speaking()` дольше
         `transit_after_s` -- сигнал сказать пару слов "пока идём".
+        `prompt_listen` -- открыть окно реплики без имени у wake-гейта
+        (`AwaitingConfirmState`: ответ «давай» на «Идём дальше?»).
         """
         self.now_ns = now_ns
         self.goal_handle = goal_handle
@@ -89,6 +92,7 @@ class FsmContext:
         self.redirect_done_phrase = redirect_done_phrase
         self.transit_after_s = transit_after_s
         self.is_speaking = is_speaking
+        self.prompt_listen = prompt_listen
         self._on_state_changed = on_state_changed
         self._log = log
 

@@ -128,6 +128,7 @@ class MissionFsmNode(LifecycleNode):
         self.declare_parameter("confirm_question_text", "Идём дальше?")
         self.declare_parameter("redirect_done_phrase", "Мы на месте. Чем ещё могу помочь?")
         self.declare_parameter("transit_after_s", 6.0)
+        self.declare_parameter("prompt_listen_service", "/voice_session_manager/prompt_listen")
         self.declare_parameter("home_frame", "map")
         self.declare_parameter("home_pose", [0.0, 0.0, 0.0])
 
@@ -185,6 +186,7 @@ class MissionFsmNode(LifecycleNode):
             "confirm_question_text": str(self.get_parameter("confirm_question_text").value),
             "redirect_done_phrase": str(self.get_parameter("redirect_done_phrase").value),
             "transit_after_s": float(self.get_parameter("transit_after_s").value),
+            "prompt_listen_service": str(self.get_parameter("prompt_listen_service").value),
             "home_frame": str(self.get_parameter("home_frame").value),
             "home_pose": [float(v) for v in self.get_parameter("home_pose").value],
         }
@@ -206,6 +208,13 @@ class MissionFsmNode(LifecycleNode):
         # не параметризует content_server_ns.
         self._content_client = self.create_client(
             GetExhibitContent, "/content_server/get_exhibit_content"
+        )
+        # Окно ответа без имени после «Идём дальше?» (AwaitingConfirmState).
+        # Сервис есть только при wake-гейте -- без гейта слушаем и так.
+        self._prompt_listen_client = self.create_client(
+            Trigger,
+            str(self._params["prompt_listen_service"]),
+            callback_group=self._cb_reentrant,
         )
 
         self._cancel_sub = self.create_subscription(
@@ -404,6 +413,26 @@ class MissionFsmNode(LifecycleNode):
         """
         return self._speaking
 
+    def _prompt_listen(self) -> None:
+        """Попросить wake-гейт открыть окно реплики без имени, не дожидаясь ответа.
+
+        Зовётся из FSM-потока; ответ сервиса только логируется -- отказ
+        («занято»: посетитель уже говорит) ничего не ломает, слова дойдут и так.
+        """
+        if not self._prompt_listen_client.service_is_ready():
+            self.get_logger().info("prompt_listen нет (wake-гейт выключен) -- окно не нужно")
+            return
+        future = self._prompt_listen_client.call_async(Trigger.Request())
+        future.add_done_callback(self._on_prompt_listen_done)
+
+    def _on_prompt_listen_done(self, future: Future) -> None:
+        response = future.result()
+        if response is not None and response.success:
+            self.get_logger().info("окно ответа без имени открывается")
+        else:
+            message = response.message if response is not None else "нет ответа"
+            self.get_logger().warning(f"prompt_listen отказал: {message}")
+
     # -- безопасность (design §5.7, реконсиляция §0.5) -----------------------
 
     def _on_estop(self, msg: Bool) -> None:
@@ -591,6 +620,7 @@ class MissionFsmNode(LifecycleNode):
             redirect_done_phrase=str(self._params["redirect_done_phrase"]),
             transit_after_s=float(self._params["transit_after_s"]),
             is_speaking=self.is_speaking,
+            prompt_listen=self._prompt_listen,
             on_state_changed=self._on_fsm_state_changed,
             log=self.get_logger().info,
         )
@@ -804,9 +834,7 @@ class MissionFsmNode(LifecycleNode):
         # FSM-поток заберёт stop_requested на своём ближайшем poll-тике.
         with self._state_lock:
             last = self._last_state_msg
-        response.message = (
-            _STATE_NAME_BY_VALUE.get(last.state, "") if last is not None else ""
-        )
+        response.message = _STATE_NAME_BY_VALUE.get(last.state, "") if last is not None else ""
         ctx.request_stop()
         response.success = True
         return response

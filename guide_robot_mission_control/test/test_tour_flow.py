@@ -609,7 +609,6 @@ def test_redirect_mid_tour_skips_home_and_ends_in_place(harness: MissionTestHarn
     del client_node
 
 
-
 def _start_driving_tour(harness: MissionTestHarness, *, leg_s: float = 2.0):
     stop_ids = _setup_three_stop_tour(harness)
     client_node, run_tour_client, state, fsm_node = _base_stack(harness)
@@ -817,3 +816,59 @@ def test_question_button_in_awaiting_confirm_answers_then_asks_again(
     result: RunTour.Result = result_future.result().result
     assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
     assert result.stops_completed == 2
+
+
+def test_confirm_question_opens_listen_window_after_it_is_spoken(
+    harness: MissionTestHarness,
+) -> None:
+    """«Идём дальше?» договорён -> `prompt_listen`: «давай» слышно без имени."""
+    for i, stop_id in enumerate(("stop0", "stop1")):
+        harness.fixtures.add_exhibit(stop_id, ["Раз."], version="rev1")
+        harness.fixtures.add_location(stop_id, x=float(i), y=0.0)
+    harness.nav.duration_s = _NAV_DURATION_S
+    harness.say.chars_per_sec = 50.0
+    listen_calls: list[float] = []
+    voice_node = harness.make_client_node("voice_session_manager")
+
+    def _prompt_listen(request: Trigger.Request, response: Trigger.Response):
+        del request
+        listen_calls.append(time.monotonic())
+        response.success = True
+        return response
+
+    voice_node.create_service(Trigger, "/voice_session_manager/prompt_listen", _prompt_listen)
+    make_narration_node(harness, lookahead=0)
+    fsm_node = make_fsm_node(harness, nav_stop_timeout_s=3.0, confirm_timeout_s=100.0)
+    client_node, run_tour_client = make_run_tour_client(harness)
+    state = state_listener(client_node)
+
+    goal_future = run_tour_client.send_goal_async(
+        RunTour.Goal(
+            location_ids=["stop0", "stop1"],
+            greet=False,
+            narrate=True,
+            confirm_between_stops=True,
+            return_home=False,
+        )
+    )
+    wait_for_future(goal_future)
+    goal_handle = goal_future.result()
+    assert goal_handle.accepted
+
+    pump_clock(
+        harness,
+        state_is(state, MissionState.STATE_AWAITING_CONFIRM),
+        step=_NAV_DURATION_S + 0.02,
+        max_iterations=200,
+    )
+    assert listen_calls == []  # нарратив и навигация окна не открывают
+    pump_clock(harness, lambda: bool(listen_calls), step=0.05, max_iterations=200)
+    assert len(listen_calls) == 1
+
+    fsm_node.submit_confirm(is_yes=True)
+    result_future = goal_handle.get_result_async()
+    pump_clock(harness, result_future.done, step=0.1, max_iterations=200)
+    wait_for_future(result_future, timeout_s=15.0)
+    result: RunTour.Result = result_future.result().result
+    assert result.outcome == RunTour.Result.OUTCOME_COMPLETED
+    assert len(listen_calls) == 1

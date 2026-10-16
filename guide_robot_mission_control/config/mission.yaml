@@ -24,6 +24,9 @@
     language: "ru"
     greeting_text: "Здравствуйте! Я проведу для вас экскурсию."
     confirm_question_text: "Идём дальше?"
+    # Договорив вопрос, открыть окно ответа без имени у wake-гейта (как
+    # кнопка «Задать вопрос»); без гейта сервиса нет -- слушаем и так.
+    prompt_listen_service: "/voice_session_manager/prompt_listen"
     home_frame: "map"
     home_pose: [-0.1868, -0.0299, 3.14159]  # x, y, yaw (yaw пока не используется); Innopark: вход = expo_meeting = home
 

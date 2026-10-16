@@ -4,6 +4,14 @@
 требует ASR/LLM-связки, которой в v1 нет -- как и `ANSWERED` у ANSWERING,
 ответ здесь приходит через тестовый хук `FsmContext.submit_confirm()`.
 
+Голосом ответ приходит из `tool_broker` (fast-path «да/давай/нет») или из
+`dialog_agent` (ЛЛМ, если fast-path не уверен) -- оба зовут тот же
+`~/submit_confirm`. При wake-гейте они слышат посетителя только в открытом
+окне: вопрос задаёт не ЛЛМ-ход, `DialogTurnEvent.expects_reply` его окно не
+откроет. Поэтому договорённый до конца вопрос (`Say` COMPLETED -- tts_node
+отдаёт его после `wait_idle`, то есть звук уже доигран) сам зовёт
+`ctx.prompt_listen()` -- тот же путь, что кнопка «Задать вопрос» на экране.
+
 Правило 4: barge-in поверх confirm-фрейма заменяет его на answer, вопрос
 после этого задаётся заново (design: "stage=REPEATING"), не больше
 `confirm_repeat_max` раз (дефолт 1) -- по исчерпании лимита дальнейшее
@@ -45,6 +53,8 @@ class AwaitingConfirmState(InterruptibleState):
         когда фрейма ещё нет.
         """
         self._repeat_count = 0
+        self._say_send_future: object | None = None
+        self._say_result_future: object | None = None
         frame = blackboard.stack.frame
         if frame is not None and frame.kind == "confirm" and frame.base_state == self.name:
             return
@@ -64,14 +74,38 @@ class AwaitingConfirmState(InterruptibleState):
             priority=Say.Goal.PRIORITY_DIALOG,
             interruptible=True,
         )
-        # Не ждём результата синтеза -- слушать ответ можно уже во время
-        # произнесения вопроса, а вернуться сюда придётся всё равно по
-        # poll(), а не по результату этого конкретного Say.
-        self.ctx.say_client.send_goal_async(goal)
+        # Результат синтеза не блокирует poll(): ответ (экран, barge-in)
+        # принимается и во время вопроса. Он нужен только чтобы открыть
+        # окно ответа без имени, когда вопрос договорён (`_poll_question_spoken`).
+        self._say_send_future = self.ctx.say_client.send_goal_async(goal)
+        self._say_result_future = None
+
+    def _poll_question_spoken(self) -> None:
+        """Вопрос договорён целиком -- открыть окно ответа без имени.
+
+        Прерванный (barge-in) или отклонённый вопрос окна не открывает:
+        barge-in переспрашивает заново через `_ask`, и окно откроет уже
+        новый вопрос.
+        """
+        if self._say_result_future is None:
+            if self._say_send_future is None or not self._say_send_future.done():  # type: ignore[attr-defined]
+                return
+            handle = self._say_send_future.result()  # type: ignore[attr-defined]
+            self._say_send_future = None
+            if handle.accepted:  # type: ignore[attr-defined]
+                self._say_result_future = handle.get_result_async()  # type: ignore[attr-defined]
+            return
+        if not self._say_result_future.done():  # type: ignore[attr-defined]
+            return
+        result: Say.Result = self._say_result_future.result().result  # type: ignore[attr-defined]
+        self._say_result_future = None
+        if result.status == Say.Result.STATUS_COMPLETED:
+            self.ctx.prompt_listen()
 
     def poll(self, blackboard: Blackboard, now_ns: int) -> str | None:
         """Ждать ответ / повторный barge-in (правило 4) / истечение confirm_timeout_s."""
         now_s = now_ns / 1e9
+        self._poll_question_spoken()
 
         answer = self.ctx.take_confirm_answer()
         if answer is not None:
