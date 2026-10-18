@@ -46,6 +46,8 @@ _NON_WORD = re.compile(r"[^\w\s]+", re.UNICODE)
 _WHITESPACE = re.compile(r"\s+")
 
 _MAX_TOKENS_FOR_MATCH = 3
+# Ответ на «Идём дальше?» длиннее стоп-слова: «да давай поехали дальше».
+_MAX_TOKENS_FOR_CONFIRM = 6
 
 _QUESTION_WORDS = frozenset(
     {
@@ -79,6 +81,23 @@ _YES_WORDS = frozenset(
         "продолжайте",
         "идем",
         "идём",
+        "пошли",
+        "пойдем",
+        "пойдемте",
+        "едем",
+        "поедем",
+        "погнали",
+        "вперед",
+        "дальше",
+        "ок",
+        "окей",
+        "ладно",
+        "согласен",
+        "согласна",
+        "можно",
+        "продолжим",
+        "продолжаем",
+        "го",
     }
 )
 _NO_WORDS = frozenset({"нет", "не", "хватит", "стоп", "достаточно"})
@@ -269,7 +288,7 @@ def match_confirm(text: str) -> bool | None:
     множеств (живой баг 2.4, см. докстринг `_CONJUNCTION_WORDS`).
     """
     tokens = _tokens(text)
-    if not _confident_gate(tokens):
+    if not tokens or len(tokens) > _MAX_TOKENS_FOR_CONFIRM or tokens & _QUESTION_WORDS:
         return None
     if tokens & _CONJUNCTION_WORDS:
         return None

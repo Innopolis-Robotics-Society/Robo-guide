@@ -428,7 +428,7 @@ class MissionFsmNode(LifecycleNode):
     def _on_prompt_listen_done(self, future: Future) -> None:
         response = future.result()
         if response is not None and response.success:
-            self.get_logger().info("окно ответа без имени открывается")
+            self.get_logger().debug("окно ответа без имени открыто")
         else:
             message = response.message if response is not None else "нет ответа"
             self.get_logger().warning(f"prompt_listen отказал: {message}")

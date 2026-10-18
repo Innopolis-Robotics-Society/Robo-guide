@@ -11,6 +11,10 @@
 откроет. Поэтому договорённый до конца вопрос (`Say` COMPLETED -- tts_node
 отдаёт его после `wait_idle`, то есть звук уже доигран) сам зовёт
 `ctx.prompt_listen()` -- тот же путь, что кнопка «Задать вопрос» на экране.
+Окно одноразовое и пускает только речь, начатую ПОСЛЕ его открытия: «да»,
+сказанное сразу за вопросом, терялось (живой баг 17.10.2026). Поэтому до
+дедлайна confirm-фрейма окно переоткрывается каждые `_RELISTEN_PERIOD_S` --
+повтор «да» слышен; уже открытое окно `prompt_listen` не трогает.
 
 Правило 4: barge-in поверх confirm-фрейма заменяет его на answer, вопрос
 после этого задаётся заново (design: "stage=REPEATING"), не больше
@@ -34,6 +38,8 @@ from guide_robot_mission_control.fsm.blackboard_keys import Blackboard
 
 __all__ = ["AwaitingConfirmState"]
 
+_RELISTEN_PERIOD_S = 2.0
+
 
 class AwaitingConfirmState(InterruptibleState):
     """Держит confirm-фрейм, переспрашивает на barge-in, таймаут/лимит повторов -> NO."""
@@ -55,6 +61,7 @@ class AwaitingConfirmState(InterruptibleState):
         self._repeat_count = 0
         self._say_send_future: object | None = None
         self._say_result_future: object | None = None
+        self._relisten_at: float | None = None
         frame = blackboard.stack.frame
         if frame is not None and frame.kind == "confirm" and frame.base_state == self.name:
             return
@@ -79,14 +86,20 @@ class AwaitingConfirmState(InterruptibleState):
         # окно ответа без имени, когда вопрос договорён (`_poll_question_spoken`).
         self._say_send_future = self.ctx.say_client.send_goal_async(goal)
         self._say_result_future = None
+        self._relisten_at = None
 
-    def _poll_question_spoken(self) -> None:
+    def _poll_question_spoken(self, now_s: float) -> None:
         """Вопрос договорён целиком -- открыть окно ответа без имени.
 
         Прерванный (barge-in) или отклонённый вопрос окна не открывает:
         barge-in переспрашивает заново через `_ask`, и окно откроет уже
         новый вопрос.
         """
+        if self._relisten_at is not None:
+            if now_s >= self._relisten_at:
+                self._relisten_at = now_s + _RELISTEN_PERIOD_S
+                self.ctx.prompt_listen()
+            return
         if self._say_result_future is None:
             if self._say_send_future is None or not self._say_send_future.done():  # type: ignore[attr-defined]
                 return
@@ -100,12 +113,14 @@ class AwaitingConfirmState(InterruptibleState):
         result: Say.Result = self._say_result_future.result().result  # type: ignore[attr-defined]
         self._say_result_future = None
         if result.status == Say.Result.STATUS_COMPLETED:
+            self.ctx.log("confirm: вопрос договорён -- слушаю ответ без имени")
+            self._relisten_at = now_s + _RELISTEN_PERIOD_S
             self.ctx.prompt_listen()
 
     def poll(self, blackboard: Blackboard, now_ns: int) -> str | None:
         """Ждать ответ / повторный barge-in (правило 4) / истечение confirm_timeout_s."""
         now_s = now_ns / 1e9
-        self._poll_question_spoken()
+        self._poll_question_spoken(now_s)
 
         answer = self.ctx.take_confirm_answer()
         if answer is not None:
