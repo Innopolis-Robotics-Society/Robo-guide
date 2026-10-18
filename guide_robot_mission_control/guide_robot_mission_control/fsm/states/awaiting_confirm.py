@@ -13,8 +13,9 @@
 `ctx.prompt_listen()` -- тот же путь, что кнопка «Задать вопрос» на экране.
 Окно одноразовое и пускает только речь, начатую ПОСЛЕ его открытия: «да»,
 сказанное сразу за вопросом, терялось (живой баг 17.10.2026). Поэтому до
-дедлайна confirm-фрейма окно переоткрывается каждые `_RELISTEN_PERIOD_S` --
-повтор «да» слышен; уже открытое окно `prompt_listen` не трогает.
+дедлайна confirm-фрейма окно переоткрывается каждые `_RELISTEN_PERIOD_S`
+(промежуток без окна ~0.9 с вместе с echo hold) -- повтор «да» слышен;
+уже открытое окно `prompt_listen` не трогает.
 
 Правило 4: barge-in поверх confirm-фрейма заменяет его на answer, вопрос
 после этого задаётся заново (design: "stage=REPEATING"), не больше
@@ -38,7 +39,7 @@ from guide_robot_mission_control.fsm.blackboard_keys import Blackboard
 
 __all__ = ["AwaitingConfirmState"]
 
-_RELISTEN_PERIOD_S = 2.0
+_RELISTEN_PERIOD_S = 0.5
 
 
 class AwaitingConfirmState(InterruptibleState):
