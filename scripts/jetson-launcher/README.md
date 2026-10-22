@@ -21,7 +21,7 @@ guide-launcher (хост, systemd)                              operator_ui_node
 ├─ GET  /api/config, /api/promo, /promo/*   промо с хоста   ├─ GET  /api/tours
 ├─ /api/auth/*                  PIN / RFID, cookie          ├─ GET  /api/media/{id}, /media/*
 ├─ /api/stack/*                 состояние, start, restart   └─ POST /api/tour/start|stop, /api/go_home,
-├─ /api/tour/current            текущий тур (state.json)           /api/localization/reset,
+├─ /api/tour/current            текущий тур (state.json)           /api/go_to_base, /api/localization/reset,
 ├─ /api/op/*     [вход]         команды роботу ──────────────────→ /api/costmaps/clear
 ├─ /api/public/start_tour       без входа, только текущий тур      (X-Bridge-Token + X-Operator)
 ├─ /api/public/confirm          без входа, «Идём дальше?» ───────→ /api/confirm
@@ -269,7 +269,7 @@ pid-namespace SIGKILL'ом. Поэтому `restart` делает по шага�
 | `GET /api/stack/log` | да | `{lines}`: последние 30 строк `stack_log` |
 | `POST /api/auth/challenge`, `/verify`, `/logout`; `GET /api/auth/status` | нет | вход |
 | `GET /api/tour/current` / `POST /api/tour/current` | нет / да | текущий тур |
-| `POST /api/op/tour/start`, `/tour/stop`, `/go_home`, `/localization/reset`, `/costmaps/clear` | да | команды в мост; 409 `ros_down`, если не `UP` |
+| `POST /api/op/tour/start`, `/tour/stop`, `/go_home`, `/go_to/parking`, `/go_to/charging`, `/localization/reset`, `/costmaps/clear` | да | команды в мост; 409 `ros_down`, если не `UP` |
 | `POST /api/public/start_tour` | нет | см. выше |
 | `POST /api/public/confirm` | нет | ответ на «Идём дальше?», см. выше |
 | `GET /ros/*`, WS `/ros/ws` | нет | прокси на мост, allowlist: `api/tours`, `api/media/*`, `media/*`, `ws`; не-GET → 405 |

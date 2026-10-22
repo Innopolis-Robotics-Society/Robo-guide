@@ -40,6 +40,8 @@ AUTHED_ROUTES = [
     ("POST", "/api/op/tour/start"),
     ("POST", "/api/op/tour/stop"),
     ("POST", "/api/op/go_home"),
+    ("POST", "/api/op/go_to/parking"),
+    ("POST", "/api/op/go_to/charging"),
     ("POST", "/api/op/localization/reset"),
     ("POST", "/api/op/costmaps/clear"),
 ]
@@ -72,6 +74,7 @@ def make_backend() -> web.Application:
         "/api/tour/start",
         "/api/tour/stop",
         "/api/go_home",
+        "/api/go_to_base",
         "/api/localization/reset",
         "/api/costmaps/clear",
         "/api/confirm",
@@ -340,16 +343,21 @@ def test_op_routes_forward_and_pass_status_through(tmp_path):
             await e.login()
             assert (await e.client.post("/api/op/tour/stop")).status == 200
             assert (await e.client.post("/api/op/go_home")).status == 200
+            # тело клиента игнорируется -- id базы зашит в роут
+            resp = await e.client.post("/api/op/go_to/charging", json={"location_id": "x"})
+            assert resp.status == 200
             assert (await e.client.post("/api/op/localization/reset", json={})).status == 200
             resp = await e.client.post("/api/op/costmaps/clear")
             assert resp.status == 503
             assert [c["path"] for c in e.calls] == [
                 "/api/tour/stop",
                 "/api/go_home",
+                "/api/go_to_base",
                 "/api/localization/reset",
                 "/api/costmaps/clear",
             ]
-            assert e.calls[2]["body"] == {"confirm": True}
+            assert e.calls[2]["body"] == {"location_id": "charging"}
+            assert e.calls[3]["body"] == {"confirm": True}
 
     run(go())
 

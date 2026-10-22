@@ -79,7 +79,10 @@
     stack_control_disabled: "Управление стеком выключено",
     mission_state_stale: "Нет свежих данных mission_fsm",
     tour_active: "Экскурсия уже идёт",
-    home_location_missing: "В карте не задана точка home",
+    home_location_missing: "В карте не задана точка стоянки",
+    unknown_location: "В карте нет такой точки",
+    location_server_unavailable: "Сервис карты не отвечает",
+    safety_hold: "Аварийная остановка",
     rejected: "mission_fsm отклонил запрос",
     service_unavailable: "Сервис ROS не отвечает",
     forbidden: "Мост ROS отклонил запрос (токен)",
@@ -129,6 +132,8 @@
   const btnStart = document.getElementById("btn-start");
   const btnStop = document.getElementById("btn-stop");
   const btnHome = document.getElementById("btn-home");
+  const btnParking = document.getElementById("btn-parking");
+  const btnCharging = document.getElementById("btn-charging");
   const btnReset = document.getElementById("btn-reset");
   const btnCostmaps = document.getElementById("btn-costmaps");
   const robotSupervisor = document.getElementById("robot-supervisor");
@@ -264,7 +269,9 @@
   function errorText(res) {
     if (res.status === 0) return "Нет связи с launcher";
     const data = res.data || {};
+    // message -- код отказа mission_fsm (через мост), error -- самого launcher'а.
     return (
+      COMMAND_ERROR_RU[data.message] ||
       data.message ||
       COMMAND_ERROR_RU[data.error] ||
       data.error ||
@@ -751,7 +758,9 @@
     connBanner.textContent = blockReason();
 
     for (const note of document.querySelectorAll(".ros-note")) note.hidden = rosUp;
-    for (const btn of [btnStart, btnStop, btnHome]) btn.disabled = blocked;
+    for (const btn of [btnStart, btnStop, btnHome, btnParking, btnCharging]) {
+      btn.disabled = blocked;
+    }
     for (const btn of [btnReset, btnCostmaps]) btn.disabled = !rosUp;
 
     const current = findTour(currentTourId);
@@ -1177,12 +1186,23 @@
 
   btnStart.addEventListener("click", () => menuCommand("/api/op/tour/start", {}, "Тур запущен"));
   btnStop.addEventListener("click", () => menuCommand("/api/op/tour/stop", {}, "Остановка запрошена"));
-  btnHome.addEventListener("click", () => menuCommand("/api/op/go_home", {}, "Еду домой"));
+  btnHome.addEventListener("click", () =>
+    menuCommand("/api/op/go_home", {}, "Еду к началу экскурсии")
+  );
+  btnParking.addEventListener("click", () =>
+    menuCommand("/api/op/go_to/parking", {}, "Еду на стоянку")
+  );
+  btnCharging.addEventListener("click", () =>
+    menuCommand("/api/op/go_to/charging", {}, "Еду на подзарядку")
+  );
   btnCostmaps.addEventListener("click", () =>
     menuCommand("/api/op/costmaps/clear", {}, "Костмапы очищены")
   );
   btnReset.addEventListener("click", async () => {
-    const ok = await askConfirm("Убедитесь, что робот физически стоит на базе.", "Подтвердить сброс");
+    const ok = await askConfirm(
+      "Убедитесь, что робот физически стоит на стоянке.",
+      "Подтвердить сброс"
+    );
     if (ok) await menuCommand("/api/op/localization/reset", {}, "Локализация сброшена");
   });
 

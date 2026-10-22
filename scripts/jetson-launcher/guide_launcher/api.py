@@ -122,6 +122,11 @@ class Api:
         add("POST", "/api/op/tour/start", self._authed(self._op("/api/tour/start", tour=True)))
         add("POST", "/api/op/tour/stop", self._authed(self._op("/api/tour/stop")))
         add("POST", "/api/op/go_home", self._authed(self._op("/api/go_home")))
+        # Служебные базы (location_id в locations_*.yaml) -- фиксированы здесь,
+        # клиент id не передаёт.
+        for base_id in ("parking", "charging"):
+            go_to_base = self._op("/api/go_to_base", body={"location_id": base_id})
+            add("POST", f"/api/op/go_to/{base_id}", self._authed(go_to_base))
         reset_body = {"confirm": True}
         reset = self._op("/api/localization/reset", body=reset_body)
         add("POST", "/api/op/localization/reset", self._authed(reset))
