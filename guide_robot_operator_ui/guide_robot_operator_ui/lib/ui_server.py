@@ -227,7 +227,11 @@ class UiServer:
         tour_id = data.get("tour_id") if data is not None else None
         if not isinstance(tour_id, str) or not tour_id:
             return web.json_response({"message": "invalid_body"}, status=400)
-        status, body = await self._on_tour_start(tour_id=tour_id)
+        # «Идём дальше?» между остановками -- переключатель в меню launcher'а.
+        confirm = data.get("confirm_between_stops", False)
+        if not isinstance(confirm, bool):
+            return web.json_response({"message": "invalid_body"}, status=400)
+        status, body = await self._on_tour_start(tour_id=tour_id, confirm_between_stops=confirm)
         return web.json_response(body, status=status)
 
     async def _handle_tour_stop(self, request: web.Request) -> web.Response:

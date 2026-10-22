@@ -398,17 +398,20 @@ class OperatorUiNode(Node):
         tours = [{"id": t.id, "name": t.name} for t in response.tours]
         return 200, {"tours": tours}
 
-    async def _on_api_tour_start(self, *, tour_id: str) -> tuple[int, dict[str, Any]]:
+    async def _on_api_tour_start(
+        self, *, tour_id: str, confirm_between_stops: bool = False
+    ) -> tuple[int, dict[str, Any]]:
         # RunTour.action's bool-поля не несут wire-дефолтов -- комментарии
         # "дефолт true" в .action ничего не задают на деле, невыставленный
         # bool = False. Ставим все четыре явно, как и все существующие
         # клиенты RunTour (mission_control's cli.py/тесты) -- иначе тур
-        # стартует немым, без нарратива и без confirm-вопросов.
+        # стартует немым, без нарратива. confirm-вопросы -- по переключателю
+        # оператора (по умолчанию выключены).
         goal = RunTour.Goal(
             tour_id=tour_id,
             greet=True,
             narrate=True,
-            confirm_between_stops=True,
+            confirm_between_stops=confirm_between_stops,
             return_home=True,
         )
         try:

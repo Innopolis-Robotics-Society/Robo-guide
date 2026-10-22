@@ -28,8 +28,8 @@ async def _ok_tours() -> tuple[int, dict]:
     return 200, {"tours": [{"id": "lab_demo", "name": "Демо"}]}
 
 
-async def _reject_tour_start(*, tour_id: str) -> tuple[int, dict]:
-    del tour_id
+async def _reject_tour_start(*, tour_id: str, confirm_between_stops: bool) -> tuple[int, dict]:
+    del tour_id, confirm_between_stops
     return 409, {"message": "rejected"}
 
 
@@ -320,10 +320,10 @@ def test_command_logged_callback_sees_operator_and_status() -> None:
 def test_tour_start_missing_tour_id_is_400_and_skips_callback() -> None:
     called = False
 
-    async def on_start(*, tour_id: str) -> tuple[int, dict]:
+    async def on_start(*, tour_id: str, confirm_between_stops: bool) -> tuple[int, dict]:
         nonlocal called
         called = True
-        del tour_id
+        del tour_id, confirm_between_stops
         return 200, {"message": ""}
 
     async def body() -> None:
@@ -338,8 +338,9 @@ def test_tour_start_missing_tour_id_is_400_and_skips_callback() -> None:
 def test_tour_start_forwards_tour_id_and_status() -> None:
     seen = {}
 
-    async def on_start(*, tour_id: str) -> tuple[int, dict]:
+    async def on_start(*, tour_id: str, confirm_between_stops: bool) -> tuple[int, dict]:
         seen["tour_id"] = tour_id
+        seen["confirm_between_stops"] = confirm_between_stops
         return 409, {"message": "rejected"}
 
     async def body() -> None:
@@ -351,7 +352,29 @@ def test_tour_start_forwards_tour_id_and_status() -> None:
             assert (await resp.json())["message"] == "rejected"
 
     _run(body())
-    assert seen == {"tour_id": "lab_demo"}
+    # без поля -- «Идём дальше?» выключен
+    assert seen == {"tour_id": "lab_demo", "confirm_between_stops": False}
+
+
+def test_tour_start_forwards_confirm_flag_and_rejects_non_bool() -> None:
+    seen = []
+
+    async def on_start(*, tour_id: str, confirm_between_stops: bool) -> tuple[int, dict]:
+        del tour_id
+        seen.append(confirm_between_stops)
+        return 200, {"message": ""}
+
+    async def body() -> None:
+        async with TestClient(TestServer(_new_server(on_tour_start=on_start).app)) as client:
+            ok = {"tour_id": "lab_demo", "confirm_between_stops": True}
+            resp = await client.post("/api/tour/start", json=ok, headers=_token_header())
+            assert resp.status == 200
+            bad = {"tour_id": "lab_demo", "confirm_between_stops": "yes"}
+            resp = await client.post("/api/tour/start", json=bad, headers=_token_header())
+            assert resp.status == 400
+
+    _run(body())
+    assert seen == [True]
 
 
 def test_localization_reset_requires_explicit_confirm() -> None:
