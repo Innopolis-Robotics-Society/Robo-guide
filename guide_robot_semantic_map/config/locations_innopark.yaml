@@ -68,13 +68,25 @@ locations:
       ru: ["левое крыло"]
       en: ["left wing"]
 
-  # База = вход/точка встречи (expo_meeting); дублирует mission.yaml
-  # home_pose и стартовую позу AMCL (guide_robot_navigation/config/first_iter_nav2.yaml.in).
-  # Скрыта от пустого ListLocations (is_public=false), отдаётся по category=charging
-  # (operator UI, «Сброс локализации»). yaw π -- стартовый yaw Innopark в шаблоне AMCL
-  # до ArtSpace; на месте не сверен.
-  - id: home
-    pose: {x: -0.18678855895996094, y: -0.029946327209472656, yaw: 3.141592653589793}
+  # Служебные базы робота: скрыты от пустого ListLocations (is_public=false),
+  # отдаются по category=charging -- кнопки «Стоянка»/«Подзарядка» operator UI
+  # (mission_fsm ~/go_to_base) и «Сброс локализации» (берёт parking).
+  # Позы сняты tf2_echo map base_link в симуляторе 2026-10-22.
+  #
+  # «Начало экскурсии» (кнопка, бывшая «Домой») -- не локация, а mission.yaml
+  # home_pose = expo_meeting: туда тур возвращается в конце.
+
+  # Стоянка: отсюда робот стартует -- дублирует стартовую позу AMCL
+  # (guide_robot_navigation/config/first_iter_nav2.yaml.in) и spawn в
+  # Gazebo (guide_robot_bringup/launch/simulation.launch.py).
+  - id: parking
+    pose: {x: 20.686, y: 1.027, yaw: -0.218}
+    zone: innopark
+    category: charging
+    is_public: false
+
+  - id: charging
+    pose: {x: -2.275, y: 0.780, yaw: -2.881}
     zone: innopark
     category: charging
     is_public: false

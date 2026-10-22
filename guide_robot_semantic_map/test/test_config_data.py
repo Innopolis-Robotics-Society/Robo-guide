@@ -69,9 +69,11 @@ def test_locations_innopark_yaml_is_valid() -> None:
     assert "expo_meeting" in locations.locations
     assert "right_wing" in locations.locations
     assert "left_wing" in locations.locations
-    # «Сброс локализации» в operator UI берёт базу по category=charging.
-    assert locations.locations["home"].category == "charging"
-    assert not locations.locations["home"].is_public
+    # «Стоянка»/«Подзарядка» и «Сброс локализации» в operator UI берут базы
+    # по category=charging.
+    for base_id in ("parking", "charging"):
+        assert locations.locations[base_id].category == "charging"
+        assert not locations.locations[base_id].is_public
 
 
 def test_tours_innopark_yaml_references_valid_locations() -> None:

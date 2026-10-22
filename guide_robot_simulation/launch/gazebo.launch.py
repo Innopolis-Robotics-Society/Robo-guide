@@ -55,6 +55,17 @@ def generate_launch_description():
         description="Path to the Gazebo world file",
     )
 
+    spawn_x_arg = DeclareLaunchArgument(
+        name="spawn_x",
+        default_value="0.0",
+        description="X (m) of base_footprint at spawn. Must match amcl.initial_pose.x.",
+    )
+    spawn_y_arg = DeclareLaunchArgument(
+        name="spawn_y",
+        default_value="0.0",
+        description="Y (m) of base_footprint at spawn. Must match amcl.initial_pose.y.",
+    )
+
     spawn_yaw_arg = DeclareLaunchArgument(
         name="spawn_yaw",
         default_value="3.141592653589793",
@@ -115,6 +126,10 @@ def generate_launch_description():
             "robot_description",
             "-entity",
             "guide_robot",
+            "-x",
+            LaunchConfiguration("spawn_x"),
+            "-y",
+            LaunchConfiguration("spawn_y"),
             "-z",
             "0.15",
             "-Y",
@@ -166,6 +181,8 @@ def generate_launch_description():
             use_sim_time_arg,
             model_arg,
             world_arg,
+            spawn_x_arg,
+            spawn_y_arg,
             spawn_yaw_arg,
             gazebo_model_path,
             gazebo_no_online_db,

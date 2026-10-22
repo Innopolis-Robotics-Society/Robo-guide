@@ -50,15 +50,17 @@ amcl:
     # Тот же док (экран как раньше) теперь yaw π. recovery_alpha_* = 0 —
     # без ручного Pose Estimate AMCL на 180° не вылезет и повезёт задом
     # по траектории наоборот.
-    # Innopark (innopark_l_10.09_edited): старт у входа = expo_meeting = home
-    # (guide_robot_semantic_map/config/locations_innopark.yaml), yaw π как был
-    # у Innopark до ArtSpace, на месте не сверен. ArtSpace был (20.3075, 1.2831, 0).
+    # Innopark (innopark_l_10.09_edited): старт со стоянки = parking
+    # (guide_robot_semantic_map/config/locations_innopark.yaml), снята в
+    # симуляторе 2026-10-22. Gazebo спавнит робота туда же
+    # (guide_robot_bringup/launch/simulation.launch.py spawn_x/y/yaw).
+    # До стоянки был вход/expo_meeting (-0.1868, -0.0299, π); ArtSpace был (20.3075, 1.2831, 0).
     set_initial_pose: true
     initial_pose:
-      x: -0.1868
-      y: -0.0299
+      x: 20.686
+      y: 1.027
       z: 0.0
-      yaw: 3.141592653589793
+      yaw: -0.218
 
 amcl_map_client:
   ros__parameters:

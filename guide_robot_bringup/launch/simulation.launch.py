@@ -53,11 +53,25 @@ def generate_launch_description():
         default_value=os.path.join(pkg_simulation, "worlds", "innopark_edited.world"),
         description="Path to the Gazebo world file",
     )
+    # Спавн на стоянке (parking в locations_innopark.yaml) -- оттуда робот
+    # стартует, AMCL ждёт его там же (initial_pose в first_iter_nav2.yaml.in).
+    spawn_x_arg = DeclareLaunchArgument(
+        name="spawn_x",
+        default_value="20.686",
+        description="X (m) of base_footprint at spawn in Gazebo. Must match "
+        "amcl.initial_pose.x in first_iter_nav2.yaml.in.",
+    )
+    spawn_y_arg = DeclareLaunchArgument(
+        name="spawn_y",
+        default_value="1.027",
+        description="Y (m) of base_footprint at spawn in Gazebo. Must match "
+        "amcl.initial_pose.y in first_iter_nav2.yaml.in.",
+    )
     spawn_yaw_arg = DeclareLaunchArgument(
         name="spawn_yaw",
-        default_value="3.141592653589793",
+        default_value="-0.218",
         description="Yaw (rad) of base_footprint at spawn in Gazebo. Must match "
-        "amcl.initial_pose.yaw in first_iter_nav2.yaml.in (pi by default).",
+        "amcl.initial_pose.yaw in first_iter_nav2.yaml.in.",
     )
     declare_nav = DeclareLaunchArgument(
         "nav", default_value="true", description="Launch Nav2 stack"
@@ -83,6 +97,8 @@ def generate_launch_description():
     map_yaml = LaunchConfiguration("map")
     keepout_mask_file = LaunchConfiguration("keepout_mask_file")
     world = LaunchConfiguration("world")
+    spawn_x = LaunchConfiguration("spawn_x")
+    spawn_y = LaunchConfiguration("spawn_y")
     spawn_yaw = LaunchConfiguration("spawn_yaw")
     nav = LaunchConfiguration("nav")
     nav_params = LaunchConfiguration("nav_params_file")
@@ -93,7 +109,13 @@ def generate_launch_description():
     # ── 1. Симуляция: Gazebo + робот ─────────────────────────────────────────
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_simulation, "launch", "gazebo.launch.py")),
-        launch_arguments={"use_sim_time": "true", "world": world, "spawn_yaw": spawn_yaw}.items(),
+        launch_arguments={
+            "use_sim_time": "true",
+            "world": world,
+            "spawn_x": spawn_x,
+            "spawn_y": spawn_y,
+            "spawn_yaw": spawn_yaw,
+        }.items(),
     )
 
     # ── 2. Перцепция: лидары виртуальные, соноры из плагинов Gazebo ──────────
@@ -151,6 +173,8 @@ def generate_launch_description():
             declare_keepout_mask_file,
             declare_nav,
             world_arg,
+            spawn_x_arg,
+            spawn_y_arg,
             spawn_yaw_arg,
             declare_nav_params,
             declare_slam_params,
