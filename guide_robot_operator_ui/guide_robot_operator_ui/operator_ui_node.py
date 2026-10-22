@@ -38,13 +38,22 @@ from std_srvs.srv import SetBool, Trigger
 
 from guide_robot_msgs.action import RunTour
 from guide_robot_msgs.msg import MissionState
-from guide_robot_msgs.srv import GetExhibitContent, GetExhibitMedia, ListLocations, ListTours
+from guide_robot_msgs.srv import (
+    GetExhibitContent,
+    GetExhibitMedia,
+    ListLocations,
+    ListTours,
+    Redirect,
+)
 from guide_robot_operator_ui.lib.qos import QOS_MISSION_STATE
 from guide_robot_operator_ui.lib.state_frame import build_frame
 from guide_robot_operator_ui.lib.ui_server import UiServer
 
 _SERVER_START_TIMEOUT_S = 10.0
 _SERVER_STOP_TIMEOUT_S = 5.0
+
+# «Сброс локализации»: первая найденная (category=charging) -- откуда робот стартует.
+_RESET_LOCATION_IDS = ("parking", "home")
 
 # Путь-заглушка для /media/*, когда guide_robot_semantic_map не установлен
 # или не собран (design C7) -- гарантированно не существует, чтобы
@@ -101,6 +110,7 @@ class OperatorUiNode(Node):
         self.declare_parameter("run_tour_action", "run_tour")
         self.declare_parameter("request_stop_service", "/mission_fsm/request_stop")
         self.declare_parameter("go_home_service", "/mission_fsm/go_home")
+        self.declare_parameter("go_to_base_service", "/mission_fsm/go_to_base")
         self.declare_parameter("submit_confirm_service", "/mission_fsm/submit_confirm")
         self.declare_parameter("request_question_service", "/mission_fsm/request_question")
         self.declare_parameter("prompt_listen_service", "/voice_session_manager/prompt_listen")
@@ -158,6 +168,7 @@ class OperatorUiNode(Node):
             on_tour_start=self._on_api_tour_start,
             on_tour_stop=self._on_api_tour_stop,
             on_go_home=self._on_api_go_home,
+            on_go_to_base=self._on_api_go_to_base,
             on_localization_reset=self._on_api_localization_reset,
             on_costmaps_clear=self._on_api_costmaps_clear,
             on_confirm=self._on_api_confirm,
@@ -194,6 +205,9 @@ class OperatorUiNode(Node):
         )
         self._go_home_client = self.create_client(
             Trigger, str(self.get_parameter("go_home_service").value)
+        )
+        self._go_to_base_client = self.create_client(
+            Redirect, str(self.get_parameter("go_to_base_service").value)
         )
         self._submit_confirm_client = self.create_client(
             SetBool, str(self.get_parameter("submit_confirm_service").value)
@@ -451,8 +465,24 @@ class OperatorUiNode(Node):
     async def _on_api_go_home(self) -> tuple[int, dict[str, Any]]:
         return await self._call_trigger(self._go_home_client, name="go_home")
 
+    async def _on_api_go_to_base(self, *, location_id: str) -> tuple[int, dict[str, Any]]:
+        try:
+            response = await self._call_ros(
+                lambda: self._go_to_base_client.call_async(
+                    Redirect.Request(location_id=location_id)
+                ),
+                self._service_timeout_s,
+                name="go_to_base",
+            )
+        except (TimeoutError, asyncio.TimeoutError):
+            return 503, {"message": "service_unavailable"}
+        return (200 if response.accepted else 409), {"message": response.message}
+
     async def _on_api_localization_reset(self) -> tuple[int, dict[str, Any]]:
-        """Сброс AMCL на позу `home` (design C5). Порядок шагов -- см. task doc.
+        """Сброс AMCL на стартовую позу робота (design C5). Порядок шагов -- см. task doc.
+
+        Стартовая поза -- локация `parking` (стоянка, Innopark), на площадках
+        без стоянки -- `home`.
 
         Гейты 1 и 2 задания (state != IDLE; возраст /mission/state) здесь
         объединены в проверку "нет свежих данных ИЛИ данные говорят про
@@ -476,7 +506,8 @@ class OperatorUiNode(Node):
             )
         except (TimeoutError, asyncio.TimeoutError):
             return 503, {"message": "service_unavailable"}
-        home = next((loc for loc in locations_response.locations if loc.id == "home"), None)
+        by_id = {loc.id: loc for loc in locations_response.locations}
+        home = next((by_id[i] for i in _RESET_LOCATION_IDS if i in by_id), None)
         if home is None:
             # Не подставляем (0,0,0) молча (design C5.3) -- нет записи, нет сброса.
             return 409, {"message": "home_location_missing"}

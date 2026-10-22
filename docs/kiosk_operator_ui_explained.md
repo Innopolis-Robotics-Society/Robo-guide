@@ -97,7 +97,7 @@ Jetson, откуда берётся картинка на большом экр�
 | `GET /ws` | кадры состояния сервер → клиент (по событию и heartbeat раз в 1 с) | нет |
 | `GET /api/tours` | список туров | нет |
 | `GET /api/media/{exhibit_id}`, `GET /media/*` | манифест и файлы слайдов экспоната | нет |
-| `POST /api/tour/start`, `/api/tour/stop`, `/api/go_home`, `/api/localization/reset`, `/api/costmaps/clear` | команды роботу | **да** (`X-Bridge-Token`, иначе 403) |
+| `POST /api/tour/start`, `/api/tour/stop`, `/api/go_home`, `/api/go_to_base` (`{"location_id"}`), `/api/localization/reset`, `/api/costmaps/clear` | команды роботу | **да** (`X-Bridge-Token`, иначе 403) |
 
 Запросы с токеном присылает только launcher (заголовки `X-Bridge-Token` и `X-Operator`);
 браузер к мосту напрямую не ходит: страница получает чтение через прокси `/ros/*` launcher'а

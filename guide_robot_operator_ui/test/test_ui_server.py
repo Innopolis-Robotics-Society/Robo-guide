@@ -37,6 +37,11 @@ async def _ok_no_message() -> tuple[int, dict]:
     return 200, {"message": ""}
 
 
+async def _ok_go_to_base(*, location_id: str) -> tuple[int, dict]:
+    del location_id
+    return 200, {"message": ""}
+
+
 async def _ok_empty_manifest(*, exhibit_id: str) -> tuple[int, dict]:
     del exhibit_id
     return 200, {"title": "", "chunk_ids": [], "items": []}
@@ -59,6 +64,7 @@ def _new_server(
     on_tour_start: Any = _reject_tour_start,
     on_tour_stop: Any = _ok_no_message,
     on_go_home: Any = _ok_no_message,
+    on_go_to_base: Any = _ok_go_to_base,
     on_localization_reset: Any = _ok_no_message,
     on_costmaps_clear: Any = _ok_no_message,
     on_confirm: Any = _ok_confirm,
@@ -72,6 +78,7 @@ def _new_server(
         on_tour_start=on_tour_start,
         on_tour_stop=on_tour_stop,
         on_go_home=on_go_home,
+        on_go_to_base=on_go_to_base,
         on_localization_reset=on_localization_reset,
         on_costmaps_clear=on_costmaps_clear,
         on_confirm=on_confirm,
@@ -89,6 +96,7 @@ _COMMANDS = [
     ("/api/tour/start", {"tour_id": "lab_demo"}),
     ("/api/tour/stop", None),
     ("/api/go_home", None),
+    ("/api/go_to_base", {"location_id": "parking"}),
     ("/api/localization/reset", {"confirm": True}),
     ("/api/costmaps/clear", None),
     ("/api/confirm", {"answer": "yes"}),
@@ -241,6 +249,7 @@ def test_command_without_token_is_403_and_callback_not_run(path: str, payload: A
             on_tour_start=spy,
             on_tour_stop=spy,
             on_go_home=spy,
+            on_go_to_base=spy,
             on_localization_reset=spy,
             on_costmaps_clear=spy,
             on_confirm=spy,

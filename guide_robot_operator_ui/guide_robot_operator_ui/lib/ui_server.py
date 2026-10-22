@@ -31,6 +31,7 @@ COMMAND_PATHS = frozenset(
         "/api/tour/start",
         "/api/tour/stop",
         "/api/go_home",
+        "/api/go_to_base",
         "/api/localization/reset",
         "/api/costmaps/clear",
         "/api/confirm",
@@ -64,6 +65,7 @@ class UiServer:
         on_tour_start: _CommandCallback,
         on_tour_stop: _CommandCallback,
         on_go_home: _CommandCallback,
+        on_go_to_base: _CommandCallback,
         on_localization_reset: _CommandCallback,
         on_costmaps_clear: _CommandCallback,
         on_confirm: _CommandCallback,
@@ -79,6 +81,7 @@ class UiServer:
         self._on_tour_start = on_tour_start
         self._on_tour_stop = on_tour_stop
         self._on_go_home = on_go_home
+        self._on_go_to_base = on_go_to_base
         self._on_localization_reset = on_localization_reset
         self._on_costmaps_clear = on_costmaps_clear
         self._on_confirm = on_confirm
@@ -94,6 +97,7 @@ class UiServer:
         self.app.router.add_post("/api/tour/start", self._handle_tour_start)
         self.app.router.add_post("/api/tour/stop", self._handle_tour_stop)
         self.app.router.add_post("/api/go_home", self._handle_go_home)
+        self.app.router.add_post("/api/go_to_base", self._handle_go_to_base)
         self.app.router.add_post("/api/localization/reset", self._handle_localization_reset)
         self.app.router.add_post("/api/costmaps/clear", self._handle_costmaps_clear)
         self.app.router.add_post("/api/confirm", self._handle_confirm)
@@ -234,6 +238,14 @@ class UiServer:
     async def _handle_go_home(self, request: web.Request) -> web.Response:
         del request
         status, body = await self._on_go_home()
+        return web.json_response(body, status=status)
+
+    async def _handle_go_to_base(self, request: web.Request) -> web.Response:
+        data = await self._read_json_object(request)
+        location_id = data.get("location_id") if data is not None else None
+        if not isinstance(location_id, str) or not location_id:
+            return web.json_response({"message": "invalid_body"}, status=400)
+        status, body = await self._on_go_to_base(location_id=location_id)
         return web.json_response(body, status=status)
 
     async def _handle_localization_reset(self, request: web.Request) -> web.Response:

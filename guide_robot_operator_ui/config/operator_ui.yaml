@@ -23,6 +23,8 @@
     run_tour_action: "run_tour"
     request_stop_service: "/mission_fsm/request_stop"
     go_home_service: "/mission_fsm/go_home"
+    # Кнопки «Стоянка»/«Подзарядка»: id служебной точки location_server.
+    go_to_base_service: "/mission_fsm/go_to_base"
     # POST /api/confirm (кнопки «Да»/«Стоп»/«Задать вопрос» на экране посетителя).
     submit_confirm_service: "/mission_fsm/submit_confirm"
     request_question_service: "/mission_fsm/request_question"
