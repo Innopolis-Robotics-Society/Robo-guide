@@ -7,6 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
@@ -60,12 +61,25 @@ def generate_launch_description():
         }.items(),
     )
 
+    keepout_enabled = PythonExpression(
+        ['"', keepout_mask_file, '".strip().lower() not in ("", "none", "false", "off")']
+    )
+
+    # global_costmap.keepout_layer (инфляция вокруг keepout-зон) включается
+    # только вместе с публикатором маски ниже -- см. first_iter_nav2.yaml.in.
+    nav2_params_keepout = RewrittenYaml(
+        source_file=nav2_params,
+        param_rewrites={
+            "global_costmap.global_costmap.ros__parameters.keepout_layer.enabled": keepout_enabled,
+        },
+    )
+
     common = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg, "launch", "common.launch.py")),
         launch_arguments={
             "use_sim_time": use_sim_time,
             "autostart_nav": autostart_nav,
-            "nav2_params_file": nav2_params,
+            "nav2_params_file": nav2_params_keepout,
         }.items(),
     )
 
@@ -112,11 +126,7 @@ def generate_launch_description():
         # "none"/"false"/"off" -- то же, что пустая строка: `ros2 launch` в Humble
         # отвергает `keepout_mask_file:=` ("malformed launch argument"), так что
         # из CLI выключить фильтр пустым значением нельзя.
-        condition=IfCondition(
-            PythonExpression(
-                ['"', keepout_mask_file, '".strip().lower() not in ("", "none", "false", "off")']
-            )
-        ),
+        condition=IfCondition(keepout_enabled),
         actions=[filter_mask_server, costmap_filter_info_server, lifecycle_costmap_filters],
     )
 

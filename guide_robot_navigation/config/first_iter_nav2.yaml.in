@@ -346,8 +346,29 @@ global_costmap:
       robot_radius: 0.43
       resolution: 0.05
       track_unknown_space: true
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
-      # Keepout-зоны -- см. комментарий в local_costmap выше.
+      # keepout_layer -- та же маска keepout, но СЛОЕМ до inflation_layer.
+      # Фильтры костмапа (keepout_filter ниже) применяются ПОСЛЕ всех плагинов,
+      # включая инфляцию (layered_costmap.cpp), поэтому у зоны не было ореола и
+      # NavFn вёл путь вплотную к её границе. 2026-10-22 на роботе: go_home со
+      # стоянки, через 13 с центр робота съехал в зону у макета города, дальше
+      # "No valid trajectories" / план не строится / Spin и BackUp -- Collision
+      # Ahead, ~2 мин recovery с "отойдите" без людей рядом. Изнутри зоны
+      # Humble-шный KeepoutFilter не выпускает (исключения для робота нет).
+      plugins: ["static_layer", "keepout_layer", "obstacle_layer", "inflation_layer"]
+      # Слой с max, а не перезаписью: иначе keepout_layer затирал бы стены
+      # static_layer свободными клетками маски. На static_layer не влияет --
+      # он первый, под ним NO_INFORMATION.
+      use_maximum: true
+      keepout_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        # Включает navigation.launch.py, только когда задан keepout_mask_file:
+        # без публикатора маски слой не станет current, и planner_server
+        # повиснет в waitForCostmap() (SLAM-путь, карты без маски).
+        enabled: False
+        map_topic: "/keepout_filter_mask"
+        map_subscribe_transient_local: True
+      # Keepout-зоны -- см. комментарий в local_costmap выше. Фильтр остаётся
+      # жёстким запретом и в глобальном костмапе (на случай, если слой выключен).
       filters: ["keepout_filter"]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
