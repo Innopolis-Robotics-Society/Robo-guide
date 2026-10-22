@@ -20,6 +20,7 @@ from guide_launcher.api import (
     MAX_FAILED_ATTEMPTS,
     PUBLIC_CONFIRM_MIN_INTERVAL_S,
     PUBLIC_START_MIN_INTERVAL_S,
+    PUBLIC_STOP_MIN_INTERVAL_S,
 )
 from guide_launcher.auth import RfidBackend, make_auth_chain
 from guide_launcher.bridge import FRAME_MAX_AGE_S, Bridge, Frame, FrameWatcher
@@ -530,6 +531,61 @@ def test_public_confirm_double_tap_is_rate_limited(tmp_path):
             e.set_frame(state_name="awaiting_confirm")
             assert (await _confirm(e)).status == 200
             resp = await _confirm(e, "stop")
+            assert (await resp.json())["reason"] == "rate_limited"
+            assert len(e.calls) == 1
+
+    run(go())
+
+
+# -- публичный «Стоп» во время движения --------------------------------------------
+
+
+async def _stop(e: Env):
+    return await e.client.post("/api/public/stop")
+
+
+@pytest.mark.parametrize("state", ["navigating", "returning"])
+def test_public_stop_forwards_without_session(tmp_path, state):
+    async def go():
+        async with env(tmp_path) as e:
+            e.set_frame(state_name=state, estop=True)  # E-STOP стопу не помеха
+            resp = await _stop(e)
+            assert resp.status == 200
+            (call,) = e.calls
+            assert call["path"] == "/api/tour/stop"
+            assert call["headers"]["X-Operator"] == "public"
+            (entry,) = [r for r in e.journal() if r.get("event") == "public_stop"]
+            assert entry["ok"] is True
+
+    run(go())
+
+
+def test_public_stop_refusals(tmp_path):
+    async def go():
+        async with env(tmp_path) as e:
+
+            async def refused(reason: str) -> None:
+                e.advance(PUBLIC_STOP_MIN_INTERVAL_S + 1)
+                resp = await _stop(e)
+                assert resp.status == 409, reason
+                assert await resp.json() == {"error": "refused", "reason": reason}
+
+            e.monitor.state = StackState.DOWN
+            e.set_frame(state_name="navigating")
+            await refused("ros_down")
+            e.monitor.state = StackState.UP
+
+            e.watcher.frame = None
+            await refused("no_mission_fsm")
+            for state in ("idle", "narrating", "awaiting_confirm", "paused"):
+                e.set_frame(state_name=state)
+                await refused("not_moving")
+            assert e.calls == []
+
+            e.set_frame(state_name="navigating")
+            e.advance(PUBLIC_STOP_MIN_INTERVAL_S + 1)
+            assert (await _stop(e)).status == 200
+            resp = await _stop(e)
             assert (await resp.json())["reason"] == "rate_limited"
             assert len(e.calls) == 1
 

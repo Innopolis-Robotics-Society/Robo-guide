@@ -99,6 +99,7 @@
   const unlockCorner = document.getElementById("unlock-corner");
   const prefetchPool = document.getElementById("prefetch-pool");
   const startTourBtn = document.getElementById("start-tour-btn");
+  const stopMoveBtn = document.getElementById("stop-move-btn");
 
   // -- публичный старт ---------------------------------------------------------
   const confirmPanel = document.getElementById("confirm-panel");
@@ -587,6 +588,31 @@
     );
   });
 
+  // -- публичная кнопка «Стоп», пока робот едет ----------------------------------
+  // Те же условия, что проверяет сервер в /api/public/stop; E-STOP не мешает.
+  const MOVING_STATES = new Set(["navigating", "returning"]);
+  let stopInFlight = false;
+
+  function updateStopButton() {
+    const moving =
+      stackState === "UP" && frameFresh() && MOVING_STATES.has(latestFrame.state_name);
+    if (!moving) stopInFlight = false;
+    stopMoveBtn.hidden = !moving;
+    stopMoveBtn.disabled = stopInFlight;
+  }
+
+  stopMoveBtn.addEventListener("click", async () => {
+    if (stopInFlight) return;
+    stopInFlight = true;
+    stopMoveBtn.disabled = true;
+    const res = await request("POST", "/api/public/stop");
+    if (!res.ok) {
+      // Кнопка снова доступна; при успехе она скроется со сменой состояния.
+      stopInFlight = false;
+      stopMoveBtn.disabled = false;
+    }
+  });
+
   // -- дублёр «Идём дальше?»: Да / Задать вопрос / Стоп ------------------------
   // Кнопки создаются один раз в index.html; здесь только hidden/disabled --
   // пересборка между pointerdown и click теряла бы нажатие.
@@ -798,6 +824,7 @@
     // плашки "нет связи" поверх замерших слайдов.
     renderMenu();
     updateStartButton();
+    updateStopButton();
     updateConfirmPanel();
     updateMediaLayer();
     updateBadges();

@@ -350,8 +350,9 @@ dialog::backdrop {
   font-size: 1.4rem;
 }
 
-/* -- кнопка публичного старта тура: маленькая, полупрозрачная, внизу по центру -- */
-#start-tour-btn {
+/* -- публичные «Начать экскурсию» / «Стоп»: маленькие, полупрозрачные, внизу по центру -- */
+#start-tour-btn,
+#stop-move-btn {
   position: absolute;
   left: 50%;
   bottom: 1.5rem;
@@ -368,8 +369,18 @@ dialog::backdrop {
   cursor: pointer;
 }
 
-#start-tour-btn:active {
+#start-tour-btn:active,
+#stop-move-btn:active {
   opacity: 0.9;
+}
+
+#stop-move-btn {
+  min-width: 8rem;
+  border-color: rgba(209, 55, 63, 0.6);
+}
+
+#stop-move-btn:disabled {
+  opacity: 0.3;
 }
 
 /* -- дублёр «Идём дальше?»: крупные кнопки внизу поверх слайдов/промо -- */

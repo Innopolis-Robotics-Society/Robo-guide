@@ -233,6 +233,14 @@ pid-namespace SIGKILL'ом. Поэтому `restart` делает по шага�
 Кнопка на экране видна при тех же условиях; название берётся из `/ros/api/tours`, если id тура
 там нет — кнопка скрыта.
 
+### «Стоп» во время движения
+
+Пока робот едет (`state_name` `navigating` или `returning` — тур или поездка на базу/стоянку/
+подзарядку), внизу экрана показа — бледная кнопка **Стоп**. `POST /api/public/stop` — без входа,
+`X-Operator: public`, в мост `/api/tour/stop` (`mission_fsm/request_stop`: робот встаёт на месте).
+Отказ `409 {"error":"refused","reason":…}`: `rate_limited` (меньше 1.5 с), `ros_down`,
+`no_mission_fsm`, `not_moving`, `upstream_<код>`. E-STOP не проверяется — остановка безопасна.
+
 ### Дублёр «Идём дальше?»
 
 Пока робот между остановками ждёт ответа (`state_name == "awaiting_confirm"`), внизу экрана

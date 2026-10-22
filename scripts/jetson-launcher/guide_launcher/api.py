@@ -30,6 +30,9 @@ PUBLIC_START_MIN_INTERVAL_S = 10.0
 # Против двойного тапа: второе нажатие уже не застанет AWAITING_CONFIRM, но и не
 # должно дойти до моста, пока первое в полёте.
 PUBLIC_CONFIRM_MIN_INTERVAL_S = 1.5
+PUBLIC_STOP_MIN_INTERVAL_S = 1.5
+# Робот едет: тур между остановками или поездка на базу/стоянку/подзарядку.
+MOVING_STATES = frozenset({"navigating", "returning"})
 CONFIRM_ANSWERS = frozenset({"yes", "stop", "question"})
 MISSION_STALE_S = 3.0
 IDLE_STATES = frozenset({"idle", "unknown"})
@@ -100,6 +103,7 @@ class Api:
         self.clock = clock
         self._last_public_start: float | None = None
         self._last_public_confirm: float | None = None
+        self._last_public_stop: float | None = None
         self._tasks: set[asyncio.Future] = set()
 
     def restart_guard(self) -> str | None:
@@ -133,6 +137,7 @@ class Api:
         add("POST", "/api/op/costmaps/clear", self._authed(self._op("/api/costmaps/clear")))
         add("POST", "/api/public/start_tour", self.public_start_tour)
         add("POST", "/api/public/confirm", self.public_confirm)
+        add("POST", "/api/public/stop", self.public_stop)
 
     # -- сессия -----------------------------------------------------------------
 
@@ -378,6 +383,45 @@ class Api:
         return web.json_response(
             {"error": "refused", "reason": reason}, status=409 if status < 500 else 502
         )
+
+    # -- публичный «Стоп» во время движения ---------------------------------------
+
+    async def public_stop(self, request: web.Request) -> web.Response:
+        """Остановить робота на месте без входа -- только пока он едет."""
+        del request
+        reason = self._public_stop_refusal()
+        if reason is not None:
+            self.journal.write("public_stop", ok=False, reason=reason)
+            return web.json_response({"error": "refused", "reason": reason}, status=409)
+
+        status, upstream = await self.bridge.command("/api/tour/stop", {}, "public")
+        if 200 <= status < 300:
+            self.journal.write("public_stop", ok=True, status=status)
+            return web.json_response({"ok": True})
+        detail = ""
+        if isinstance(upstream, dict):
+            detail = upstream.get("error") or upstream.get("message") or ""
+        reason = f"upstream_{status}"
+        self.journal.write("public_stop", ok=False, reason=reason, detail=str(detail))
+        return web.json_response(
+            {"error": "refused", "reason": reason}, status=409 if status < 500 else 502
+        )
+
+    def _public_stop_refusal(self) -> str | None:
+        # E-STOP не проверяется: остановка безопасна в любом состоянии.
+        now = self.clock()
+        last = self._last_public_stop
+        if last is not None and now - last < PUBLIC_STOP_MIN_INTERVAL_S:
+            return "rate_limited"
+        self._last_public_stop = now
+        if self.monitor.state is not StackState.UP:
+            return "ros_down"
+        frame = self.watcher.latest()
+        if not mission_link_ok(frame):
+            return "no_mission_fsm"
+        if frame is None or frame.data.get("state_name") not in MOVING_STATES:
+            return "not_moving"
+        return None
 
     def _public_confirm_refusal(self) -> str | None:
         if not self.cfg.visitor_confirm_buttons:
