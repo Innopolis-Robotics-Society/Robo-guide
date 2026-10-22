@@ -216,9 +216,12 @@ pid-namespace SIGKILL'ом. Поэтому `restart` делает по шага�
 рестарт launcher'а. Пока не выбран — `default_tour`. `GET /api/tour/current` открыт,
 `POST /api/tour/current {tour_id}` требует входа.
 
-`POST /api/public/start_tour` — **единственная команда без входа**. Без тела; `tour_id` от
-клиента игнорируется, стартует всегда текущий тур с `X-Operator: public`. Стопа с экрана
-показа нет. Отказ — `409 {"error":"refused","reason":…}`; проверки по порядку:
+Там же — флаг «Спрашивать подтверждение «Идём дальше?»» (переключатель в меню «Экскурсия»,
+`POST /api/tour/confirm {"enabled": bool}`, с входом; по умолчанию **выключен**). Оба старта
+(оператор и `/api/public/start_tour`) шлют его в мост как `confirm_between_stops`.
+
+`POST /api/public/start_tour` — команда без входа (как и `/api/public/confirm` и `/api/public/stop`). Без тела; `tour_id` от
+клиента игнорируется, стартует всегда текущий тур с `X-Operator: public`. Отказ — `409 {"error":"refused","reason":…}`; проверки по порядку:
 
 | `reason` | Условие |
 |---|---|
@@ -280,6 +283,8 @@ pid-namespace SIGKILL'ом. Поэтому `restart` делает по шага�
 | `POST /api/op/tour/start`, `/tour/stop`, `/go_home`, `/go_to/parking`, `/go_to/charging`, `/localization/reset`, `/costmaps/clear` | да | команды в мост; 409 `ros_down`, если не `UP` |
 | `POST /api/public/start_tour` | нет | см. выше |
 | `POST /api/public/confirm` | нет | ответ на «Идём дальше?», см. выше |
+| `POST /api/public/stop` | нет | «Стоп» во время движения, см. выше |
+| `POST /api/tour/confirm` | да | флаг «Идём дальше?» |
 | `GET /ros/*`, WS `/ros/ws` | нет | прокси на мост, allowlist: `api/tours`, `api/media/*`, `media/*`, `ws`; не-GET → 405 |
 
 Без сессии — `401 {"error":"auth_required"}`. Команды оператора всегда стартуют текущий тур,

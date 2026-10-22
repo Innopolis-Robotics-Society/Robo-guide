@@ -35,6 +35,7 @@ TOURS = {"tours": [{"id": "expo_one", "name": "Expo"}, {"id": "expo_two", "name"
 
 AUTHED_ROUTES = [
     ("POST", "/api/tour/current"),
+    ("POST", "/api/tour/confirm"),
     ("POST", "/api/stack/start"),
     ("POST", "/api/stack/restart"),
     ("GET", "/api/stack/log"),
@@ -287,6 +288,7 @@ def test_current_tour_default_set_and_persisted(tmp_path):
             assert await (await e.client.get("/api/tour/current")).json() == {
                 "tour_id": "expo_one",
                 "source": "default",
+                "confirm_between_stops": False,
             }
             await e.login()
             for bad in ("", "a b", "x" * 65, "../etc", 5, None):
@@ -298,6 +300,30 @@ def test_current_tour_default_set_and_persisted(tmp_path):
             assert await (await e2.client.get("/api/tour/current")).json() == {
                 "tour_id": "expo_two",
                 "source": "state",
+                "confirm_between_stops": False,
+            }
+
+    run(go())
+
+
+def test_confirm_toggle_persisted_and_sent_on_tour_start(tmp_path):
+    async def go():
+        async with env(tmp_path, default_tour="expo_one") as e:
+            await e.login()
+            await e.client.post("/api/tour/current", json={"tour_id": "expo_two"})
+            for bad in ("true", 1, None):
+                resp = await e.client.post("/api/tour/confirm", json={"enabled": bad})
+                assert resp.status == 400, bad
+            resp = await e.client.post("/api/tour/confirm", json={"enabled": True})
+            assert await resp.json() == {"confirm_between_stops": True}
+            assert (await e.client.post("/api/op/tour/start")).status == 200
+            assert e.calls[-1]["body"] == {"tour_id": "expo_two", "confirm_between_stops": True}
+        async with env(tmp_path, default_tour="expo_one") as e2:
+            # флаг и тур живут в одном state.json и не затирают друг друга
+            assert await (await e2.client.get("/api/tour/current")).json() == {
+                "tour_id": "expo_two",
+                "source": "state",
+                "confirm_between_stops": True,
             }
 
     run(go())
@@ -310,7 +336,7 @@ def test_op_routes_need_ros_up(tmp_path):
     async def go():
         async with env(tmp_path, up=False) as e:
             await e.login()
-            for _, path in AUTHED_ROUTES[4:]:
+            for _, path in AUTHED_ROUTES[5:]:
                 resp = await e.client.post(path, json={})
                 assert resp.status == 409, path
                 assert await resp.json() == {"error": "ros_down"}
@@ -330,7 +356,7 @@ def test_op_tour_start_uses_current_tour_and_ignores_client_body(tmp_path):
             assert resp.status == 200
             (call,) = e.calls
             assert call["path"] == "/api/tour/start"
-            assert call["body"] == {"tour_id": "expo_two"}
+            assert call["body"] == {"tour_id": "expo_two", "confirm_between_stops": False}
             assert call["headers"]["X-Operator"] == "pin"
             assert call["headers"]["X-Bridge-Token"] == "tok"
 
@@ -379,7 +405,7 @@ def test_public_start_success_ignores_client_tour_and_needs_no_session(tmp_path)
             assert await resp.json() == {"ok": True, "tour_id": "expo_two"}
             (call,) = e.calls
             assert call["path"] == "/api/tour/start"
-            assert call["body"] == {"tour_id": "expo_two"}
+            assert call["body"] == {"tour_id": "expo_two", "confirm_between_stops": False}
             assert call["headers"]["X-Operator"] == "public"
 
     run(go())

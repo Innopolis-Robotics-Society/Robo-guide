@@ -120,6 +120,7 @@ class Api:
         add("GET", "/api/auth/status", self.auth_status)
         add("GET", "/api/tour/current", self.tour_current)
         add("POST", "/api/tour/current", self._authed(self.tour_set))
+        add("POST", "/api/tour/confirm", self._authed(self.tour_set_confirm))
         add("POST", "/api/stack/start", self._authed(self.stack_start))
         add("POST", "/api/stack/restart", self._authed(self.stack_restart))
         add("GET", "/api/stack/log", self._authed(self.stack_log))
@@ -224,9 +225,15 @@ class Api:
     # -- текущий тур ------------------------------------------------------------
 
     async def tour_current(self, request: web.Request) -> web.Response:
-        """Текущий тур: из state.json или default_tour."""
+        """Текущий тур: из state.json или default_tour; плюс флаг «Идём дальше?»."""
         tour_id, source = self.tour.current()
-        return web.json_response({"tour_id": tour_id, "source": source})
+        return web.json_response(
+            {
+                "tour_id": tour_id,
+                "source": source,
+                "confirm_between_stops": self.tour.confirm_between_stops(),
+            }
+        )
 
     async def tour_set(self, request: web.Request) -> web.Response:
         """Сделать тур текущим (только с входом)."""
@@ -244,6 +251,17 @@ class Api:
             "tour_current", operator=operator, tour_id=tour_id, previous=previous, status=200
         )
         return web.json_response({"tour_id": tour_id, "source": "state"})
+
+    async def tour_set_confirm(self, request: web.Request) -> web.Response:
+        """Включить/выключить «Идём дальше?» для следующих стартов тура."""
+        enabled = (await _json_object(request)).get("enabled")
+        operator = request["operator"]
+        if not isinstance(enabled, bool):
+            self.journal.write("tour_confirm", operator=operator, status=400)
+            return web.json_response({"error": "invalid_body"}, status=400)
+        self.tour.set_confirm_between_stops(enabled)
+        self.journal.write("tour_confirm", operator=operator, enabled=enabled, status=200)
+        return web.json_response({"confirm_between_stops": enabled})
 
     # -- стек -------------------------------------------------------------------
 
@@ -318,12 +336,18 @@ class Api:
                 return web.json_response({"error": "ros_down"}, status=409)
             payload = dict(body or {})
             if tour:
-                payload["tour_id"] = self.tour.current()[0]
+                payload.update(self._tour_start_payload())
             status, upstream = await self.bridge.command(bridge_path, payload, operator)
             self._log_command(bridge_path, operator, status, tour_id=payload.get("tour_id"))
             return web.json_response(upstream, status=status)
 
         return handler
+
+    def _tour_start_payload(self) -> dict[str, Any]:
+        return {
+            "tour_id": self.tour.current()[0],
+            "confirm_between_stops": self.tour.confirm_between_stops(),
+        }
 
     def _log_command(self, path: str, operator: str, status: int, **extra: Any) -> None:
         extra = {k: v for k, v in extra.items() if v is not None}
@@ -340,7 +364,7 @@ class Api:
             return web.json_response({"error": "refused", "reason": reason}, status=409)
 
         status, upstream = await self.bridge.command(
-            "/api/tour/start", {"tour_id": tour_id}, "public"
+            "/api/tour/start", self._tour_start_payload(), "public"
         )
         if 200 <= status < 300:
             self.journal.write("public_start", tour_id=tour_id, ok=True, status=status)

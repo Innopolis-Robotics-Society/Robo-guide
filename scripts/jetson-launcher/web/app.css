@@ -515,6 +515,21 @@ dialog::backdrop {
   flex: 1 1 auto;
 }
 
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.switch-row input {
+  width: 1.6rem;
+  height: 1.6rem;
+  accent-color: var(--accent);
+}
+
 .kv {
   display: grid;
   grid-template-columns: max-content 1fr;

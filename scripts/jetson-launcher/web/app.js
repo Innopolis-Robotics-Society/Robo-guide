@@ -130,6 +130,7 @@
   };
   const tourListEl = document.getElementById("tour-list");
   const tourEmptyEl = document.getElementById("tour-empty");
+  const confirmToggle = document.getElementById("confirm-toggle");
   const btnStart = document.getElementById("btn-start");
   const btnStop = document.getElementById("btn-stop");
   const btnHome = document.getElementById("btn-home");
@@ -184,6 +185,7 @@
   let stackChecks = { container: false, launch: false, bridge: false };
   let stackLastError = "";
   let currentTourId = "";
+  let confirmBetweenStops = false;
   let tours = []; // [{id, name}] из /ros/api/tours, только пока стек UP
   let toursLoaded = false;
   let toursLoading = false;
@@ -399,6 +401,9 @@
     }
     if (cur.ok && typeof cur.data.tour_id === "string") {
       currentTourId = cur.data.tour_id;
+    }
+    if (cur.ok && typeof cur.data.confirm_between_stops === "boolean") {
+      confirmBetweenStops = cur.data.confirm_between_stops;
     }
     if (stackState === "UP" && !toursLoaded) loadTours();
     if (promoManifest === null) refreshPromo();
@@ -791,6 +796,8 @@
 
     const current = findTour(currentTourId);
     btnStart.textContent = current ? `Старт: ${current.name || current.id}` : "Старт";
+    // Флаг живёт в launcher (state.json), не в ROS: переключать можно и без стека.
+    confirmToggle.checked = confirmBetweenStops;
 
     renderStatusHeader();
     renderSessionExpiry();
@@ -1199,6 +1206,21 @@
 
   btnConfirmOk.addEventListener("click", () => confirmDialog.close("ok"));
   btnConfirmCancel.addEventListener("click", () => confirmDialog.close("cancel"));
+
+  confirmToggle.addEventListener("change", async () => {
+    const enabled = confirmToggle.checked;
+    const res = await request("POST", "/api/tour/confirm", { enabled });
+    if (res.ok) {
+      confirmBetweenStops = enabled;
+      showMenuMessage(
+        enabled ? "Буду спрашивать «Идём дальше?»" : "Без вопроса «Идём дальше?»",
+        "ok"
+      );
+    } else if (res.status !== 401) {
+      showMenuMessage(errorText(res));
+    }
+    render();
+  });
 
   async function setCurrentTour(tourId) {
     const res = await request("POST", "/api/tour/current", { tour_id: tourId });
