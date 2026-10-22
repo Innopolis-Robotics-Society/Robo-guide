@@ -66,8 +66,9 @@ RPLIDAR C1, раньше стояло дефолтное 100.0, поправле
 одной и той же точки; см. "Известные проблемы", п. 5.
 
 **bt_navigator** — своё дерево
-`behavior_trees/navigate_to_pose_with_recovery.xml` (recovery: clear →
-BackUp+`SayAction` → Spin 1.57 → Wait 10 → большой BackUp+Spin). Плагин
+`behavior_trees/navigate_to_pose_with_recovery.xml` (recovery по кругу:
+«отойдите» + Wait 3 → Spin 1.57 или Wait 3 → большой BackUp+Spin или Wait 3;
+каждая ветка очищает оба костмапа, до 20 повторов). Плагин
 `say_action_bt_node` из `guide_robot_bt_nodes`. `default_server_timeout`
 оставлен **150 мс** (не 20 из `dev_behavior`). Groot выключен.
 

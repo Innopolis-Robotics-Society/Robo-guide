@@ -1,7 +1,13 @@
 <?xml version="1.0"?>
 <root main_tree_to_execute="NavigateToPose">
 <BehaviorTree ID="NavigateToPose">
-<RecoveryNode number_of_retries="6" name="NavigateRecovery">
+<!--
+  number_of_retries 20 (было 6). Цикл recovery теперь короткий (~5-8 с), и 6
+  попыток сгорали бы в толпе за ~40 с, после чего NavigateToPose ABORTED и
+  mission FSM молча пропускает остановку (navigating.py _skip_stop). Общий
+  предел на переезд держит FSM: nav_stop_timeout_s (mission.yaml, 180 с).
+-->
+<RecoveryNode number_of_retries="20" name="NavigateRecovery">
 
 
   <!--normal navigation-->
@@ -23,7 +29,17 @@
 
   </PipelineSequence>
 
-  <!-- recovery branch, if ClearEntireCostmap of global/local map does not help-->
+  <!--
+    recovery branch. Разобрано в симуляции 2026-10-22 (кольцо цилиндров вокруг
+    робота): в толпе BackUp и Spin выходят за ~0.03 с по "Collision Ahead", от
+    старых веток оставались только фраза и Wait 10 -- робот стоял молча до
+    15 с и не пробовал ехать, даже если люди уже ушли. Отметки ушедших людей
+    в глобальном костмапе снимал только ClearBothMaps, до которого RoundRobin
+    доходил через раз.
+    Поэтому: каждая ветка ОЧИЩАЕТ оба костмапа до следующей попытки, ожидания
+    короткие (3 с), а манёвр, упёршийся в препятствие, падает в Wait, а не
+    дальше по RoundRobin (иначе две фразы подряд).
+  -->
   <ReactiveFallback name="RecoveryFallback">
 
     <!-- if goal updated ->next tick ──-->
@@ -31,32 +47,46 @@
 
     <RoundRobin name="RecoveryActions">
 
-      <!-- clearing maps -->
-      <Sequence name="ClearBothMaps">
-        <ClearEntireCostmap name="ClearLocal"
+      <!-- Просим отойти и даём на это время. BackUp здесь нет: в толпе он
+           не едет, а -X (сторона экрана) -- как раз туда, где стоят люди. -->
+      <Sequence name="AskToStepAside">
+        <SayAction text="Внимание, отойдите!" server_name="say"/>
+        <Wait wait_duration="3"/>
+        <ClearEntireCostmap name="ClearLocalAfterAsk"
             service_name="local_costmap/clear_entirely_local_costmap"/>
-        <ClearEntireCostmap name="ClearGlobal"
+        <ClearEntireCostmap name="ClearGlobalAfterAsk"
             service_name="global_costmap/clear_entirely_global_costmap"/>
       </Sequence>
 
-
-      <!-- BackUp with voice warning -->
-      <Sequence name="BackUpWithWarning">
-        <SayAction text="Внимание, отойдите!" server_name="say"/>
-        <BackUp backup_dist="0.30" backup_speed="0.05"/>
+      <!-- Поворот досматривает лидарами сектора, где могли остаться отметки.
+           Если повернуться некуда -- просто ждём. -->
+      <Sequence name="ClearAndSpin">
+        <ClearEntireCostmap name="ClearLocalBeforeSpin"
+            service_name="local_costmap/clear_entirely_local_costmap"/>
+        <ClearEntireCostmap name="ClearGlobalBeforeSpin"
+            service_name="global_costmap/clear_entirely_global_costmap"/>
+        <Fallback name="SpinOrWait">
+          <Spin spin_dist="1.57"/>
+          <Wait wait_duration="3"/>
+        </Fallback>
       </Sequence>
 
-
-      <Spin spin_dist="1.57"/>
-
-
-      <Wait wait_duration="10"/>
-
-      <!-- the worst situation. large backup and spin with voice warning-->
-      <Sequence name="LargeBackupAndSpin">
-        <SayAction text="Внимание, робот отъезжает!" server_name="say"/>
-        <BackUp backup_dist="0.60" backup_speed="0.05"/>
-        <Spin spin_dist="3.14"/>
+      <!-- the worst situation. large backup and spin with voice warning.
+           time_allowance 20: 0.60 м на 0.05 м/с -- 12 с, а стоковый
+           time_allowance BackUp 10 с -- ветка не доезжала никогда. -->
+      <Sequence name="ClearAndLargeBackup">
+        <ClearEntireCostmap name="ClearLocalBeforeBackup"
+            service_name="local_costmap/clear_entirely_local_costmap"/>
+        <ClearEntireCostmap name="ClearGlobalBeforeBackup"
+            service_name="global_costmap/clear_entirely_global_costmap"/>
+        <Fallback name="LargeBackupOrWait">
+          <Sequence name="LargeBackupAndSpin">
+            <SayAction text="Внимание, робот отъезжает!" server_name="say"/>
+            <BackUp backup_dist="0.60" backup_speed="0.05" time_allowance="20"/>
+            <Spin spin_dist="3.14"/>
+          </Sequence>
+          <Wait wait_duration="3"/>
+        </Fallback>
       </Sequence>
 
     </RoundRobin>
