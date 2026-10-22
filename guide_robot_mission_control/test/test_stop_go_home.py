@@ -1,4 +1,4 @@
-"""Task A: `~/request_stop` (A1), `~/go_home` (A2), chunk-прогресс (A3).
+"""Task A: `~/request_stop` (A1), `~/go_home` (A2), chunk-прогресс (A3); `~/go_to_base`.
 
 См. `task_A_mission_control_prereq.md` -- критерии приёмки этого файла
 зеркалят пункты 1-9 оттуда (кроме тех, что требуют живого стенда: точная
@@ -351,6 +351,66 @@ def test_estop_during_standalone_return_holds_then_resumes(harness: MissionTestH
         step=_NAV_DURATION_S + 0.02,
         max_iterations=200,
     )
+    del client_node
+
+
+# -- ~/go_to_base: стоянка/подзарядка ------------------------------------------
+
+
+def test_go_to_base_sends_nav_goal_to_location_pose(harness: MissionTestHarness) -> None:
+    harness.nav.duration_s = _NAV_DURATION_S
+    harness.fixtures.add_location("parking", x=20.0, y=1.0, category="charging")
+    fsm_node = make_fsm_node(harness, home_pose=[3.0, 4.0, 0.0])
+    client_node = harness.make_client_node()
+    state = state_listener(client_node)
+
+    accepted, message = fsm_node.go_to_base("parking")
+    assert accepted is True
+    assert message == ""
+
+    wait_until(state_is(state, MissionState.STATE_RETURNING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.last_goal_pose is not None, timeout_s=15.0)
+    assert harness.nav.last_goal_pose.pose.position.x == pytest.approx(20.0)
+    assert harness.nav.last_goal_pose.pose.position.y == pytest.approx(1.0)
+
+    pump_clock(
+        harness,
+        state_is(state, MissionState.STATE_IDLE),
+        step=_NAV_DURATION_S + 0.02,
+        max_iterations=200,
+    )
+    del client_node
+
+
+def test_go_to_base_unknown_location_rejected(harness: MissionTestHarness) -> None:
+    fsm_node = make_fsm_node(harness)
+
+    accepted, message = fsm_node.go_to_base("parking")
+    assert accepted is False
+    assert message == "unknown_location"
+    assert harness.nav.goals_received == 0
+
+
+def test_go_to_base_rejected_while_returning_elsewhere(harness: MissionTestHarness) -> None:
+    harness.nav.mode = harness.nav.MODE_HANG
+    harness.fixtures.add_location("charging", x=-2.0, y=0.8, category="charging")
+    fsm_node = make_fsm_node(harness)
+    client_node = harness.make_client_node()
+    state = state_listener(client_node)
+
+    accepted, _message = fsm_node.go_home()
+    assert accepted is True
+    wait_until(state_is(state, MissionState.STATE_RETURNING), timeout_s=15.0)
+
+    accepted2, message2 = fsm_node.go_to_base("charging")
+    assert accepted2 is False
+    assert message2 == "robot_moving"
+    assert harness.nav.goals_received == 1
+
+    # См. test_go_home_idempotent_while_already_returning: не оставлять
+    # MODE_HANG-поток живым после теста.
+    fsm_node.request_stop()
+    wait_until(state_is(state, MissionState.STATE_IDLE), timeout_s=15.0)
     del client_node
 
 

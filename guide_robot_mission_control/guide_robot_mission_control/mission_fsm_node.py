@@ -145,6 +145,8 @@ class MissionFsmNode(LifecycleNode):
         # "already_returning" в _srv_go_home, оба читают один и тот же слот
         # _active_ctx (даёт бесплатное взаимное исключение RunTour<->go_home).
         self._standalone_return_active = False
+        # Куда едет standalone-возврат: "" -- home_pose, иначе id базы (go_to_base).
+        self._standalone_dest = ""
         self._last_state_msg: MissionState | None = None
         self._state_lock = threading.Lock()
 
@@ -279,6 +281,15 @@ class MissionFsmNode(LifecycleNode):
         # потоке, не в этом callback_group-потоке.
         self._go_home_srv = self.create_service(
             Trigger, "~/go_home", self._srv_go_home, callback_group=self._cb_reentrant
+        )
+        # То же, что go_home, но на служебную точку location_server
+        # (стоянка/подзарядка, category=charging) с её yaw. Тип Redirect.srv
+        # переиспользован ради (location_id -> accepted, message).
+        self._go_to_base_srv = self.create_service(
+            Redirect,
+            "~/go_to_base",
+            self._srv_go_to_base,
+            callback_group=self._cb_reentrant,
         )
         self._confirm_srv = self.create_service(
             SetBool,
@@ -585,11 +596,20 @@ class MissionFsmNode(LifecycleNode):
             result_detail,
         )
 
-    def _make_context(self, goal_handle: object, locations: dict[str, PoseStamped]) -> FsmContext:
+    def _make_context(
+        self,
+        goal_handle: object,
+        locations: dict[str, PoseStamped],
+        *,
+        home_pose: PoseStamped | None = None,
+    ) -> FsmContext:
+        """`home_pose` подменяет параметр home_pose (поездка на базу, go_to_base)."""
         # [x, y, yaw]; yaw пока не переносится в quaternion
         home_pose_param = self._params["home_pose"]
 
         def _home_pose() -> PoseStamped:
+            if home_pose is not None:
+                return home_pose
             pose = PoseStamped()
             pose.header.frame_id = str(self._params["home_frame"])
             pose.pose.position.x = float(home_pose_param[0])
@@ -680,12 +700,12 @@ class MissionFsmNode(LifecycleNode):
             return []
         return [chunk.text for chunk in future.result().chunks]
 
-    def _fetch_locations(self) -> dict[str, PoseStamped] | None:
+    def _fetch_locations(self, category: str = "") -> dict[str, PoseStamped] | None:
         if not self._list_locations_client.wait_for_service(
             timeout_sec=self._params["service_call_timeout_s"]
         ):
             return None
-        future = self._list_locations_client.call_async(ListLocations.Request())
+        future = self._list_locations_client.call_async(ListLocations.Request(category=category))
         if not _wait_future(future, self.context, self._params["service_call_timeout_s"]):
             return None
         return {loc.id: loc.pose for loc in future.result().locations}
@@ -839,7 +859,7 @@ class MissionFsmNode(LifecycleNode):
         response.success = True
         return response
 
-    def go_home(self) -> tuple[bool, str]:
+    def go_home(self, target: PoseStamped | None = None, *, dest: str = "") -> tuple[bool, str]:
         """A2: standalone-возврат на базу без тура -- решает синхронно, едет асинхронно.
 
         Тот же паттерн, что и `redirect()` -- (accepted, message) сразу, а
@@ -847,6 +867,8 @@ class MissionFsmNode(LifecycleNode):
         здесь -- в новый поток, см. `_run_standalone_return`, т.к. вне тура
         нет action-execute_callback, за который можно было бы спрятать
         блокирующий прогон).
+
+        `target`/`dest` -- поездка на базу вместо home_pose (см. `go_to_base`).
         """
         if not self._active:
             return False, "not_active"
@@ -854,15 +876,19 @@ class MissionFsmNode(LifecycleNode):
             if self._active_ctx is not None:
                 # Тот же слот _active_ctx занят либо обычным туром (REJECT,
                 # оператор сначала жмёт "Стоп"), либо уже идущим
-                # standalone-возвратом (идемпотентно, второй goal не шлём).
+                # standalone-возвратом (идемпотентно, второй goal не шлём;
+                # в другую точку -- REJECT, тоже сначала "Стоп").
                 if self._standalone_return_active:
-                    return True, "already_returning"
+                    if self._standalone_dest == dest:
+                        return True, "already_returning"
+                    return False, "robot_moving"
                 return False, "tour_active"
             if self._safety_hold_event.is_set():
                 return False, "safety_hold"
-            ctx = self._make_context(None, {})
+            ctx = self._make_context(None, {}, home_pose=target)
             self._active_ctx = ctx
             self._standalone_return_active = True
+            self._standalone_dest = dest
         threading.Thread(target=self._run_standalone_return, args=(ctx,), daemon=True).start()
         return True, ""
 
@@ -871,6 +897,30 @@ class MissionFsmNode(LifecycleNode):
     ) -> Trigger.Response:
         del request
         response.success, response.message = self.go_home()
+        return response
+
+    def go_to_base(self, location_id: str) -> tuple[bool, str]:
+        """Standalone-поездка на служебную точку (стоянка/подзарядка) -- go_home с её позой.
+
+        Позу берёт у location_server по category=charging: служебные точки
+        is_public=false и пустым ListLocations не отдаются. Дальше всё как у
+        go_home -- тот же слот _active_ctx, состояние RETURNING, «Стоп» его
+        отменяет.
+        """
+        if not self._active:
+            return False, "not_active"
+        locations = self._fetch_locations(category="charging")
+        if locations is None:
+            return False, "location_server_unavailable"
+        target = locations.get(location_id)
+        if target is None:
+            return False, "unknown_location"
+        return self.go_home(target, dest=location_id)
+
+    def _srv_go_to_base(
+        self, request: Redirect.Request, response: Redirect.Response
+    ) -> Redirect.Response:
+        response.accepted, response.message = self.go_to_base(str(request.location_id))
         return response
 
     def _run_standalone_return(self, ctx: FsmContext) -> None:

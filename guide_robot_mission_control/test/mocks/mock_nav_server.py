@@ -44,6 +44,7 @@ class MockNavServer(Node):
         # тест на "cancel не уезжает домой" отличает 1 (только к остановке)
         # от 2 (остановка + home_pose).
         self.goals_received = 0
+        self.last_goal_pose = None  # PoseStamped последней цели (go_to_base: поза базы)
 
         self._action_server = ActionServer(
             self,
@@ -65,6 +66,7 @@ class MockNavServer(Node):
     def _execute(self, goal_handle: object) -> NavigateToPose.Result:
         request: NavigateToPose.Goal = goal_handle.request  # type: ignore[attr-defined]
         self.goals_received += 1
+        self.last_goal_pose = request.pose
         mode = self.mode_queue.pop(0) if self.mode_queue else self.mode
         start = self.get_clock().now()
 
