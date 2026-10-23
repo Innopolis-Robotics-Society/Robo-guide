@@ -52,5 +52,9 @@ setup(
     zip_safe=True,
     maintainer="mook",
     license="Apache-2.0",
-    entry_points={"console_scripts": []},
+    entry_points={
+        "console_scripts": [
+            "nav_snapshot = guide_robot_navigation.nav_snapshot_node:main",
+        ]
+    },
 )

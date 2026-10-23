@@ -218,7 +218,23 @@ BT-дерево `Smooth`-экшен вообще не вызывает — но 
   `bond_timeout: 4.0`). Аргументы: `use_sim_time`, `autostart_nav`,
   `nav2_params_file` (дефолт `config/first_iter_nav2.yaml` — резолвится
   через `get_package_share_directory`, т.е. в **установленный** share, а не
-  в исходники, так что это именно рендеренный файл).
+  в исходники, так что это именно рендеренный файл). Там же узел
+  `nav_snapshot` (см. ниже).
+
+## Снимки навигации (`nav_snapshot`)
+
+Узел держит в памяти последние 15 с навигационных топиков (`/scan`,
+`/scan_left`, `/scan_right`, `/local_costmap/costmap`, `/plan`, `/amcl_pose`,
+`/cmd_vel_mux_safety`, `/cmd_vel_filtered`, сонары) и, когда узел BT
+`RecoveryFallback` переходит в RUNNING, пишет их и ещё 30 с после в rosbag
+(sqlite3) `~/ros2_ws/log/nav_snapshots/<дата_время>_recovery/` вместе с
+`/behavior_tree_log`. Повторные recovery того же эпизода продлевают снимок
+(не дальше 120 с), хранятся последние 30 снимков. На Jetson
+`~/ros2_ws/log` смонтирован в `Robo-guide/log` хоста.
+
+Цена: ~3.6 % ядра и ~83 МБ RSS на x86 в симуляции (подписки `raw=True`, без
+десериализации), снимок ~14 МБ на 70 с. Глобальный костмап не пишется
+(~0.5 МБ на сообщение). Разбор: `ros2 bag info`, `ros2 bag play` + RViz.
 - **`launch/navigation.launch.py`** — добавляет `nav2_bringup
   localization_launch.py` (`map_server` + `amcl`) поверх `common`. Аргументы:
   `use_sim_time`, `autostart_nav`, `map` (дефолт `map/map.yaml` —

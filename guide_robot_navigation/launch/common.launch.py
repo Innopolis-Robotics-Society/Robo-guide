@@ -93,6 +93,16 @@ def generate_launch_description():
         ],
     )
 
+    # Снимок навигационных топиков (rosbag в ~/ros2_ws/log/nav_snapshots) на
+    # каждый вход BT в recovery -- разбирать "застрял", не держа постоянный bag.
+    nav_snapshot_node = Node(
+        package="guide_robot_navigation",
+        executable="nav_snapshot",
+        name="nav_snapshot",
+        output="screen",
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
     return LaunchDescription(
         [
             declare_use_sim_time,
@@ -103,5 +113,6 @@ def generate_launch_description():
             lifecycle_safety,
             mux_safety_node,
             mux_final_node,
+            nav_snapshot_node,
         ]
     )
