@@ -46,11 +46,18 @@ def test_no_sad_state() -> None:
     assert "sad" not in _load_yaml()["states"]
 
 
-def test_themes_light_is_black_on_white() -> None:
+def test_themes_light_is_dark_grey_on_white() -> None:
+    # Тело глаза тёмно-серое, а не чёрное: владелец выбрал #4d4d4d, на панели
+    # чёрный читался как провал на белом. Светлее ореола #d6d6d6 -- иначе
+    # граница глаза и ореола пропадает.
     g = _load_yaml()["global"]
     assert g["theme"] in g["themes"]
     light = g["themes"]["light"]
-    assert (light["eye_color"], light["bg_color"]) == ("#000000", "#ffffff")
+    assert light["bg_color"] == "#ffffff"
+    assert light["eye_color"] == "#4d4d4d"
+    eye = int(light["eye_color"][1:], 16)
+    halo = int(light["halo_color"][1:], 16)
+    assert eye < halo
 
 
 def test_every_theme_has_three_hex_colors() -> None:
