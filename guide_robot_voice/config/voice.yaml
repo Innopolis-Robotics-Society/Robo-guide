@@ -107,6 +107,9 @@
     tts_fallback: silero
     fallback_retry_s: 30.0
     fallback_persistent_retry_s: 300.0
+    # Предзаписанные клаузы того же голоса (scripts/prerecord_tts.py): тексты
+    # экскурсии играются с диска, сеть нужна только ответам ЛЛМ. "" -- выключено.
+    prerecorded_dir: ""
     device: ""                    # пусто -> устройство по умолчанию
     device_rate: 48000
     block_ms: 20                  # верхняя граница остатка при отмене

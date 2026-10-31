@@ -24,6 +24,7 @@
     language: "ru"
     greeting_text: "Здравствуйте! Я проведу для вас экскурсию."
     confirm_question_text: "Идём дальше?"
+    redirect_done_phrase: "Мы на месте. Чем ещё могу помочь?"
     # Договорив вопрос, открыть окно ответа без имени у wake-гейта (как
     # кнопка «Задать вопрос»); без гейта сервиса нет -- слушаем и так.
     prompt_listen_service: "/voice_session_manager/prompt_listen"

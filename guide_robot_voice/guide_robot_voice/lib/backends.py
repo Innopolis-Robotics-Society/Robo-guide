@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import json
 import logging
@@ -594,6 +595,19 @@ class YandexBackend:
         if self._model:
             body["model"] = self._model
         return body
+
+    def prerecord_key(self, text: str, voice: str = "") -> str:
+        """Имя предзаписи клаузы: хэш всего, от чего зависит звук, кроме частоты.
+
+        Текст после strip_yandex_markup, голос, амплуа, скорость, модель --
+        смена любого из них даёт другой ключ, и старая запись просто
+        перестаёт находиться, а не звучит чужим голосом. Частота не входит:
+        PrerecordedBackend пересчитывает запись к частоте бэкенда.
+        """
+        body = self.build_request(text, voice)
+        del body["outputAudioSpec"]
+        canonical = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
 
     def synthesize(self, text: str, voice: str = "") -> Iterator[np.ndarray]:
         """Синтезировать фразу и отдавать PCM int16 кадрами по мере прихода."""

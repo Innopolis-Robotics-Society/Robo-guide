@@ -621,6 +621,33 @@ WARN с причиной. Облако пропускается 30 с при с�
 на старте — нода всё равно поднимается и говорит Silero. Вернуться на Silero
 совсем — запуск без `tts_backend:=yandex` (по умолчанию `silero`).
 
+#### Предзапись экскурсии
+
+Тексты экскурсии (все `content/*.yaml` семантической карты и фразы mission:
+приветствие, «Идём дальше?», «Продолжаю.», фраза редиректа) заранее
+синтезируются тем же голосом Яндекса прямо в WAV — без микрофона, поэтому в
+записи нет звука помещения. С `prerecorded_dir` (в XVF-профиле —
+`src/guide_robot_voice/prerecorded`, в git не лежит) tts_node играет найденную
+клаузу с диска, сеть нужна только ответам ЛЛМ и тому, чего нет в записи
+(промах — в лог `нет предзаписи, синтез: ...`, счётчик `prerecorded_hits` в
+`/diagnostics`). Поверх `FallbackBackend`: записанное звучит голосом Яндекса
+даже без сети и без ключа.
+
+Запись ищется по клаузе (тот же `TextChunker`, `min_chars`/`max_clause_chars`
+из тех же yaml), имя файла — хэш текста, голоса, амплуа, скорости и модели.
+После правки текста или смены голоса — перезаписать, иначе изменённое уйдёт
+в облако:
+
+```bash
+# на хосте робота, из корня репозитория
+set -a; . ./.env; set +a
+python3 scripts/prerecord_tts.py --dry-run   # что будет записано
+python3 scripts/prerecord_tts.py --prune     # дописать новое, удалить устаревшее
+```
+
+Уже записанное не синтезируется повторно; нода подхватывает новые файлы без
+перезапуска.
+
 **Действие**: `say` (`Say.action`) — `text`, `voice`, `priority`, `scope`,
 `interruptible`, `max_duration` → `status`, `spoken_text`, `spoken_chars`,
 `spoken_duration`, `message`; feedback — `clause_index`, `clause_count`,
@@ -644,7 +671,8 @@ latency).
 `keepalive_hz=20.0` вместо нулей в паузах, против авто-mute USB-кодека;
 см. «Известные грабли»), `min_chars=40`, `max_clause_chars=180`,
 `chars_per_second=14.0`, `heartbeat_hz=5.0`, `max_queue=8`,
-`warmup_text="Система готова"`, `default_priority=50` (подставляется,
+`warmup_text="Система готова"`, `prerecorded_dir=""` (каталог предзаписей, см. выше),
+`default_priority=50` (подставляется,
 если `Say.Goal.priority == 0`).
 
 ## Контракт сообщений (сводно)
