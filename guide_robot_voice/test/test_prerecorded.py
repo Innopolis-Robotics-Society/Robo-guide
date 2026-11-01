@@ -8,7 +8,13 @@ from collections.abc import Iterator
 import numpy as np
 
 from guide_robot_voice.lib.backends import YandexBackend
-from guide_robot_voice.lib.prerecorded import PrerecordedBackend, read_wav, write_wav
+from guide_robot_voice.lib.prerecorded import (
+    PrerecordedBackend,
+    level_to,
+    measure_loudness,
+    read_wav,
+    write_wav,
+)
 
 
 class _CountingBackend:
@@ -105,3 +111,61 @@ def test_yandex_prerecord_key_ignores_rate_but_not_voice() -> None:
     assert at_16k.prerecord_key(text) != at_16k.prerecord_key("Меня зовут Фирая!")
     # Пробелы схлопывает strip_yandex_markup -- тот же звук, тот же ключ.
     assert at_16k.prerecord_key(text) == at_16k.prerecord_key("Меня  зовут Фирая.")
+
+
+def _tone(seconds: float, amplitude: float, rate: int = 16000) -> np.ndarray:
+    t = np.arange(int(seconds * rate)) / rate
+    return amplitude * np.sin(2 * np.pi * 220 * t)
+
+
+def test_loudness_finds_burst_and_ignores_pauses() -> None:
+    rate = 16000
+    calm = _tone(2.0, 3000)
+    pause = np.zeros(rate)
+    shout = _tone(0.5, 12000)  # +12 дБ к ровной речи
+    pcm = np.concatenate([calm, pause, shout, calm]).astype(np.int16)
+
+    loudness = measure_loudness(pcm, rate)
+
+    expected_level = 20 * np.log10(3000 / np.sqrt(2) / 32768)
+    assert abs(loudness.level_db - expected_level) < 0.5
+    assert 10.0 < loudness.burst_db < 13.0
+    assert abs(loudness.peak_db - 20 * np.log10(12000 / 32768)) < 0.1
+
+
+def test_even_speech_has_no_burst() -> None:
+    loudness = measure_loudness(_tone(3.0, 5000).astype(np.int16), 16000)
+    assert loudness.burst_db < 0.5
+
+
+def test_level_to_target_and_peak_ceiling() -> None:
+    rate = 16000
+    quiet = _tone(2.0, 1000).astype(np.int16)
+    leveled, gain = level_to(quiet, measure_loudness(quiet, rate), target_db=-20.0)
+    assert abs(measure_loudness(leveled, rate).level_db + 20.0) < 0.3
+    assert gain > 0
+
+    # Пик упёрся бы в клиппинг -- усиление ограничено потолком, а не целью.
+    spiky = np.concatenate([_tone(2.0, 1000), _tone(0.2, 30000)]).astype(np.int16)
+    leveled, _ = level_to(spiky, measure_loudness(spiky, rate), -20.0, peak_ceiling_db=-1.0)
+    assert measure_loudness(leveled, rate).peak_db <= -0.9
+
+
+def test_limiter_lifts_level_past_peak_without_clipping() -> None:
+    rate = 16000
+    spiky = np.concatenate([_tone(2.0, 1000), _tone(0.2, 30000), _tone(2.0, 1000)]).astype(
+        np.int16
+    )
+    before = measure_loudness(spiky, rate)
+    target = before.level_db + 6.0
+
+    leveled, gain = level_to(spiky, before, target, max_limit_db=4.0, sample_rate=rate)
+    after = measure_loudness(leveled, rate)
+
+    # Без лимитера усиление упёрлось бы в запас до потолка; лимитер даёт ещё 4 дБ.
+    headroom = -1.0 - before.peak_db
+    assert abs(gain - (headroom + 4.0)) < 0.01
+    assert abs(after.level_db - (before.level_db + gain)) < 0.3
+    assert after.peak_db <= -0.9
+    # Тихая речь вдали от пика не тронута лимитером.
+    assert np.allclose(leveled[:rate], spiky[:rate] * 10 ** (gain / 20), atol=1)

@@ -33,6 +33,13 @@
     # Innopark вход = expo_meeting. Робот стартует со стоянки (parking в
     # locations_innopark.yaml), не отсюда.
     home_pose: [-0.1868, -0.0299, 3.14159]
+    # Каждый RunTour начинается со сброса global/local костмап Nav2 (следы
+    # людей с прошлой экскурсии). Сбой сброса -- WARN, тур всё равно едет.
+    clear_costmaps_on_tour_start: true
+    clear_costmap_services:
+      - "/global_costmap/clear_entirely_global_costmap"
+      - "/local_costmap/clear_entirely_local_costmap"
+    clear_costmaps_timeout_s: 2.0
 
 /**/narration_server:
   ros__parameters:

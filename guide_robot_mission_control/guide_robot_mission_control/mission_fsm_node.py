@@ -29,6 +29,7 @@ from guide_robot_msgs.srv import (
     SubmitAnswer,
 )
 from nav2_msgs.action import NavigateToPose
+from nav2_msgs.srv import ClearEntireCostmap
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -131,6 +132,17 @@ class MissionFsmNode(LifecycleNode):
         self.declare_parameter("prompt_listen_service", "/voice_session_manager/prompt_listen")
         self.declare_parameter("home_frame", "map")
         self.declare_parameter("home_pose", [0.0, 0.0, 0.0])
+        # Перед каждым RunTour -- сбросить костмапы Nav2: следы людей и
+        # «призраки» с прошлой экскурсии иначе мешают первому маршруту.
+        self.declare_parameter("clear_costmaps_on_tour_start", True)
+        self.declare_parameter(
+            "clear_costmap_services",
+            [
+                "/global_costmap/clear_entirely_global_costmap",
+                "/local_costmap/clear_entirely_local_costmap",
+            ],
+        )
+        self.declare_parameter("clear_costmaps_timeout_s", 2.0)
 
         self._active = False
         self._params: dict[str, object] = {}
@@ -191,6 +203,9 @@ class MissionFsmNode(LifecycleNode):
             "prompt_listen_service": str(self.get_parameter("prompt_listen_service").value),
             "home_frame": str(self.get_parameter("home_frame").value),
             "home_pose": [float(v) for v in self.get_parameter("home_pose").value],
+            "clear_costmaps_timeout_s": float(
+                self.get_parameter("clear_costmaps_timeout_s").value
+            ),
         }
 
         self._narrate_client = ActionClient(
@@ -201,6 +216,14 @@ class MissionFsmNode(LifecycleNode):
             self, NavigateToPose, "navigate_to_pose", callback_group=self._cb_reentrant
         )
         self._list_tours_client = self.create_client(ListTours, "/location_server/list_tours")
+        self._clear_costmap_clients = (
+            [
+                self.create_client(ClearEntireCostmap, str(name))
+                for name in self.get_parameter("clear_costmap_services").value
+            ]
+            if self.get_parameter("clear_costmaps_on_tour_start").value
+            else []
+        )
         self._list_locations_client = self.create_client(
             ListLocations, "/location_server/list_locations"
         )
@@ -524,6 +547,7 @@ class MissionFsmNode(LifecycleNode):
         # готовый список из TourPlan. Недоступный content_server/пустой
         # content_id -- транзит молча не звучит, тур это не блокирует.
         transit_chunks = self._fetch_transit_chunks(transit_content_id)
+        self._clear_costmaps()
 
         tour = TourPlan(
             stop_ids=stop_ids,
@@ -699,6 +723,30 @@ class MissionFsmNode(LifecycleNode):
         if not _wait_future(future, self.context, self._params["service_call_timeout_s"]):
             return []
         return [chunk.text for chunk in future.result().chunks]
+
+    def _clear_costmaps(self) -> None:
+        """Сбросить костмапы Nav2 перед туром; сбой -- WARN, тур всё равно едет.
+
+        Все запросы уходят разом и делят один бюджет clear_costmaps_timeout_s:
+        старт экскурсии не должен ждать по таймауту на каждую карту.
+        """
+        if not self._clear_costmap_clients:
+            return
+        deadline = time.monotonic() + float(self._params["clear_costmaps_timeout_s"])
+        pending: list[tuple[str, Future]] = []
+        for client in self._clear_costmap_clients:
+            if not client.wait_for_service(timeout_sec=max(0.0, deadline - time.monotonic())):
+                self.get_logger().warning(f"костмапа не сброшена: {client.srv_name} недоступен")
+                continue
+            pending.append((client.srv_name, client.call_async(ClearEntireCostmap.Request())))
+        cleared = []
+        for name, future in pending:
+            if _wait_future(future, self.context, max(0.0, deadline - time.monotonic())):
+                cleared.append(name)
+            else:
+                self.get_logger().warning(f"костмапа не сброшена: {name} не ответил вовремя")
+        if cleared:
+            self.get_logger().info(f"костмапы сброшены перед туром: {', '.join(cleared)}")
 
     def _fetch_locations(self, category: str = "") -> dict[str, PoseStamped] | None:
         if not self._list_locations_client.wait_for_service(
