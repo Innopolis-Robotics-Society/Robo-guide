@@ -12,6 +12,7 @@ find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)    # guide_robot_system.hpp включает rclcpp_lifecycle/state.hpp
+find_package(std_msgs REQUIRED)
 find_package(Threads REQUIRED)             # сторожевой таймер живёт в отдельном std::thread
 
 add_library(${PROJECT_NAME} SHARED
@@ -26,6 +27,7 @@ ament_target_dependencies(${PROJECT_NAME}
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  std_msgs
 )
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
 

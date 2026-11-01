@@ -27,26 +27,18 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from furo_head_capture import QUERY, Decoder, open_com  # noqa: E402
+from furo_head_packet import validate_head_packet  # noqa: E402
 
-ALLOWED_INSTR, ALLOWED_REG, ALLOWED_AXIS = 0x83, 0x1E, 0x2B
 COEF = 8.7266e-4
 ZERO = 1770
 
 
 def validate(hex_text: str) -> bytes:
     """Reject anything that is not our single known head-position packet."""
-    data = bytes(int(p, 16) for p in hex_text.split())
-    if data[:2] != b"\xFF\xFF":
-        raise SystemExit("нет заголовка FF FF")
-    if data[3] + 4 != len(data):
-        raise SystemExit(f"LEN={data[3]} требует {data[3] + 4} байт, пришло {len(data)}")
-    if (sum(data[2:]) & 0xFF) != 0xFF:
-        raise SystemExit("checksum не сходится")
-    if data[4] != ALLOWED_INSTR or data[5] != ALLOWED_REG:
-        raise SystemExit("разрешена только инструкция 83 / регистр 1E")
-    if data[7] != ALLOWED_AXIS:
-        raise SystemExit("разрешена только ось 2B")
-    return data
+    try:
+        return validate_head_packet(bytes(int(p, 16) for p in hex_text.split()))
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
 
 
 def main() -> int:
@@ -120,6 +112,10 @@ def main() -> int:
 
     before_med = statistics.median([head(fr) for fr in baseline]) if baseline else None
     med, lo, hi = statistics.median(after), min(after), max(after)
+    after_rows = [(head(fr), ts) for k, fr, ts in rows if k == "after"]
+    last_time = after_rows[-1][1]
+    tail = [(value, ts) for value, ts in after_rows if last_time - ts <= 1.0]
+    tail_values = [value for value, _ in tail]
     summary = {
         "target": target, "speed": speed, "zero_ref": ZERO,
         "before_median": before_med, "after_median": med,
@@ -129,6 +125,11 @@ def main() -> int:
         "target_error": med - target,
         "expected_delta": target - (before_med if before_med is not None else 0),
         "settle_s": args.seconds,
+        "last_window_s": last_time - tail[0][1],
+        "last_window_samples": len(tail_values),
+        "last_window_median": statistics.median(tail_values),
+        "last_window_spread": max(tail_values) - min(tail_values),
+        "last_window_target_error": statistics.median(tail_values) - target,
     }
     with open(os.path.join(out, "samples.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
@@ -141,6 +142,9 @@ def main() -> int:
 
     print(f"до      : {before_med}")
     print(f"после   : median={med}  min={lo}  max={hi}  размах={hi - lo}")
+    print(f"последнее окно: median={summary['last_window_median']}  "
+          f"размах={summary['last_window_spread']}  кадров={len(tail_values)}  "
+          f"длительность={summary['last_window_s']:.2f}с (остановка не подтверждена)")
     if before_med is not None:
         print(f"сдвиг   : {med - before_med:+.0f} ед  ({(med - before_med) / 20:+.1f}°)")
     print(f"цель    : {target}  ошибка {med - target:+.0f} ед")

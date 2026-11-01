@@ -13,6 +13,7 @@
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
+#include "std_msgs/msg/int32.hpp"
 
 namespace guide_robot_hardware {
 
@@ -75,6 +76,8 @@ private:
   /// Собрать и отправить 18-байтный пакет скоростей (слоты адресуются по позиции).
   /// Сам берёт serial_mutex_. Возвращает false, если пакет ушёл не полностью.
   bool writeSpeedPacket(double slot1_cmd, double slot2_cmd);
+  bool writeHeadPacket(int target);
+  void stopHeadInterface();
 
   /// Заголовок и контрольная сумма ENC_FRAME_LEN байт по адресу frame.
   bool isEncoderFrame(const uint8_t * frame) const;
@@ -124,6 +127,16 @@ private:
   // ответа энкодеров нельзя разрывать чужой посылкой. read() держит мьютекс на
   // всю транзакцию «запрос → ожидание → чтение» (не дольше ENC_RESPONSE_BUDGET_MS).
   std::mutex serial_mutex_;
+  rclcpp::Node::SharedPtr head_node_;
+  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr head_publisher_;
+  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr head_subscription_;
+  std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> head_executor_;
+  std::thread head_thread_;
+  std::mutex head_command_mutex_;
+  int head_pending_{-1};
+  int64_t head_pending_ns_{0};
+  std::atomic<int64_t> head_feedback_ns_{0};
+  std::atomic<bool> head_active_{false};
 
   // Параметры моторов из URDF
   int left_wheel_id_{46};

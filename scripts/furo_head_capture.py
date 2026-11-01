@@ -53,15 +53,13 @@ class Decoder:
 
 @contextmanager
 def open_com(port):
-    """Own the COM device exclusively and configure it for 115200 8N1."""
+    """Own the COM device at 115200 8N1; keep raw/no-echo settings on exit."""
     fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-    previous = None
     exclusive = False
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         fcntl.ioctl(fd, termios.TIOCEXCL)
         exclusive = True
-        previous = termios.tcgetattr(fd)
         settings = termios.tcgetattr(fd)
         settings[0] = settings[1] = settings[3] = 0
         settings[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
@@ -70,15 +68,15 @@ def open_com(port):
         termios.tcsetattr(fd, termios.TCSANOW, settings)
         yield fd
     finally:
+        # This is a controller COM port, not an interactive terminal. Restoring
+        # its initial cooked settings can re-enable kernel ECHO and echo RX
+        # bytes back into the controller outside our explicit write() calls.
+        # The raw configuration must therefore remain in place on close.
         try:
-            if previous is not None:
-                termios.tcsetattr(fd, termios.TCSANOW, previous)
+            if exclusive:
+                fcntl.ioctl(fd, termios.TIOCNXCL)
         finally:
-            try:
-                if exclusive:
-                    fcntl.ioctl(fd, termios.TIOCNXCL)
-            finally:
-                os.close(fd)
+            os.close(fd)
 
 
 def mark_window(samples, now, window):

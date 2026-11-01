@@ -33,6 +33,7 @@ from launch.substitutions import (
     FindExecutable,
     LaunchConfiguration,
     PathJoinSubstitution,
+    PythonExpression,
 )
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -53,6 +54,10 @@ def generate_launch_description():
     )
     declare_mock = DeclareLaunchArgument(
         "use_mock_hardware", default_value="false", description="Launch robot without hardware"
+    )
+    declare_sound_head = DeclareLaunchArgument(
+        "launch_sound_head", default_value="true",
+        description="Track speech with the FURO head and configure reSpeaker LEDs",
     )
     declare_usb_preflight = DeclareLaunchArgument(
         "usb_preflight",
@@ -327,6 +332,14 @@ def generate_launch_description():
         controller_manager_node,
         diff_drive_controller,
         joint_state_broadcaster,
+        Node(
+            package="guide_robot_voice", executable="sound_head_node", output="screen",
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("launch_sound_head"), "'.lower() in ('true','1') and '",
+                use_mock_hardware, "'.lower() not in ('true','1') and '",
+                voice_profile, "' == 'xvf3800'",
+            ])),
+        ),
         perception,
         nav_stack,
         high_level_stack,
@@ -359,6 +372,7 @@ def generate_launch_description():
         [
             declare_use_sim_time,
             declare_mock,
+            declare_sound_head,
             declare_usb_preflight,
             declare_launch_sensors,
             declare_launch_sonar,

@@ -38,6 +38,7 @@ setup(
             f"asr_node = {PACKAGE_NAME}.asr_node:main",
             f"wakeword_node = {PACKAGE_NAME}.wakeword_node:main",
             f"voice_session_manager = {PACKAGE_NAME}.voice_session_manager:main",
+            f"sound_head_node = {PACKAGE_NAME}.sound_head_node:main",
         ],
     },
 )

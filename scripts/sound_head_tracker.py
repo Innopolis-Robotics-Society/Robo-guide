@@ -5,17 +5,18 @@
 угол головы и отправляет пакет позиции по /dev/tty_motors.
 
 Важно, что уже измерено на этом роботе:
-  * ноль по энкодеру -- около 1770 (НЕ 1900 из конфига DynRobot);
+  * ноль по энкодеру -- около 1780 (НЕ 1900 из конфига DynRobot);
   * масштаб ~20 единиц на градус;
   * команды меньше ~40-60 единиц (2-3°) голова игнорирует -- мёртвая зона.
 
 Поэтому у скрипта есть --min-step (по умолчанию 3°): мельче он не командует.
 
 Ограничения безопасности:
-  * угол головы зажимается в +-limit И в измеренный механический диапазон
-    raw 1335..2360 (упоры 1305/2390 минус запас 30 единиц);
+  * угол головы зажимается в +-limit и в диапазон raw 1550..2360;
+    1550 — проверенный текущий минимум контроллера, 2360 — с запасом до упора;
   * пакет валидируется перед записью;
   * --dry-run ничего не отправляет;
+  * небольшая компенсация применяется к первой команде по энкодеру;
   * при Ctrl+C голова остаётся там, где стояла (порт просто закрывается).
 
 Примеры:
@@ -37,11 +38,13 @@ import os
 import statistics
 import sys
 import time
+import signal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from furo_head_capture import QUERY, Decoder, open_com  # noqa: E402
 from furo_head_packet import head_packet  # noqa: E402
-from xvf3800_doa import open_dev, read_doa  # noqa: E402
+from furo_head_feedback import HeadFeedback, compensated_target, can_retarget  # noqa: E402
+from xvf3800_doa import open_dev, read_doa, read_azimuths  # noqa: E402
 
 
 def read_head_raw(fd, timeout=1.0):
@@ -77,19 +80,19 @@ def wrap180(deg: float) -> float:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--zero", type=int, default=1770, help="сырой энкодер, соответствующий 'прямо'")
+    ap.add_argument("--zero", type=int, default=1780, help="сырой энкодер, соответствующий 'прямо'")
     ap.add_argument("--units-per-deg", type=float, default=20.0, help="единиц энкодера на градус")
     ap.add_argument("--sign", type=float, default=-1.0, choices=(1.0, -1.0),
                     help="+1/-1: на этом роботе меньший raw = поворот вправо, поэтому -1")
-    ap.add_argument("--fov", type=float, default=90.0,
+    ap.add_argument("--fov", type=float, default=50.0,
                     help="полуугол пеленга, который отдаётся на полный ход головы; "
                          "дальше -- упор. Меньше fov = резче реакция у центра")
     ap.add_argument("--curve", type=float, default=0.6,
                     help="нелинейность: 1 = линейно внутри fov, <1 = активнее у центра")
-    ap.add_argument("--limit", type=float, default=15.0,
+    ap.add_argument("--limit", type=float, default=20.0,
                     help="максимальный угол головы, градусы (механика позволяет до ~20)")
-    ap.add_argument("--raw-min", type=int, default=1335,
-                    help="жёсткий нижний предел raw (измеренный упор 1305 + запас)")
+    ap.add_argument("--raw-min", type=int, default=1550,
+                    help="нижний предел raw (проверенный минимум контроллера)")
     ap.add_argument("--raw-max", type=int, default=2360,
                     help="жёсткий верхний предел raw (измеренный упор 2390 - запас)")
     ap.add_argument("--min-step", type=float, default=3.0, help="минимальный шаг команды, градусы")
@@ -99,11 +102,13 @@ def main() -> int:
     ap.add_argument("--mirror", type=float, default=-1.0, choices=(1.0, -1.0),
                     help="+1/-1: массив перевёрнут и зеркалит; на этом роботе -1")
     ap.add_argument("--stable", type=float, default=12.0, help="разброс пеленга для доверия, градусы")
-    ap.add_argument("--hold-s", type=float, default=0.28,
+    ap.add_argument("--hold-s", type=float, default=0.18,
                     help="сколько СЕКУНД сторона должна держаться, прежде чем двигать")
     ap.add_argument("--cooldown", type=float, default=0.6,
                     help="пауза только при СМЕНЕ стороны, чтобы не дёргалась")
-    ap.add_argument("--window", type=int, default=4, help="сколько отсчётов усреднять")
+    ap.add_argument("--same-side-interval", type=float, default=2.5,
+                    help="минимальный интервал между целями с одной стороны, с")
+    ap.add_argument("--window", type=int, default=3, help="сколько отсчётов усреднять")
     ap.add_argument("--speed", type=int, default=10, help="raw-скорость в пакете головы")
     ap.add_argument("--port", default="/dev/tty_motors")
     ap.add_argument("--interval", type=float, default=0.04, help="период опроса DOA, с")
@@ -115,16 +120,26 @@ def main() -> int:
     ap.add_argument("--sign-test", action="store_true",
                     help="проверка знака: +A -> 0 -> -A -> 0, потом выход")
     ap.add_argument("--verbose", action="store_true", help="печатать каждый отсчёт")
+    ap.add_argument("--trace-doa", action="store_true", help="логировать все пеленги и VAD с временем")
+    ap.add_argument("--trace-beams", action="store_true", help="логировать четыре угла лучей AEC")
     args = ap.parse_args()
 
-    if args.fov <= 0:
+    if not math.isfinite(args.fov) or args.fov <= 0:
         ap.error("--fov должен быть > 0")
-    if not 0 < args.curve <= 3:
+    if not math.isfinite(args.curve) or not 0 < args.curve <= 3:
         ap.error("--curve должен быть в (0, 3]")
-    if not 0 < args.limit <= 22:
+    if not math.isfinite(args.limit) or not 0 < args.limit <= 22:
         ap.error("--limit должен быть в (0, 22] -- это меньше измеренного хода")
-    if args.min_step <= 0:
+    if not math.isfinite(args.min_step) or args.min_step <= 0:
         ap.error("--min-step должен быть > 0")
+    if not math.isfinite(args.same_side_interval) or args.same_side_interval < 0:
+        ap.error("--same-side-interval должен быть >= 0")
+    if not math.isfinite(args.units_per_deg) or args.units_per_deg <= 0:
+        ap.error("--units-per-deg должен быть > 0")
+    if args.window < 1 or not 0 <= args.speed <= 65535:
+        ap.error("некорректное окно или скорость")
+    if not 0 <= args.raw_min < args.raw_max <= 65535 or not args.raw_min <= args.zero <= args.raw_max:
+        ap.error("некорректные пределы или центр вне пределов")
 
     usb_fd = open_dev()
     ser_fd = None
@@ -146,6 +161,11 @@ def main() -> int:
     hold_side = 0
     hold_since = 0.0
     sent_side = 0
+    feedback = HeadFeedback()
+    decoder = Decoder()
+    feedback_log_at = 0.0
+    beams_log_at = 0.0
+    feedback_synced = False
 
     if args.sign_test:
         # Короткая последовательность, по которой человек глазами определяет знак:
@@ -156,6 +176,7 @@ def main() -> int:
         try:
             for want_deg in seq:
                 raw = args.zero + int(round(args.sign * want_deg * args.units_per_deg))
+                raw = max(args.raw_min, min(args.raw_max, raw))
                 frame = head_packet(raw, args.speed)
                 if ser_fd is not None:
                     os.write(ser_fd, frame)
@@ -168,8 +189,7 @@ def main() -> int:
             print("\nпрервано")
         finally:
             os.close(usb_fd)
-            if ser_fd is not None:
-                os.close(ser_fd)
+            stack.close()
         print("\nЕсли на первом шаге голова ушла ВПРАВО -- знак +1 верный.")
         print("Если ВЛЕВО -- перезапусти с --sign -1.")
         return 0
@@ -187,18 +207,51 @@ def main() -> int:
         sent_deg = args.sign * (start_raw - args.zero) / args.units_per_deg
         print(f"голова на старте: raw={start_raw} -> {sent_deg:+.1f}° от нуля")
     else:
-        print("голова на старте: позицию прочитать не удалось, считаю 0°")
+        print("голова на старте: жду свежую телеметрию")
 
     print(f"ноль={args.zero}  ед/°={args.units_per_deg:g}  знак={args.sign:+.0f}  "
           f"лимит=±{args.limit:g}°  шаг>={args.min_step:g}°  "
           f"{'DRY-RUN' if args.dry_run else args.port}")
     print("жди vad=1 и держи звук с одной стороны; Ctrl+C для выхода\n")
 
+    def stop_on_term(signum, frame):
+        raise KeyboardInterrupt
+
+    previous_sigterm = signal.signal(signal.SIGTERM, stop_on_term)
     try:
         while True:
             if args.duration and time.monotonic() - started >= args.duration:
                 break
+            now = time.monotonic()
+            if ser_fd is not None:
+                try:
+                    chunk = os.read(ser_fd, 4096)
+                except BlockingIOError:
+                    chunk = b""
+                if chunk:
+                    frames = decoder.feed(chunk)
+                    # Ignore the repeated initial burst and count at most one
+                    # observation per loop rather than every buffered frame.
+                    if frames and now - started >= 2.0:
+                        actual = int.from_bytes(frames[-1][14:18], "little", signed=True)
+                        feedback.sample(now, actual)
+                position = feedback.position(now)
+                if position and not feedback_synced:
+                    sent_deg = args.sign * (position[0] - args.zero) / args.units_per_deg
+                    feedback_synced = True
+                    print(f"свежий энкодер: raw={position[0]:.0f}, "
+                          f"позиция={sent_deg:+.1f}°", flush=True)
+                if position and now - feedback_log_at >= 0.5:
+                    print(f"[{now-started:5.2f}s] feedback_raw={position[0]:.0f} "
+                          f"spread={position[1]} target={feedback.target}", flush=True)
+                    feedback_log_at = now
             angle, vad = read_doa(usb_fd)
+            if args.trace_doa:
+                print(f"[{time.monotonic()-started:5.2f}s] doa_raw={angle} vad={vad}", flush=True)
+            if args.trace_beams and time.monotonic() - beams_log_at >= 0.25:
+                beams = [round(math.degrees(value) % 360, 1) for value in read_azimuths(usb_fd)]
+                beams_log_at = time.monotonic()
+                print(f"[{beams_log_at-started:5.2f}s] beams={beams} doa={angle} vad={vad}", flush=True)
 
             if not vad:
                 history.clear()
@@ -234,7 +287,7 @@ def main() -> int:
 
             # Подтверждение по ВРЕМЕНИ, а не по числу опросов: иначе задержка
             # зависит от частоты опроса и растёт вместе с ней.
-            if side == 0 or held < args.hold_s:
+            if held < args.hold_s:
                 if args.verbose:
                     print(f"  doa={mean:5.1f}° пеленг={bearing:+6.1f}° -- держится {held:.2f}/{args.hold_s:.2f}с")
                 time.sleep(args.interval)
@@ -247,6 +300,9 @@ def main() -> int:
                     print(f"  doa={mean:5.1f}° пеленг={bearing:+6.1f}° -- антидребезг смены стороны")
                 time.sleep(args.interval)
                 continue
+            if moves and not can_retarget(side, sent_side, now - last_send, args.same_side_interval):
+                time.sleep(args.interval)
+                continue
 
             # Линейная карта по всему кругу давала у центра крохи: пеленг +-90
             # при пределе +-20 -- это 0.2 градуса головы на градус звука.
@@ -255,8 +311,11 @@ def main() -> int:
             u = max(-1.0, min(1.0, bearing / args.fov)) if args.fov > 0 else 0.0
             shaped = math.copysign(abs(u) ** args.curve, u)
             want_deg = args.limit * shaped
+            requested_raw = args.zero + int(round(args.sign * want_deg * args.units_per_deg))
+            raw = max(args.raw_min, min(args.raw_max, requested_raw))
+            effective_deg = args.sign * (raw - args.zero) / args.units_per_deg
 
-            if abs(want_deg - sent_deg) < args.min_step:
+            if abs(effective_deg - sent_deg) < args.min_step:
                 if args.verbose:
                     print(f"  doa={mean:5.1f}° пеленг={bearing:+6.1f}° цель={want_deg:+5.1f}° "
                           f"-- в мёртвой зоне шага")
@@ -266,20 +325,24 @@ def main() -> int:
                 time.sleep(args.interval)
                 continue
 
-            raw = args.zero + int(round(args.sign * want_deg * args.units_per_deg))
-            raw_clamped = max(args.raw_min, min(args.raw_max, raw))
-            if raw_clamped != raw:
-                print(f"  ВНИМАНИЕ: raw {raw} вне безопасного диапазона, зажат в {raw_clamped}")
-                raw = raw_clamped
-            frame = head_packet(raw, args.speed)
-
+            if raw != requested_raw:
+                print(f"  raw {requested_raw} ограничен до {raw}")
             note = ""
             if ser_fd is not None:
-                os.write(ser_fd, frame)
-                note = "отправлено"
+                position = feedback.position(time.monotonic())
+                if position is None:
+                    print("нет свежих показаний энкодера: команда пропущена", flush=True)
+                    time.sleep(args.interval)
+                    continue
+                command_raw = compensated_target(raw, position[0], args.raw_min, args.raw_max)
+                frame = head_packet(command_raw, args.speed)
+                if os.write(ser_fd, frame) != len(frame):
+                    raise OSError("неполная запись команды головы")
+                feedback.command(raw)
+                note = f"отправлено {command_raw}, энкодер {position[0]:.0f}"
             else:
                 note = "dry-run"
-            sent_deg = want_deg
+            sent_deg = effective_deg
             sent_side = side
             last_send = time.monotonic()
             moves += 1
@@ -289,10 +352,11 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\nостановлено пользователем")
     finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
         os.close(usb_fd)
         stack.close()
 
-    print(f"\nкоманд отправлено: {moves}; голова оставлена на {sent_deg:+.1f}°")
+    print(f"\nкоманд отправлено: {moves}; последняя заданная цель {sent_deg:+.1f}°")
     return 0
 
 

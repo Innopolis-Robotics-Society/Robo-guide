@@ -8,6 +8,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 import unittest
 from pathlib import Path
@@ -35,6 +36,21 @@ class CaptureTest(unittest.TestCase):
             frames.extend(decoder.feed(bytes([byte])))
         self.assertEqual(frames, [frame(1747), frame(2200)])
         self.assertGreaterEqual(decoder.bad_checksums, 1)
+
+    def test_close_does_not_restore_cooked_echo(self):
+        """Never re-enable kernel echo on a binary controller port at exit."""
+        master, slave = pty.openpty()
+        try:
+            settings = termios.tcgetattr(slave)
+            settings[3] |= termios.ECHO | termios.ICANON | termios.ISIG
+            termios.tcsetattr(slave, termios.TCSANOW, settings)
+            with capture.open_com(os.ttyname(slave)):
+                pass
+            after = termios.tcgetattr(slave)
+            self.assertEqual(after[3] & (termios.ECHO | termios.ICANON | termios.ISIG), 0)
+        finally:
+            os.close(slave)
+            os.close(master)
 
     def test_marks_reject_stale_or_incomplete_windows(self):
         """Do not turn a missing response or an old sample into a limit."""

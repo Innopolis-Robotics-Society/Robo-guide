@@ -15,33 +15,16 @@ from __future__ import annotations
 import argparse
 import sys
 
-# Разрешённые значения для этой оси: только они попадут в порт.
-ALLOWED_INSTR = 0x83
-ALLOWED_REG = 0x1E
-ALLOWED_AXIS = 0x2B
+from furo_head_packet import validate_head_packet
 
 
 def parse_and_validate(hex_text: str) -> bytes:
     parts = hex_text.split()
     try:
         data = bytes(int(p, 16) for p in parts)
-    except ValueError:
-        raise SystemExit("hex содержит не-байты")
-    if len(data) < 7:
-        raise SystemExit(f"слишком короткий кадр: {len(data)} байт")
-    if data[0] != 0xFF or data[1] != 0xFF:
-        raise SystemExit("нет заголовка FF FF")
-    if data[3] + 4 != len(data):
-        raise SystemExit(f"LEN={data[3]} требует {data[3] + 4} байт, пришло {len(data)}")
-    if (sum(data[2:]) & 0xFF) != 0xFF:
-        raise SystemExit("checksum не сходится")
-    if data[4] != ALLOWED_INSTR:
-        raise SystemExit(f"инструкция {data[4]:02X}, разрешена только {ALLOWED_INSTR:02X}")
-    if data[5] != ALLOWED_REG:
-        raise SystemExit(f"регистр {data[5]:02X}, разрешён только {ALLOWED_REG:02X}")
-    if data[7] != ALLOWED_AXIS:
-        raise SystemExit(f"ось {data[7]:02X}, разрешена только {ALLOWED_AXIS:02X}")
-    return data
+        return validate_head_packet(data)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
 
 
 def main() -> int:

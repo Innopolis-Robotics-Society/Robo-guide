@@ -7,6 +7,17 @@ import struct
 import sys
 
 
+def validate_head_packet(data: bytes) -> bytes:
+    """Accept exactly the known 13-byte head-position layout, including ID."""
+    if len(data) != 13:
+        raise ValueError("кадр головы должен содержать ровно 13 байт")
+    if data[:8] != bytes.fromhex("FF FF FE 09 83 1E 04 2B"):
+        raise ValueError("разрешён только кадр FF FF FE 09 83 1E 04 2B ...")
+    if sum(data[2:]) & 0xFF != 0xFF:
+        raise ValueError("checksum не сходится")
+    return data
+
+
 def head_packet(position: int, speed: int = 10) -> bytes:
     """Match MobilityJoveTech.DriveOneAxis(0x2B, position, speed)."""
     if not 0 <= position <= 65535 or not 0 <= speed <= 65535:
