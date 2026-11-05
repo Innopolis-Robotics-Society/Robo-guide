@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from guide_launcher.stack import PROBE_FAILS_TO_DROP, StackError, StackMonitor, StackState
+from guide_launcher.stack import LAUNCH_PATTERN, PROBE_FAILS_TO_DROP, StackError, StackMonitor, StackState
 from helpers import Clock, FakeDocker, make_cfg
 
 
@@ -194,7 +194,7 @@ def test_restart_order_graceful_stop_then_docker_restart_then_start(tmp_path):
         "inspect", "exec:pkill", "exec:pgrep", "exec:pgrep", "exec:pgrep", "exec:pgrep",
         "restart", "exec:-d",
     ]  # fmt: skip
-    assert d.calls[1] == ["docker", "exec", "c", "pkill", "-INT", "-f", "ros2 launch"]
+    assert d.calls[1] == ["docker", "exec", "c", "pkill", "-INT", "-f", LAUNCH_PATTERN]
     assert ["docker", "restart", "-t", "20", "c"] in d.calls
     assert clock.slept == pytest.approx(1.5)
 
@@ -341,3 +341,22 @@ def test_up_drops_immediately_when_container_or_launch_dies(tmp_path):
         assert await m.poll() is StackState.DOWN
 
     asyncio.run(go())
+
+
+@pytest.mark.parametrize("command,expected", [
+    ("/usr/bin/python3 /opt/ros/humble/bin/ros2 launch guide_robot_bringup robot.launch.py", True),
+    ("/opt/ros/humble/bin/ros2 launch guide_robot_bringup robot.launch.py", True),
+    ("ros2 launch guide_robot_bringup robot.launch.py", True),
+    ("pgrep -f ros2 launch", False),
+    ("pkill -INT -f ros2 launch", False),
+    ("bash -c echo ros2 launch", False),
+    ("/usr/bin/python3 /opt/ros/humble/bin/ros2 topic list", False),
+])
+def test_launch_pattern_matches_only_launch_executable(command, expected):
+    import subprocess
+    import shlex
+    script = (Path(__file__).parents[1] / "start_stack.sh").read_text()
+    assignment = next(line for line in script.splitlines() if line.startswith("LAUNCH_PATTERN="))
+    assert shlex.split(assignment.split("=", 1)[1])[0] == LAUNCH_PATTERN
+    result = subprocess.run(["grep", "-Eq", LAUNCH_PATTERN], input=command, text=True)
+    assert (result.returncode == 0) is expected

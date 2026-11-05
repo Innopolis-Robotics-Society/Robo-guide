@@ -14,7 +14,8 @@ from .config import Config
 
 log = logging.getLogger(__name__)
 
-LAUNCH_PATTERN = "ros2 launch"
+# Anchor to the executable: concurrent pgrep probes must not match each other.
+LAUNCH_PATTERN = '^([^[:space:]]*/)?(python3([.][0-9]+)?[[:space:]]+([^[:space:]]*/)?)?ros2[[:space:]]+launch[[:space:]]'
 PROBE_FAILS_TO_DROP = 3
 GRACEFUL_STOP_WAIT_S = 20.0
 DOCKER_RESTART_GRACE_S = 20

@@ -15,7 +15,10 @@ HUB_SETTLE_S="${STACK_USB_SETTLE_S:-10}"
 read -r -a VOICE_ARGS <<<"${STACK_VOICE_ARGS-tts_backend:=yandex wakeword_enabled:=true \
 wakeword_barge_in_enabled:=true allow_unvalidated_wakeword_barge_in:=true}"
 
-if pgrep -f "ros2 launch" >/dev/null; then
+# Same executable-anchored pattern as guide_launcher.stack.LAUNCH_PATTERN.
+# An unanchored pattern also matches a concurrent monitoring pgrep command.
+LAUNCH_PATTERN='^([^[:space:]]*/)?(python3([.][0-9]+)?[[:space:]]+([^[:space:]]*/)?)?ros2[[:space:]]+launch[[:space:]]'
+if pgrep -f "$LAUNCH_PATTERN" >/dev/null; then
   exit 0
 fi
 
