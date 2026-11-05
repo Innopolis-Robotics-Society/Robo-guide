@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Optional GTK3 text-input-v1 bridge. Does not restart Weston or touch ROS.
+set -euo pipefail
+REV=79b23b2487462e2f219e79b68afd75d14e671cf1
+DEST=/opt/guide-kiosk-input
+DROP=/etc/systemd/system/kiosk-hdmi.service.d/30-textinput-v1.conf
+case "${1:-}" in
+  install)
+    BUILD=$(mktemp -d /tmp/guide-textinput-v1.XXXXXX)
+    git clone https://github.com/ashie/gtk-wayland-textinputv1.git "$BUILD/source"
+    git -C "$BUILD/source" checkout --detach "$REV"
+    (cd "$BUILD/source"; autoreconf -fi; ./configure; make -j2)
+    QUERY="$(pkg-config --variable=libdir gtk+-3.0)/libgtk-3-0/gtk-query-immodules-3.0"
+    test -x "$QUERY"
+    sudo install -d -m 755 "$DEST"
+    sudo install -m 644 "$BUILD/source/src/.libs/im-wltextinputv1.so" "$DEST/"
+    sudo install -m 644 "$BUILD/source/COPYING" "$DEST/COPYING"
+    printf '%s\n' "$REV" | sudo tee "$DEST/revision" >/dev/null
+    "$QUERY" "$DEST/im-wltextinputv1.so" > "$BUILD/immodules.cache"
+    grep -q '"wltextinputv1"' "$BUILD/immodules.cache"
+    sudo install -m 644 "$BUILD/immodules.cache" "$DEST/immodules.cache"
+    echo "Installed $REV; build retained at $BUILD. Run $0 enable to select it."
+    ;;
+  enable)
+    test -r "$DEST/immodules.cache"
+    test -r "$DEST/im-wltextinputv1.so"
+    sudo install -d -m 755 "$(dirname "$DROP")"
+    printf '%s\n' '[Service]' 'Environment=GTK_IM_MODULE=wltextinputv1' \
+      "Environment=GTK_IM_MODULE_FILE=$DEST/immodules.cache" | sudo tee "$DROP" >/dev/null
+    sudo systemctl daemon-reload
+    sudo systemctl restart kiosk-hdmi.service
+    ;;
+  disable)
+    if [ -f "$DROP" ]; then sudo mv "$DROP" "$DROP.disabled"; fi
+    sudo systemctl daemon-reload
+    sudo systemctl restart kiosk-hdmi.service
+    ;;
+  status)
+    systemctl show kiosk-hdmi.service -p ActiveState -p Environment
+    if [ -r "$DEST/revision" ]; then cat "$DEST/revision"; fi
+    ;;
+  *) echo "Usage: $0 {install|enable|disable|status}" >&2; exit 2 ;;
+esac

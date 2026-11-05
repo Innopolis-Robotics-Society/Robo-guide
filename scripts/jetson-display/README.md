@@ -88,3 +88,31 @@ sudo reboot
   энумерируется (`Cannot enable... attempt power cycle`). Пока безвредно.
 - `weston-screenshooter` с этого сеата не работает («unauthorized»): протокол
   привилегированный, клиент пускается только по горячей клавише weston, а клавиатуры нет.
+
+## Optional GTK3 → Weston text-input-v1 bridge
+
+The Jetson currently uses Weston 13 desktop-shell and WebKitGTK/GTK3. Its
+`weston-keyboard` runs already, but Weston advertises text-input-v1 while GTK's
+standard Wayland IM module uses v3; the kiosk previously loaded IBus.
+
+`kiosk-textinput-v1` builds the LGPL GTK module from
+https://github.com/ashie/gtk-wayland-textinputv1 at pinned revision
+`79b23b2487462e2f219e79b68afd75d14e671cf1`. Run as the normal Jetson user:
+
+```sh
+./scripts/jetson-display/kiosk-textinput-v1 install
+./scripts/jetson-display/kiosk-textinput-v1 enable
+./scripts/jetson-display/kiosk-textinput-v1 status
+# Roll back the kiosk-specific environment:
+./scripts/jetson-display/kiosk-textinput-v1 disable
+```
+
+Build dependencies: git, gcc, make, autotools/libtool, pkg-config, GTK3 and
+Wayland development headers, wayland-protocols and wayland-scanner. The script
+uses an isolated cache under `/opt/guide-kiosk-input`; it does not modify the
+system GTK cache. Only kiosk-hdmi is restarted; never restart Weston for this.
+The user must verify touch focus, SSID/password entry, backspace, selection,
+field switching, keyboard dismissal and required languages/special characters.
+Retain the web keyboard until this acceptance succeeds. Upstream Weston keyboard
+layouts may not cover Russian or all password symbols. This is an opt-in trial,
+not part of the default launcher installer.
