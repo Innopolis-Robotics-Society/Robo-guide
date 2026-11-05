@@ -59,10 +59,10 @@ function showNetworks(data){
  const head=table.createTHead().insertRow();
  for(const title of ['Название сети','Подключить','Забыть','Сигнал']){const th=document.createElement('th');th.scope='col';th.textContent=title;head.append(th);}
  const body=table.createTBody(),profiles=data.profiles||[],networks=data.networks||[];
- // Merge access points by SSID; keep the strongest signal and each saved profile.
+ // Show only discovered SSIDs; saved profiles annotate discovery, never add rows.
  const strongest=new Map();
  for(const n of networks){if(!strongest.has(n.ssid)||n.strength>strongest.get(n.ssid).strength)strongest.set(n.ssid,n);}
- const rows=profiles.map(p=>({profile:p,network:strongest.get(p.ssid),ssid:p.ssid}));
+ const rows=profiles.filter(p=>strongest.has(p.ssid)).map(p=>({profile:p,network:strongest.get(p.ssid),ssid:p.ssid}));
  for(const n of strongest.values())if(!profiles.some(p=>p.ssid===n.ssid))rows.push({network:n,ssid:n.ssid});
  rows.sort((a,b)=>(b.network?.strength??-1)-(a.network?.strength??-1)||a.ssid.localeCompare(b.ssid));
  for(const {profile,network,ssid} of rows){
