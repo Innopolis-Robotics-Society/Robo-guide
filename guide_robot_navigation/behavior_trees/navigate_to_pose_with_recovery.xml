@@ -30,15 +30,14 @@
   </PipelineSequence>
 
   <!--
-    recovery branch. Разобрано в симуляции 2026-10-22 (кольцо цилиндров вокруг
-    робота): в толпе BackUp и Spin выходят за ~0.03 с по "Collision Ahead", от
-    старых веток оставались только фраза и Wait 10 -- робот стоял молча до
-    15 с и не пробовал ехать, даже если люди уже ушли. Отметки ушедших людей
-    в глобальном костмапе снимал только ClearBothMaps, до которого RoundRobin
-    доходил через раз.
-    Поэтому: каждая ветка ОЧИЩАЕТ оба костмапа до следующей попытки, ожидания
-    короткие (3 с), а манёвр, упёршийся в препятствие, падает в Wait, а не
-    дальше по RoundRobin (иначе две фразы подряд).
+    recovery branch. Робот никуда не едет сам: просит людей отойти, ждёт,
+    очищает оба костмапа (отметки ушедших людей) и снова строит маршрут.
+    Spin/BackUp убраны (2026-10-31): в толпе они не едут ("Collision Ahead"),
+    а только удлиняют цикл; BackUp к тому же сдаёт назад туда, где люди.
+    RoundRobin чередует фразы: первая неудача — мягкая просьба, следующая —
+    строже, дальше по кругу. Фразы предзаписаны голосом Яндекса громче
+    экскурсии (scripts/prerecord_tts.py берёт их отсюда): поменяли текст —
+    перезапустить скрипт, иначе фраза уйдёт в облако с обычной громкостью.
   -->
   <ReactiveFallback name="RecoveryFallback">
 
@@ -47,10 +46,8 @@
 
     <RoundRobin name="RecoveryActions">
 
-      <!-- Просим отойти и даём на это время. BackUp здесь нет: в толпе он
-           не едет, а -X (сторона экрана) -- как раз туда, где стоят люди. -->
       <Sequence name="AskToStepAside">
-        <SayAction text="Внимание, отойдите!" server_name="say"/>
+        <SayAction text="Внимание! Пожалуйста, отойдите, роботу нужно проехать." server_name="say"/>
         <Wait wait_duration="3"/>
         <ClearEntireCostmap name="ClearLocalAfterAsk"
             service_name="local_costmap/clear_entirely_local_costmap"/>
@@ -58,35 +55,13 @@
             service_name="global_costmap/clear_entirely_global_costmap"/>
       </Sequence>
 
-      <!-- Поворот досматривает лидарами сектора, где могли остаться отметки.
-           Если повернуться некуда -- просто ждём. -->
-      <Sequence name="ClearAndSpin">
-        <ClearEntireCostmap name="ClearLocalBeforeSpin"
+      <Sequence name="InsistToStepAside">
+        <SayAction text="Внимание! Робот не может проехать. Пожалуйста, освободите дорогу." server_name="say"/>
+        <Wait wait_duration="3"/>
+        <ClearEntireCostmap name="ClearLocalAfterInsist"
             service_name="local_costmap/clear_entirely_local_costmap"/>
-        <ClearEntireCostmap name="ClearGlobalBeforeSpin"
+        <ClearEntireCostmap name="ClearGlobalAfterInsist"
             service_name="global_costmap/clear_entirely_global_costmap"/>
-        <Fallback name="SpinOrWait">
-          <Spin spin_dist="1.57"/>
-          <Wait wait_duration="3"/>
-        </Fallback>
-      </Sequence>
-
-      <!-- the worst situation. large backup and spin with voice warning.
-           time_allowance 20: 0.60 м на 0.05 м/с -- 12 с, а стоковый
-           time_allowance BackUp 10 с -- ветка не доезжала никогда. -->
-      <Sequence name="ClearAndLargeBackup">
-        <ClearEntireCostmap name="ClearLocalBeforeBackup"
-            service_name="local_costmap/clear_entirely_local_costmap"/>
-        <ClearEntireCostmap name="ClearGlobalBeforeBackup"
-            service_name="global_costmap/clear_entirely_global_costmap"/>
-        <Fallback name="LargeBackupOrWait">
-          <Sequence name="LargeBackupAndSpin">
-            <SayAction text="Внимание, робот отъезжает!" server_name="say"/>
-            <BackUp backup_dist="0.60" backup_speed="0.05" time_allowance="20"/>
-            <Spin spin_dist="3.14"/>
-          </Sequence>
-          <Wait wait_duration="3"/>
-        </Fallback>
       </Sequence>
 
     </RoundRobin>

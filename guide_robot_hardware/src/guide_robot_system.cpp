@@ -16,6 +16,7 @@
 #include <unordered_map>
 
 #include "guide_robot_hardware/speed_conversion.hpp"
+#include "guide_robot_hardware/head_protocol.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 
@@ -196,6 +197,7 @@ uint8_t protocolChecksum(const uint8_t * body, size_t len)
 
 GuideRobotSystem::~GuideRobotSystem()
 {
+  stopHeadInterface();
   // Последний рубеж: при SIGINT controller_manager не гарантирует прохода
   // deactivate→cleanup, а мотор-драйвер держит последнюю скорость залоченной.
   stopWatchdog();
@@ -438,6 +440,24 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_activate(const rclcpp_li
     return hardware_interface::CallbackReturn::ERROR;
   }
 
+  head_feedback_ns_.store(0);
+  head_active_.store(true);
+  head_node_ = std::make_shared<rclcpp::Node>("furo_head_serial_bridge");
+  std::atomic_store(
+    &head_publisher_, head_node_->create_publisher<std_msgs::msg::Int32>(
+      "/furo/head_encoder_raw", rclcpp::SensorDataQoS().keep_last(1)));
+  head_subscription_ = head_node_->create_subscription<std_msgs::msg::Int32>(
+    "/furo/head_target_raw", rclcpp::QoS(1),
+    [this](std_msgs::msg::Int32::ConstSharedPtr msg) {
+      if (!head_active_.load() || msg->data < 1550 || msg->data > 2205) return;
+      std::lock_guard<std::mutex> lock(head_command_mutex_);
+      head_pending_ = msg->data;
+      head_pending_ns_ = steadyNowNs();
+    });
+  head_executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+  head_executor_->add_node(head_node_);
+  head_thread_ = std::thread([this]() {head_executor_->spin();});
+
   RCLCPP_INFO(
     logger(), "GuideRobotSystem активирован (моторы L=%d R=%d)", left_wheel_id_, right_wheel_id_);
 
@@ -446,6 +466,7 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_activate(const rclcpp_li
 
 hardware_interface::CallbackReturn GuideRobotSystem::on_deactivate(const rclcpp_lifecycle::State &)
 {
+  stopHeadInterface();
   stopWatchdog();
 
   left_vel_cmd_ = 0.0;
@@ -468,6 +489,7 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_deactivate(const rclcpp_
 
 hardware_interface::CallbackReturn GuideRobotSystem::on_cleanup(const rclcpp_lifecycle::State &)
 {
+  stopHeadInterface();
   stopWatchdog();
   closePort();
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -475,6 +497,7 @@ hardware_interface::CallbackReturn GuideRobotSystem::on_cleanup(const rclcpp_lif
 
 hardware_interface::CallbackReturn GuideRobotSystem::on_error(const rclcpp_lifecycle::State &)
 {
+  stopHeadInterface();
   // Симметрия с on_deactivate + on_cleanup, которых на этом пути не будет.
   // Порядок обязателен: сначала снять сторожа (иначе он пишет в порт, который
   // мы закрываем), потом отправить останов, и только потом закрыть fd.
@@ -502,6 +525,20 @@ void GuideRobotSystem::closePort()
   close(serial_fd_);
   serial_fd_ = -1;
   RCLCPP_INFO(logger(), "Serial порт закрыт");
+}
+
+void GuideRobotSystem::stopHeadInterface()
+{
+  head_active_.store(false);
+  if (head_executor_) head_executor_->cancel();
+  if (head_thread_.joinable()) head_thread_.join();
+  head_subscription_.reset();
+  std::atomic_store(&head_publisher_, decltype(head_publisher_){});
+  head_executor_.reset();
+  head_node_.reset();
+  std::lock_guard<std::mutex> lock(head_command_mutex_);
+  head_pending_ = -1;
+  head_feedback_ns_.store(0);
 }
 
 std::vector<hardware_interface::StateInterface> GuideRobotSystem::export_state_interfaces()
@@ -728,6 +765,16 @@ void GuideRobotSystem::applyEncoderFrame(const uint8_t * frame, double period_s)
   std::memcpy(&slot1_ticks, &frame[6], 4);
   std::memcpy(&slot2_ticks, &frame[10], 4);
 
+  int32_t head_ticks = 0;
+  std::memcpy(&head_ticks, &frame[14], 4);
+  const auto head_publisher = std::atomic_load(&head_publisher_);
+  if (head_ticks >= 1250 && head_ticks <= 2450 && head_publisher) {
+    std_msgs::msg::Int32 msg;
+    msg.data = head_ticks;
+    head_publisher->publish(msg);
+    head_feedback_ns_.store(steadyNowNs());
+  }
+
   // dt — время с ПРОШЛОГО разобранного кадра, а не длительность цикла: при
   // encoder_poll_divider_ > 1 дельта позиции набегает за несколько периодов.
   double dt = enc_elapsed_;
@@ -929,6 +976,25 @@ int16_t GuideRobotSystem::toMotorUnits(double omega, double sign) const
   return static_cast<int16_t>(std::clamp(units, MOTOR_UNITS_MIN, MOTOR_UNITS_MAX));
 }
 
+bool GuideRobotSystem::writeHeadPacket(int target)
+{
+  if (target < 1550 || target > 2205) return false;
+  const auto packet = makeHeadPositionPacket(static_cast<uint16_t>(target));
+  std::lock_guard<std::mutex> lock(serial_mutex_);
+  if (serial_fd_ < 0) return false;
+  // The controller loop must not wait for room in the serial TX queue just
+  // because a head target arrived. All users of this fd take serial_mutex_,
+  // so toggling O_NONBLOCK here cannot change a concurrent wheel operation.
+  const int flags = fcntl(serial_fd_, F_GETFL);
+  if (flags < 0 || fcntl(serial_fd_, F_SETFL, flags | O_NONBLOCK) < 0) return false;
+  const ssize_t written = ::write(serial_fd_, packet.data(), packet.size());
+  const bool restored = fcntl(serial_fd_, F_SETFL, flags) == 0;
+  if (!restored) {
+    RCLCPP_ERROR(logger(), "[head] не удалось восстановить флаги COM-порта");
+  }
+  return restored && written == static_cast<ssize_t>(packet.size());
+}
+
 bool GuideRobotSystem::writeSpeedPacket(double slot1_cmd, double slot2_cmd)
 {
   const int16_t slot1_units = toMotorUnits(slot1_cmd, left_sign_);
@@ -1002,6 +1068,22 @@ hardware_interface::return_type GuideRobotSystem::write(
   const double slot2_cmd = swap_drives_ ? left_cmd : right_vel_cmd_;
 
   const bool sent = writeSpeedPacket(slot1_cmd, slot2_cmd);
+  int head_target = -1;
+  int64_t head_command_time = 0;
+  {
+    std::lock_guard<std::mutex> lock(head_command_mutex_);
+    head_target = head_pending_;
+    head_command_time = head_pending_ns_;
+    head_pending_ = -1;
+  }
+  const int64_t head_now = steadyNowNs();
+  const int64_t feedback_time = head_feedback_ns_.load();
+  if (sent && head_active_.load() && head_target >= 1550 && head_target <= 2205 &&
+    feedback_time > 0 && head_now - feedback_time < 1000000000LL &&
+    head_now - head_command_time < 1000000000LL && !writeHeadPacket(head_target))
+  {
+    RCLCPP_WARN_THROTTLE(logger(), clock_, 1000, "[head] ошибка отправки цели головы");
+  }
 
   // Отметка времени ставится и при неудачной записи: сторож ловит зависший
   // управляющий цикл, а цикл здесь жив — сломан порт. Иначе сторож начал бы

@@ -66,9 +66,13 @@ RPLIDAR C1, раньше стояло дефолтное 100.0, поправле
 одной и той же точки; см. "Известные проблемы", п. 5.
 
 **bt_navigator** — своё дерево
-`behavior_trees/navigate_to_pose_with_recovery.xml` (recovery по кругу:
-«отойдите» + Wait 3 → Spin 1.57 или Wait 3 → большой BackUp+Spin или Wait 3;
-каждая ветка очищает оба костмапа, до 20 повторов). Плагин
+`behavior_trees/navigate_to_pose_with_recovery.xml` (recovery без манёвров:
+мягкая просьба «Внимание! Пожалуйста, отойдите…» или, на следующей неудаче,
+строгая «Внимание! Робот не может проехать…» → Wait 3 → очистка обоих
+костмапов → новый маршрут; фразы чередуются, до 20 повторов. Spin и BackUp
+убраны 2026-10-31: в толпе не едут и только удлиняют цикл). Фразы
+предзаписаны громче экскурсии (`scripts/prerecord_tts.py` берёт их из
+дерева, см. README guide_robot_voice). Плагин
 `say_action_bt_node` из `guide_robot_bt_nodes`. `default_server_timeout`
 оставлен **150 мс** (не 20 из `dev_behavior`). Groot выключен.
 

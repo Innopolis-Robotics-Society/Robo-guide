@@ -29,7 +29,11 @@ global:
       halo_color: "#2a2d31"
     light:
       bg_color: "#ffffff"
-      eye_color: "#000000"
+      # Было #000000. На панели 768x1024 чёрный читался как провал на белом,
+      # тёмно-серый мягче. #4d4d4d -- выбран владельцем из 4 вариантов
+      # (#3a3a3a / #4d4d4d / #5e5e5e / #707070); #6b6b6b -- ровно середина
+      # между чёрным и ореолом #d6d6d6. Контраст с фоном 8.6:1, выше AAA.
+      eye_color: "#4d4d4d"
       halo_color: "#d6d6d6"
   blink_interval_min_s: 2.5
   blink_interval_max_s: 6.0

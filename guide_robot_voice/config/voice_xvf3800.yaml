@@ -11,6 +11,9 @@
     remote_service_timeout: 3.0
     silero_rate: "130%"
     yandex_sample_rate: 16000     # XVF3800 играет 16 кГц -- синтез сразу в ней
+    # Каталог src/ контейнера = корень репозитория на хосте (compose.yaml).
+    # Записи 48 кГц, к 16 кГц пересчитываются при чтении.
+    prerecorded_dir: "/home/fabian/ros2_ws/src/guide_robot_voice/prerecorded"
 
 /**/vad_node:
   ros__parameters:

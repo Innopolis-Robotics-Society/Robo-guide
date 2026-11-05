@@ -33,6 +33,7 @@ from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from guide_robot_voice.lib.backends import FallbackBackend, TtsBackend, make_backend
 from guide_robot_voice.lib.chunker import ChunkerConfig, TextChunker
+from guide_robot_voice.lib.prerecorded import PrerecordedBackend
 from guide_robot_voice.lib.qos import (
     QOS_CANCEL_ALL,
     QOS_SAY_STREAM,
@@ -83,6 +84,10 @@ class TtsNode(LifecycleNode):
         self.declare_parameter("tts_fallback", "silero")
         self.declare_parameter("fallback_retry_s", 30.0)
         self.declare_parameter("fallback_persistent_retry_s", 300.0)
+        # Каталог предзаписанных клауз облачного голоса (scripts/prerecord_tts.py):
+        # найденная клауза играется с диска без сети. "" -- выключено.
+        # См. lib/prerecorded.PrerecordedBackend.
+        self.declare_parameter("prerecorded_dir", "")
         self.declare_parameter("device", "")
         self.declare_parameter("device_rate", 0)
         self.declare_parameter("block_ms", 20)
@@ -170,6 +175,15 @@ class TtsNode(LifecycleNode):
         self.get_logger().info("загружаю модель TTS...")
         self._backend = self._build_backend()
         self._backend.load()
+        if isinstance(self._backend, PrerecordedBackend):
+            directory = self.get_parameter("prerecorded_dir").value
+            if self._backend.available:
+                self.get_logger().info(f"предзаписей в {directory}: {self._backend.available}")
+            else:
+                self.get_logger().warning(
+                    f"в {directory} нет предзаписей -- всё пойдёт через облако; "
+                    "записать: scripts/prerecord_tts.py"
+                )
 
         self._stage = "чанкер"
         self._chunker = TextChunker(
@@ -777,6 +791,13 @@ class TtsNode(LifecycleNode):
                 KeyValue(key="queue_seconds", value=f"{self._sink.pending_seconds():.3f}"),
             ],
         )
+        if isinstance(self._backend, PrerecordedBackend):
+            entry.values.append(
+                KeyValue(
+                    key="prerecorded_hits",
+                    value=f"{self._backend.hits}/{self._backend.hits + self._backend.misses}",
+                )
+            )
         diag.status.append(entry)
         self._diag_pub.publish(diag)
 
@@ -806,7 +827,8 @@ class TtsNode(LifecycleNode):
 
         backend по умолчанию -- silero (v5 xenia). "piper" -- запасной
         ONNX-голос. "yandex" -- облачный SpeechKit v3 с амплуа, обёрнутый
-        в FallbackBackend со страховкой tts_fallback (silero). "null" --
+        в FallbackBackend со страховкой tts_fallback (silero) и, если задан
+        prerecorded_dir, в PrerecordedBackend поверх всего. "null" --
         тон без модели, для CI и измерения t_stop.
         """
         kind = str(self.get_parameter("backend").value)
@@ -825,16 +847,28 @@ class TtsNode(LifecycleNode):
             read_timeout_s=float(self.get_parameter("yandex_read_timeout_s").value),
             block_ms=int(self.get_parameter("block_ms").value),
         )
+        backend: TtsBackend = cloud
         fallback_kind = str(self.get_parameter("tts_fallback").value)
-        if not fallback_kind:
-            return cloud
-        return FallbackBackend(
-            cloud,
-            self._build_local_backend(fallback_kind),
-            retry_s=float(self.get_parameter("fallback_retry_s").value),
-            persistent_retry_s=float(self.get_parameter("fallback_persistent_retry_s").value),
+        if fallback_kind:
+            backend = FallbackBackend(
+                cloud,
+                self._build_local_backend(fallback_kind),
+                retry_s=float(self.get_parameter("fallback_retry_s").value),
+                persistent_retry_s=float(self.get_parameter("fallback_persistent_retry_s").value),
+                block_ms=int(self.get_parameter("block_ms").value),
+                warmup_text=str(self.get_parameter("warmup_text").value),
+            )
+        prerecorded_dir = str(self.get_parameter("prerecorded_dir").value)
+        if not prerecorded_dir:
+            return backend
+        # Снаружи FallbackBackend, а не внутри: облако на паузе после сбоя
+        # (retry_s) не должно уводить в Silero клаузы, записанные на диске.
+        return PrerecordedBackend(
+            backend,
+            cloud.prerecord_key,  # type: ignore[attr-defined]
+            prerecorded_dir,
             block_ms=int(self.get_parameter("block_ms").value),
-            warmup_text=str(self.get_parameter("warmup_text").value),
+            on_miss=lambda text: self.get_logger().info(f"нет предзаписи, синтез: {text!r}"),
         )
 
     def _build_local_backend(self, kind: str) -> TtsBackend:

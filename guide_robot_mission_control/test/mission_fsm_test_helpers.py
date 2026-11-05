@@ -53,8 +53,11 @@ def make_narration_node(harness: MissionTestHarness, **overrides: object) -> Nar
 
 
 def make_fsm_node(harness: MissionTestHarness, **overrides: object) -> MissionFsmNode:
+    # Nav2 костмап в харнессе нет -- без этого каждый тур ждал бы их таймаут.
+    values: dict[str, object] = {"clear_costmaps_on_tour_start": False}
+    values.update(overrides)
     params = [Parameter("use_sim_time", value=True)]
-    params.extend(Parameter(name, value=value) for name, value in overrides.items())
+    params.extend(Parameter(name, value=value) for name, value in values.items())
     node = MissionFsmNode(context=harness.context, parameter_overrides=params)
     assert node.trigger_configure() == TransitionCallbackReturn.SUCCESS
     harness.add_node(node)

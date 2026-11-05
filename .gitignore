@@ -49,3 +49,6 @@ AGENTS.md
 .project-notes
 
 analysis
+# Предзаписи экскурсии голосом Yandex -- пишутся на роботе scripts/prerecord_tts.py
+guide_robot_voice/prerecorded/
+

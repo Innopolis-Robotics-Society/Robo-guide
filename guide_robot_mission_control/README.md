@@ -84,7 +84,15 @@ design §5.4 п.6, нет реального ASR/LLM): `~/request_pause`,
 `home_pose`([x,y,yaw]), `redirect_done_phrase`("Мы на месте. Чем ещё могу
 помочь?" — stage2 B2, финальная фраза `redirect_done`),
 `transit_after_s`(6.0 — stage2 блок E, порог тишины для транзитного
-нарратива).
+нарратива), `clear_costmaps_on_tour_start`(true),
+`clear_costmap_services`(global и local `clear_entirely_*` Nav2),
+`clear_costmaps_timeout_s`(2.0).
+
+**Сброс костмап**: каждый `RunTour` перед первым ходом сбрасывает global и
+local костмапы Nav2 (следы людей с прошлой экскурсии иначе мешают первому
+маршруту). Запросы уходят разом и делят один бюджет
+`clear_costmaps_timeout_s`; недоступный сервис — WARN в лог, тур едет всё
+равно.
 
 ### `narration_server`
 
