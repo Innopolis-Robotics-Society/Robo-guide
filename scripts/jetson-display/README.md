@@ -125,3 +125,14 @@ Install the wrapper from this repository to `/usr/local/bin/guide-kiosk-hdmi`
 with mode 755 before enabling the integration. The module-only first trial did
 not open the keyboard; an explicit WebKit IM focus probe produced
 show_input_panel/activate and a compositor enter acknowledgment.
+
+### Physical keyboard trial
+
+`99-guide-kiosk-keyboard.rules` optionally assigns only the Logitech C31C main
+keyboard interface on USB path `2.4.1.4:1.0` to `seat-dlhdmi`. It otherwise belongs
+to seat0 (GNOME / face display). Install this rule in `/etc/udev/rules.d/`, reload
+udev rules and reconnect that keyboard. Do not restart Weston. This is a physical
+keyboard trial, not a touch-only solution: Weston 13's input-panel code requires
+a seat with keyboard focus to map the input-panel view. Jetson's current kernel
+has `CONFIG_INPUT_UINPUT` disabled. Keep the web keyboard until touch-only operation
+and the native keyboard's character coverage have been addressed.

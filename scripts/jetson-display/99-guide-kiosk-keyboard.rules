@@ -1,0 +1,3 @@
+# Optional test keyboard on the operator panel's seat. Only Logitech C31C's
+# main keyboard interface on the tested USB port; other keyboards stay on seat0.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", ENV{ID_VENDOR_ID}=="046d", ENV{ID_MODEL_ID}=="c31c", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.4.1.4:1.0", ENV{ID_SEAT}="seat-dlhdmi", TAG+="seat"
