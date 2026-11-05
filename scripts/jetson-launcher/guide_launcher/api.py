@@ -152,6 +152,12 @@ class Api:
 
         result = await asyncio.to_thread(self.auth.verify, nonce, backend, data)
         if not result.ok:
+            # An empty reader during the bounded UI wait is not a bad credential.
+            # Keep invalid signatures/PINs subject to the existing lockout.
+            if result.reason == "rfid_no_card":
+                return web.json_response(
+                    {"error": "invalid_credentials", "reason": "rfid_no_card"}, status=401
+                )
             self.sessions.record_failure()
             self.journal.write(
                 "auth_attempt", backend=backend, operator="", ok=False, reason=result.reason

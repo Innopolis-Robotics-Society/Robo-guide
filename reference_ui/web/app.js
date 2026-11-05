@@ -1429,7 +1429,40 @@
     authDialog.close();
   });
   btnPinOk.addEventListener("click", () => verifyAndOpen("pin", { pin: pinInput.value }));
-  btnRfidOk.addEventListener("click", () => verifyAndOpen("rfid", {}));
+  let rfidWait = null;
+  const rfidDialog = document.getElementById("rfid-wait-dialog");
+  const rfidStatus = document.getElementById("rfid-wait-status");
+  function cancelRfidWait() {
+    if (rfidWait) rfidWait.cancel();
+    rfidStatus.textContent = "Отмена…";
+  }
+  document.getElementById("rfid-wait-cancel").onclick = cancelRfidWait;
+  rfidDialog.addEventListener("cancel", event => {event.preventDefault();cancelRfidWait();});
+  btnRfidOk.addEventListener("click", async () => {
+    if (rfidWait) return;
+    rfidWait = new RfidWait(request);
+    currentNonce = null;
+    const deadline = performance.now() + 30000;
+    const paint = () => {
+      if (!rfidWait.cancelled) rfidStatus.textContent = "Осталось: " + Math.max(0, Math.ceil((deadline-performance.now())/1000)) + " сек.";
+    };
+    paint();rfidDialog.showModal();
+    const timer = setInterval(paint, 200);
+    let result;
+    try {result = await rfidWait.run();}
+    finally {clearInterval(timer);rfidDialog.close();rfidWait = null;}
+    if (result.kind === "success") {
+      authed = true;
+      sessionExpiresAt = result.response.data.expires_at;
+      sessionOperator = result.response.data.operator || "";
+      authDialog.close();openMenu();return;
+    }
+    showAuthMessage(result.kind === "timeout" ? "Время ожидания истекло. Попробуйте ещё раз." :
+      result.kind === "cancelled" ? "Ожидание карты отменено" :
+      result.response?.status === 429 ? "Слишком много попыток, подождите" :
+      result.kind === "unavailable" ? "RFID-считыватель недоступен" : "Не удалось войти по карте. Проверьте карту и считыватель.");
+    await refreshChallenge();
+  });
 
   // Цифровая клавиатура PIN: панель сенсорная, системной клавиатуры нет --
   // pin-input readonly, ввод только этими кнопками.

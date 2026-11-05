@@ -524,3 +524,24 @@ def test_silent_bridge_frame_expires_for_restart_and_public_start(tmp_path):
             assert "restart" not in e.docker.verbs()
 
     run(go())
+
+
+def test_rfid_empty_reader_polling_does_not_lock_out_login(tmp_path):
+    async def go():
+        port = MemorySerialPort()
+        rfid = RfidBackend(RfidLink(port, timeout_s=0.01), SECRET, retries=1)
+        chain = make_auth_chain(["rfid", "pin"], operator_pin=PIN, rfid_backend=rfid)
+        async with env(tmp_path, auth=chain) as e:
+            for _ in range(65):
+                chal = (await (await e.client.post("/api/v1/auth/challenge")).json())
+                port.responses.append(json.dumps({"ok": False, "err": "no_card"}))
+                response = await e.client.post("/api/v1/auth/verify", json={
+                    "nonce": chal["nonce"], "backend": "rfid"})
+                assert response.status == 401
+                assert (await response.json())["error"]["message"] == "rfid_no_card"
+            chal = (await (await e.client.post("/api/v1/auth/challenge")).json())
+            port.responses.append(_signed(chal["nonce"]))
+            response = await e.client.post("/api/v1/auth/verify", json={
+                "nonce": chal["nonce"], "backend": "rfid"})
+            assert response.status == 200
+    run(go())
