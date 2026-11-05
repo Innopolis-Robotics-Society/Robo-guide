@@ -4,6 +4,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 from rclpy.time import Time
+from rclpy.clock import ClockType
 from guide_robot_api.map_adapter import MapAdapter
 
 
@@ -11,14 +12,14 @@ from guide_robot_api.map_adapter import MapAdapter
 def test_observed_pose_matches_submitted_heading(yaw):
     adapter = MapAdapter.__new__(MapAdapter)
     adapter.target = None
-    adapter.node = NS(get_clock=lambda: NS(now=lambda: Time(seconds=1)))
+    adapter.node = NS(get_clock=lambda: NS(now=lambda: Time(seconds=1, clock_type=ClockType.ROS_TIME)))
     adapter.current = NS(frame="map", metadata=lambda: {}, validate_pose=lambda *a, **kw: None)
     submitted = adapter.pose({"pose": {"x": 2., "y": 3., "yaw": yaw}, "map_version": "v"}, free=False)
 
     def lookup(frame, body, stamp):
         assert frame == "map"
         assert body == "base_footprint"  # base_link would add pi on this robot
-        return NS(header=NS(stamp=Time(seconds=1).to_msg()), transform=NS(
+        return NS(header=NS(stamp=Time(seconds=1, clock_type=ClockType.ROS_TIME).to_msg()), transform=NS(
             translation=submitted.pose.position, rotation=submitted.pose.orientation))
 
     adapter.buffer = NS(lookup_transform=lookup)
