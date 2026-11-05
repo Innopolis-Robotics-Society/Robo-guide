@@ -60,7 +60,7 @@ amcl:
       x: 20.686
       y: 1.027
       z: 0.0
-      yaw: 2.923592653589793  # base_footprint; measured base_link yaw -0.218 + pi
+      yaw: -0.218  # base_footprint; orientation specified by operator
 
 amcl_map_client:
   ros__parameters:
