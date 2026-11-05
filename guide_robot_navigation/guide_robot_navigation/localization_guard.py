@@ -10,6 +10,7 @@ import rclpy
 from action_msgs.msg import GoalStatusArray
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from lifecycle_msgs.srv import GetState
+from nav2_msgs.srv import ClearEntireCostmap
 from rclpy.action import ActionClient
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
@@ -33,7 +34,12 @@ class LocalizationGuard(Node):
             recovery_position=0.35,
             recovery_yaw_deg=15.0,
             frame="map",
-            base_frame="base_link",
+            base_frame="base_footprint",
+            startup_parking_check=False,
+            startup_parking_pose=[20.686, 1.027, -0.218],
+            startup_position_tolerance=0.5,
+            startup_yaw_tolerance_deg=20.0,
+            startup_wait_timeout=90.0,
             latch_file="~/ros2_ws/log/localization-lost",
             help_text="Я потерялся и остановился. Пожалуйста, позовите оператора, "
             "чтобы он указал моё положение на карте.",
@@ -53,6 +59,16 @@ class LocalizationGuard(Node):
             recovery_position=get("recovery_position"),
             recovery_yaw=math.radians(get("recovery_yaw_deg")),
         )
+        self.startup_phase = "waiting" if get("startup_parking_check") else "disabled"
+        self.startup_deadline = time.monotonic() + get("startup_wait_timeout")
+        self.startup_clear_futures = []
+        self.startup_clearers = [self.create_client(ClearEntireCostmap, path) for path in (
+            "/global_costmap/clear_entirely_global_costmap",
+            "/local_costmap/clear_entirely_local_costmap")]
+        if self.startup_phase == "waiting":
+            # Even a clean boot must prove the parking pose before allowing motion.
+            self.policy.latched = True
+            self.policy.state, self.policy.reason = "initializing", "startup_waiting_for_amcl"
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self)
         self.pub = self.create_publisher(String, "/localization/status", QOS)
@@ -109,6 +125,7 @@ class LocalizationGuard(Node):
             response.success = False
             response.message = "navigation_still_stopping"
             return response
+        self.cancel_startup()
         self.prepared_until = time.monotonic() + 3
         # Block before publication of initialpose, even when previously ready.
         self.policy.reset(time.monotonic())
@@ -149,9 +166,68 @@ class LocalizationGuard(Node):
         ):
             return
         self.last_stamp = stamp
+        if self.startup_phase == "waiting":
+            return  # Do not let ordinary initialization bypass startup verification.
+        parking_ok = True
+        if self.startup_phase in ("checking", "clearing"):
+            p, q = msg.pose.pose.position, msg.pose.pose.orientation
+            x, y, yaw = self.get_parameter("startup_parking_pose").value
+            measured_yaw = math.atan2(2 * (q.w*q.z + q.x*q.y), 1 - 2 * (q.y*q.y + q.z*q.z))
+            parking_ok = (
+                math.hypot(p.x-x, p.y-y) <= self.get_parameter("startup_position_tolerance").value
+                and abs(math.remainder(measured_yaw-yaw, 2*math.pi)) <= math.radians(
+                    self.get_parameter("startup_yaw_tolerance_deg").value))
         self.policy.sample(
-            msg.pose.covariance, time.monotonic(), tf_ok=self.tf_ok() and self.active_ok
+            msg.pose.covariance, time.monotonic(),
+            tf_ok=self.tf_ok() and self.active_ok and parking_ok
         )
+
+    def cancel_startup(self):
+        for future in self.startup_clear_futures:
+            if not future.done():
+                future.cancel()
+        self.startup_clear_futures = []
+        self.startup_phase = "finished"
+
+    def startup_tick(self, now):
+        if self.startup_phase not in ("waiting", "checking", "clearing"):
+            return
+        if self.navigation_active or now < self.moving_until:
+            self.policy.lose("startup_robot_not_idle")
+            self.cancel_startup()
+            return
+        if self.startup_phase == "waiting":
+            if now >= self.startup_deadline:
+                self.policy.lose("startup_localization_unavailable")
+                self.cancel_startup()
+            elif (self.active_ok and now-self.active_at < 3 and self.tf_ok()
+                  and all(c.service_is_ready() for c in self.startup_clearers)):
+                self.policy.reset(now)
+                self.policy.reason = "startup_checking_parking"
+                self.reset_stamp = self.get_clock().now().nanoseconds / 1e9
+                self.last_update_request = -float("inf")
+                self.startup_phase = "checking"
+            return
+        if self.policy.state != "recovering":
+            self.cancel_startup()  # No automatic retry after loss or successful recovery.
+            return
+        if (self.startup_phase == "checking" and self.policy.good_count >= 3
+                and self.policy.good_since is not None and now-self.policy.good_since >= 2):
+            try:
+                self.startup_clear_futures = [
+                    client.call_async(ClearEntireCostmap.Request()) for client in self.startup_clearers]
+                self.startup_phase = "clearing"
+            except Exception:
+                self.policy.lose("costmap_clear_failed")
+                self.cancel_startup()
+        if self.startup_phase == "clearing" and all(f.done() for f in self.startup_clear_futures):
+            try:
+                if not all(f.result() is not None for f in self.startup_clear_futures):
+                    raise RuntimeError("costmap clear failed")
+                self.policy.costmaps_cleared = True
+            except Exception:
+                self.policy.lose("costmap_clear_failed")
+                self.cancel_startup()
 
     def tick(self):
         now = time.monotonic()
@@ -171,6 +247,7 @@ class LocalizationGuard(Node):
             except Exception:
                 self.active_ok = False
             self.pending_active = None
+        self.startup_tick(now)
         self.policy.tick(
             now,
             moving=now < self.moving_until,

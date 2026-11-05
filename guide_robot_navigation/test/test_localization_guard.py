@@ -112,3 +112,86 @@ def test_idle_refresh_interval_and_recovery_polling(tmp_path, monkeypatch):
     finally:
         node.destroy_node()
         context.shutdown()
+
+
+import pytest
+
+
+@pytest.mark.parametrize('failure', [None, 'position', 'yaw', 'covariance', 'clear', 'missing', 'motion', 'tf', 'stale', 'frame'])
+def test_startup_parking_check_restores_only_after_verified_pose(tmp_path, monkeypatch, failure):
+    import math
+    from concurrent.futures import Future
+    from geometry_msgs.msg import PoseWithCovarianceStamped
+    from rclpy.clock import ClockType
+    from rclpy.time import Time
+    from guide_robot_navigation import localization_guard as module
+
+    now = [1000.0]
+    monkeypatch.setattr(module, 'time', SimpleNamespace(monotonic=lambda: now[0]))
+    context = rclpy.Context()
+    rclpy.init(context=context)
+    path = tmp_path / 'lost'
+    path.write_text('operator_reset_required\n')
+    node = LocalizationGuard(context=context, parameter_overrides=[
+        Parameter('latch_file', value=str(path)),
+        Parameter('startup_parking_check', value=True)])
+    node.get_clock = lambda: SimpleNamespace(now=lambda: Time(
+        seconds=now[0], clock_type=ClockType.ROS_TIME))
+    node.tf_ok = lambda: failure != 'tf'
+    node.active = node.update = SimpleNamespace(service_is_ready=lambda: False)
+    cleared = []
+    def clear(_):
+        cleared.append(now[0])
+        future = Future()
+        if failure == 'clear':
+            future.set_exception(RuntimeError('test failure'))
+        else:
+            future.set_result(SimpleNamespace())
+        return future
+    node.startup_clearers = [SimpleNamespace(service_is_ready=lambda: True, call_async=clear)] * 2
+    node.active_ok = failure != 'missing'
+    node.active_at = now[0]
+    try:
+        assert node.policy.latched and node.policy.state == 'initializing'
+        if failure == 'motion':
+            node.navigation_active = True
+        node.tick()
+        assert node.policy.state != 'ready'
+        assert path.exists()
+        for _ in range(32):
+            now[0] += .5
+            node.active_at = now[0]
+            msg = PoseWithCovarianceStamped()
+            msg.header.frame_id = 'odom' if failure == 'frame' else 'map'
+            msg.header.stamp = Time(seconds=now[0] - (10 if failure == 'stale' else 0),
+                                    clock_type=ClockType.ROS_TIME).to_msg()
+            msg.pose.pose.position.x = 25.0 if failure == 'position' else 20.686
+            msg.pose.pose.position.y = 1.027
+            yaw = 1.0 if failure == 'yaw' else -.218
+            msg.pose.pose.orientation.z = math.sin(yaw/2)
+            msg.pose.pose.orientation.w = math.cos(yaw/2)
+            for index in (0, 7, 35):
+                msg.pose.covariance[index] = 9.0 if failure == 'covariance' else .01
+            node.sample(msg)
+            node.tick()
+            if now[0] < 1002.5:
+                assert node.policy.state != 'ready'
+        if failure is None:
+            assert node.policy.state == 'ready'
+            assert not node.policy.latched and not path.exists()
+            assert len(cleared) == 2
+            # Successful boot cannot auto-clear a later localization loss.
+            node.policy.lose('uncertainty_exceeded')
+            node.tick()
+            assert node.policy.state == 'lost' and path.exists()
+            assert len(cleared) == 2
+        else:
+            now[0] += 100
+            node.tick()
+            assert node.policy.state == 'lost'
+            assert node.policy.latched and path.exists()
+            if failure != 'clear':
+                assert not cleared
+    finally:
+        node.destroy_node()
+        context.shutdown()
