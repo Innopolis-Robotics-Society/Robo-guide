@@ -12,7 +12,7 @@ exec 9>/run/guide-system-power.lock
 [ ! -e /run/guide-system-power.pending ] || exit 1
 umask 022
 printf '%s\n' "$1" > /run/guide-system-power.pending
-if /sbin/shutdown "$option" +1; then
+if /sbin/shutdown "$option" now; then
   exit 0
 fi
 rm -f /run/guide-system-power.pending

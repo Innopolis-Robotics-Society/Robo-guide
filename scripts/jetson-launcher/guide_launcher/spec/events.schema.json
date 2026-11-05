@@ -1202,7 +1202,6 @@
         "properties": {
           "phase": {
             "enum": [
-              "stopping_ros",
               "scheduling"
             ]
           }

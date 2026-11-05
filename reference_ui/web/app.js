@@ -1248,17 +1248,17 @@
         if (op.ok && op.data.result?.scheduled) {
           systemPowerMessage.textContent = op.data.result.action === "reboot"
             ? "Перезагрузка системы запланирована. Дождитесь восстановления связи; питание не отключайте."
-            : "Выключение системы запланировано через минуту после принятия команды. Потеря связи ещё не означает завершение выключения.";
+            : "Команда выключения отправлена. Потеря связи ещё не означает завершение выключения.";
         } else if (op.ok && op.data.status === "unknown") {
           systemPowerMessage.textContent = "Результат команды неизвестен. Проверьте Jetson, не повторяйте команду вслепую.";
         }
       }
     } else {
-      systemPowerMessage.textContent = "Перед выключением или перезагрузкой система остановит ROS. Активную поездку сначала остановите.";
+      systemPowerMessage.textContent = "Команды питания выполняются независимо от состояния ROS.";
       if (res.data.operation_id) {
         const op = await request("GET", "/api/v1/operations/" + res.data.operation_id);
         if (op.ok && op.data.status === "failed") {
-          systemPowerMessage.textContent = "Завершение работы не выполнено. Проверьте состояние ROS и настройку управления питанием.";
+          systemPowerMessage.textContent = "Завершение работы не выполнено. Проверьте настройку управления питанием.";
         }
       }
     }
@@ -1268,8 +1268,8 @@
     if (powerSubmitting) return;
     const shutdown = action === "shutdown";
     const ok = await askConfirm(shutdown
-      ? "Выключить Jetson? ROS будет остановлен, выключение запланировано через минуту. Дождитесь полного выключения перед отключением питания робота."
-      : "Перезагрузить Jetson целиком? ROS будет остановлен, перезагрузка запланирована через минуту. Питание не отключайте.",
+      ? "Выключить Jetson сейчас? Дождитесь полного выключения перед отключением питания робота."
+      : "Перезагрузить Jetson сейчас? Питание не отключайте.",
       shutdown ? "Выключить систему" : "Перезагрузить систему");
     if (!ok) return;
     powerSubmitting = true;
@@ -1279,7 +1279,7 @@
     if (!res.ok) {
       showMenuMessage(errorText(res));
     } else {
-      showMenuMessage("Запрос принят. Идёт остановка ROS. Не отключайте питание.", "ok");
+      showMenuMessage("Команда системе отправлена. Не отключайте питание.", "ok");
     }
     await refreshPowerStatus();
   }

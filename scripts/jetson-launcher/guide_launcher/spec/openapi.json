@@ -2432,7 +2432,7 @@
             }
           }
         ],
-        "description": "Operator session, confirm=true and Idempotency-Key required. Rejects a known active mission. Missing mission state is allowed only through verified container shutdown. Stops ROS/container, then schedules system power action in one minute. Operation success means scheduling only, not completed shutdown. No API cancellation. Further control commands are fenced."
+        "description": "Operator session, confirm=true and Idempotency-Key required. Direct host shutdown/reboot, immediately, without ROS, mission, Docker or Wi-Fi checks. OS handles service termination. No API cancellation. HTTP response may be lost as the host shuts down; do not retry blindly."
       }
     },
     "/system/reboot": {
@@ -2496,7 +2496,7 @@
             }
           }
         ],
-        "description": "Operator session, confirm=true and Idempotency-Key required. Rejects a known active mission. Missing mission state is allowed only through verified container shutdown. Stops ROS/container, then schedules system power action in one minute. Operation success means scheduling only, not completed shutdown. No API cancellation. Further control commands are fenced."
+        "description": "Operator session, confirm=true and Idempotency-Key required. Direct host shutdown/reboot, immediately, without ROS, mission, Docker or Wi-Fi checks. OS handles service termination. No API cancellation. HTTP response may be lost as the host shuts down; do not retry blindly."
       }
     },
     "/system/power": {
@@ -3732,7 +3732,6 @@
         "properties": {
           "phase": {
             "enum": [
-              "stopping_ros",
               "scheduling"
             ]
           }

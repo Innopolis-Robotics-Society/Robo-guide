@@ -1,7 +1,7 @@
 """Power operations use fakes only; never run shutdown, sudo or host Docker."""
 import asyncio
 import pytest
-from guide_launcher.stack import RunResult, StackError
+from guide_launcher.stack import RunResult
 from test_api import env, run
 
 
@@ -25,60 +25,36 @@ def test_auth_confirmation_and_disabled_power(tmp_path):
 
 
 @pytest.mark.parametrize('action,helper', [('shutdown','poweroff'),('reboot','reboot')])
-def test_idle_power_stops_ros_before_scheduling_and_fences_commands(tmp_path, action, helper):
-    async def go():
-        async with env(tmp_path, power_control_enabled=True) as e:
-            await e.login(); e.set_frame()
-            async def idle(*args): return 200, {'success': True}
-            e.app['api'].bridge.command = idle
-            power = e.app['power']; calls = []; release = asyncio.Event()
-            async def stop():
-                calls.append('stop')
-                await release.wait()
-            async def execute(argv, timeout):
-                calls.append(argv)
-                return RunResult(0,'')
-            e.monitor.stop_for_power = stop; power.run = execute
-            response = await post(e, action)
-            assert response.status == 202
-            op = await response.json()
-            repeat = await post(e, action)
-            assert (await repeat.json())['id'] == op['id']
-            assert (await e.client.post('/api/v1/stack/start',json={})).status == 409
-            assert (await post(e, action, key='other')).status == 409
-            assert (await e.client.post('/api/v1/operations/'+op['id']+'/cancel',json={})).status == 409
-            release.set()
-            await asyncio.gather(*list(e.app['api'].events.tasks))
-            assert calls == ['stop',['sudo','-n','/usr/local/sbin/guide-system-power',helper]]
-            result = await (await e.client.get('/api/v1/operations/'+op['id'])).json()
-            assert result['result']['scheduled'] and result['status']=='succeeded'
-    run(go())
-
-
-def test_moving_rejects_power(tmp_path):
+@pytest.mark.parametrize('state', ['idle', 'navigating', 'unknown', None])
+def test_power_is_independent_of_ros(tmp_path, action, helper, state):
     async def go():
         async with env(tmp_path, power_control_enabled=True) as e:
             await e.login()
-            e.set_frame(state_name='navigating', moving=True)
-            assert (await post(e)).status==409
-            assert e.app['power'].operation is None
-    run(go())
-
-
-def test_failed_ros_stop_never_schedules_power(tmp_path):
-    async def go():
-        async with env(tmp_path, power_control_enabled=True) as e:
-            await e.login(); e.set_frame()
-            async def idle(*args): return 200, {'success':True}
-            e.app['api'].bridge.command=idle
-            async def fail(): raise StackError(409,'stop_failed')
-            async def forbidden(*args): raise AssertionError('must not schedule')
-            e.monitor.stop_for_power=fail; e.app['power'].run=forbidden
-            op=await (await post(e)).json()
+            if state:
+                e.set_frame(state_name=state, moving=state=='navigating')
+            calls=[]
+            async def forbidden(*args):
+                raise AssertionError('Power must not call ROS or Docker')
+            async def execute(argv, timeout):
+                calls.append(argv)
+                return RunResult(0,'')
+            e.monitor._run=forbidden
+            e.app['api'].bridge.command=forbidden
+            e.app['api'].restart_guard=lambda: (_ for _ in ()).throw(AssertionError('No ROS guard'))
+            e.app['power'].run=execute
+            # Even an ongoing ROS/network transition must not delay power.
+            async with e.app['api']._control_lock, e.app['system_settings'].lock:
+                response=await post(e, action)
+                assert response.status==202
+            op=await response.json()
+            repeat=await post(e, action)
+            assert (await repeat.json())['id']==op['id']
             await asyncio.gather(*list(e.app['api'].events.tasks))
+            assert calls==[['sudo','-n','/usr/local/sbin/guide-system-power',helper]]
             result=await (await e.client.get('/api/v1/operations/'+op['id'])).json()
-            assert result['status']=='failed'
-            assert not e.app['power'].pending
+            assert result['result']['delay_s']==0
+            assert result['status']=='succeeded'
+            assert (await post(e, action, key='another')).status==409
     run(go())
 
 
@@ -87,11 +63,8 @@ def test_power_failure_and_timeout(tmp_path, rc, expected):
     async def go():
         async with env(tmp_path, power_control_enabled=True) as e:
             await e.login(); e.set_frame()
-            async def idle(*args): return 200, {'success':True}
-            async def stop(): pass
             async def command(*args): return RunResult(rc,'not exposed')
-            e.app['api'].bridge.command=idle
-            e.monitor.stop_for_power=stop; e.app['power'].run=command
+            e.app['power'].run=command
             op=await (await post(e)).json()
             await asyncio.gather(*list(e.app['api'].events.tasks))
             result=await (await e.client.get('/api/v1/operations/'+op['id'])).json()
@@ -112,35 +85,4 @@ def test_pending_marker_survives_api_restart(tmp_path, monkeypatch):
             assert (await e.client.post('/api/v1/stack/start',json={})).status==409
             status=await (await e.client.get('/api/v1/system/power')).json()
             assert status['pending']
-    run(go())
-
-
-@pytest.mark.parametrize('fault_frame', [False, True])
-@pytest.mark.parametrize('stop_ok', [False, True])
-def test_missing_mission_requires_confirmed_container_stop(tmp_path, fault_frame, stop_ok):
-    async def go():
-        async with env(tmp_path, power_control_enabled=True) as e:
-            await e.login()
-            if fault_frame:
-                e.set_frame(state_name='unknown', supervisor_state='FAULT',
-                            mission_state_age_s=None, moving=False)
-            calls=[]
-            async def stop():
-                calls.append('stop')
-                if not stop_ok: raise StackError(409,'stack_stop_unconfirmed')
-            async def command(argv, timeout):
-                calls.append('schedule')
-                return RunResult(0,'')
-            async def forbidden(*args):
-                raise AssertionError('Do not depend on a broken mission service')
-            e.monitor.stop_for_power=stop
-            e.app['power'].run=command
-            e.app['api'].bridge.command=forbidden
-            response=await post(e)
-            assert response.status==202
-            op=await response.json()
-            await asyncio.gather(*list(e.app['api'].events.tasks))
-            result=await (await e.client.get('/api/v1/operations/'+op['id'])).json()
-            assert calls == (['stop','schedule'] if stop_ok else ['stop'])
-            assert result['status'] == ('succeeded' if stop_ok else 'failed')
     run(go())

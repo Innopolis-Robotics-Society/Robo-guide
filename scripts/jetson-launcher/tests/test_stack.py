@@ -341,32 +341,3 @@ def test_up_drops_immediately_when_container_or_launch_dies(tmp_path):
         assert await m.poll() is StackState.DOWN
 
     asyncio.run(go())
-
-
-def test_power_stop_verifies_container_is_stopped(tmp_path):
-    from guide_launcher.stack import RunResult
-    d, clock = FakeDocker(), Clock()
-    m = _monitor(tmp_path, d, [True], clock)
-    commands = []
-    async def runner(argv, timeout):
-        commands.append(argv)
-        if argv[:2] == ['docker', 'stop']:
-            d.running = False
-            return RunResult(0, 'c')
-        return await d(argv, timeout)
-    m._run = runner
-    asyncio.run(m.stop_for_power())
-    assert not d.running and m.state is StackState.DOWN
-    assert any('pkill' in c for c in commands)
-    assert ['docker', 'stop', '--timeout', '30', 'c'] in commands
-    assert commands[-1][:2] == ['docker', 'inspect']
-
-
-def test_power_stop_rejects_unknown_container_state(tmp_path):
-    from guide_launcher.stack import RunResult
-    m = _monitor(tmp_path, FakeDocker(), [False], Clock())
-    async def broken(argv, timeout):
-        return RunResult(1, 'daemon unavailable')
-    m._run = broken
-    with pytest.raises(StackError, match='stack_state_unknown'):
-        asyncio.run(m.stop_for_power())

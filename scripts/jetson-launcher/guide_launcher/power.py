@@ -1,12 +1,12 @@
 """Authenticated host power requests with a fixed privileged helper."""
 
+import asyncio
 from pathlib import Path
 
 from aiohttp import web
 
 from . import validation as v
-from .api import mission_link_ok
-from .stack import StackError, default_run
+from .stack import default_run
 
 MARKER = Path("/run/guide-system-power.pending")
 
@@ -17,6 +17,7 @@ class PowerControl:
         self.operation = None
         self.last_operation = None
         self.run = default_run
+        self.lock = asyncio.Lock()
 
     @property
     def pending(self):
@@ -39,7 +40,7 @@ class PowerControl:
         if body.get("confirm") is not True:
             raise ValueError("Explicit confirm=true required")
         key = v.text(request.headers.get("Idempotency-Key"), "Idempotency-Key")
-        async with api._control_lock:
+        async with self.lock:
             if not api.cfg.power_control_enabled:
                 raise web.HTTPServiceUnavailable(reason="power_control_disabled")
             if self.operation is not None:
@@ -51,22 +52,8 @@ class PowerControl:
                     op["result"] = {"message": "system_power_pending"}
                     raise web.HTTPConflict(reason="system_power_pending")
                 return web.json_response(api.events.public(op), status=202)
-            if self.pending or api.monitor.transitioning:
+            if self.pending:
                 raise web.HTTPConflict(reason="system_power_pending")
-            settings = request.app["system_settings"]
-            if settings.lock.locked():
-                raise web.HTTPConflict(reason="network_transition_in_progress")
-            reason = api.restart_guard()
-            # Broken ROS must not prevent an orderly host shutdown. Unknown
-            # mission state is handled by stopping and verifying the container
-            # before scheduling power, never by treating it as confirmed idle.
-            if reason and reason != "mission_state_stale":
-                raise web.HTTPConflict(reason=reason)
-            if mission_link_ok(api.watcher.latest()):
-                status, data = await api.bridge.command(
-                    "/internal/missions/check-idle", {}, request["operator"])
-                if status != 200 or data.get("success") is not True:
-                    raise web.HTTPConflict(reason="safe_idle_not_confirmed")
             op, created = api.events.reserve("system_power", {"action": action}, key, request["owner"])
             if created:
                 op["_host"] = True
@@ -77,14 +64,6 @@ class PowerControl:
 
     async def execute(self, action, op):
         op["status"] = "running"
-        op["feedback"] = {"phase": "stopping_ros"}
-        try:
-            await self.api.monitor.stop_for_power()
-        except (StackError, OSError):
-            op["status"] = "failed"
-            op["result"] = {"message": "stack_stop_unconfirmed"}
-            self.operation = None
-            return
         op["feedback"] = {"phase": "scheduling"}
         result = await self.run([
             "sudo", "-n", "/usr/local/sbin/guide-system-power",
@@ -93,7 +72,7 @@ class PowerControl:
         if result.rc == 0:
             # Success means scheduling, never proof that power is already off.
             op["status"] = "succeeded"
-            op["result"] = {"scheduled": True, "action": action, "delay_s": 60}
+            op["result"] = {"scheduled": True, "action": action, "delay_s": 0}
         else:
             op["status"] = "unknown" if result.rc == -1 else "failed"
             op["result"] = {"message": "outcome_unknown" if result.rc == -1 else "power_command_failed"}
