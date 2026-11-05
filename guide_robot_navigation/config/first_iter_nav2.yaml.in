@@ -628,7 +628,7 @@ mux_final:
 # Fail-closed AMCL interlock; log directory is persisted by compose.
 localization_guard:
   ros__parameters:
-    position_limit: 0.5
+    position_limit: 2.0
     yaw_limit_deg: 20.0
     recovery_position: 0.35
     recovery_yaw_deg: 15.0

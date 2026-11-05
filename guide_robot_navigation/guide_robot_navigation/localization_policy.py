@@ -8,7 +8,7 @@ class LocalizationPolicy:
         self,
         *,
         latched=False,
-        position_limit=0.5,
+        position_limit=2.0,
         yaw_limit=math.radians(20),
         recovery_position=0.35,
         recovery_yaw=math.radians(15),
@@ -48,10 +48,20 @@ class LocalizationPolicy:
             xx, xy, yx, yy, yaw = (float(covariance[i]) for i in (0, 1, 6, 7, 35))
             if not all(math.isfinite(v) for v in (xx, xy, yx, yy, yaw)):
                 raise ValueError()
-            if min(xx, yy, yaw) < 0 or abs(xy - yx) > 1e-6 or xx * yy - xy * xy < -1e-9:
+            # AMCL can produce tiny negative variances/eigenvalues from
+            # floating-point cancellation. Use an absolute variance tolerance
+            # (m² / rad²), never one proportional to a potentially huge input.
+            tolerance = 1e-9
+            if min(xx, yy, yaw) < -tolerance or abs(xy - yx) > tolerance:
                 raise ValueError()
-            self.position_sigma = math.sqrt((xx + yy + math.hypot(xx - yy, 2 * xy)) / 2)
-            self.yaw_sigma = math.sqrt(yaw)
+            xy = (xy + yx) / 2
+            spread = math.hypot(xx - yy, 2 * xy)
+            largest = (xx + yy + spread) / 2
+            smallest = (xx + yy - spread) / 2
+            if not all(math.isfinite(v) for v in (largest, smallest)) or smallest < -tolerance:
+                raise ValueError()
+            self.position_sigma = math.sqrt(max(0.0, largest))
+            self.yaw_sigma = math.sqrt(max(0.0, yaw))
             if not math.isfinite(self.position_sigma):
                 self.position_sigma = None
                 raise ValueError("invalid_covariance")
