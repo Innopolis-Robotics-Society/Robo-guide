@@ -221,3 +221,10 @@ The face app selects Mesa EGL and disables accelerated composition. Its own
 GSettings path disables external adblock-list downloads (these stalled even
 localhost page loading on the robot) and password saving. These settings do
 not affect the ordinary GNOME browser profile. WebKit sandbox stays enabled.
+
+`guide-face-cursor` must also be installed executable in `/usr/local/bin/`.
+The wrapper starts it for its own X window. It uses libX11/libXfixes (Python
+ctypes, no extra Python packages) to hide the cursor while the pointer is over
+that window or its children; other GNOME windows retain their cursor. It polls
+at5Hz and only sends XFixes requests on transitions. Exit/connection-close
+releases cursor hiding. No desktop-wide cursor theme changes are needed.

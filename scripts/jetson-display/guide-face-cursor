@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Hide the X cursor over the face window only, including browser chrome.
+
+XFixes hide requests are released when this client's X connection closes.
+Other GNOME windows keep their normal pointer; no global theme is changed.
+"""
+import ctypes as C
+import signal
+import sys
+import time
+
+
+def main():
+    target = int(sys.argv[1], 0)
+    x = C.CDLL("libX11.so.6")
+    fixes = C.CDLL("libXfixes.so.3")
+    window = C.c_ulong
+    x.XOpenDisplay.argtypes = [C.c_char_p]
+    x.XOpenDisplay.restype = C.c_void_p
+    x.XDefaultRootWindow.argtypes = [C.c_void_p]
+    x.XDefaultRootWindow.restype = window
+    x.XQueryPointer.argtypes = [C.c_void_p, window, C.POINTER(window), C.POINTER(window),
+                               C.POINTER(C.c_int), C.POINTER(C.c_int),
+                               C.POINTER(C.c_int), C.POINTER(C.c_int), C.POINTER(C.c_uint)]
+    for name in ("XFixesHideCursor", "XFixesShowCursor"):
+        getattr(fixes, name).argtypes = [C.c_void_p, window]
+    x.XFlush.argtypes = x.XCloseDisplay.argtypes = [C.c_void_p]
+    display = x.XOpenDisplay(None)
+    if not display:
+        raise SystemExit("Cannot open face display")
+    root = x.XDefaultRootWindow(display)
+    stopped = False
+    hidden = False
+
+    def stop(*_):
+        nonlocal stopped
+        stopped = True
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    try:
+        while not stopped:
+            current, over_face = root, False
+            for _ in range(32):
+                if current == target:
+                    over_face = True
+                    break
+                r, child = window(), window()
+                rx, ry, wx, wy = (C.c_int() for _ in range(4))
+                mask = C.c_uint()
+                ok = x.XQueryPointer(display, current, C.byref(r), C.byref(child),
+                                     C.byref(rx), C.byref(ry), C.byref(wx), C.byref(wy), C.byref(mask))
+                if not ok or not child.value:
+                    break
+                current = child.value
+            if over_face != hidden:
+                (fixes.XFixesHideCursor if over_face else fixes.XFixesShowCursor)(display, root)
+                x.XFlush(display)
+                hidden = over_face
+                print("Face cursor hidden" if hidden else "GNOME cursor restored", flush=True)
+            time.sleep(0.2)
+    finally:
+        if hidden:
+            fixes.XFixesShowCursor(display, root)
+            x.XFlush(display)
+        x.XCloseDisplay(display)
+
+
+if __name__ == "__main__":
+    main()

@@ -52,7 +52,16 @@ xset s off 2>/dev/null || true
 xset -dpms 2>/dev/null || true
 /usr/bin/epiphany --application-mode --profile="$PROFILE" "$URL" &
 browser=$!
-trap 'kill "$browser" 2>/dev/null || true; wait "$browser" 2>/dev/null || true' EXIT
+cursor_helper=""
+cleanup() {
+  if [[ -n "$cursor_helper" ]]; then
+    kill "$cursor_helper" 2>/dev/null || true
+    wait "$cursor_helper" 2>/dev/null || true
+  fi
+  kill "$browser" 2>/dev/null || true
+  wait "$browser" 2>/dev/null || true
+}
+trap cleanup EXIT
 trap 'exit 0' TERM INT
 # Epiphany 42 has no --kiosk/--fullscreen flag. Target only our process window.
 for ((i=0; i<120; i++)); do
@@ -65,4 +74,6 @@ for ((i=0; i<120; i++)); do
   sleep 1
 done
 [[ -n "${window:-}" ]] || { echo 'Face browser did not create a window' >&2; exit 1; }
+/usr/local/bin/guide-face-cursor "$window" &
+cursor_helper=$!
 wait "$browser"
