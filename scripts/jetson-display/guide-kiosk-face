@@ -26,6 +26,7 @@ done
 : "${DISPLAY:?No usable GNOME X display}"
 until curl -fsS -o /dev/null --max-time 2 "$URL"; do sleep 1; done
 mkdir -p "$PROFILE"
+touch "$PROFILE/.app"  # Required by Epiphany 42 to select web-app settings.
 # Epiphany application mode requires its desktop metadata inside the profile.
 cat > "$PROFILE/$(basename "$PROFILE").desktop" <<'DESKTOP'
 [Desktop Entry]
