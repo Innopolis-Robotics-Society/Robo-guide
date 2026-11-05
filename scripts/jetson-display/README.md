@@ -216,3 +216,8 @@ Install this script as `/usr/local/bin/guide-kiosk-face`, create the profile
 Firefox instance started by that entry. Keep Firefox profiles for rollback.
 Only the system service should start eyes at boot. The compatibility script in
 `guide_robot_face/scripts/face_kiosk.sh` also delegates to this host wrapper.
+
+The face app selects Mesa EGL and disables accelerated composition. Its own
+GSettings path disables external adblock-list downloads (these stalled even
+localhost page loading on the robot) and password saving. These settings do
+not affect the ordinary GNOME browser profile. WebKit sandbox stays enabled.

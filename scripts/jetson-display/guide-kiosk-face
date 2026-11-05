@@ -14,6 +14,7 @@ unset MOZ_ENABLE_WAYLAND MOZ_WEBRENDER
 # Keep sandboxing enabled; use the software renderer instead.
 export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1
 export WEBKIT_DISABLE_COMPOSITING_MODE=1
+export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
 for ((i=0; i<120; i++)); do
   if [[ -r "$AUTH" ]]; then
     for sock in /tmp/.X11-unix/X*; do
@@ -41,6 +42,12 @@ Icon=org.gnome.Epiphany
 StartupNotify=false
 Terminal=false
 DESKTOP
+# Scope all preferences to this web app, not the user's normal GNOME browser.
+settings="org.gnome.Epiphany.web:/org/gnome/epiphany/web-apps/$(basename "$PROFILE")/web/"
+gsettings set "$settings" hardware-acceleration-policy never
+# Loading external filter lists can block even localhost on disconnected robots.
+gsettings set "$settings" enable-adblock false
+gsettings set "$settings" remember-passwords false
 xset s off 2>/dev/null || true
 xset -dpms 2>/dev/null || true
 /usr/bin/epiphany --application-mode --profile="$PROFILE" "$URL" &
