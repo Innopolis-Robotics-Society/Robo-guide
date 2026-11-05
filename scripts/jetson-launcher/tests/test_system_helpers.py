@@ -142,3 +142,50 @@ def test_wifi_reports_address_stage_without_requiring_internet(monkeypatch):
     monkeypatch.setattr(asyncio, "sleep", sleep)
     assert asyncio.run(wifi.wait_active("/device", "/active/new"))
     assert phases == ["obtaining_address"]
+
+
+def test_wifi_scan_waits_for_completion_and_preserves_connection(monkeypatch):
+    import pytest
+
+    pytest.importorskip("dbus_next")
+    monkeypatch.setenv("GUIDE_WIFI_INTERFACE", "test-radio")
+    module = load("wifi_service")
+    wifi = module.Wifi()
+    calls = []
+    timestamps = iter([100, 100, 100, 100, 101])
+
+    class Wireless:
+        async def call_request_scan(self, options):
+            calls.append("scan")
+
+    async def device():
+        return None, "/device", {}
+
+    async def proxy(*args):
+        return Wireless()
+
+    async def props(*args):
+        stamp = next(timestamps)
+        calls.append(stamp)
+        return {"LastScan": stamp}
+
+    async def state():
+        calls.append("state")
+        return {"networks": [{"ssid": "newly-discovered"}]}
+
+    async def sleep(delay):
+        pass
+
+    wifi.device, wifi.proxy, wifi.props, wifi.state = device, proxy, props, state
+    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+
+    async def run():
+        app = web.Application()
+        app.router.add_post("/{action}", wifi.handle)
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post("/scan", json={})
+            assert response.status == 200
+            assert (await response.json())["networks"][0]["ssid"] == "newly-discovered"
+            assert calls == [100, "scan", 100, 100, 100, 101, "state"]
+
+    asyncio.run(run())

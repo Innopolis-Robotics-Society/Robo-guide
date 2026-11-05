@@ -81,11 +81,15 @@ function showNetworks(data){
  if(!rows.length){const empty=document.createElement('p');empty.textContent='Сети не найдены. Нажмите «Обновить сети».';list.append(empty);}
 }
 async function wifi(action,body={}){el('wifi-message').textContent='Выполняется…';const r=await client.request(action?'POST':'GET','/api/v1/wifi'+(action?'/'+action:''),action?body:undefined);el('wifi-message').textContent=r.ok?'Настройки сети получены':(r.status===401?'Войдите в меню оператора':r.status===409?'Дождитесь остановки робота или завершения подключения':'Сеть недоступна. Проверьте адаптер Wi-Fi.');if(r.ok&&r.data.id){let op=r.data;while(['pending','running'].includes(op.status)){await new Promise(resolve=>setTimeout(resolve,1000));const poll=await client.request('GET','/api/v1/operations/'+op.id);if(!poll.ok){el('wifi-message').textContent='Исход подключения неизвестен';return poll;}op=poll.data;el('wifi-message').textContent=({connecting:'Подключение…',authenticating:'Проверка пароля…',obtaining_address:'Получение адреса…',restoring:'Восстановление прежней сети…'})[op.feedback?.phase]||'Подключение…';}await client.awaitAcceptance(op,0);el('wifi-message').textContent=op.status==='succeeded'?'Подключено':op.result?.restored_previous?'Не удалось подключиться; прежняя сеть восстановлена':'Подключение не подтверждено';const state=await client.request('GET','/api/v1/wifi');if(state.ok)showNetworks(state.data);}else if(r.ok)showNetworks(r.data);return r;}
-el('wifi-scan').onclick=()=>wifi('scan');el('wifi-disconnect').onclick=()=>wifi('disconnect');
+async function scanWifi(){
+ const button=el('wifi-scan');if(button.disabled)return;button.disabled=true;
+ try{await wifi('scan');}finally{button.disabled=false;}
+}
+el('wifi-scan').onclick=scanWifi;el('wifi-disconnect').onclick=()=>wifi('disconnect');
 el('wifi-form').onsubmit=async event=>{event.preventDefault();
  const password=el('wifi-password').value;
  const body=selected&&!password?{profile_id:selected}:{ssid:el('wifi-ssid').value,password,hidden:el('wifi-hidden').checked};
  closeWifi();await wifi('connect',body);
 };el('wifi-ssid').oninput=()=>{selected=null;};
-let visible=false;setInterval(async()=>{const show=!document.getElementById('section-settings').hidden&&!document.getElementById('menu-overlay').hidden;if(!show){if(visible)closeWifi();visible=false;return;}if(visible)return;visible=true;const r=await client.request('GET','/api/v1/audio/output');if(r.ok){el('output-volume').value=r.data.volume;paintVolume();el('output-muted').checked=r.data.muted;}else el('audio-message').textContent='Устройство звука недоступно';wifi();},500);
+let visible=false;setInterval(async()=>{const show=!document.getElementById('section-settings').hidden&&!document.getElementById('menu-overlay').hidden;if(!show){if(visible)closeWifi();visible=false;return;}if(visible)return;visible=true;const r=await client.request('GET','/api/v1/audio/output');if(r.ok){el('output-volume').value=r.data.volume;paintVolume();el('output-muted').checked=r.data.muted;}else el('audio-message').textContent='Устройство звука недоступно';await wifi();await scanWifi();},500);
 })();

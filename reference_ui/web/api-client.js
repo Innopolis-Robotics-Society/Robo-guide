@@ -5,7 +5,7 @@
     constructor(base = '') { this.base = base; this.pendingKeys = new Map(); this.operationKeys = new Map(); }
     async request(method, path, body, key) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), method === 'GET' ? 4000 : 20000);
+      const timer = setTimeout(() => controller.abort(), path === '/api/v1/wifi/scan' ? 35000 : method === 'GET' ? 4000 : 20000);
       const headers = {};
       const identityBody = path === '/api/v1/wifi/connect' && body ? {...body, password: '[credential]'} : body;
       const identity = path + ':' + JSON.stringify(identityBody);

@@ -159,8 +159,15 @@ class Wifi:
                 body = await request.json() if request.can_read_body else {}
                 if action == "scan":
                     wireless = await self.proxy(path, NM + ".Device.Wireless")
+                    before = (await self.props(path, NM + ".Device.Wireless"))["LastScan"]
                     await wireless.call_request_scan({})
-                    await asyncio.sleep(2)
+                    # RequestScan only accepts the request. LastScan changes when
+                    # NetworkManager has completed discovery, not after a fixed delay.
+                    deadline = asyncio.get_running_loop().time() + 25
+                    while (await self.props(path, NM + ".Device.Wireless"))["LastScan"] <= before:
+                        if asyncio.get_running_loop().time() >= deadline:
+                            return web.json_response({"message": "scan_timeout"}, status=504)
+                        await asyncio.sleep(0.25)
                     return web.json_response(await self.state())
                 profiles = await self.profiles()
                 selected = next((p for p in profiles if p["id"] == body.get("profile_id")), None)
