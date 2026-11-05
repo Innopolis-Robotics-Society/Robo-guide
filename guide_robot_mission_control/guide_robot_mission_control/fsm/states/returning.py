@@ -13,7 +13,7 @@ from nav2_msgs.action import NavigateToPose
 
 from guide_robot_mission_control.fsm import outcomes
 from guide_robot_mission_control.fsm.base import InterruptibleState
-from guide_robot_mission_control.fsm.blackboard_keys import Blackboard
+from guide_robot_mission_control.fsm.blackboard_keys import Blackboard, cancel_nav_goal
 
 __all__ = ["ReturningState"]
 
@@ -26,12 +26,14 @@ class ReturningState(InterruptibleState):
     def on_enter(self, blackboard: Blackboard) -> None:
         """Отправить NavigateToPose на домашнюю позу, если tour.return_home."""
         self._skip = not blackboard.tour.return_home
+        self._send_future: object | None = None
         self._goal_handle: object | None = None
         self._result_future: object | None = None
         if self._skip:
             return
         goal = NavigateToPose.Goal()
         goal.pose = self.ctx.home_pose()
+        self.ctx.publish_target(goal.pose)
         self._send_future = self.ctx.nav_client.send_goal_async(goal)
 
     def poll(self, blackboard: Blackboard, now_ns: int) -> str | None:
@@ -63,5 +65,4 @@ class ReturningState(InterruptibleState):
     def cancel_active_work(self, blackboard: Blackboard, outcome: str) -> None:
         """CANCELED/HELD -- отменить активный NavigateToPose до дома."""
         del blackboard, outcome
-        if self._goal_handle is not None and self._result_future is not None:
-            self._goal_handle.cancel_goal_async()  # type: ignore[attr-defined]
+        cancel_nav_goal(self._goal_handle, self._send_future)

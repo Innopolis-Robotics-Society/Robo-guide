@@ -1,0 +1,10 @@
+[Unit]
+Description=Guide robot speaker control
+After=pulseaudio.service pipewire-pulse.service
+[Service]
+EnvironmentFile=%h/.config/guide-audio.env
+ExecStart=/usr/bin/python3 /opt/guide-launcher/helpers/audio_service.py
+Restart=on-failure
+UMask=0007
+[Install]
+WantedBy=default.target

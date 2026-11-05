@@ -1,0 +1,3545 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Robo-guide local control API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8089/api/v1"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Host liveness; does not call ROS",
+        "operationId": "get_health",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/state": {
+      "get": {
+        "summary": "Snapshot, transport freshness and subsystem readiness",
+        "operationId": "get_state",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/State"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "summary": "WebSocket upgrade; snapshot on each connection, state and heartbeat envelopes",
+        "operationId": "get_events",
+        "security": [],
+        "responses": {
+          "101": {
+            "description": "See events.schema.json and events.examples.json"
+          }
+        }
+      }
+    },
+    "/tours": {
+      "get": {
+        "summary": "tours",
+        "operationId": "get_tours",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tours"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/locations": {
+      "get": {
+        "summary": "locations",
+        "operationId": "get_locations",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Locations"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/content/{id}": {
+      "get": {
+        "summary": "content/{id}",
+        "operationId": "get_content_id",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Content"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/media/{id}": {
+      "get": {
+        "summary": "media/{id}",
+        "operationId": "get_media_id",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaManifest"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/face/expressions": {
+      "get": {
+        "summary": "face/expressions",
+        "operationId": "get_face_expressions",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stack/status": {
+      "get": {
+        "summary": "stack/status",
+        "operationId": "get_stack_status",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/status": {
+      "get": {
+        "summary": "auth/status",
+        "operationId": "get_auth_status",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/media-files/{tail}": {
+      "get": {
+        "summary": "Media file; forwards Range and preserves 206/Content-Range",
+        "operationId": "get_media_files_tail",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "File"
+          },
+          "206": {
+            "description": "Partial content"
+          },
+          "default": {
+            "description": "Error"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tail",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/auth/challenge": {
+      "post": {
+        "summary": "One-use challenge (30 seconds), available PIN/RFID backends",
+        "operationId": "post_auth_challenge",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/verify": {
+      "post": {
+        "summary": "Verify challenge; sets HttpOnly SameSite=Strict gl_session cookie",
+        "operationId": "post_auth_verify",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nonce": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "backend": {
+                    "enum": [
+                      "pin",
+                      "rfid"
+                    ]
+                  },
+                  "pin": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "nonce",
+                  "backend"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Invalidate current session",
+        "operationId": "post_auth_logout",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stack/start": {
+      "post": {
+        "summary": "Start ROS",
+        "operationId": "post_stack_start",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted; observe operation/state for completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stack/restart": {
+      "post": {
+        "summary": "Restart only with fresh idle mission or confirmed stopped stack",
+        "operationId": "post_stack_restart",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted; observe operation/state for completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stack/log": {
+      "get": {
+        "summary": "Last 30 log lines",
+        "operationId": "get_stack_log",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/missions": {
+      "post": {
+        "summary": "Start ROS action; accepted HTTP request does not mean action succeeded",
+        "operationId": "post_missions",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted; observe operation/state for completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MissionRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Unique per session and API instance. Same payload/key returns the same operation; changed payload is 409. Retained until restart, maximum 256 operations per instance."
+          }
+        ]
+      }
+    },
+    "/missions/go-to": {
+      "post": {
+        "summary": "Start ROS action; accepted HTTP request does not mean action succeeded",
+        "operationId": "post_missions_go_to",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted; observe operation/state for completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "location_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "location_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Unique per session and API instance. Same payload/key returns the same operation; changed payload is 409. Retained until restart, maximum 256 operations per instance."
+          }
+        ]
+      }
+    },
+    "/speech": {
+      "post": {
+        "summary": "Start ROS action; accepted HTTP request does not mean action succeeded",
+        "operationId": "post_speech",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted; observe operation/state for completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeechRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Unique per session and API instance. Same payload/key returns the same operation; changed payload is 409. Retained until restart, maximum 256 operations per instance."
+          }
+        ]
+      }
+    },
+    "/operations/{id}": {
+      "get": {
+        "summary": "Read operation from this API instance",
+        "operationId": "get_operations_id",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/operations/{id}/cancel": {
+      "post": {
+        "summary": "Cancel own action goal; observe final result",
+        "operationId": "post_operations_id_cancel",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted; observe operation/state for completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/missions/pause": {
+      "post": {
+        "summary": "missions/pause",
+        "operationId": "post_missions_pause",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/missions/resume": {
+      "post": {
+        "summary": "missions/resume",
+        "operationId": "post_missions_resume",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/missions/stop": {
+      "post": {
+        "summary": "Stop in place; distinct from ending a tour and returning",
+        "operationId": "post_missions_stop",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/missions/return": {
+      "post": {
+        "summary": "Request return via Trigger; follow mission state, no action result promised",
+        "operationId": "post_missions_return",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interaction/question": {
+      "post": {
+        "summary": "interaction/question",
+        "operationId": "post_interaction_question",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/costmaps/clear": {
+      "post": {
+        "summary": "costmaps/clear",
+        "operationId": "post_costmaps_clear",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/face/clear": {
+      "post": {
+        "summary": "face/clear",
+        "operationId": "post_face_clear",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/missions/redirect": {
+      "post": {
+        "summary": "missions/redirect",
+        "operationId": "post_missions_redirect",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "location_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "location_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/missions/base": {
+      "post": {
+        "summary": "missions/base",
+        "operationId": "post_missions_base",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "location_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "location_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interaction/confirm": {
+      "post": {
+        "summary": "Answer pending continue question; stop means end tour with configured return",
+        "operationId": "post_interaction_confirm",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "answer": {
+                    "enum": [
+                      "yes",
+                      "stop",
+                      "question"
+                    ]
+                  }
+                },
+                "required": [
+                  "answer"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interaction/answer": {
+      "post": {
+        "summary": "Finish ANSWERING interaction",
+        "operationId": "post_interaction_answer",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "enum": [
+                      "resume",
+                      "skip",
+                      "end"
+                    ]
+                  }
+                },
+                "required": [
+                  "outcome"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/face/override": {
+      "post": {
+        "summary": "Temporary expression; emergency and driving take priority; monotonic expiry",
+        "operationId": "post_face_override",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FaceOverride"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/localization/reset": {
+      "post": {
+        "summary": "Publish initial pose under mission ownership; not a convergence guarantee",
+        "operationId": "post__localization_reset",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "confirm"
+                ],
+                "properties": {
+                  "confirm": {
+                    "const": true
+                  },
+                  "map_version": {
+                    "type": "string"
+                  },
+                  "pose": {
+                    "$ref": "#/components/schemas/MapPose"
+                  },
+                  "preset_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/start-tour": {
+      "post": {
+        "summary": "Visitor starts disabled; use authenticated POST /missions",
+        "operationId": "post_public_start_tour",
+        "security": [],
+        "responses": {
+          "403": {
+            "description": "Operator session required; this endpoint never starts a mission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tour_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "confirm_between_stops": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "tour_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Unique per session and API instance. Same payload/key returns the same operation; changed payload is 409. Retained until restart, maximum 256 operations per instance."
+          }
+        ],
+        "deprecated": true
+      }
+    },
+    "/public/stop": {
+      "post": {
+        "summary": "Stop moving mission without operator session",
+        "operationId": "post_public_stop",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/confirm": {
+      "post": {
+        "summary": "Answer only while awaiting confirmation and policy enabled",
+        "operationId": "post_public_confirm",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "answer": {
+                    "enum": [
+                      "yes",
+                      "stop",
+                      "question"
+                    ]
+                  }
+                },
+                "required": [
+                  "answer"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reference/config": {
+      "get": {
+        "summary": "Optional reference UI config",
+        "operationId": "get_reference_config",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reference/preferences": {
+      "get": {
+        "summary": "Optional reference UI preferences",
+        "operationId": "get_reference_preferences",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Optional UI preference; never changes API mission defaults",
+        "operationId": "post_reference_preferences",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tour_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "confirm_between_stops": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reference/promo": {
+      "get": {
+        "summary": "Optional reference UI promo",
+        "operationId": "get_reference_promo",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reference/promo-files/{tail}": {
+      "get": {
+        "summary": "Optional reference UI media",
+        "operationId": "get_reference_promo_files_tail",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. A timeout may mean the command ran; never retry with a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tail",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/map": {
+      "get": {
+        "summary": "Current loaded map and TF pose",
+        "operationId": "get__map",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapState"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/map/image": {
+      "get": {
+        "summary": "Current occupancy map image",
+        "operationId": "get__map_image",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/localization/presets": {
+      "get": {
+        "summary": "Configured localization positions",
+        "operationId": "get__localization_presets",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/missions/go-to-pose": {
+      "post": {
+        "summary": "Drive to map pose through mission FSM",
+        "operationId": "post__missions_go_to_pose",
+        "responses": {
+          "202": {
+            "description": "Operation reserved; observe result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PoseRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/audio/output": {
+      "get": {
+        "summary": "Observed system speaker volume",
+        "operationId": "get__audio_output",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Set all speaker output within configured maximum",
+        "operationId": "post__audio_output",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "volume": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "muted": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wifi": {
+      "get": {
+        "summary": "Configured Wi-Fi adapter status, networks and saved profiles",
+        "operationId": "get__wifi",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/wifi/scan": {
+      "post": {
+        "summary": "Wi-Fi scan",
+        "operationId": "post__wifi_scan",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ssid": {
+                    "type": "string"
+                  },
+                  "profile_id": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "hidden": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wifi/disconnect": {
+      "post": {
+        "summary": "Wi-Fi disconnect",
+        "operationId": "post__wifi_disconnect",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ssid": {
+                    "type": "string"
+                  },
+                  "profile_id": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "hidden": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wifi/forget": {
+      "post": {
+        "summary": "Wi-Fi forget",
+        "operationId": "post__wifi_forget",
+        "responses": {
+          "200": {
+            "description": "Observed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ssid": {
+                    "type": "string"
+                  },
+                  "profile_id": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "hidden": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wifi/connect": {
+      "post": {
+        "summary": "Wi-Fi connect",
+        "operationId": "post__wifi_connect",
+        "responses": {
+          "202": {
+            "description": "Operation reserved; observe result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ssid": {
+                    "type": "string"
+                  },
+                  "profile_id": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "hidden": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "gl_session"
+      }
+    },
+    "schemas": {
+      "MissionRequest": {
+        "type": "object",
+        "properties": {
+          "tour_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "location_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "start_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535,
+            "default": 0
+          },
+          "time_budget_min": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1440,
+            "default": 0
+          },
+          "greet": {
+            "type": "boolean",
+            "default": true
+          },
+          "narrate": {
+            "type": "boolean",
+            "default": true
+          },
+          "confirm_between_stops": {
+            "type": "boolean",
+            "default": false
+          },
+          "return_home": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "tour_id"
+            ],
+            "not": {
+              "required": [
+                "location_ids"
+              ]
+            }
+          },
+          {
+            "required": [
+              "location_ids"
+            ],
+            "not": {
+              "required": [
+                "tour_id"
+              ]
+            }
+          }
+        ]
+      },
+      "Operation": {
+        "type": "object",
+        "required": [
+          "id",
+          "instance_id",
+          "kind",
+          "status",
+          "feedback",
+          "result"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "instance_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "enum": [
+              "missions",
+              "speech",
+              "missions/go-to-pose",
+              "wifi"
+            ]
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed",
+              "canceled",
+              "rejected",
+              "unknown"
+            ]
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RunTourFeedback"
+              },
+              {
+                "$ref": "#/components/schemas/SayFeedback"
+              },
+              {
+                "$ref": "#/components/schemas/PoseFeedback"
+              },
+              {
+                "$ref": "#/components/schemas/WifiFeedback"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RunTourResult"
+              },
+              {
+                "$ref": "#/components/schemas/SayResult"
+              },
+              {
+                "type": "object",
+                "description": "Rejection or unknown-outcome diagnostic, not a successful ROS action result."
+              }
+            ]
+          },
+          "goal_id": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "created_at": {
+            "type": "number"
+          },
+          "updated_at": {
+            "type": "number"
+          }
+        }
+      },
+      "State": {
+        "type": "object",
+        "required": [
+          "stack",
+          "transport_connected",
+          "data_fresh",
+          "robot",
+          "operations",
+          "instance_id"
+        ],
+        "properties": {
+          "stack": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "enum": [
+                  "DOWN",
+                  "STARTING",
+                  "UP",
+                  "DEGRADED",
+                  "FAILED"
+                ]
+              },
+              "checks": {
+                "type": "object"
+              },
+              "control": {
+                "type": "boolean"
+              },
+              "last_error": {
+                "type": "string"
+              }
+            }
+          },
+          "transport_connected": {
+            "type": "boolean"
+          },
+          "data_fresh": {
+            "type": "boolean"
+          },
+          "robot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RobotState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Operation"
+            }
+          },
+          "instance_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id"
+            ],
+            "additionalProperties": false
+          },
+          "state": {
+            "$ref": "#/components/schemas/State"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "SpeechRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "voice": {
+            "type": "string",
+            "default": ""
+          },
+          "max_duration": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 300,
+            "default": 120
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "FaceOverride": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "gaze_az": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "default": 0
+          },
+          "duration_s": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 60
+          }
+        },
+        "required": [
+          "state",
+          "duration_s"
+        ],
+        "additionalProperties": false
+      },
+      "Tours": {
+        "type": "object",
+        "properties": {
+          "tours": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tour"
+            }
+          }
+        },
+        "required": [
+          "tours"
+        ],
+        "additionalProperties": false
+      },
+      "Tour": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "duration_min_estimate": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TourStop"
+            }
+          },
+          "transit_content_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "duration_min_estimate",
+          "stops",
+          "transit_content_id"
+        ],
+        "additionalProperties": false
+      },
+      "TourStop": {
+        "type": "object",
+        "properties": {
+          "location_id": {
+            "type": "string"
+          },
+          "exhibit_id": {
+            "type": "string"
+          },
+          "dwell_s": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "exhibit_id",
+          "dwell_s",
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "Locations": {
+        "type": "object",
+        "properties": {
+          "locations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Location"
+            }
+          }
+        },
+        "required": [
+          "locations"
+        ],
+        "additionalProperties": false
+      },
+      "Location": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pose": {
+            "$ref": "#/components/schemas/PoseStamped"
+          },
+          "zone": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "is_public": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "aliases",
+          "pose",
+          "zone",
+          "category",
+          "is_public"
+        ],
+        "additionalProperties": false
+      },
+      "PoseStamped": {
+        "type": "object",
+        "properties": {
+          "header": {
+            "$ref": "#/components/schemas/Header"
+          },
+          "pose": {
+            "$ref": "#/components/schemas/Pose"
+          }
+        },
+        "required": [
+          "header",
+          "pose"
+        ],
+        "additionalProperties": false
+      },
+      "Header": {
+        "type": "object",
+        "properties": {
+          "stamp": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "frame_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stamp",
+          "frame_id"
+        ],
+        "additionalProperties": false
+      },
+      "Time": {
+        "type": "object",
+        "properties": {
+          "sec": {
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          },
+          "nanosec": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        },
+        "required": [
+          "sec",
+          "nanosec"
+        ],
+        "additionalProperties": false
+      },
+      "Pose": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "orientation": {
+            "$ref": "#/components/schemas/Quaternion"
+          }
+        },
+        "required": [
+          "position",
+          "orientation"
+        ],
+        "additionalProperties": false
+      },
+      "Point": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "z": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "additionalProperties": false
+      },
+      "Quaternion": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "z": {
+            "type": "number"
+          },
+          "w": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "w"
+        ],
+        "additionalProperties": false
+      },
+      "Content": {
+        "type": "object",
+        "properties": {
+          "chunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExhibitChunk"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunks",
+          "title",
+          "kind",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "ExhibitChunk": {
+        "type": "object",
+        "properties": {
+          "chunk_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "interruptible": {
+            "type": "boolean"
+          },
+          "pause_after_s": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "text",
+          "interruptible",
+          "pause_after_s"
+        ],
+        "additionalProperties": false
+      },
+      "RunTourResult": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "stops_completed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "stops_skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "stops_completed",
+          "stops_skipped",
+          "detail"
+        ],
+        "additionalProperties": false
+      },
+      "RunTourFeedback": {
+        "type": "object",
+        "properties": {
+          "phase": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "stop_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "stop_total": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "stop_id": {
+            "type": "string"
+          },
+          "eta_s": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "phase",
+          "stop_index",
+          "stop_total",
+          "stop_id",
+          "eta_s"
+        ],
+        "additionalProperties": false
+      },
+      "SayResult": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "spoken_text": {
+            "type": "string"
+          },
+          "spoken_chars": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "spoken_duration": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "spoken_text",
+          "spoken_chars",
+          "spoken_duration",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "SayFeedback": {
+        "type": "object",
+        "properties": {
+          "clause_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "clause_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "progress": {
+            "type": "number"
+          },
+          "current_clause": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "clause_index",
+          "clause_count",
+          "progress",
+          "current_clause"
+        ],
+        "additionalProperties": false
+      },
+      "FaceState": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "gaze_az": {
+            "type": "number"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "gaze_az",
+          "seq",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "SpeakingStatus": {
+        "type": "object",
+        "properties": {
+          "stamp": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "speaking": {
+            "type": "boolean"
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "goal_id": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "scope": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "expected_end": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "interruptible": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stamp",
+          "speaking",
+          "epoch",
+          "goal_id",
+          "priority",
+          "scope",
+          "expected_end",
+          "interruptible"
+        ],
+        "additionalProperties": false
+      },
+      "RobotState": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer"
+          },
+          "stamp": {
+            "type": "number"
+          },
+          "bridge_instance_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "integer"
+          },
+          "state_name": {
+            "enum": [
+              "unknown",
+              "idle",
+              "greeting",
+              "navigating",
+              "narrating",
+              "awaiting_confirm",
+              "answering",
+              "paused",
+              "held",
+              "returning"
+            ]
+          },
+          "tour_id": {
+            "type": "string"
+          },
+          "stop_index": {
+            "type": "integer"
+          },
+          "stop_total": {
+            "type": "integer"
+          },
+          "stop_id": {
+            "type": "string"
+          },
+          "exhibit_id": {
+            "type": "string"
+          },
+          "next_exhibit_id": {
+            "type": "string"
+          },
+          "chunk_index": {
+            "type": "integer"
+          },
+          "chunk_total": {
+            "type": "integer"
+          },
+          "paused_reason": {
+            "type": "integer"
+          },
+          "estop": {
+            "type": "boolean"
+          },
+          "supervisor_state": {
+            "type": "string"
+          },
+          "mission_state_age_s": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "available_commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "readiness": {
+            "type": "object",
+            "properties": {
+              "mission": {
+                "type": "boolean"
+              },
+              "speech": {
+                "type": "boolean"
+              },
+              "catalog": {
+                "type": "boolean"
+              },
+              "face": {
+                "type": "boolean"
+              },
+              "pose": {
+                "type": "boolean"
+              }
+            }
+          },
+          "face": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FaceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "speech": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakingStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "moving": {
+            "type": "boolean",
+            "description": "Includes navigation continuing while answering a question."
+          },
+          "base_state_name": {
+            "type": "string"
+          },
+          "map": {
+            "$ref": "#/components/schemas/MapState"
+          },
+          "localization": {
+            "$ref": "#/components/schemas/LocalizationState"
+          }
+        },
+        "required": [
+          "state_name",
+          "mission_state_age_s",
+          "readiness"
+        ],
+        "description": "Received state. available_commands are ROS-owned hints; final acceptance is revalidated."
+      },
+      "MediaItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "chunk_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "duration_s": {
+            "type": "number"
+          },
+          "caption": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "chunk_id",
+          "kind",
+          "path",
+          "duration_s",
+          "caption"
+        ],
+        "additionalProperties": false
+      },
+      "MediaManifest": {
+        "type": "object",
+        "required": [
+          "title",
+          "chunk_ids",
+          "items"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "chunk_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaItem"
+            }
+          }
+        }
+      },
+      "MapPose": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "x",
+          "y",
+          "yaw"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": -1000000.0,
+            "maximum": 1000000.0
+          },
+          "y": {
+            "type": "number",
+            "minimum": -1000000.0,
+            "maximum": 1000000.0
+          },
+          "yaw": {
+            "type": "number",
+            "minimum": -1000000.0,
+            "maximum": 1000000.0
+          }
+        }
+      },
+      "PoseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "map_version",
+          "pose"
+        ],
+        "properties": {
+          "map_version": {
+            "type": "string"
+          },
+          "pose": {
+            "$ref": "#/components/schemas/MapPose"
+          }
+        }
+      },
+      "MapState": {
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "frame": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "resolution": {
+            "type": "number"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/MapPose"
+          },
+          "robot_pose": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "target": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
+      "PoseFeedback": {
+        "type": "object",
+        "required": [
+          "phase"
+        ],
+        "properties": {
+          "phase": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WifiFeedback": {
+        "type": "object",
+        "required": [
+          "phase"
+        ],
+        "properties": {
+          "phase": {
+            "enum": [
+              "connecting",
+              "authenticating",
+              "obtaining_address",
+              "restoring"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "LocalizationState": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "initializing",
+              "ready",
+              "lost",
+              "recovering"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "motion_blocked": {
+            "type": "boolean"
+          },
+          "reset_required": {
+            "type": "boolean"
+          },
+          "fresh": {
+            "type": "boolean"
+          },
+          "position_sigma": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "yaw_sigma": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "position_limit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "yaw_limit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "age_s": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "reason",
+          "motion_blocked",
+          "reset_required",
+          "fresh"
+        ]
+      }
+    }
+  }
+}

@@ -39,6 +39,10 @@ class TourState:
         tmp.write_text(json.dumps(data), encoding="utf-8")
         os.replace(tmp, self._path)
 
+    def update(self, values: dict[str, Any]) -> None:
+        """Atomically persist a fully validated UI preferences request."""
+        self._write(**values)
+
     def current(self) -> tuple[str, str]:
         """(tour_id, source): source = "state" или "default"."""
         tour_id = self._read().get("tour_id")

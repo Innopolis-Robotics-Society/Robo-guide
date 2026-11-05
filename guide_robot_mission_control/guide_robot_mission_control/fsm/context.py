@@ -53,6 +53,8 @@ class FsmContext:
         transit_after_s: float = 6.0,
         is_speaking: Callable[[], bool] = lambda: False,
         prompt_listen: Callable[[], None] = lambda: None,
+        localization_blocked: Callable[[], bool] = lambda: False,
+        publish_target: Callable[[object], None] = lambda pose: None,
         on_state_changed: Callable[[str, object], None] | None = None,
         log: Callable[[str], None] | None = None,
     ) -> None:
@@ -73,7 +75,9 @@ class FsmContext:
         self.goal_handle = goal_handle
         self.narrate_client = narrate_client
         self.say_client = say_client
+        self.localization_blocked = localization_blocked
         self.nav_client = nav_client
+        self.publish_target = publish_target
         self.resolve_pose = resolve_pose
         self.home_pose = home_pose
         self.safety_hold_event = safety_hold_event

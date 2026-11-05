@@ -6,12 +6,17 @@
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import replace
+from pathlib import Path
 
 import rclpy
+import yaml
+from ament_index_python.packages import get_package_share_directory
+from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 from guide_robot_face.lib.aggregator import (
     MISSION_NAVIGATING,
@@ -24,6 +29,7 @@ from guide_robot_face.lib.qos import (
     QOS_FACE_STATE,
     QOS_MISSION_PRESENCE,
     QOS_MISSION_STATE,
+    QOS_SUPERVISOR_STATE,
     QOS_VAD,
     QOS_VOICE_SESSION_STATE,
     QOS_VOICE_SPEAKING,
@@ -39,6 +45,7 @@ from guide_robot_msgs.msg import (
     VoiceSessionState,
     Wakeword,
 )
+from guide_robot_msgs.srv import OverrideFace
 
 _SPEAKING_STALE_SEC = 0.4
 _WAKEWORD_HOLD_SEC = 2.0
@@ -58,11 +65,24 @@ class FaceAggregatorNode(Node):
         self._latest_session: VoiceSessionState | None = None
         self._latest_speaking: SpeakingStatus | None = None
         self._wakeword_until = 0.0
+        states = yaml.safe_load(
+            (
+                Path(get_package_share_directory("guide_robot_face")) / "config/face_states.yaml"
+            ).read_text()
+        )
+        self._expressions = set(states["states"])
+        self._override = None
+        self.create_service(OverrideFace, "/face/override", self._set_override)
+        self._estop = False
+        self._supervisor_fault = False
+        self.create_subscription(Bool, "/supervisor/estop", self._on_estop, QOS_FACE_STATE)
         self._seq = 0
         self._last_state = ""
 
         self._pub = self.create_publisher(FaceState, "/face/state", QOS_FACE_STATE)
-        self.create_subscription(String, "/supervisor/state", self._on_supervisor, 10)
+        self.create_subscription(
+            String, "/supervisor/state", self._on_supervisor, QOS_SUPERVISOR_STATE
+        )
         self.create_subscription(
             SpeakingStatus, "/voice/speaking", self._on_speaking, QOS_VOICE_SPEAKING
         )
@@ -78,11 +98,17 @@ class FaceAggregatorNode(Node):
         self.create_subscription(
             VoiceSessionState, "/voice/session_state", self._on_session, QOS_VOICE_SESSION_STATE
         )
-        self.create_timer(_TICK_SEC, self._tick)
+        self.create_timer(_TICK_SEC, self._tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self._publish_if_changed()
 
     def _on_supervisor(self, msg: String) -> None:
-        self._inp = replace(self._inp, supervisor_fault=msg.data == "FAULT")
+        self._supervisor_fault = msg.data in ("FAULT", "SHUTDOWN")
+        self._inp = replace(self._inp, supervisor_fault=self._supervisor_fault or self._estop)
+        self._publish_if_changed()
+
+    def _on_estop(self, msg):
+        self._estop = bool(msg.data)
+        self._inp = replace(self._inp, supervisor_fault=self._supervisor_fault or self._estop)
         self._publish_if_changed()
 
     def _on_speaking(self, msg: SpeakingStatus) -> None:
@@ -95,7 +121,10 @@ class FaceAggregatorNode(Node):
         self._publish_if_changed()
 
     def _on_mission(self, msg: MissionState) -> None:
-        moving = int(msg.state) in (MISSION_NAVIGATING, MISSION_RETURNING)
+        moving = int(msg.state) in (MISSION_NAVIGATING, MISSION_RETURNING) or (
+            msg.state == MissionState.STATE_ANSWERING
+            and msg.base_state == MissionState.STATE_NAVIGATING
+        )
         self._inp = replace(self._inp, navigating=moving)
         self._publish_if_changed()
 
@@ -175,13 +204,43 @@ class FaceAggregatorNode(Node):
             ),
         )
 
+    def _effective(self):
+        automatic = decide(self._inp)
+        if self._override and time.monotonic() >= self._override[2]:
+            self._override = None
+        if self._override and automatic not in ("error", "driving"):
+            return self._override[0], self._override[1], "override"
+        return automatic, 0.0, "automatic"
+
+    def _set_override(self, request, response):
+        if request.state and (
+            request.state not in self._expressions
+            or not math.isfinite(request.duration_s)
+            or not 0 < request.duration_s <= 60
+            or not math.isfinite(request.gaze_az)
+            or not -90 <= request.gaze_az <= 90
+        ):
+            response.accepted = False
+            response.message = "invalid_expression"
+            return response
+        self._override = (
+            (request.state, request.gaze_az, time.monotonic() + request.duration_s)
+            if request.state
+            else None
+        )
+        self._publish_if_changed()
+        response.accepted = True
+        response.effective_state, _, response.source = self._effective()
+        return response
+
     def _publish_if_changed(self) -> None:
-        state = decide(self._inp)
-        if state == self._last_state:
+        state, gaze, source = self._effective()
+        key = (state, gaze, source)
+        if key == self._last_state:
             return
         self._seq += 1
-        self._last_state = state
-        self._pub.publish(FaceState(state=state, gaze_az=0.0, seq=self._seq))
+        self._last_state = key
+        self._pub.publish(FaceState(state=state, gaze_az=gaze, seq=self._seq, source=source))
 
 
 def main(args: list[str] | None = None) -> None:

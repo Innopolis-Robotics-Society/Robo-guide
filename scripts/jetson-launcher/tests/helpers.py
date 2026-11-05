@@ -100,6 +100,8 @@ def make_cfg(tmp_path: Path, **overrides) -> Config:
     (web / "index.html").write_text("<html>launcher</html>", encoding="utf-8")
     (web / "app.js").write_text("// js", encoding="utf-8")
     base = {
+        "serve_ui": True,
+        "public_tours": ("expo_one",),
         "container": "c",
         "start_cmd": "/x/start_stack.sh",
         "stack_log": "/tmp/stack.log",

@@ -1,0 +1,6 @@
+string map_version
+geometry_msgs/PoseStamped pose
+---
+bool accepted
+bool costmaps_cleared
+string message

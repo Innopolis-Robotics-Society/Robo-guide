@@ -80,6 +80,7 @@ def generate_launch_description():
             "use_sim_time": use_sim_time,
             "autostart_nav": autostart_nav,
             "nav2_params_file": nav2_params_keepout,
+            "localization_guard": "true",
         }.items(),
     )
 
@@ -137,6 +138,8 @@ def generate_launch_description():
             declare_map,
             declare_nav2_params,
             declare_keepout_mask_file,
+            Node(package="guide_robot_navigation", executable="localization_guard",
+                 parameters=[nav2_params, {"use_sim_time": use_sim_time}]),
             localization,
             common,
             keepout_group,

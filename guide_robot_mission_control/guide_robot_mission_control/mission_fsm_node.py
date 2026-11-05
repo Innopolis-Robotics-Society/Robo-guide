@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -45,6 +46,7 @@ from guide_robot_mission_control.lib.qos import (
     QOS_MISSION_STATE,
     QOS_VOICE_SPEAKING,
 )
+from guide_robot_mission_control.pose_control import PoseControl
 
 __all__ = ["MissionFsmNode", "main"]
 
@@ -64,6 +66,7 @@ _STATE_ENUM = {
 _FINAL_OUTCOME_TO_RESULT = {
     "succeeded": RunTour.Result.OUTCOME_COMPLETED,
     "aborted": RunTour.Result.OUTCOME_ABORTED,
+    "localization_lost": RunTour.Result.OUTCOME_ABORTED,
     "canceled": RunTour.Result.OUTCOME_CANCELED,
     "shutdown": RunTour.Result.OUTCOME_CANCELED,
 }
@@ -81,6 +84,35 @@ _REDIRECT_ALLOWED_STATES = frozenset(
         MissionState.STATE_AWAITING_CONFIRM,
     }
 )
+
+
+def available_commands(state: int) -> list[str]:
+    """Command eligibility owned by ROS, also published for replaceable clients."""
+    if state == MissionState.STATE_IDLE:
+        return [
+            "missions",
+            "missions/return",
+            "missions/base",
+            "missions/go-to-pose",
+            "localization/reset",
+        ]
+    commands = ["missions/stop"]
+    if state in (
+        MissionState.STATE_NAVIGATING,
+        MissionState.STATE_NARRATING,
+        MissionState.STATE_ANSWERING,
+    ):
+        commands.append("missions/pause")
+    if state == MissionState.STATE_PAUSED:
+        commands.append("missions/resume")
+    if state in _REDIRECT_ALLOWED_STATES:
+        commands.append("missions/redirect")
+    if state == MissionState.STATE_AWAITING_CONFIRM:
+        commands.extend(["interaction/confirm", "interaction/question"])
+    if state == MissionState.STATE_ANSWERING:
+        commands.append("interaction/answer")
+    return commands
+
 
 _RUN_TOUR_OUTCOME_NAMES = {
     RunTour.Result.OUTCOME_COMPLETED: "COMPLETED",
@@ -113,6 +145,12 @@ class MissionFsmNode(LifecycleNode):
         """Объявить параметры. Ресурсы ROS захватываются в on_configure."""
         super().__init__("mission_fsm", **node_kwargs)
 
+        self.declare_parameter("reset_covariance_xyyaw", [0.25, 0.25, 0.06853891945200942])
+        self.declare_parameter("initialpose_settle_s", 0.5)
+        self.declare_parameter("require_localization", True)
+        self._localization_status = {}
+        self._localization_received = 0.0
+        self.create_subscription(String, "/localization/status", self._on_localization, 10)
         self.declare_parameter("answer_max_s", 45.0)
         self.declare_parameter("confirm_timeout_s", 20.0)
         self.declare_parameter("confirm_repeat_max", 1)
@@ -140,6 +178,8 @@ class MissionFsmNode(LifecycleNode):
         self._exec_lock = threading.Lock()
         self._active_ctx: FsmContext | None = None
         self._active_goal_handle: object | None = None
+        self._goal_reserved = False
+        self._pending_stop_requested = False
         # A2: True, пока _active_ctx занят standalone-возвратом (~/go_home),
         # а не обычным RunTour-туром -- различает "tour_active" от
         # "already_returning" в _srv_go_home, оба читают один и тот же слот
@@ -248,6 +288,7 @@ class MissionFsmNode(LifecycleNode):
             MissionState, "/mission/state", QOS_MISSION_STATE
         )
 
+        self._pose_control = PoseControl(self)
         self._run_tour_server = ActionServer(
             self,
             RunTour,
@@ -273,6 +314,9 @@ class MissionFsmNode(LifecycleNode):
         )
         # A1: остановить активный прогон (RunTour или standalone go_home) на
         # месте -- симметрично request_pause/request_resume выше.
+        self._idle_check_srv = self.create_service(
+            Trigger, "~/check_idle", self._srv_check_idle, callback_group=self._cb_reentrant
+        )
         self._stop_srv = self.create_service(
             Trigger, "~/request_stop", self._srv_request_stop, callback_group=self._cb_reentrant
         )
@@ -357,6 +401,7 @@ class MissionFsmNode(LifecycleNode):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.state = MissionState.STATE_IDLE
         msg.detail = detail
+        msg.available_commands = available_commands(msg.state)
         return msg
 
     def _publish_idle_state(self, *, detail: str = "") -> None:
@@ -373,6 +418,8 @@ class MissionFsmNode(LifecycleNode):
         конца тура (`_execute_run_tour`'s finally); пустая строка для
         обычных вызовов (`on_activate`/`on_deactivate`).
         """
+        if self._pose_control is not None:
+            self._pose_control.target_pub.publish(PoseStamped())
         with self._state_lock:
             self._last_state_msg = self._idle_state_msg(detail=detail)
             self._state_pub.publish(self._last_state_msg)
@@ -403,7 +450,17 @@ class MissionFsmNode(LifecycleNode):
         self._teardown()
         return TransitionCallbackReturn.SUCCESS
 
+    def destroy_node(self) -> None:
+        """Release pose-control waitables before the ROS context disappears."""
+        if getattr(self, "_pose_control", None) is not None:
+            self._pose_control.close()
+            self._pose_control = None
+        super().destroy_node()
+
     def _teardown(self) -> None:
+        if getattr(self, "_pose_control", None) is not None:
+            self._pose_control.close()
+            self._pose_control = None
         self._last_state_msg = None
         self._estop = False
         self._supervisor_state = ""
@@ -454,6 +511,25 @@ class MissionFsmNode(LifecycleNode):
         self._supervisor_state = msg.data
         self._recompute_safety_hold()
 
+    def _on_localization(self, msg):
+        try:
+            self._localization_status = json.loads(msg.data)
+            self._localization_received = time.monotonic()
+        except ValueError:
+            self._localization_status = {}
+
+    def localization_blocked(self):
+        if not self.get_parameter("require_localization").value:
+            return False
+        return (time.monotonic()-self._localization_received > .5
+                or self._localization_status.get("motion_blocked", True))
+
+    def localization_failed(self):
+        if not self.get_parameter("require_localization").value:
+            return False
+        return (time.monotonic()-self._localization_received > .5
+                or self._localization_status.get("state") != "ready")
+
     def _recompute_safety_hold(self) -> None:
         held = self._estop or self._supervisor_state in ("FAULT", "SHUTDOWN")
         was_held = self._safety_hold_event.is_set()
@@ -489,7 +565,10 @@ class MissionFsmNode(LifecycleNode):
             self.get_logger().warning("RunTour отклонён: mission_fsm не active")
             return GoalResponse.REJECT
         with self._exec_lock:
-            busy = self._active_ctx is not None
+            busy = self._active_ctx is not None or self._goal_reserved or self.localization_blocked()
+            if not busy:
+                self._goal_reserved = True
+                self._pending_stop_requested = False
         if busy:
             self.get_logger().warning("RunTour отклонён: уже есть активный тур")
             return GoalResponse.REJECT
@@ -501,6 +580,17 @@ class MissionFsmNode(LifecycleNode):
         return GoalResponse.ACCEPT
 
     def _execute_run_tour(self, goal_handle: object) -> RunTour.Result:
+        with self._exec_lock:
+            self._active_goal_handle = goal_handle
+        try:
+            return self._execute_reserved_tour(goal_handle)
+        finally:
+            with self._exec_lock:
+                self._goal_reserved = False
+                self._active_goal_handle = None
+                self._pending_stop_requested = False
+
+    def _execute_reserved_tour(self, goal_handle: object) -> RunTour.Result:
         goal: RunTour.Goal = goal_handle.request  # type: ignore[attr-defined]
 
         resolved = self._resolve_tour(goal)
@@ -518,6 +608,14 @@ class MissionFsmNode(LifecycleNode):
             self.get_logger().error("location_server недоступен -- тур не может начаться")
             return self._finish_run_tour(
                 goal_handle, RunTour.Result.OUTCOME_ABORTED, 0, 0, "location_service_unavailable"
+            )
+        if (
+            not stop_ids
+            or goal.start_index >= len(stop_ids)
+            or any(stop not in locations for stop in stop_ids)
+        ):
+            return self._finish_run_tour(
+                goal_handle, RunTour.Result.OUTCOME_ABORTED, 0, 0, "invalid_route_or_start_index"
             )
         # stage2 блок E: чанки транзитного нарратива берём ОДИН раз здесь,
         # не при каждом ходе NAVIGATING -- NavigatingState просто читает
@@ -542,6 +640,8 @@ class MissionFsmNode(LifecycleNode):
         with self._exec_lock:
             self._active_ctx = ctx
             self._active_goal_handle = goal_handle
+            if self._pending_stop_requested:
+                ctx.request_stop()
 
         self.get_logger().info(
             f"тур запущен: {len(stop_ids)} остановок начиная с индекса {tour.index}, "
@@ -622,6 +722,8 @@ class MissionFsmNode(LifecycleNode):
             narrate_client=self._narrate_client,
             say_client=self._say_client,
             nav_client=self._nav_client,
+            localization_blocked=self.localization_failed,
+            publish_target=self._pose_control.target_pub.publish,
             resolve_pose=lambda stop_id: locations[stop_id],
             home_pose=_home_pose,
             safety_hold_event=self._safety_hold_event,
@@ -797,6 +899,8 @@ class MissionFsmNode(LifecycleNode):
             )
         with self._exec_lock:
             ctx = self._active_ctx
+        if self.localization_blocked():
+            return False, "localization_required"
         if ctx is None or current_state not in _REDIRECT_ALLOWED_STATES:
             return False, "редирект сейчас недоступен"
         if location_id not in ctx.known_location_ids:
@@ -816,26 +920,49 @@ class MissionFsmNode(LifecycleNode):
 
     # -- ROS-обёртки над хуками выше, для mission_cli (design §11) -----------
 
+    def _eligible_context(self, command: str) -> FsmContext | None:
+        with self._exec_lock:
+            ctx = self._active_ctx
+        with self._state_lock:
+            last = self._last_state_msg
+        if ctx is None or last is None or command not in available_commands(last.state):
+            return None
+        return ctx
+
     def _srv_request_pause(
         self, request: Trigger.Request, response: Trigger.Response
     ) -> Trigger.Response:
-        del request
-        with self._exec_lock:
-            has_ctx = self._active_ctx is not None
-        self.request_pause()
-        response.success = has_ctx
-        response.message = "" if has_ctx else "нет активного тура"
+        ctx = self._eligible_context("missions/pause")
+        response.success = ctx is not None
+        response.message = "" if ctx else "invalid_state"
+        if ctx:
+            ctx.request_pause()
         return response
 
     def _srv_request_resume(
         self, request: Trigger.Request, response: Trigger.Response
     ) -> Trigger.Response:
-        del request
+        ctx = self._eligible_context("missions/resume")
+        response.success = ctx is not None
+        response.message = "" if ctx else "invalid_state"
+        if ctx:
+            ctx.request_resume()
+        return response
+
+    def _srv_check_idle(
+        self, request: Trigger.Request, response: Trigger.Response
+    ) -> Trigger.Response:
+        """Confirm idle from execution ownership, including a not-yet-published return."""
         with self._exec_lock:
-            has_ctx = self._active_ctx is not None
-        self.request_resume()
-        response.success = has_ctx
-        response.message = "" if has_ctx else "нет активного тура"
+            busy = (
+                self._active_ctx is not None
+                or self._active_goal_handle is not None
+                or self._goal_reserved
+            )
+        with self._state_lock:
+            last = self._last_state_msg
+        response.success = not busy and last is not None and last.state == MissionState.STATE_IDLE
+        response.message = "" if response.success else "mission_not_idle"
         return response
 
     def _srv_request_stop(
@@ -845,10 +972,15 @@ class MissionFsmNode(LifecycleNode):
         del request
         with self._exec_lock:
             ctx = self._active_ctx
-        if ctx is None:
-            response.success = False
-            response.message = "no_active_tour"
-            return response
+            if ctx is None:
+                if self._goal_reserved:
+                    self._pending_stop_requested = True
+                    response.success = True
+                    response.message = "stopping_pending_goal"
+                else:
+                    response.success = False
+                    response.message = "no_active_tour"
+                return response
         # Имя состояния на момент запроса -- лучшее доступное приближение
         # "состояния, из которого остановились" (A1): сам стоп асинхронный,
         # FSM-поток заберёт stop_requested на своём ближайшем poll-тике.
@@ -873,7 +1005,7 @@ class MissionFsmNode(LifecycleNode):
         if not self._active:
             return False, "not_active"
         with self._exec_lock:
-            if self._active_ctx is not None:
+            if self._active_ctx is not None or self._goal_reserved:
                 # Тот же слот _active_ctx занят либо обычным туром (REJECT,
                 # оператор сначала жмёт "Стоп"), либо уже идущим
                 # standalone-возвратом (идемпотентно, второй goal не шлём;
@@ -883,6 +1015,8 @@ class MissionFsmNode(LifecycleNode):
                         return True, "already_returning"
                     return False, "robot_moving"
                 return False, "tour_active"
+            if self.localization_blocked():
+                return False, "localization_required"
             if self._safety_hold_event.is_set():
                 return False, "safety_hold"
             ctx = self._make_context(None, {}, home_pose=target)
@@ -965,11 +1099,11 @@ class MissionFsmNode(LifecycleNode):
     def _srv_submit_confirm(
         self, request: SetBool.Request, response: SetBool.Response
     ) -> SetBool.Response:
-        with self._exec_lock:
-            has_ctx = self._active_ctx is not None
-        self.submit_confirm(is_yes=request.data)
-        response.success = has_ctx
-        response.message = "" if has_ctx else "нет активного тура"
+        ctx = self._eligible_context("interaction/confirm")
+        response.success = ctx is not None
+        response.message = "" if ctx else "not_awaiting_confirm"
+        if ctx:
+            ctx.submit_confirm(is_yes=bool(request.data))
         return response
 
     def _srv_request_question(
@@ -998,11 +1132,11 @@ class MissionFsmNode(LifecycleNode):
     def _srv_submit_answer(
         self, request: SubmitAnswer.Request, response: SubmitAnswer.Response
     ) -> SubmitAnswer.Response:
-        with self._exec_lock:
-            has_ctx = self._active_ctx is not None
-        self.submit_answer("", outcome=request.outcome)
-        response.accepted = has_ctx
-        response.message = "" if has_ctx else "нет активного тура"
+        ctx = self._eligible_context("interaction/answer")
+        response.accepted = ctx is not None and request.outcome in (0, 1, 2)
+        response.message = "" if response.accepted else "invalid_state_or_outcome"
+        if response.accepted:
+            ctx.submit_answer("", outcome=request.outcome)
         # Актуален в момент ANSWERING -- публикуется _on_fsm_state_changed
         # на каждом переходе, ЛЛМ полезно знать, куда именно вернётся тур.
         with self._state_lock:
@@ -1022,6 +1156,7 @@ class MissionFsmNode(LifecycleNode):
         msg = MissionState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.state = _STATE_ENUM.get(name, MissionState.STATE_IDLE)
+        msg.available_commands = available_commands(msg.state)
         msg.interrupt = (
             MissionState.IRQ_ANSWERING if name == "answering" else MissionState.IRQ_NONE
         )
@@ -1082,6 +1217,9 @@ class MissionFsmNode(LifecycleNode):
                 return
             msg = MissionState()
             msg.header.stamp = self.get_clock().now().to_msg()
+            msg.available_commands = list(last.available_commands)
+            msg.pause_reason = last.pause_reason
+            msg.detail = last.detail
             msg.state = last.state
             msg.interrupt = last.interrupt
             msg.base_state = last.base_state

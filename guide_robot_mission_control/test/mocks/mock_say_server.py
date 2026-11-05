@@ -117,7 +117,7 @@ class MockSayServer(Node):
         `while self._ok():` не выполнится ни разу, и любой поллинг здесь
         молча завершится, как будто нода уже остановлена.
         """
-        return rclpy.ok(context=self.context)
+        return not getattr(self, "stopping", False) and rclpy.ok(context=self.context)
 
     # -- CancelAll --------------------------------------------------------
 
@@ -242,7 +242,7 @@ class MockSayServer(Node):
         status = Say.Result.STATUS_COMPLETED
         message = ""
         spoken_chars = 0
-        while True:
+        while self._ok():
             elapsed = (self.get_clock().now() - start).nanoseconds / 1e9
             spoken_chars = min(total_chars, int(elapsed * self.chars_per_sec))
             # Мок не режет текст на клаузы (§0.5) -- одна псевдо-клауза на

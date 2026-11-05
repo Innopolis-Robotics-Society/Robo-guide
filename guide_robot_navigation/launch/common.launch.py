@@ -4,7 +4,8 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -13,6 +14,7 @@ def generate_launch_description():
     pkg = get_package_share_directory("guide_robot_navigation")
     nav2_launch_dir = os.path.join(get_package_share_directory("nav2_bringup"), "launch")
 
+    guarded = LaunchConfiguration("localization_guard")
     use_sim_time = LaunchConfiguration("use_sim_time")
     autostart_nav = LaunchConfiguration("autostart_nav")
     nav2_params = LaunchConfiguration("nav2_params_file")
@@ -89,7 +91,7 @@ def generate_launch_description():
         output="screen",
         parameters=[nav2_params, {"use_sim_time": use_sim_time}],
         remappings=[
-            ("cmd_vel_out", "/diff_drive_controller/cmd_vel_unstamped"),
+            ("cmd_vel_out", PythonExpression(["'/cmd_vel_localization_input' if '", guarded, "' == 'true' else '/diff_drive_controller/cmd_vel_unstamped'"])),
         ],
     )
 
@@ -105,6 +107,9 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            DeclareLaunchArgument("localization_guard", default_value="false"),
+            Node(package="guide_robot_navigation", executable="localization_velocity_gate",
+                 condition=IfCondition(guarded)),
             declare_use_sim_time,
             declare_autostart_nav,
             declare_nav2_params,

@@ -35,7 +35,8 @@ ros2 service call /face/set_state guide_robot_msgs/srv/SetFaceState \
 ```
 
 `face_aggregator` выбирает pipeline-состояние (не LLM-affect):
-`error` > `driving` > `speaking` > `thinking` > `listening` > `idle`/`sleep`.
+`error` > `driving` > `speaking` > `thinking` > `listening` > `idle`.
+Без присутствия человека также выбирается `idle`; `sleep` доступен только вручную.
 `driving` -- `NAVIGATING` и `RETURNING`. Без этого старт тура (thinking)
 и транзитный TTS (speaking) перекрывали езду.
 Affect (`happy`/…) в этом пакете по-прежнему только через `/face/set_state`.
@@ -252,7 +253,7 @@ cp guide_robot_face/scripts/guide-robot-face.desktop ~/.config/autostart/
 ## Известные проблемы
 
 - Affect (`happy`/`surprised`/…) агрегатор не ставит: только pipeline
-  (`error`/`speaking`/`thinking`/`driving`/`listening`/`idle`/`sleep`).
+  (`error`/`speaking`/`thinking`/`driving`/`listening`/`idle`).
   LLM JSON / `set_face` tool намеренно нет.
 - `error` смотрит только `/supervisor/state == FAULT`. Нет FAULT —
   остальные состояния работают как обычно.

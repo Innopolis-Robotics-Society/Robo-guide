@@ -54,6 +54,8 @@ setup(
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
+            "localization_guard = guide_robot_navigation.localization_guard:main",
+            "localization_velocity_gate = guide_robot_navigation.localization_guard:gate_main",
             "nav_snapshot = guide_robot_navigation.nav_snapshot_node:main",
         ]
     },

@@ -116,8 +116,15 @@ class StackMonitor:
         self._mismatch_since: float | None = None
         self._probe_fails = 0
         self.state = StackState.DOWN
+        self.confirmed_stopped_at = None
+        self._container_state_known = False
         self.checks = Checks()
         self.last_error = ""
+
+    @property
+    def transitioning(self) -> bool:
+        """Keep commands fenced until both stack work and readiness checks finish."""
+        return self._lock.locked() or self._starting_since is not None
 
     @property
     def control(self) -> bool:
@@ -127,10 +134,14 @@ class StackMonitor:
     async def poll(self) -> StackState:
         """Один цикл проверок и пересчёт состояния."""
         checks = Checks()
+        self.confirmed_stopped_at = None
         if self.control:
             checks.container = await self._container_running()
             if checks.container:
-                checks.launch = (await self._exec(["pgrep", "-f", LAUNCH_PATTERN], 4.0)).rc == 0
+                launch_result = await self._exec(["pgrep", "-f", LAUNCH_PATTERN], 4.0)
+                checks.launch = launch_result.rc == 0
+            elif self._container_state_known:
+                self.confirmed_stopped_at = self._clock()
         else:
             checks.container = checks.launch = True
         bridge_ok = await self._probe()
@@ -159,6 +170,8 @@ class StackMonitor:
 
     def _derive(self, c: Checks) -> StackState:
         now = self._clock()
+        if self._lock.locked():
+            return StackState.STARTING
         if c.container and c.launch and c.bridge:
             self._starting_since = None
             self._mismatch_since = None
@@ -262,6 +275,7 @@ class StackMonitor:
     async def _container_state(self) -> ContainerState:
         argv = ["docker", "inspect", "-f", "{{.State.Running}}", self._cfg.container]
         res = await self._run(argv, 4.0)
+        self._container_state_known = res.rc == 0 or "no such" in res.out.lower()
         if res.rc == 0:
             return ContainerState.RUNNING if res.out.strip() == "true" else ContainerState.STOPPED
         # После `docker compose down` контейнера нет совсем: `docker start` не поможет.

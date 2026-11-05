@@ -1,0 +1,17 @@
+# Дев-конфиг для ноутбука без робота.
+#
+# НЕ устанавливается colcon'ом -- setup.py ставит только config/*.yaml.
+# Подключать явным путём:
+#
+#   ros2 launch guide_robot_api api.launch.py \
+#       params_file:=$(pwd)/guide_robot_api/config_dev/api_dev.yaml
+#
+# Токен моста (общий секрет с guide-launcher) -- любой непустой файл:
+#   mkdir -p ~/.guide_launcher && head -c 32 /dev/urandom | base64 > ~/.guide_launcher/bridge_token
+# Тот же файл указать в bridge_token_file конфига launcher'а.
+# Остальные параметры не перечислены -- у них уже есть дефолты в коде
+# ноды (api_node.py), совпадающие с config/api.yaml.
+
+/**/robot_api:
+  ros__parameters:
+    bridge_token_file: "~/.guide_launcher/bridge_token"

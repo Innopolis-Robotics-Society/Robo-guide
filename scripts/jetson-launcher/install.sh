@@ -212,12 +212,18 @@ echo "== Установка"
 OWNER="${SUDO_USER:-$(stat -c %U "$REPO_DIR")}"
 
 run mkdir -p "$OPT_DIR"
+run cp -a "$SRC_DIR/helpers" "$OPT_DIR/"
 if command -v rsync >/dev/null 2>&1; then
   run rsync -a --delete --exclude __pycache__ "$SRC_DIR/guide_launcher/" "$OPT_DIR/guide_launcher/"
-  run rsync -a --delete "$SRC_DIR/web/" "$OPT_DIR/web/"
+  if [ -d "$REPO_DIR/reference_ui" ]; then
+    run rsync -a --delete "$REPO_DIR/reference_ui/" "$OPT_DIR/reference_ui/"
+  fi
 else
-  run rm -rf "$OPT_DIR/guide_launcher" "$OPT_DIR/web"
-  run cp -a "$SRC_DIR/guide_launcher" "$SRC_DIR/web" "$OPT_DIR/"
+  run rm -rf "$OPT_DIR/guide_launcher" "$OPT_DIR/reference_ui"
+  run cp -a "$SRC_DIR/guide_launcher" "$OPT_DIR/"
+  if [ -d "$REPO_DIR/reference_ui" ]; then
+    run cp -a "$REPO_DIR/reference_ui" "$OPT_DIR/"
+  fi
   run find "$OPT_DIR" -name __pycache__ -prune -exec rm -rf {} +
 fi
 
@@ -225,6 +231,7 @@ run mkdir -p "$ETC_DIR/guide-launcher"
 CONFIG="$ETC_DIR/guide-launcher/config.yaml"
 if [ -f "$CONFIG" ]; then
   echo "  $CONFIG уже есть, не трогаю"
+  echo "  API v1: сверьте serve_ui, public_tours, web_dir и promo_dir с config.example.yaml."
 elif [ "$DRY_RUN" = 1 ]; then
   echo "DRY: создать $CONFIG из config.example.yaml (~/Desktop/Projects/Robo-guide -> $REPO_DIR)"
 else
@@ -258,10 +265,17 @@ run sysctl -q -p "$ETC_DIR/sysctl.d/60-ros-dds-buffers.conf"
 write_if_changed "$ETC_DIR/guide-kiosk/url-hdmi" "$HDMI_URL"
 write_if_changed "$ETC_DIR/guide-kiosk/url" "$FACE_URL"
 
+# System helpers are opt-in: selecting the radio and audio session requires host configuration.
+if [ -f "$ETC_DIR/guide-launcher/wifi.env" ]; then
+  run groupadd -f guide-control
+  run usermod -a -G guide-control "$OWNER"
+  run install -m 644 "$SRC_DIR/helpers/guide-wifi.service" "$UNIT_DIR/guide-wifi.service"
+  echo "Wi-Fi helper установлен; установите dbus-next и включите guide-wifi после проверки wifi.env."
+fi
 run systemctl daemon-reload
 run systemctl enable --now guide-launcher
 run systemctl restart guide-launcher
 run systemctl restart kiosk-hdmi
 
 echo
-echo "Готово. Диагностика: systemctl status guide-launcher; curl -s 127.0.0.1:$PORT/api/stack/status"
+echo "Готово. Диагностика: systemctl status guide-launcher; curl -s 127.0.0.1:$PORT/api/v1/stack/status"

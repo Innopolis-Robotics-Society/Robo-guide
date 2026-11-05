@@ -11,7 +11,7 @@ bridge_token_file: ~/Desktop/Projects/Robo-guide/.guide_launcher/bridge_token   
 autostart_stack: false
 start_timeout_s: 120
 poll_interval_s: 2.0
-promo_dir: ~/Desktop/Projects/Robo-guide/guide_robot_operator_ui/promo   # promo.yaml + media/
+promo_dir: ~/Desktop/Projects/Robo-guide/reference_ui/promo   # promo.yaml + media/
 promo_interval_s: 10.0
 slide_interval_s: 8.0
 always_promo: true
@@ -23,3 +23,13 @@ rfid_port: /dev/rfid0
 rfid_secret_file: ""
 session_ttl_s: 600
 state_dir: ~/.guide_robot/launcher
+
+# Optional reference client; API works without its files.
+serve_ui: true
+web_dir: /opt/guide-launcher/reference_ui/web
+public_tours: [expo_one]
+allowed_origins: []
+
+# Optional Unix sockets; see helpers/README.md before enabling.
+audio_socket: ""
+wifi_socket: ""

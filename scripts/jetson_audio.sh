@@ -26,8 +26,12 @@ apply() {
   fi
   sink="$(um2_sink)"
   [[ -n "$sink" ]] || return 1
-  pactl set-sink-volume "$sink" "$VOLUME" || return 1
-  pactl set-sink-mute "$sink" 0 || true
+  # Preserve legacy installations until the session helper is configured.
+  if [ "${GUIDE_AUDIO_MANAGED:-0}" != 1 ]; then
+    pactl set-sink-volume "$sink" "$VOLUME" || return 1
+    pactl set-sink-mute "$sink" 0 || true
+  fi
+
   pactl set-default-sink "$sink" || return 1
   pactl list short sink-inputs 2>/dev/null | awk '{print $1}' | while read -r id; do
     pactl move-sink-input "$id" "$sink" 2>/dev/null || true

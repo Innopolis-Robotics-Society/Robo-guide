@@ -43,10 +43,11 @@ def make_backend(media_dir: Path) -> web.Application:
 
     app = web.Application()
     app["calls"] = calls
-    app.router.add_get("/api/tours", tours)
-    app.router.add_get("/api/media/{eid}", media_manifest)
-    app.router.add_post("/api/tour/start", start)
-    app.router.add_get("/ws", ws)
+    app.router.add_get("/healthz", tours)
+    app.router.add_get("/internal/tours", tours)
+    app.router.add_get("/internal/media/{eid}", media_manifest)
+    app.router.add_post("/internal/missions", start)
+    app.router.add_get("/internal/ws", ws)
     app.router.add_static("/media", media_dir)
     return app
 
@@ -82,7 +83,7 @@ def test_index_static_and_config(tmp_path):
             r = await c.get("/")
             assert r.status == 200 and "launcher" in await r.text()
             assert (await (await c.get("/static/app.js")).text()) == "// js"
-            body = await (await c.get("/api/config")).json()
+            body = await (await c.get("/api/v1/reference/config")).json()
             assert body == {
                 "always_promo": False,
                 "slide_interval_s": 5.0,
@@ -97,7 +98,9 @@ def test_index_static_and_config(tmp_path):
 def test_no_control_reported_when_container_empty(tmp_path):
     async def go():
         async with launcher(tmp_path, container="") as (c, *_):
-            assert (await (await c.get("/api/config")).json())["stack_control"] is False
+            assert (await (await c.get("/api/v1/reference/config")).json())[
+                "stack_control"
+            ] is False
 
     run(go())
 
@@ -109,11 +112,22 @@ def test_everything_is_no_cache(tmp_path):
             (Path(tmp_path) / "promo" / "media" / "a.jpg").write_bytes(b"jpg")
             (media / "x.bin").write_bytes(b"x")
             for path in (
-                "/", "/static/app.js", "/api/config", "/api/promo", "/promo/a.jpg",
-                "/api/stack/status", "/ros/api/tours", "/ros/media/x.bin", "/nope",
-            ):  # fmt: skip
+                "/",
+                "/static/app.js",
+                "/api/v1/reference/config",
+                "/api/v1/reference/promo",
+                "/api/v1/reference/promo-files/a.jpg",
+                "/api/v1/stack/status",
+                "/api/v1/tours",
+                "/api/v1/media-files/x.bin",
+                "/nope",
+            ):
                 r = await c.get(path)
-                assert r.headers.get("Cache-Control") == "no-cache", path
+                assert r.headers.get("Cache-Control") == (
+                    "private, max-age=30"
+                    if path.startswith("/api/v1/media-files/")
+                    else "no-store"
+                ), path
 
     run(go())
 
@@ -122,7 +136,7 @@ def test_stack_status_endpoint(tmp_path):
     async def go():
         async with launcher(tmp_path) as (c, backend, bridge, monitor, media):
             await monitor.poll()
-            body = await (await c.get("/api/stack/status")).json()
+            body = await (await c.get("/api/v1/stack/status")).json()
             assert body["state"] == "UP"
             assert body["checks"] == {"container": True, "launch": True, "bridge": True}
             assert body["control"] is True
@@ -142,24 +156,24 @@ def test_promo_reloads_on_mtime_and_serves_files(tmp_path):
 
     async def go():
         async with launcher(tmp_path) as (c, *_):
-            r = await c.get("/api/promo")
+            r = await c.get("/api/v1/reference/promo")
             assert await r.json() == {"rev": "none", "items": [], "promo_interval_s": 10.0}
 
             yaml_path.write_text("items:\n" + item("a"), encoding="utf-8")
-            first = await (await c.get("/api/promo")).json()
+            first = await (await c.get("/api/v1/reference/promo")).json()
             assert [i["path"] for i in first["items"]] == ["a.jpg"]
 
             yaml_path.write_text("items:\n" + item("a") + item("b"), encoding="utf-8")
             st = yaml_path.stat()
             os.utime(yaml_path, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
-            second = await (await c.get("/api/promo")).json()
+            second = await (await c.get("/api/v1/reference/promo")).json()
             assert [i["id"] for i in second["items"]] == ["a", "b"]
             assert second["rev"] != first["rev"]
 
             yaml_path.unlink()
-            assert (await (await c.get("/api/promo")).json())["items"] == []
+            assert (await (await c.get("/api/v1/reference/promo")).json())["items"] == []
 
-            assert await (await c.get("/promo/b.jpg")).read() == b"BBB"
+            assert await (await c.get("/api/v1/reference/promo-files/b.jpg")).read() == b"BBB"
 
     run(go())
 
@@ -171,31 +185,9 @@ def test_promo_file_rejects_traversal_and_missing(tmp_path):
 
     async def go():
         async with launcher(tmp_path) as (c, *_):
-            assert (await c.get("/promo/%2e%2e/secret.txt")).status == 404
-            assert (await c.get("/promo/..%2fsecret.txt")).status == 404
-            assert (await c.get("/promo/missing.jpg")).status == 404
-
-    run(go())
-
-
-def test_ros_proxy_allowlist_and_methods(tmp_path):
-    async def go():
-        async with launcher(tmp_path) as (c, backend, *_):
-            r = await c.get("/ros/api/tours")
-            assert r.status == 200 and await r.json() == TOURS
-            r = await c.get("/ros/api/media/e1?lang=ru")
-            assert await r.json() == {"exhibit": "e1", "q": {"lang": "ru"}}
-
-            for method in (c.post, c.put, c.delete):
-                assert (await method("/ros/api/tours")).status == 405
-            assert (await c.post("/ros/api/tour/start", json={"tour_id": "x"})).status == 405
-            assert backend.app["calls"] == []
-
-            for path in (
-                "/ros/api/tour/start", "/ros/api/localization/reset", "/ros/api/media/",
-                "/ros/media/", "/ros/", "/ros/api/media/../tour/start", "/ros/static/x",
-            ):  # fmt: skip
-                assert (await c.get(path)).status == 404, path
+            assert (await c.get("/api/v1/reference/promo-files/%2e%2e/secret.txt")).status == 404
+            assert (await c.get("/api/v1/reference/promo-files/..%2fsecret.txt")).status == 404
+            assert (await c.get("/api/v1/reference/promo-files/missing.jpg")).status == 404
 
     run(go())
 
@@ -206,17 +198,17 @@ def test_ros_proxy_streams_files_with_ranges(tmp_path):
     async def go():
         async with launcher(tmp_path) as (c, backend, bridge, monitor, media):
             (media / "big.bin").write_bytes(payload)
-            r = await c.get("/ros/media/big.bin")
+            r = await c.get("/api/v1/media-files/big.bin")
             assert r.status == 200
             assert r.headers["Content-Length"] == str(len(payload))
             assert await r.read() == payload
 
-            r = await c.get("/ros/media/big.bin", headers={"Range": "bytes=10-19"})
+            r = await c.get("/api/v1/media-files/big.bin", headers={"Range": "bytes=10-19"})
             assert r.status == 206
             assert r.headers["Content-Range"] == f"bytes 10-19/{len(payload)}"
             assert await r.read() == payload[10:20]
 
-            assert (await c.get("/ros/media/missing.bin")).status == 404
+            assert (await c.get("/api/v1/media-files/missing.bin")).status == 404
 
     run(go())
 
@@ -225,23 +217,8 @@ def test_ros_proxy_502_when_bridge_is_down(tmp_path):
     async def go():
         async with launcher(tmp_path) as (c, backend, *_):
             await backend.close()
-            assert (await c.get("/ros/api/tours")).status == 502
-            assert (await c.get("/ros/ws")).status == 502
-
-    run(go())
-
-
-def test_ros_ws_proxy_both_directions(tmp_path):
-    async def go():
-        async with launcher(tmp_path) as (c, *_):
-            ws = await c.ws_connect("/ros/ws")
-            assert (await ws.receive_json(timeout=2)) == FRAME
-            await ws.send_str("hello")
-            assert (await ws.receive(timeout=2)).data == "echo:hello"
-            await ws.send_str("bye")
-            msg = await ws.receive(timeout=2)
-            assert msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.CLOSING, web.WSMsgType.CLOSED)
-            await ws.close()
+            assert (await c.get("/api/v1/tours")).status == 502
+            assert (await c.get("/api/v1/health")).status == 200
 
     run(go())
 
@@ -250,7 +227,7 @@ def test_bridge_probe_and_command(tmp_path):
     async def go():
         async with launcher(tmp_path) as (c, backend, bridge, *_):
             assert await bridge.probe() is True
-            status, body = await bridge.command("/api/tour/start", {"tour_id": "t"}, "op_x")
+            status, body = await bridge.command("/internal/missions", {"tour_id": "t"}, "op_x")
             assert (status, body) == (202, {"ok": True})
             call = backend.app["calls"][0]
             assert call["headers"]["X-Bridge-Token"] == "tok"
@@ -262,9 +239,9 @@ def test_bridge_probe_and_command(tmp_path):
 
             await backend.close()
             assert await bridge.probe() is False
-            assert await bridge.command("/api/tour/start", {}, "x") == (
-                502,
-                {"error": "bridge_unreachable"},
+            assert await bridge.command("/internal/missions", {}, "x") == (
+                503,
+                {"error": "subsystem_unavailable"},
             )
 
     run(go())

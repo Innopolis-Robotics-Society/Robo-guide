@@ -40,7 +40,7 @@ class FaceInputs:
 def decide(inp: FaceInputs) -> str:
     """Выбрать pipeline-состояние по жёсткому приоритету.
 
-    error > driving > speaking > thinking > listening > idle|sleep.
+    error > driving > speaking > thinking > listening > idle.
     Езда бьёт thinking/speaking: иначе ACTION старта тура и транзитный
     TTS держат «думаю»/«говорю» всю дорогу до остановки.
     """
@@ -60,4 +60,4 @@ def decide(inp: FaceInputs) -> str:
     for name in _PRIORITY:
         if flags[name]:
             return name
-    return "idle" if inp.presence else "sleep"
+    return "idle"

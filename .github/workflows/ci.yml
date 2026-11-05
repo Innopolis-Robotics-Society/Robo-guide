@@ -58,7 +58,35 @@ jobs:                    # ← оба job ВНУТРИ jobs:
           run: |
             source /opt/ros/humble/setup.bash
             source install/setup.bash
-            colcon test --event-handlers console_direct+ --return-code-on-test-failure
+            colcon test --packages-skip guide_robot_api guide_robot_journal --event-handlers console_direct+ --return-code-on-test-failure
+
+        - name: C++ state journal and full lidar integration tests
+          shell: bash
+          run: |
+            source /opt/ros/humble/setup.bash
+            source install/setup.bash
+            colcon test --packages-select guide_robot_journal --event-handlers console_direct+ --return-code-on-test-failure
+
+        - name: ROS API integration suite
+          shell: bash
+          run: |
+            source /opt/ros/humble/setup.bash
+            source install/setup.bash
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest src/Robo-guide/guide_robot_api/test -q
+
+        - name: Host API contract and launcher suites
+          shell: bash
+          run: |
+            python3 -m pip install aiohttp PyYAML jsonschema dbus-next
+            python3 -m pytest src/Robo-guide/scripts/jetson-launcher/tests -q
+
+        - uses: actions/setup-node@v4
+          with:
+            node-version: '20'
+
+        - name: Reference UI JavaScript tests
+          shell: bash
+          run: node --test src/Robo-guide/reference_ui/test/*.test.js
 
         - name: Test results summary
           if: always()

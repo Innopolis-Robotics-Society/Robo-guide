@@ -35,7 +35,7 @@ class Config:
     autostart_stack: bool = False
     start_timeout_s: float = 120.0
     poll_interval_s: float = 2.0
-    promo_dir: str = f"{_REPO}/guide_robot_operator_ui/promo"
+    promo_dir: str = f"{_REPO}/reference_ui/promo"
     promo_interval_s: float = 10.0
     slide_interval_s: float = 8.0
     always_promo: bool = True
@@ -49,6 +49,11 @@ class Config:
     session_ttl_s: float = 600.0
     state_dir: str = "~/.guide_robot/launcher"
     web_dir: str = ""
+    audio_socket: str = ""
+    wifi_socket: str = ""
+    serve_ui: bool = False
+    public_tours: tuple[str, ...] = ()
+    allowed_origins: tuple[str, ...] = ()
 
     @property
     def stack_control(self) -> bool:
@@ -98,11 +103,44 @@ def load_config(path: str | Path | None) -> Config:
         "state_dir",
         "rfid_secret_file",
         "web_dir",
+        "audio_socket",
+        "wifi_socket",
     ):
         setattr(cfg, name, _expand(getattr(cfg, name)))
+
+    for name in ("audio_socket", "wifi_socket"):
+        value = getattr(cfg, name)
+        if not isinstance(value, str) or (value and not Path(value).is_absolute()):
+            raise ConfigError(f"{name} must be an absolute Unix socket path")
 
     if len(str(cfg.operator_pin)) < MIN_PIN_LEN:
         raise ConfigError(f"operator_pin короче {MIN_PIN_LEN} символов")
     cfg.operator_pin = str(cfg.operator_pin)
+    from urllib.parse import urlparse
+
+    if cfg.bind_host not in ("127.0.0.1", "::1", "localhost"):
+        raise ConfigError("API must bind to loopback")
+    for field in ("allowed_origins", "public_tours"):
+        values = getattr(cfg, field)
+        if not isinstance(values, (list, tuple)) or not all(isinstance(x, str) for x in values):
+            raise ConfigError(f"{field} must be a list of strings")
+    bridge = urlparse(cfg.bridge_url)
+    if (
+        bridge.scheme != "http"
+        or bridge.hostname not in ("localhost", "127.0.0.1", "::1")
+        or bridge.username
+    ):
+        raise ConfigError("Bridge must be a local HTTP service")
+    for origin in cfg.allowed_origins:
+        parsed = urlparse(origin)
+        if (
+            parsed.scheme not in ("http", "https")
+            or parsed.hostname not in ("localhost", "127.0.0.1", "::1")
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+        ):
+            raise ConfigError("Only explicit loopback origins are supported")
     cfg.bridge_token()
     return cfg

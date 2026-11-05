@@ -10,8 +10,8 @@ from guide_robot_face.lib.aggregator import (
 )
 
 
-def test_default_is_sleep() -> None:
-    assert decide(FaceInputs()) == "sleep"
+def test_default_is_idle() -> None:
+    assert decide(FaceInputs()) == "idle"
 
 
 def test_presence_idle() -> None:
@@ -52,8 +52,8 @@ def test_listening_cues() -> None:
     assert decide(FaceInputs(vad_active=True, presence=False)) == "listening"
 
 
-def test_sleep_without_presence_when_idle_pipeline() -> None:
-    assert decide(FaceInputs(dialog_phase=PHASE_IDLE, presence=False)) == "sleep"
+def test_idle_without_presence_when_idle_pipeline() -> None:
+    assert decide(FaceInputs(dialog_phase=PHASE_IDLE, presence=False)) == "idle"
 
 
 def test_managed_listening_ignores_crowd_and_implicit_dialog_prompt():

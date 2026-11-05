@@ -77,3 +77,11 @@ QOS_VOICE_SESSION_STATE = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
 )
+
+# supervisor/state is periodic and VOLATILE; requesting TRANSIENT_LOCAL is incompatible.
+QOS_SUPERVISOR_STATE = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)

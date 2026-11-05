@@ -69,8 +69,8 @@ def _make_node(harness: MissionTestHarness, **overrides: object) -> NarrationSer
     params = [Parameter("use_sim_time", value=True)]
     params.extend(Parameter(name, value=value) for name, value in overrides.items())
     node = NarrationServerNode(context=harness.context, parameter_overrides=params)
-    harness.add_node(node)
     assert node.trigger_configure() == TransitionCallbackReturn.SUCCESS
+    harness.add_node(node)
     assert node.trigger_activate() == TransitionCallbackReturn.SUCCESS
     return node
 

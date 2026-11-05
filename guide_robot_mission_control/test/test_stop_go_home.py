@@ -138,6 +138,7 @@ def test_request_stop_cancels_from_each_state(
         )
         wait_until(state_is(state, MissionState.STATE_ANSWERING), timeout_s=15.0)
 
+    wait_until(lambda: harness.nav.goals_received >= 1, timeout_s=5.0)
     nav_goals_before_stop = harness.nav.goals_received
     fsm_node.request_stop()
 
@@ -270,6 +271,7 @@ def test_go_home_sends_nav_goal_and_completes(harness: MissionTestHarness) -> No
     assert message == ""
 
     wait_until(state_is(state, MissionState.STATE_RETURNING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1
 
     pump_clock(
@@ -290,11 +292,13 @@ def test_go_home_idempotent_while_already_returning(harness: MissionTestHarness)
     accepted, _message = fsm_node.go_home()
     assert accepted is True
     wait_until(state_is(state, MissionState.STATE_RETURNING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1
 
     accepted2, message2 = fsm_node.go_home()
     assert accepted2 is True
     assert message2 == "already_returning"
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1, "второй NavigateToPose не должен уйти"
 
     # Не оставлять зависший _run_standalone_return-поток живым после теста --
@@ -322,6 +326,7 @@ def test_request_stop_during_standalone_return_cancels_and_stays_in_place(
 
     fsm_node.request_stop()
     wait_until(state_is(state, MissionState.STATE_IDLE), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1, "не должен переотправлять NavigateToPose"
     del client_node
 
@@ -405,6 +410,7 @@ def test_go_to_base_rejected_while_returning_elsewhere(harness: MissionTestHarne
     accepted2, message2 = fsm_node.go_to_base("charging")
     assert accepted2 is False
     assert message2 == "robot_moving"
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1
 
     # См. test_go_home_idempotent_while_already_returning: не оставлять

@@ -1,0 +1,1195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Robo-guide event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "instance_id",
+    "seq",
+    "data"
+  ],
+  "properties": {
+    "type": {
+      "enum": [
+        "snapshot",
+        "state",
+        "heartbeat"
+      ]
+    },
+    "instance_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "data": {
+      "$ref": "#/components/schemas/State"
+    }
+  },
+  "components": {
+    "schemas": {
+      "MissionRequest": {
+        "type": "object",
+        "properties": {
+          "tour_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "location_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "start_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535,
+            "default": 0
+          },
+          "time_budget_min": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1440,
+            "default": 0
+          },
+          "greet": {
+            "type": "boolean",
+            "default": true
+          },
+          "narrate": {
+            "type": "boolean",
+            "default": true
+          },
+          "confirm_between_stops": {
+            "type": "boolean",
+            "default": false
+          },
+          "return_home": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "tour_id"
+            ],
+            "not": {
+              "required": [
+                "location_ids"
+              ]
+            }
+          },
+          {
+            "required": [
+              "location_ids"
+            ],
+            "not": {
+              "required": [
+                "tour_id"
+              ]
+            }
+          }
+        ]
+      },
+      "Operation": {
+        "type": "object",
+        "required": [
+          "id",
+          "instance_id",
+          "kind",
+          "status",
+          "feedback",
+          "result"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "instance_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "enum": [
+              "missions",
+              "speech",
+              "missions/go-to-pose",
+              "wifi"
+            ]
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed",
+              "canceled",
+              "rejected",
+              "unknown"
+            ]
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RunTourFeedback"
+              },
+              {
+                "$ref": "#/components/schemas/SayFeedback"
+              },
+              {
+                "$ref": "#/components/schemas/PoseFeedback"
+              },
+              {
+                "$ref": "#/components/schemas/WifiFeedback"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RunTourResult"
+              },
+              {
+                "$ref": "#/components/schemas/SayResult"
+              },
+              {
+                "type": "object",
+                "description": "Rejection or unknown-outcome diagnostic, not a successful ROS action result."
+              }
+            ]
+          },
+          "goal_id": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "created_at": {
+            "type": "number"
+          },
+          "updated_at": {
+            "type": "number"
+          }
+        }
+      },
+      "State": {
+        "type": "object",
+        "required": [
+          "stack",
+          "transport_connected",
+          "data_fresh",
+          "robot",
+          "operations",
+          "instance_id"
+        ],
+        "properties": {
+          "stack": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "enum": [
+                  "DOWN",
+                  "STARTING",
+                  "UP",
+                  "DEGRADED",
+                  "FAILED"
+                ]
+              },
+              "checks": {
+                "type": "object"
+              },
+              "control": {
+                "type": "boolean"
+              },
+              "last_error": {
+                "type": "string"
+              }
+            }
+          },
+          "transport_connected": {
+            "type": "boolean"
+          },
+          "data_fresh": {
+            "type": "boolean"
+          },
+          "robot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RobotState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Operation"
+            }
+          },
+          "instance_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id"
+            ],
+            "additionalProperties": false
+          },
+          "state": {
+            "$ref": "#/components/schemas/State"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "SpeechRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "voice": {
+            "type": "string",
+            "default": ""
+          },
+          "max_duration": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 300,
+            "default": 120
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "FaceOverride": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "gaze_az": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "default": 0
+          },
+          "duration_s": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 60
+          }
+        },
+        "required": [
+          "state",
+          "duration_s"
+        ],
+        "additionalProperties": false
+      },
+      "Tours": {
+        "type": "object",
+        "properties": {
+          "tours": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tour"
+            }
+          }
+        },
+        "required": [
+          "tours"
+        ],
+        "additionalProperties": false
+      },
+      "Tour": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "duration_min_estimate": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TourStop"
+            }
+          },
+          "transit_content_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "duration_min_estimate",
+          "stops",
+          "transit_content_id"
+        ],
+        "additionalProperties": false
+      },
+      "TourStop": {
+        "type": "object",
+        "properties": {
+          "location_id": {
+            "type": "string"
+          },
+          "exhibit_id": {
+            "type": "string"
+          },
+          "dwell_s": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "exhibit_id",
+          "dwell_s",
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "Locations": {
+        "type": "object",
+        "properties": {
+          "locations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Location"
+            }
+          }
+        },
+        "required": [
+          "locations"
+        ],
+        "additionalProperties": false
+      },
+      "Location": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pose": {
+            "$ref": "#/components/schemas/PoseStamped"
+          },
+          "zone": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "is_public": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "aliases",
+          "pose",
+          "zone",
+          "category",
+          "is_public"
+        ],
+        "additionalProperties": false
+      },
+      "PoseStamped": {
+        "type": "object",
+        "properties": {
+          "header": {
+            "$ref": "#/components/schemas/Header"
+          },
+          "pose": {
+            "$ref": "#/components/schemas/Pose"
+          }
+        },
+        "required": [
+          "header",
+          "pose"
+        ],
+        "additionalProperties": false
+      },
+      "Header": {
+        "type": "object",
+        "properties": {
+          "stamp": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "frame_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stamp",
+          "frame_id"
+        ],
+        "additionalProperties": false
+      },
+      "Time": {
+        "type": "object",
+        "properties": {
+          "sec": {
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          },
+          "nanosec": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        },
+        "required": [
+          "sec",
+          "nanosec"
+        ],
+        "additionalProperties": false
+      },
+      "Pose": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "orientation": {
+            "$ref": "#/components/schemas/Quaternion"
+          }
+        },
+        "required": [
+          "position",
+          "orientation"
+        ],
+        "additionalProperties": false
+      },
+      "Point": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "z": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "additionalProperties": false
+      },
+      "Quaternion": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "z": {
+            "type": "number"
+          },
+          "w": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "w"
+        ],
+        "additionalProperties": false
+      },
+      "Content": {
+        "type": "object",
+        "properties": {
+          "chunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExhibitChunk"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunks",
+          "title",
+          "kind",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "ExhibitChunk": {
+        "type": "object",
+        "properties": {
+          "chunk_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "interruptible": {
+            "type": "boolean"
+          },
+          "pause_after_s": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "text",
+          "interruptible",
+          "pause_after_s"
+        ],
+        "additionalProperties": false
+      },
+      "RunTourResult": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "stops_completed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "stops_skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "stops_completed",
+          "stops_skipped",
+          "detail"
+        ],
+        "additionalProperties": false
+      },
+      "RunTourFeedback": {
+        "type": "object",
+        "properties": {
+          "phase": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "stop_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "stop_total": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "stop_id": {
+            "type": "string"
+          },
+          "eta_s": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "phase",
+          "stop_index",
+          "stop_total",
+          "stop_id",
+          "eta_s"
+        ],
+        "additionalProperties": false
+      },
+      "SayResult": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "spoken_text": {
+            "type": "string"
+          },
+          "spoken_chars": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "spoken_duration": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "spoken_text",
+          "spoken_chars",
+          "spoken_duration",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "SayFeedback": {
+        "type": "object",
+        "properties": {
+          "clause_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "clause_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "progress": {
+            "type": "number"
+          },
+          "current_clause": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "clause_index",
+          "clause_count",
+          "progress",
+          "current_clause"
+        ],
+        "additionalProperties": false
+      },
+      "FaceState": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "gaze_az": {
+            "type": "number"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "gaze_az",
+          "seq",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "SpeakingStatus": {
+        "type": "object",
+        "properties": {
+          "stamp": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "speaking": {
+            "type": "boolean"
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "goal_id": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "scope": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "expected_end": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "interruptible": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stamp",
+          "speaking",
+          "epoch",
+          "goal_id",
+          "priority",
+          "scope",
+          "expected_end",
+          "interruptible"
+        ],
+        "additionalProperties": false
+      },
+      "RobotState": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer"
+          },
+          "stamp": {
+            "type": "number"
+          },
+          "bridge_instance_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "integer"
+          },
+          "state_name": {
+            "enum": [
+              "unknown",
+              "idle",
+              "greeting",
+              "navigating",
+              "narrating",
+              "awaiting_confirm",
+              "answering",
+              "paused",
+              "held",
+              "returning"
+            ]
+          },
+          "tour_id": {
+            "type": "string"
+          },
+          "stop_index": {
+            "type": "integer"
+          },
+          "stop_total": {
+            "type": "integer"
+          },
+          "stop_id": {
+            "type": "string"
+          },
+          "exhibit_id": {
+            "type": "string"
+          },
+          "next_exhibit_id": {
+            "type": "string"
+          },
+          "chunk_index": {
+            "type": "integer"
+          },
+          "chunk_total": {
+            "type": "integer"
+          },
+          "paused_reason": {
+            "type": "integer"
+          },
+          "estop": {
+            "type": "boolean"
+          },
+          "supervisor_state": {
+            "type": "string"
+          },
+          "mission_state_age_s": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "available_commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "readiness": {
+            "type": "object",
+            "properties": {
+              "mission": {
+                "type": "boolean"
+              },
+              "speech": {
+                "type": "boolean"
+              },
+              "catalog": {
+                "type": "boolean"
+              },
+              "face": {
+                "type": "boolean"
+              },
+              "pose": {
+                "type": "boolean"
+              }
+            }
+          },
+          "face": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FaceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "speech": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakingStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "moving": {
+            "type": "boolean",
+            "description": "Includes navigation continuing while answering a question."
+          },
+          "base_state_name": {
+            "type": "string"
+          },
+          "map": {
+            "$ref": "#/components/schemas/MapState"
+          },
+          "localization": {
+            "$ref": "#/components/schemas/LocalizationState"
+          }
+        },
+        "required": [
+          "state_name",
+          "mission_state_age_s",
+          "readiness"
+        ],
+        "description": "Received state. available_commands are ROS-owned hints; final acceptance is revalidated."
+      },
+      "MediaItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "chunk_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "duration_s": {
+            "type": "number"
+          },
+          "caption": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "chunk_id",
+          "kind",
+          "path",
+          "duration_s",
+          "caption"
+        ],
+        "additionalProperties": false
+      },
+      "MediaManifest": {
+        "type": "object",
+        "required": [
+          "title",
+          "chunk_ids",
+          "items"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "chunk_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaItem"
+            }
+          }
+        }
+      },
+      "MapPose": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "x",
+          "y",
+          "yaw"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": -1000000.0,
+            "maximum": 1000000.0
+          },
+          "y": {
+            "type": "number",
+            "minimum": -1000000.0,
+            "maximum": 1000000.0
+          },
+          "yaw": {
+            "type": "number",
+            "minimum": -1000000.0,
+            "maximum": 1000000.0
+          }
+        }
+      },
+      "PoseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "map_version",
+          "pose"
+        ],
+        "properties": {
+          "map_version": {
+            "type": "string"
+          },
+          "pose": {
+            "$ref": "#/components/schemas/MapPose"
+          }
+        }
+      },
+      "MapState": {
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "frame": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "resolution": {
+            "type": "number"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/MapPose"
+          },
+          "robot_pose": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "target": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
+      "PoseFeedback": {
+        "type": "object",
+        "required": [
+          "phase"
+        ],
+        "properties": {
+          "phase": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WifiFeedback": {
+        "type": "object",
+        "required": [
+          "phase"
+        ],
+        "properties": {
+          "phase": {
+            "enum": [
+              "connecting",
+              "authenticating",
+              "obtaining_address",
+              "restoring"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "LocalizationState": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "initializing",
+              "ready",
+              "lost",
+              "recovering"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "motion_blocked": {
+            "type": "boolean"
+          },
+          "reset_required": {
+            "type": "boolean"
+          },
+          "fresh": {
+            "type": "boolean"
+          },
+          "position_sigma": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "yaw_sigma": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "position_limit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "yaw_limit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "age_s": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "reason",
+          "motion_blocked",
+          "reset_required",
+          "fresh"
+        ]
+      }
+    }
+  }
+}

@@ -46,8 +46,8 @@ def make_narration_node(harness: MissionTestHarness, **overrides: object) -> Nar
     params = [Parameter("use_sim_time", value=True)]
     params.extend(Parameter(name, value=value) for name, value in values.items())
     node = NarrationServerNode(context=harness.context, parameter_overrides=params)
-    harness.add_node(node)
     assert node.trigger_configure() == TransitionCallbackReturn.SUCCESS
+    harness.add_node(node)
     assert node.trigger_activate() == TransitionCallbackReturn.SUCCESS
     return node
 
@@ -56,8 +56,8 @@ def make_fsm_node(harness: MissionTestHarness, **overrides: object) -> MissionFs
     params = [Parameter("use_sim_time", value=True)]
     params.extend(Parameter(name, value=value) for name, value in overrides.items())
     node = MissionFsmNode(context=harness.context, parameter_overrides=params)
-    harness.add_node(node)
     assert node.trigger_configure() == TransitionCallbackReturn.SUCCESS
+    harness.add_node(node)
     assert node.trigger_activate() == TransitionCallbackReturn.SUCCESS
     return node
 

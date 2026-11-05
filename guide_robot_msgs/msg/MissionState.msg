@@ -49,3 +49,6 @@ string resume_token
 bool   presence
 uint32 epoch                  # последний известный epoch voice (CancelAll.epoch), для логов
 string detail                 # человекочитаемая причина последнего перехода
+
+# Commands currently eligible in mission FSM (hints; execution revalidates state).
+string[] available_commands

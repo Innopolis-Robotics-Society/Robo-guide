@@ -256,6 +256,8 @@ class RootStateMachine:
         last_outcome = outcomes.SHUTDOWN
         while current is not None:
             last_outcome = self._states[current].run(blackboard)
+            if last_outcome == "localization_lost":
+                return last_outcome
             table = _TRANSITIONS[current]
             if last_outcome not in table:
                 msg = f"состояние {current!r} вернуло необрабатываемый исход {last_outcome!r}"

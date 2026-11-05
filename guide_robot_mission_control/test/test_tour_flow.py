@@ -313,10 +313,13 @@ def test_second_run_tour_rejected_while_busy(harness: MissionTestHarness) -> Non
 
 
 @pytest.mark.parametrize("target_state", ["greeting", "navigating", "narrating", "returning"])
-def test_cancel_run_tour_in_each_state(harness: MissionTestHarness, target_state: str) -> None:
+@pytest.mark.parametrize("lost", [False, True])
+def test_cancel_run_tour_in_each_state(harness: MissionTestHarness, target_state: str, lost: bool) -> None:
     # одна остановка -- быстрее добраться до RETURNING
     stop_ids = _setup_three_stop_tour(harness)[:1]
     client_node, run_tour_client, state, _fsm = _base_stack(harness)
+    if target_state == "returning":
+        harness.nav.mode_queue = [harness.nav.MODE_SUCCEED, harness.nav.MODE_HANG]
 
     greet = target_state == "greeting"
     # нужен, чтобы RETURNING реально слал NavigateToPose и не завершался мгновенно
@@ -352,14 +355,20 @@ def test_cancel_run_tour_in_each_state(harness: MissionTestHarness, target_state
             max_iterations=200,
         )
 
-    cancel_future = goal_handle.cancel_goal_async()
-    wait_for_future(cancel_future, timeout_s=15.0)
+    if lost:
+        harness.localization_status = '{"state":"lost","motion_blocked":true}'
+        wait_until(_fsm.localization_blocked)
+    else:
+        cancel_future = goal_handle.cancel_goal_async()
+        wait_for_future(cancel_future, timeout_s=15.0)
 
     result_future = goal_handle.get_result_async()
     pump_clock(harness, result_future.done, step=0.1, max_iterations=200)
     wait_for_future(result_future, timeout_s=15.0)
     result: RunTour.Result = result_future.result().result
-    assert result.outcome == RunTour.Result.OUTCOME_CANCELED
+    assert result.outcome == (RunTour.Result.OUTCOME_ABORTED if lost else RunTour.Result.OUTCOME_CANCELED)
+    if lost:
+        assert result.detail == "localization_lost"
     del client_node
 
 
@@ -388,6 +397,7 @@ def test_cancel_from_navigating_stops_in_place_not_returning_home(
     assert goal_handle.accepted
 
     wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1
 
     cancel_future = goal_handle.cancel_goal_async()
@@ -398,6 +408,7 @@ def test_cancel_from_navigating_stops_in_place_not_returning_home(
 
     result: RunTour.Result = result_future.result().result
     assert result.outcome == RunTour.Result.OUTCOME_CANCELED
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1, "не должен был отправлять NavigateToPose домой"
     assert all(msg.state != MissionState.STATE_RETURNING for msg in state["history"])
 
@@ -429,15 +440,18 @@ def test_hold_position_pauses_navigation_and_resumes_to_same_stop(
     assert goal_handle.accepted
 
     wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1
 
     fsm_node.request_pause()
     wait_until(state_is(state, MissionState.STATE_PAUSED), timeout_s=15.0)
     assert state["latest"].pause_reason == MissionState.PAUSE_USER
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1, "resume ещё не звался -- второй NavigateToPose рано"
 
     fsm_node.request_resume()
     wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 2, timeout_s=5.0)
     assert harness.nav.goals_received == 2, "resume обязан заново отправить NavigateToPose"
     assert state["latest"].stop_id == stop_ids[0], "цель после resume та же остановка"
 
@@ -626,6 +640,7 @@ def _start_driving_tour(harness: MissionTestHarness, *, leg_s: float = 2.0):
     goal_handle = goal_future.result()
     assert goal_handle.accepted
     wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1
     cancel_all_pub = client_node.create_publisher(CancelAll, "/speech/cancel_all", 1)
     return client_node, goal_handle, state, fsm_node, cancel_all_pub
@@ -640,6 +655,7 @@ def _cancel_tour(harness: MissionTestHarness, goal_handle) -> None:
 
 
 def _wakeword(pub, reason: str = CancelAll.REASON_WAKEWORD) -> None:
+    wait_until(lambda: pub.get_subscription_count() > 0, timeout_s=5.0)
     pub.publish(CancelAll(scope=CancelAll.SCOPE_ALL, reason=reason))
 
 
@@ -660,10 +676,12 @@ def test_question_while_driving_keeps_driving_and_defers_narration_until_answere
         harness.clock.advance(0.1)
         time.sleep(0.01)
     assert state["latest"].state == MissionState.STATE_ANSWERING
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1
 
     fsm_node.submit_answer("это лаборатория")
     wait_until(state_is(state, MissionState.STATE_NARRATING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1, "доехавший goal не должен пересылаться"
     assert state["latest"].stop_index == 0
 
@@ -683,6 +701,7 @@ def test_question_while_driving_answer_before_arrival_continues_same_goal(
     fsm_node.submit_answer("это по дороге")
     wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
     time.sleep(0.2)
+    wait_until(lambda: harness.nav.goals_received == 1, timeout_s=5.0)
     assert harness.nav.goals_received == 1
 
     _cancel_tour(harness, goal_handle)
@@ -700,6 +719,7 @@ def test_stop_phrase_while_driving_pauses_navigation(harness: MissionTestHarness
 
     fsm_node.request_resume()
     wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 2, timeout_s=5.0)
     assert harness.nav.goals_received == 2
     assert state["latest"].stop_index == 0
 
@@ -726,6 +746,7 @@ def test_stop_while_answering_on_the_way_pauses_and_resumes_same_stop(
 
     fsm_node.request_resume()
     wait_until(state_is(state, MissionState.STATE_NAVIGATING), timeout_s=15.0)
+    wait_until(lambda: harness.nav.goals_received == 2, timeout_s=5.0)
     assert harness.nav.goals_received == 2, "после паузы goal к той же остановке шлётся заново"
     assert state["latest"].stop_index == 0
 
@@ -739,6 +760,7 @@ def test_hold_position_during_answering_after_narration_is_dropped(
     _client, goal_handle, state, fsm_node, cancel_all_pub = _start_driving_tour(harness)
     harness.nav.duration_s = 0.5
     pump_clock(harness, state_is(state, MissionState.STATE_NARRATING), step=0.1)
+    wait_until(lambda: harness.say.goals_received > 0, timeout_s=5.0)
 
     _wakeword(cancel_all_pub)
     wait_until(state_is(state, MissionState.STATE_ANSWERING), timeout_s=15.0)

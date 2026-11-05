@@ -89,6 +89,8 @@ class VoiceSessionManager(LifecycleNode):
         self._accepted_wakes = 0
         self._rejected_wakes = 0
         self._last_window_deadline = 0.0
+        # (state, session, utterance, sequence, reason) последней публикации.
+        self._last_published: tuple | None = None
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
         """Создать чистую FSM и её ROS-интерфейсы."""
@@ -174,7 +176,11 @@ class VoiceSessionManager(LifecycleNode):
                 QOS_UTTERANCE_EVENT,
             )
             heartbeat_hz = float(self.get_parameter("heartbeat_hz").value)
-            self._heartbeat = self.create_timer(1.0 / max(heartbeat_hz, 0.1), self._publish_state)
+            # Между событиями состояние не меняется, но face_aggregator считает
+            # его протухшим через 0.6 с -- heartbeat публикует безусловно.
+            self._heartbeat = self.create_timer(
+                1.0 / max(heartbeat_hz, 0.1), lambda: self._publish_state(force=True)
+            )
         except Exception as error:
             self.get_logger().error(f"configure не удался: {error}")
             return TransitionCallbackReturn.FAILURE
@@ -199,7 +205,8 @@ class VoiceSessionManager(LifecycleNode):
             self._latest_playback = None
             self._active = True
             self._last_window_deadline = 0.0
-        self._publish_state()
+            self._last_published = None
+        self._publish_state(force=True)
         return TransitionCallbackReturn.SUCCESS
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
@@ -460,7 +467,12 @@ class VoiceSessionManager(LifecycleNode):
             f"onset_sample={action.onset_sample}"
         )
 
-    def _publish_state(self) -> None:
+    def _publish_state(self, force: bool = False) -> None:
+        """Продвинуть таймауты FSM и опубликовать состояние, если оно изменилось.
+
+        tick() вызывается всегда: он закрывает окна по времени. Повтор того же
+        состояния (VAD 31 Гц, playback 20 Гц) не публикуется -- его даёт heartbeat.
+        """
         with self._lock:
             if not self._active or self._policy is None:
                 return
@@ -485,6 +497,16 @@ class VoiceSessionManager(LifecycleNode):
             state.utterance_id = self._policy.current_utterance_id
             state.transition_sequence = self._policy.transition_sequence
             state.reason = self._policy.state_reason
+            key = (
+                state.state,
+                state.device_session_id,
+                state.utterance_id,
+                state.transition_sequence,
+                state.reason,
+            )
+            if not force and key == self._last_published:
+                return
+            self._last_published = key
         self._state_pub.publish(state)
 
     @staticmethod

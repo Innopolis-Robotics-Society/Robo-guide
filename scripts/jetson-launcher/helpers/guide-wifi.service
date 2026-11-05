@@ -1,0 +1,19 @@
+[Unit]
+Description=Restricted robot Wi-Fi helper
+After=NetworkManager.service
+Requires=NetworkManager.service
+[Service]
+EnvironmentFile=/etc/guide-launcher/wifi.env
+RuntimeDirectory=guide-wifi
+RuntimeDirectoryMode=0750
+Group=guide-control
+ExecStart=/usr/bin/python3 /opt/guide-launcher/helpers/wifi_service.py
+Restart=on-failure
+UMask=0007
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX
+[Install]
+WantedBy=multi-user.target

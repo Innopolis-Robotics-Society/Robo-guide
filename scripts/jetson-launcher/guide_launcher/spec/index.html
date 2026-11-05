@@ -1,0 +1,13 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Robo-guide API v1</title>
+<style>body{max-width:850px;margin:3em auto;font:18px/1.6 sans-serif;padding:0 1em}code{background:#eee}</style>
+<h1>Robo-guide API v1</h1><p>Локальный API: <code>http://127.0.0.1:8089/api/v1</code>.</p>
+<ul><li><a href="openapi.json">OpenAPI 3.1: HTTP-контракт</a></li>
+<li><a href="events.schema.json">JSON Schema событий WebSocket</a></li>
+<li><a href="events.examples.json">Примеры событий</a></li>
+<li><a href="README.md">Сессии, операции, ошибки и миграция</a></li></ul>
+<p>POST /auth/challenge → POST /auth/verify (nonce, backend=pin, pin). Сессия хранится в HttpOnly cookie.
+Для POST /missions и /speech обязателен Idempotency-Key. Ответ 202 означает принятие запроса;
+результат читается через /operations/{id} или WebSocket /events.</p>
+<p>Каждое подключение WebSocket начинается со snapshot. State и heartbeat содержат полный снимок,
+включая feedback/result операций. При смене instance_id старые идентификаторы недействительны.
+Статус unknown означает неопределённый исход, а не успешное завершение.</p></html>

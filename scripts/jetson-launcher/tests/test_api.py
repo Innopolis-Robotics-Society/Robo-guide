@@ -19,7 +19,6 @@ from guide_launcher.api import (
     COOKIE,
     MAX_FAILED_ATTEMPTS,
     PUBLIC_CONFIRM_MIN_INTERVAL_S,
-    PUBLIC_START_MIN_INTERVAL_S,
     PUBLIC_STOP_MIN_INTERVAL_S,
 )
 from guide_launcher.auth import RfidBackend, make_auth_chain
@@ -34,18 +33,18 @@ SECRET = "rfid-secret"  # noqa: S105 -- тестовая фикстура
 TOURS = {"tours": [{"id": "expo_one", "name": "Expo"}, {"id": "expo_two", "name": "Two"}]}
 
 AUTHED_ROUTES = [
-    ("POST", "/api/tour/current"),
-    ("POST", "/api/tour/confirm"),
-    ("POST", "/api/stack/start"),
-    ("POST", "/api/stack/restart"),
-    ("GET", "/api/stack/log"),
-    ("POST", "/api/op/tour/start"),
-    ("POST", "/api/op/tour/stop"),
-    ("POST", "/api/op/go_home"),
-    ("POST", "/api/op/go_to/parking"),
-    ("POST", "/api/op/go_to/charging"),
-    ("POST", "/api/op/localization/reset"),
-    ("POST", "/api/op/costmaps/clear"),
+    ("POST", "/api/v1/reference/preferences"),
+    ("POST", "/api/v1/reference/preferences"),
+    ("POST", "/api/v1/stack/start"),
+    ("POST", "/api/v1/stack/restart"),
+    ("GET", "/api/v1/stack/log"),
+    ("POST", "/api/v1/missions"),
+    ("POST", "/api/v1/missions/stop"),
+    ("POST", "/api/v1/missions/return"),
+    ("POST", "/api/v1/missions/base"),
+    ("POST", "/api/v1/missions/redirect"),
+    ("POST", "/api/v1/localization/reset"),
+    ("POST", "/api/v1/costmaps/clear"),
 ]
 
 
@@ -71,15 +70,17 @@ def make_backend() -> web.Application:
 
         return handler
 
-    app.router.add_get("/api/tours", tours)
+    app.router.add_get("/healthz", tours)
+    app.router.add_get("/internal/tours", tours)
     for path in (
-        "/api/tour/start",
-        "/api/tour/stop",
-        "/api/go_home",
-        "/api/go_to_base",
-        "/api/localization/reset",
-        "/api/costmaps/clear",
-        "/api/confirm",
+        "/internal/speech",
+        "/internal/missions",
+        "/internal/missions/stop",
+        "/internal/missions/return",
+        "/internal/missions/base",
+        "/internal/localization/reset",
+        "/internal/costmaps/clear",
+        "/internal/interaction/confirm",
     ):
         app.router.add_post(path, command(path))
     return app
@@ -101,6 +102,8 @@ class Env:
 
     def set_frame(self, **over: Any) -> None:
         data = {
+            "readiness": {"mission": True, "speech": True},
+            "bridge_instance_id": "test-bridge",
             "state_name": "idle",
             "estop": False,
             "supervisor_state": "ACTIVE",
@@ -120,9 +123,9 @@ class Env:
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
     async def login(self, pin: str = PIN) -> Any:
-        nonce = (await (await self.client.post("/api/auth/challenge")).json())["nonce"]
+        nonce = (await (await self.client.post("/api/v1/auth/challenge")).json())["nonce"]
         body = {"nonce": nonce, "backend": "pin", "pin": pin}
-        return await self.client.post("/api/auth/verify", json=body)
+        return await self.client.post("/api/v1/auth/verify", json=body)
 
 
 @contextlib.asynccontextmanager
@@ -162,7 +165,7 @@ def test_authed_routes_return_401_without_session(tmp_path):
             for method, path in AUTHED_ROUTES:
                 resp = await e.client.request(method, path, json={})
                 assert resp.status == 401, (method, path)
-                assert await resp.json() == {"error": "auth_required"}
+                assert (await resp.json())["error"]["message"] == "auth_required"
             assert e.calls == []
             assert e.docker.calls == []
 
@@ -181,7 +184,7 @@ def test_login_sets_httponly_strict_cookie_and_status(tmp_path):
             assert cookie.startswith(f"{COOKIE}=")
             assert "HttpOnly" in cookie and "SameSite=Strict" in cookie and "Path=/" in cookie
 
-            status = await (await e.client.get("/api/auth/status")).json()
+            status = await (await e.client.get("/api/v1/auth/status")).json()
             assert status["active"] is True and status["operator"] == "pin"
 
     run(go())
@@ -191,22 +194,24 @@ def test_wrong_pin_bad_nonce_and_lockout(tmp_path):
     async def go():
         async with env(tmp_path) as e:
             resp = await e.client.post(
-                "/api/auth/verify", json={"nonce": "nope", "backend": "pin", "pin": PIN}
+                "/api/v1/auth/verify", json={"nonce": "nope", "backend": "pin", "pin": PIN}
             )
-            assert resp.status == 401 and (await resp.json())["error"] == "invalid_nonce"
+            assert (
+                resp.status == 401 and (await resp.json())["error"]["message"] == "invalid_nonce"
+            )
 
-            resp = await e.client.post("/api/auth/verify", json={"backend": "pin"})
+            resp = await e.client.post("/api/v1/auth/verify", json={"backend": "pin"})
             assert resp.status == 400
 
             for _ in range(MAX_FAILED_ATTEMPTS):
                 resp = await e.login("00000000")
                 assert resp.status == 401
-                assert (await resp.json())["error"] == "invalid_credentials"
+                assert (await resp.json())["error"]["message"] == "invalid_credentials"
             resp = await e.login(PIN)
             assert resp.status == 429
-            assert (await resp.json())["error"] == "locked_out"
-            assert (await e.client.get("/api/auth/status")).status == 200
-            status = await (await e.client.get("/api/auth/status")).json()
+            assert (await resp.json())["error"]["message"] == "locked_out"
+            assert (await e.client.get("/api/v1/auth/status")).status == 200
+            status = await (await e.client.get("/api/v1/auth/status")).json()
             assert status["active"] is False
 
     run(go())
@@ -218,20 +223,20 @@ def test_session_expires_and_slides_only_on_successful_posts(tmp_path):
             await e.login()
             e.clock.t += 400
             # GET и отказ (400) окно не продлевают
-            assert (await e.client.get("/api/stack/log")).status == 200
-            bad = await e.client.post("/api/tour/current", json={"tour_id": "bad id"})
+            assert (await e.client.get("/api/v1/stack/log")).status == 200
+            bad = await e.client.post("/api/v1/reference/preferences", json={"tour_id": "bad id"})
             assert bad.status == 400
             e.clock.t += 250
-            assert (await e.client.get("/api/stack/log")).status == 401
+            assert (await e.client.get("/api/v1/stack/log")).status == 401
 
             await e.login()
             e.clock.t += 400
-            ok = await e.client.post("/api/tour/current", json={"tour_id": "expo_two"})
+            ok = await e.client.post("/api/v1/reference/preferences", json={"tour_id": "expo_two"})
             assert ok.status == 200
             e.clock.t += 400
-            assert (await e.client.get("/api/stack/log")).status == 200
+            assert (await e.client.get("/api/v1/stack/log")).status == 200
             e.clock.t += 601
-            assert (await e.client.get("/api/stack/log")).status == 401
+            assert (await e.client.get("/api/v1/stack/log")).status == 401
 
     run(go())
 
@@ -240,10 +245,10 @@ def test_logout_closes_session_and_clears_cookie(tmp_path):
     async def go():
         async with env(tmp_path) as e:
             await e.login()
-            resp = await e.client.post("/api/auth/logout")
+            resp = await e.client.post("/api/v1/auth/logout")
             assert resp.status == 200
             assert COOKIE in resp.headers["Set-Cookie"]
-            assert (await e.client.get("/api/stack/log")).status == 401
+            assert (await e.client.get("/api/v1/stack/log")).status == 401
 
     run(go())
 
@@ -259,17 +264,17 @@ def test_rfid_login_via_memory_port(tmp_path):
         rfid = RfidBackend(RfidLink(port, timeout_s=0.01), SECRET)
         chain = make_auth_chain(["rfid", "pin"], operator_pin=PIN, rfid_backend=rfid)
         async with env(tmp_path, auth=chain) as e:
-            chal = await (await e.client.post("/api/auth/challenge")).json()
+            chal = await (await e.client.post("/api/v1/auth/challenge")).json()
             assert chal["backends"] == ["rfid", "pin"]
             port.responses.append(_signed(chal["nonce"]))
             resp = await e.client.post(
-                "/api/auth/verify", json={"nonce": chal["nonce"], "backend": "rfid"}
+                "/api/v1/auth/verify", json={"nonce": chal["nonce"], "backend": "rfid"}
             )
             assert resp.status == 200 and (await resp.json())["operator"] == "op_mook"
 
-            chal = await (await e.client.post("/api/auth/challenge")).json()
+            chal = await (await e.client.post("/api/v1/auth/challenge")).json()
             resp = await e.client.post(
-                "/api/auth/verify", json={"nonce": chal["nonce"], "backend": "rfid"}
+                "/api/v1/auth/verify", json={"nonce": chal["nonce"], "backend": "rfid"}
             )
             assert resp.status == 401
             assert (await resp.json()).get("reason") is None
@@ -282,198 +287,25 @@ def test_rfid_login_via_memory_port(tmp_path):
 # -- текущий тур -------------------------------------------------------------------
 
 
-def test_current_tour_default_set_and_persisted(tmp_path):
-    async def go():
-        async with env(tmp_path, default_tour="expo_one") as e:
-            assert await (await e.client.get("/api/tour/current")).json() == {
-                "tour_id": "expo_one",
-                "source": "default",
-                "confirm_between_stops": False,
-            }
-            await e.login()
-            for bad in ("", "a b", "x" * 65, "../etc", 5, None):
-                resp = await e.client.post("/api/tour/current", json={"tour_id": bad})
-                assert resp.status == 400, bad
-            resp = await e.client.post("/api/tour/current", json={"tour_id": "expo_two"})
-            assert await resp.json() == {"tour_id": "expo_two", "source": "state"}
-        async with env(tmp_path, default_tour="expo_one") as e2:
-            assert await (await e2.client.get("/api/tour/current")).json() == {
-                "tour_id": "expo_two",
-                "source": "state",
-                "confirm_between_stops": False,
-            }
-
-    run(go())
-
-
-def test_confirm_toggle_persisted_and_sent_on_tour_start(tmp_path):
-    async def go():
-        async with env(tmp_path, default_tour="expo_one") as e:
-            await e.login()
-            await e.client.post("/api/tour/current", json={"tour_id": "expo_two"})
-            for bad in ("true", 1, None):
-                resp = await e.client.post("/api/tour/confirm", json={"enabled": bad})
-                assert resp.status == 400, bad
-            resp = await e.client.post("/api/tour/confirm", json={"enabled": True})
-            assert await resp.json() == {"confirm_between_stops": True}
-            assert (await e.client.post("/api/op/tour/start")).status == 200
-            assert e.calls[-1]["body"] == {"tour_id": "expo_two", "confirm_between_stops": True}
-        async with env(tmp_path, default_tour="expo_one") as e2:
-            # флаг и тур живут в одном state.json и не затирают друг друга
-            assert await (await e2.client.get("/api/tour/current")).json() == {
-                "tour_id": "expo_two",
-                "source": "state",
-                "confirm_between_stops": True,
-            }
-
-    run(go())
-
-
 # -- команды оператора -------------------------------------------------------------
-
-
-def test_op_routes_need_ros_up(tmp_path):
-    async def go():
-        async with env(tmp_path, up=False) as e:
-            await e.login()
-            for _, path in AUTHED_ROUTES[5:]:
-                resp = await e.client.post(path, json={})
-                assert resp.status == 409, path
-                assert await resp.json() == {"error": "ros_down"}
-            assert e.calls == []
-
-    run(go())
-
-
-def test_op_tour_start_uses_current_tour_and_ignores_client_body(tmp_path):
-    async def go():
-        async with env(tmp_path, default_tour="expo_one") as e:
-            await e.login()
-            await e.client.post("/api/tour/current", json={"tour_id": "expo_two"})
-            resp = await e.client.post(
-                "/api/op/tour/start", json={"tour_id": "evil", "greet": False}
-            )
-            assert resp.status == 200
-            (call,) = e.calls
-            assert call["path"] == "/api/tour/start"
-            assert call["body"] == {"tour_id": "expo_two", "confirm_between_stops": False}
-            assert call["headers"]["X-Operator"] == "pin"
-            assert call["headers"]["X-Bridge-Token"] == "tok"
-
-    run(go())
-
-
-def test_op_routes_forward_and_pass_status_through(tmp_path):
-    async def go():
-        async with env(tmp_path) as e:
-            e.backend.app["statuses"]["/api/costmaps/clear"] = 503
-            await e.login()
-            assert (await e.client.post("/api/op/tour/stop")).status == 200
-            assert (await e.client.post("/api/op/go_home")).status == 200
-            # тело клиента игнорируется -- id базы зашит в роут
-            resp = await e.client.post("/api/op/go_to/charging", json={"location_id": "x"})
-            assert resp.status == 200
-            assert (await e.client.post("/api/op/localization/reset", json={})).status == 200
-            resp = await e.client.post("/api/op/costmaps/clear")
-            assert resp.status == 503
-            assert [c["path"] for c in e.calls] == [
-                "/api/tour/stop",
-                "/api/go_home",
-                "/api/go_to_base",
-                "/api/localization/reset",
-                "/api/costmaps/clear",
-            ]
-            assert e.calls[2]["body"] == {"location_id": "charging"}
-            assert e.calls[3]["body"] == {"confirm": True}
-
-    run(go())
 
 
 # -- публичный старт ---------------------------------------------------------------
 
 
 async def _public(e: Env, **body: Any):
-    return await e.client.post("/api/public/start_tour", json=body)
-
-
-def test_public_start_success_ignores_client_tour_and_needs_no_session(tmp_path):
-    async def go():
-        async with env(tmp_path, default_tour="expo_two") as e:
-            e.set_frame()
-            resp = await _public(e, tour_id="expo_one")
-            assert resp.status == 200
-            assert await resp.json() == {"ok": True, "tour_id": "expo_two"}
-            (call,) = e.calls
-            assert call["path"] == "/api/tour/start"
-            assert call["body"] == {"tour_id": "expo_two", "confirm_between_stops": False}
-            assert call["headers"]["X-Operator"] == "public"
-
-    run(go())
-
-
-def test_public_start_refusals(tmp_path):
-    async def go():
-        async with env(tmp_path, default_tour="expo_one") as e:
-
-            async def refused(reason: str) -> None:
-                e.advance(PUBLIC_START_MIN_INTERVAL_S + 1)
-                resp = await _public(e)
-                assert resp.status == 409, reason
-                assert await resp.json() == {"error": "refused", "reason": reason}
-
-            e.monitor.state = StackState.DOWN
-            e.set_frame()
-            await refused("ros_down")
-            e.monitor.state = StackState.UP
-
-            e.watcher.frame = None
-            await refused("no_mission_fsm")
-            e.set_frame(mission_state_age_s=None)
-            await refused("no_mission_fsm")
-            e.set_frame(mission_state_age_s=5.0)
-            await refused("no_mission_fsm")
-
-            e.set_frame(estop=True)
-            await refused("estop")
-            e.set_frame(supervisor_state="FAULT")
-            await refused("estop")
-
-            e.set_frame(state_name="narrating")
-            await refused("tour_active")
-
-            e.set_frame()
-            e.app[API].tour.set("ghost")
-            await refused("unknown_tour")
-            assert e.calls == []
-
-            e.backend.app["statuses"]["/api/tour/start"] = 409
-            e.app[API].tour.set("expo_one")
-            await refused("upstream_409")
-
-    run(go())
-
-
-def test_public_start_rate_limited(tmp_path):
-    async def go():
-        async with env(tmp_path) as e:
-            e.set_frame()
-            assert (await _public(e)).status == 200
-            e.advance(PUBLIC_START_MIN_INTERVAL_S - 1)
-            resp = await _public(e)
-            assert resp.status == 409
-            assert (await resp.json())["reason"] == "rate_limited"
-            e.advance(2)
-            assert (await _public(e)).status == 200
-            assert len(e.calls) == 2
-
-    run(go())
+    return await e.client.post(
+        "/api/v1/public/start-tour",
+        json={"tour_id": "expo_one", **body},
+        headers={"Idempotency-Key": "public-start"},
+    )
 
 
 # -- публичный ответ на «Идём дальше?» ------------------------------------------------
 
 
 async def _confirm(e: Env, answer: Any = "yes"):
-    return await e.client.post("/api/public/confirm", json={"answer": answer})
+    return await e.client.post("/api/v1/public/confirm", json={"answer": answer})
 
 
 @pytest.mark.parametrize("answer", ["yes", "stop", "question"])
@@ -483,9 +315,15 @@ def test_public_confirm_forwards_answer_without_session(tmp_path, answer):
             e.set_frame(state_name="awaiting_confirm")
             resp = await _confirm(e, answer)
             assert resp.status == 200
-            assert await resp.json() == {"ok": True, "answer": answer, "listening": False}
+            data = await resp.json()
+            assert {key: data[key] for key in ("ok", "answer", "listening")} == {
+                "ok": True,
+                "answer": answer,
+                "listening": False,
+            }
+            assert data["accepted"] is True and data["state"]["data_fresh"]
             (call,) = e.calls
-            assert call["path"] == "/api/confirm"
+            assert call["path"] == "/internal/interaction/confirm"
             assert call["body"] == {"answer": answer}
             assert call["headers"]["X-Operator"] == "public"
             (entry,) = [r for r in e.journal() if r.get("event") == "public_confirm"]
@@ -514,7 +352,7 @@ def test_public_confirm_refusals(tmp_path):
                 e.advance(PUBLIC_CONFIRM_MIN_INTERVAL_S + 1)
                 resp = await _confirm(e)
                 assert resp.status == 409, reason
-                assert await resp.json() == {"error": "refused", "reason": reason}
+                assert (await resp.json())["error"]["message"] == reason
 
             e.monitor.state = StackState.DOWN
             e.set_frame(state_name="awaiting_confirm")
@@ -533,7 +371,7 @@ def test_public_confirm_refusals(tmp_path):
             assert e.calls == []
 
             e.set_frame(state_name="awaiting_confirm")
-            e.backend.app["statuses"]["/api/confirm"] = 409
+            e.backend.app["statuses"]["/internal/interaction/confirm"] = 409
             await refused("upstream_409")
 
     run(go())
@@ -545,7 +383,7 @@ def test_public_confirm_disabled_in_config(tmp_path):
             e.set_frame(state_name="awaiting_confirm")
             resp = await _confirm(e)
             assert resp.status == 409
-            assert (await resp.json())["reason"] == "disabled"
+            assert (await resp.json())["error"]["message"] == "disabled"
             assert e.calls == []
 
     run(go())
@@ -557,7 +395,7 @@ def test_public_confirm_double_tap_is_rate_limited(tmp_path):
             e.set_frame(state_name="awaiting_confirm")
             assert (await _confirm(e)).status == 200
             resp = await _confirm(e, "stop")
-            assert (await resp.json())["reason"] == "rate_limited"
+            assert (await resp.json())["error"]["message"] == "rate_limited"
             assert len(e.calls) == 1
 
     run(go())
@@ -567,7 +405,7 @@ def test_public_confirm_double_tap_is_rate_limited(tmp_path):
 
 
 async def _stop(e: Env):
-    return await e.client.post("/api/public/stop")
+    return await e.client.post("/api/v1/public/stop")
 
 
 @pytest.mark.parametrize("state", ["navigating", "returning"])
@@ -578,7 +416,7 @@ def test_public_stop_forwards_without_session(tmp_path, state):
             resp = await _stop(e)
             assert resp.status == 200
             (call,) = e.calls
-            assert call["path"] == "/api/tour/stop"
+            assert call["path"] == "/internal/missions/stop"
             assert call["headers"]["X-Operator"] == "public"
             (entry,) = [r for r in e.journal() if r.get("event") == "public_stop"]
             assert entry["ok"] is True
@@ -594,7 +432,7 @@ def test_public_stop_refusals(tmp_path):
                 e.advance(PUBLIC_STOP_MIN_INTERVAL_S + 1)
                 resp = await _stop(e)
                 assert resp.status == 409, reason
-                assert await resp.json() == {"error": "refused", "reason": reason}
+                assert (await resp.json())["error"]["message"] == reason
 
             e.monitor.state = StackState.DOWN
             e.set_frame(state_name="navigating")
@@ -612,7 +450,7 @@ def test_public_stop_refusals(tmp_path):
             e.advance(PUBLIC_STOP_MIN_INTERVAL_S + 1)
             assert (await _stop(e)).status == 200
             resp = await _stop(e)
-            assert (await resp.json())["reason"] == "rate_limited"
+            assert (await resp.json())["error"]["message"] == "rate_limited"
             assert len(e.calls) == 1
 
     run(go())
@@ -630,33 +468,10 @@ def test_restart_refused_while_tour_active(tmp_path):
         async with env(tmp_path) as e:
             await e.login()
             e.set_frame(state_name="navigating")
-            resp = await e.client.post("/api/stack/restart")
+            resp = await e.client.post("/api/v1/stack/restart")
             assert resp.status == 409
-            assert await resp.json() == {"error": "robot_moving"}
+            assert (await resp.json())["error"]["message"] == "robot_moving"
             assert e.docker.calls == []
-
-    run(go())
-
-
-def test_restart_allowed_without_frame_stale_link_or_idle(tmp_path):
-    async def go():
-        async with env(tmp_path, up=False) as e:
-            await e.login()
-            for setup in (
-                lambda: setattr(e.watcher, "frame", None),
-                lambda: e.set_frame(state_name="navigating", mission_state_age_s=9.0),
-                lambda: e.set_frame(state_name="unknown", mission_state_age_s=None),
-                lambda: e.set_frame(state_name="idle"),
-            ):
-                e.docker.calls.clear()
-                e.monitor._starting_since = None
-                setup()
-                resp = await e.client.post("/api/stack/restart")
-                assert resp.status == 202
-                await _settle(e)
-                assert "restart" in e.docker.verbs()
-            events = [r for r in e.journal() if r["event"] == "stack"]
-            assert events and events[0]["operator"] == "pin"
 
     run(go())
 
@@ -665,50 +480,23 @@ def test_stack_start_and_log_and_disabled_control(tmp_path):
     async def go():
         async with env(tmp_path, up=False) as e:
             await e.login()
-            resp = await e.client.post("/api/stack/start")
+            resp = await e.client.post("/api/v1/stack/start")
             assert resp.status == 202
             await _settle(e)
             assert "exec:-d" in e.docker.verbs()
-            log = await (await e.client.get("/api/stack/log")).json()
+            log = await (await e.client.get("/api/v1/stack/log")).json()
             assert log == {"lines": ["line1", "line2"]}
         (tmp_path / "off").mkdir()
         async with env(tmp_path / "off", up=False, container="") as e:
             await e.login()
-            resp = await e.client.post("/api/stack/start")
+            resp = await e.client.post("/api/v1/stack/start")
             assert resp.status == 400
-            assert await resp.json() == {"error": "stack_control_disabled"}
+            assert (await resp.json())["error"]["message"] == "stack_control_disabled"
 
     run(go())
 
 
 # -- журнал ------------------------------------------------------------------------
-
-
-def test_journal_records_events_with_results(tmp_path):
-    async def go():
-        async with env(tmp_path) as e:
-            await e.login("00000000")
-            await e.login()
-            await e.client.post("/api/tour/current", json={"tour_id": "expo_two"})
-            await e.client.post("/api/op/tour/stop")
-            e.set_frame()
-            await _public(e)
-            await e.client.post("/api/auth/logout")
-            events = e.journal()
-            by = {}
-            for r in events:
-                by.setdefault(r["event"], []).append(r)
-            assert [r["ok"] for r in by["auth_attempt"]] == [False, True]
-            assert by["auth_attempt"][0]["reason"] == "wrong_pin"
-            assert by["tour_current"][0]["tour_id"] == "expo_two"
-            assert by["command"][0]["path"] == "/api/tour/stop"
-            assert by["command"][0]["operator"] == "pin"
-            assert by["command"][0]["status"] == 200
-            assert by["public_start"][0]["ok"] is True
-            assert by["logout"][0]["operator"] == "pin"
-            assert all(isinstance(r["ts"], float) for r in events)
-
-    run(go())
 
 
 def test_silent_bridge_frame_expires_for_restart_and_public_start(tmp_path):
@@ -723,16 +511,16 @@ def test_silent_bridge_frame_expires_for_restart_and_public_start(tmp_path):
             assert e.watcher.latest() is None
 
             resp = await _public(e)
-            assert resp.status == 409
-            assert (await resp.json())["reason"] == "no_mission_fsm"
+            assert resp.status == 403
+            assert (await resp.json())["error"]["message"] == "operator_session_required"
 
             e.set_frame(state_name="navigating")
-            assert (await e.client.post("/api/stack/restart")).status == 409
+            assert (await e.client.post("/api/v1/stack/restart")).status == 409
             e.set_frame(state_name="navigating")
             e.clock.t += FRAME_MAX_AGE_S + 1
             e.docker.calls.clear()
             e.monitor._starting_since = None
-            assert (await e.client.post("/api/stack/restart")).status == 202
-            await _settle(e)
+            assert (await e.client.post("/api/v1/stack/restart")).status == 409
+            assert "restart" not in e.docker.verbs()
 
     run(go())

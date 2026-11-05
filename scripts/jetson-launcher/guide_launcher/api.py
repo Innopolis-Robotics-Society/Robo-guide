@@ -16,7 +16,6 @@ from .config import Config
 from .journal import Journal
 from .session import SessionManager
 from .stack import StackError, StackMonitor, StackState
-from .state import TourState, valid_tour_id
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ PUBLIC_STOP_MIN_INTERVAL_S = 1.5
 MOVING_STATES = frozenset({"navigating", "returning"})
 CONFIRM_ANSWERS = frozenset({"yes", "stop", "question"})
 MISSION_STALE_S = 3.0
-IDLE_STATES = frozenset({"idle", "unknown"})
+IDLE_STATES = frozenset({"idle"})
 FAULT_SUPERVISOR_STATES = frozenset({"FAULT", "SHUTDOWN"})
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
@@ -46,7 +45,9 @@ def mission_link_ok(frame: Frame | None) -> bool:
     if frame is None:
         return False
     age = frame.data.get("mission_state_age_s")
-    return isinstance(age, int | float) and age <= MISSION_STALE_S
+    return (
+        isinstance(age, int | float) and not isinstance(age, bool) and 0 <= age <= MISSION_STALE_S
+    )
 
 
 def tour_active(frame: Frame | None) -> bool:
@@ -88,7 +89,6 @@ class Api:
         sessions: SessionManager,
         auth: AuthChain,
         journal: Journal,
-        tour: TourState,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         """Собрать зависимости; `clock` -- monotonic, подменяется в тестах."""
@@ -99,7 +99,6 @@ class Api:
         self.sessions = sessions
         self.auth = auth
         self.journal = journal
-        self.tour = tour
         self.clock = clock
         self._last_public_start: float | None = None
         self._last_public_confirm: float | None = None
@@ -110,36 +109,6 @@ class Api:
         """Причина отказа рестарта стека: тур идёт по последнему кадру."""
         return "robot_moving" if tour_active(self.watcher.latest()) else None
 
-    def register(self, app: web.Application) -> None:
-        """Добавить роуты в приложение и погасить фоновые задачи при остановке."""
-        app[API] = self
-        add = app.router.add_route
-        add("POST", "/api/auth/challenge", self.auth_challenge)
-        add("POST", "/api/auth/verify", self.auth_verify)
-        add("POST", "/api/auth/logout", self.auth_logout)
-        add("GET", "/api/auth/status", self.auth_status)
-        add("GET", "/api/tour/current", self.tour_current)
-        add("POST", "/api/tour/current", self._authed(self.tour_set))
-        add("POST", "/api/tour/confirm", self._authed(self.tour_set_confirm))
-        add("POST", "/api/stack/start", self._authed(self.stack_start))
-        add("POST", "/api/stack/restart", self._authed(self.stack_restart))
-        add("GET", "/api/stack/log", self._authed(self.stack_log))
-        add("POST", "/api/op/tour/start", self._authed(self._op("/api/tour/start", tour=True)))
-        add("POST", "/api/op/tour/stop", self._authed(self._op("/api/tour/stop")))
-        add("POST", "/api/op/go_home", self._authed(self._op("/api/go_home")))
-        # Служебные базы (location_id в locations_*.yaml) -- фиксированы здесь,
-        # клиент id не передаёт.
-        for base_id in ("parking", "charging"):
-            go_to_base = self._op("/api/go_to_base", body={"location_id": base_id})
-            add("POST", f"/api/op/go_to/{base_id}", self._authed(go_to_base))
-        reset_body = {"confirm": True}
-        reset = self._op("/api/localization/reset", body=reset_body)
-        add("POST", "/api/op/localization/reset", self._authed(reset))
-        add("POST", "/api/op/costmaps/clear", self._authed(self._op("/api/costmaps/clear")))
-        add("POST", "/api/public/start_tour", self.public_start_tour)
-        add("POST", "/api/public/confirm", self.public_confirm)
-        add("POST", "/api/public/stop", self.public_stop)
-
     # -- сессия -----------------------------------------------------------------
 
     def _authed(self, handler: Handler) -> Handler:
@@ -149,6 +118,7 @@ class Api:
             if info is None:
                 return web.json_response({"error": "auth_required"}, status=401)
             request["operator"] = info.operator
+            request["owner"] = info.token
             response = await handler(request)
             if request.method == "POST" and response.status < 400 and token:
                 self.sessions.touch(token)
@@ -222,47 +192,6 @@ class Api:
             {"active": True, "expires_at": info.expires_at_wall, "operator": info.operator}
         )
 
-    # -- текущий тур ------------------------------------------------------------
-
-    async def tour_current(self, request: web.Request) -> web.Response:
-        """Текущий тур: из state.json или default_tour; плюс флаг «Идём дальше?»."""
-        tour_id, source = self.tour.current()
-        return web.json_response(
-            {
-                "tour_id": tour_id,
-                "source": source,
-                "confirm_between_stops": self.tour.confirm_between_stops(),
-            }
-        )
-
-    async def tour_set(self, request: web.Request) -> web.Response:
-        """Сделать тур текущим (только с входом)."""
-        data = await _json_object(request)
-        tour_id = data.get("tour_id")
-        operator = request["operator"]
-        if not valid_tour_id(tour_id):
-            self.journal.write(
-                "tour_current", operator=operator, tour_id=str(tour_id)[:64], status=400
-            )
-            return web.json_response({"error": "invalid_body"}, status=400)
-        previous, _ = self.tour.current()
-        self.tour.set(tour_id)
-        self.journal.write(
-            "tour_current", operator=operator, tour_id=tour_id, previous=previous, status=200
-        )
-        return web.json_response({"tour_id": tour_id, "source": "state"})
-
-    async def tour_set_confirm(self, request: web.Request) -> web.Response:
-        """Включить/выключить «Идём дальше?» для следующих стартов тура."""
-        enabled = (await _json_object(request)).get("enabled")
-        operator = request["operator"]
-        if not isinstance(enabled, bool):
-            self.journal.write("tour_confirm", operator=operator, status=400)
-            return web.json_response({"error": "invalid_body"}, status=400)
-        self.tour.set_confirm_between_stops(enabled)
-        self.journal.write("tour_confirm", operator=operator, enabled=enabled, status=200)
-        return web.json_response({"confirm_between_stops": enabled})
-
     # -- стек -------------------------------------------------------------------
 
     def _spawn(self, action: str, operator: str) -> asyncio.Future:
@@ -324,62 +253,6 @@ class Api:
         text = await self.monitor.log_tail(30)
         return web.json_response({"lines": text.splitlines()})
 
-    # -- команды оператора ------------------------------------------------------
-
-    def _op(
-        self, bridge_path: str, *, body: dict[str, Any] | None = None, tour: bool = False
-    ) -> Handler:
-        async def handler(request: web.Request) -> web.Response:
-            operator = request["operator"]
-            if self.monitor.state is not StackState.UP:
-                self._log_command(bridge_path, operator, 409)
-                return web.json_response({"error": "ros_down"}, status=409)
-            payload = dict(body or {})
-            if tour:
-                payload.update(self._tour_start_payload())
-            status, upstream = await self.bridge.command(bridge_path, payload, operator)
-            self._log_command(bridge_path, operator, status, tour_id=payload.get("tour_id"))
-            return web.json_response(upstream, status=status)
-
-        return handler
-
-    def _tour_start_payload(self) -> dict[str, Any]:
-        return {
-            "tour_id": self.tour.current()[0],
-            "confirm_between_stops": self.tour.confirm_between_stops(),
-        }
-
-    def _log_command(self, path: str, operator: str, status: int, **extra: Any) -> None:
-        extra = {k: v for k, v in extra.items() if v is not None}
-        self.journal.write("command", path=path, operator=operator, status=status, **extra)
-
-    # -- публичный старт --------------------------------------------------------
-
-    async def public_start_tour(self, request: web.Request) -> web.Response:
-        """Старт текущего тура без входа; tour_id и тело клиента игнорируются."""
-        reason = await self._public_refusal()
-        tour_id, _ = self.tour.current()
-        if reason is not None:
-            self.journal.write("public_start", tour_id=tour_id, ok=False, reason=reason)
-            return web.json_response({"error": "refused", "reason": reason}, status=409)
-
-        status, upstream = await self.bridge.command(
-            "/api/tour/start", self._tour_start_payload(), "public"
-        )
-        if 200 <= status < 300:
-            self.journal.write("public_start", tour_id=tour_id, ok=True, status=status)
-            return web.json_response({"ok": True, "tour_id": tour_id})
-        detail = ""
-        if isinstance(upstream, dict):
-            detail = upstream.get("error") or upstream.get("message") or ""
-        reason = f"upstream_{status}"
-        self.journal.write(
-            "public_start", tour_id=tour_id, ok=False, reason=reason, detail=str(detail)
-        )
-        return web.json_response(
-            {"error": "refused", "reason": reason}, status=409 if status < 500 else 502
-        )
-
     # -- публичный ответ на «Идём дальше?» ---------------------------------------
 
     async def public_confirm(self, request: web.Request) -> web.Response:
@@ -392,7 +265,9 @@ class Api:
             self.journal.write("public_confirm", answer=answer, ok=False, reason=reason)
             return web.json_response({"error": "refused", "reason": reason}, status=409)
 
-        status, upstream = await self.bridge.command("/api/confirm", {"answer": answer}, "public")
+        status, upstream = await self.bridge.command(
+            "/internal/interaction/confirm", {"answer": answer}, "public"
+        )
         if 200 <= status < 300:
             self.journal.write("public_confirm", answer=answer, ok=True, status=status)
             listening = isinstance(upstream, dict) and upstream.get("listening") is True
@@ -405,7 +280,7 @@ class Api:
             "public_confirm", answer=answer, ok=False, reason=reason, detail=str(detail)
         )
         return web.json_response(
-            {"error": "refused", "reason": reason}, status=409 if status < 500 else 502
+            {"error": "refused", "reason": reason}, status=409 if status < 500 else status
         )
 
     # -- публичный «Стоп» во время движения ---------------------------------------
@@ -418,7 +293,7 @@ class Api:
             self.journal.write("public_stop", ok=False, reason=reason)
             return web.json_response({"error": "refused", "reason": reason}, status=409)
 
-        status, upstream = await self.bridge.command("/api/tour/stop", {}, "public")
+        status, upstream = await self.bridge.command("/internal/missions/stop", {}, "public")
         if 200 <= status < 300:
             self.journal.write("public_stop", ok=True, status=status)
             return web.json_response({"ok": True})
@@ -428,7 +303,7 @@ class Api:
         reason = f"upstream_{status}"
         self.journal.write("public_stop", ok=False, reason=reason, detail=str(detail))
         return web.json_response(
-            {"error": "refused", "reason": reason}, status=409 if status < 500 else 502
+            {"error": "refused", "reason": reason}, status=409 if status < 500 else status
         )
 
     def _public_stop_refusal(self) -> str | None:
@@ -443,7 +318,9 @@ class Api:
         frame = self.watcher.latest()
         if not mission_link_ok(frame):
             return "no_mission_fsm"
-        if frame is None or frame.data.get("state_name") not in MOVING_STATES:
+        if frame is None or not (
+            frame.data.get("moving") or frame.data.get("state_name") in MOVING_STATES
+        ):
             return "not_moving"
         return None
 
@@ -481,10 +358,4 @@ class Api:
             return "estop"
         if tour_active(frame):
             return "tour_active"
-        status, body = await self.bridge.get_json("/api/tours")
-        if status != 200 or not isinstance(body, dict):
-            return "ros_down"
-        known = {t.get("id") for t in body.get("tours", []) if isinstance(t, dict)}
-        if self.tour.current()[0] not in known:
-            return "unknown_tour"
         return None

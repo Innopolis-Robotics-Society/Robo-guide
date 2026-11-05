@@ -1,0 +1,46 @@
+# Initial limits for testing. Operational topics and parameters are still to be selected.
+storage:
+  directory: ~/ros2_ws/log/robot-journal
+  batch_bytes: 65536
+  file_bytes: 20971520
+  max_files: 168
+  total_bytes: 1073741824
+  reserve_bytes: 134217728
+timing:
+  snapshot_s: 5.0
+  freshness_s: 1.0
+  flush_s: 1.0
+  sync_s: 10.0
+  rotation_s: 3600.0
+  retention_s: 604800.0
+  maintenance_s: 60.0
+  retry_s: 5.0
+limits:
+  max_record_bytes: 131072
+  max_sources: 32
+  max_components: 32
+  max_statuses_per_message: 64
+  snapshot_slots: 16
+  event_slots: 64
+  memory_budget: 2097152
+sources: []
+# Examples only; NOT active until explicitly added to sources:
+# - id: supervisor
+#   topic: /supervisor/state
+#   adapter: string
+#   reliability: reliable
+#   stale_s: 0                    # state published only on change
+# - id: watchdogs
+#   topic: /supervisor/diagnostics
+#   adapter: diagnostics
+#   event_fields: [latched]        # level and message are always compared
+#   stale_s: 10.0
+# - id: lidar_left
+#   topic: /scan_left
+#   adapter: serialized
+#   type: sensor_msgs/msg/LaserScan
+#   max_bytes: 65536              # Reject whole message if too large; never cut rays.
+#   reliability: best_effort
+#   depth: 2
+#   stale_s: 2.0
+#   stream: false                 # false: latest FULL scan in snapshots; true: every scan

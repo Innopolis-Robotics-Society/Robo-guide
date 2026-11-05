@@ -1,0 +1,17 @@
+[
+  {
+    "type": "snapshot",
+    "instance_id": "7b4e72d8-94a4-49df-9bca-66dfe5210621",
+    "seq": 1,
+    "data": {
+      "stack": {
+        "state": "DOWN"
+      },
+      "transport_connected": false,
+      "data_fresh": false,
+      "robot": null,
+      "operations": [],
+      "instance_id": "7b4e72d8-94a4-49df-9bca-66dfe5210621"
+    }
+  }
+]

@@ -1,0 +1,38 @@
+# Параметры robot_api (мост ROS <-> HTTP для guide-launcher). Имена сервисов -- параметры, не
+# хардкод (task_C_robot_api_stage1.md, раздел C3) -- переопредели здесь,
+# если mission_fsm/location_server/content_server живут не под
+# стандартными именами.
+
+/**/robot_api:
+  ros__parameters:
+    bind_host: "127.0.0.1"     # панель на самом роботе; только loopback
+    http_port: 8091             # 8090 занят guide_robot_face
+    localization_presets: [parking, home, entrance, robo_guide]
+    service_timeout_s: 5.0
+    mission_state_stale_s: 3.0  # heartbeat 1 Гц -- см. mission_fsm's config/mission.yaml
+    initialpose_settle_s: 0.5
+    reset_covariance_xyyaw: [0.25, 0.25, 0.06853891945200942]
+    tours_language: "ru"
+    content_language: "ru"      # отдельно от tours_language (design D2)
+
+    # Общий секрет с guide-launcher (хостовый сервис :8089). Командные роуты
+    # принимают только запросы с этим токеном в X-Bridge-Token; пустой или
+    # отсутствующий файл -- нода не стартует. Путь внутри контейнера; на
+    # хосте тот же файл: ~/Desktop/Projects/Robo-guide/.guide_launcher/bridge_token
+    # (создаёт scripts/jetson-launcher/install.sh).
+    bridge_token_file: "/home/fabian/ros2_ws/src/.guide_launcher/bridge_token"
+    run_tour_action: "run_tour"
+    request_stop_service: "/mission_fsm/request_stop"
+    go_home_service: "/mission_fsm/go_home"
+    # Кнопки «Стоянка»/«Подзарядка»: id служебной точки location_server.
+    go_to_base_service: "/mission_fsm/go_to_base"
+    # POST /internal/interaction/confirm (кнопки «Да»/«Стоп»/«Задать вопрос» на экране посетителя).
+    submit_confirm_service: "/mission_fsm/submit_confirm"
+    request_question_service: "/mission_fsm/request_question"
+    prompt_listen_service: "/voice_session_manager/prompt_listen"
+    list_tours_service: "/location_server/list_tours"
+    list_locations_service: "/location_server/list_locations"
+    clear_global_costmap_service: "/global_costmap/clear_entirely_global_costmap"
+    clear_local_costmap_service: "/local_costmap/clear_entirely_local_costmap"
+    get_exhibit_content_service: "/content_server/get_exhibit_content"
+    get_exhibit_media_service: "/content_server/get_exhibit_media"

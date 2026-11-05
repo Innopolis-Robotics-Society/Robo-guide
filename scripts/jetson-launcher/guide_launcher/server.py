@@ -1,9 +1,8 @@
-"""HTTP-приложение launcher: страница, конфиг, промо, статус стека, прокси /ros/*."""
+"""Независимый хостовый API с необязательным эталонным UI."""
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -11,16 +10,17 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .api import LOCKOUT_S, MAX_FAILED_ATTEMPTS, NONCE_TTL_S, Api
+from .api import LOCKOUT_S, MAX_FAILED_ATTEMPTS, NONCE_TTL_S
 from .auth import AuthChain, RfidBackend, make_auth_chain
 from .bridge import Bridge, FrameWatcher
 from .config import Config
+from .http_policy import policy, prepare
 from .journal import Journal
-from .promo import PromoStore
+from .reference import register as register_reference
 from .rfid_link import PySerialPort, ReconnectingRfidLink, SerialPort
 from .session import SessionManager
 from .stack import StackMonitor, StackState
-from .state import TourState
+from .v1 import RobotApi
 
 log = logging.getLogger(__name__)
 
@@ -29,44 +29,8 @@ CFG = "cfg"
 BRIDGE = "bridge"
 MONITOR = "monitor"
 WATCHER = "watcher"
-PROMO = "promo"
 TASKS = "tasks"
 JOURNAL = "journal"
-
-DEFAULT_WEB_DIR = Path(__file__).resolve().parent.parent / "web"
-
-
-async def _no_cache(request: web.Request, response: web.StreamResponse) -> None:
-    response.headers["Cache-Control"] = "no-cache"
-
-
-async def _index(request: web.Request) -> web.StreamResponse:
-    return web.FileResponse(request.app["web_dir"] / "index.html")
-
-
-async def _config(request: web.Request) -> web.Response:
-    cfg: Config = request.app[CFG]
-    return web.json_response(
-        {
-            "always_promo": cfg.always_promo,
-            "slide_interval_s": cfg.slide_interval_s,
-            "promo_interval_s": cfg.promo_interval_s,
-            "stack_control": cfg.stack_control,
-            "visitor_confirm_buttons": cfg.visitor_confirm_buttons,
-        }
-    )
-
-
-async def _promo_manifest(request: web.Request) -> web.Response:
-    return web.json_response(request.app[PROMO].manifest())
-
-
-async def _promo_file(request: web.Request) -> web.StreamResponse:
-    root = request.app[PROMO].media_root.resolve()
-    target = (root / request.match_info["tail"]).resolve()
-    if root not in target.parents or not target.is_file():
-        raise web.HTTPNotFound()
-    return web.FileResponse(target)
 
 
 def _read_secret(path: str) -> str:
@@ -99,17 +63,12 @@ def build_auth_chain(cfg: Config) -> AuthChain:
     )
 
 
-async def _stack_status(request: web.Request) -> web.Response:
-    return web.json_response(request.app[MONITOR].status())
-
-
 def create_app(
     cfg: Config,
     *,
     monitor: StackMonitor | None = None,
     bridge: Bridge | None = None,
     watcher: FrameWatcher | None = None,
-    promo: PromoStore | None = None,
     run_background: bool = True,
     auth: AuthChain | None = None,
     sessions: SessionManager | None = None,
@@ -117,18 +76,17 @@ def create_app(
     clock: Callable[[], float] = time.monotonic,
 ) -> web.Application:
     """Собрать приложение; зависимости можно подменить (тесты), фон -- отключить."""
-    app = web.Application()
-    app["web_dir"] = Path(cfg.web_dir) if cfg.web_dir else DEFAULT_WEB_DIR
+    app = web.Application(middlewares=[policy])
+    app.on_response_prepare.append(prepare)
     bridge = bridge or Bridge(cfg.bridge_url, cfg.bridge_token())
     monitor = monitor or StackMonitor(cfg, bridge.probe)
     watcher = watcher or FrameWatcher(bridge, lambda: monitor.state is StackState.UP)
-    promo = promo or PromoStore(Path(cfg.promo_dir), cfg.promo_interval_s)
-    app[CFG], app[BRIDGE], app[MONITOR], app[WATCHER], app[PROMO] = (
+    # Reference UI creates its own optional media store.
+    app[CFG], app[BRIDGE], app[MONITOR], app[WATCHER] = (
         cfg,
         bridge,
         monitor,
         watcher,
-        promo,
     )
     app[TASKS] = []
 
@@ -140,7 +98,7 @@ def create_app(
         lockout_s=LOCKOUT_S,
         time_fn=clock,
     )
-    api = Api(
+    api = RobotApi(
         cfg,
         monitor=monitor,
         bridge=bridge,
@@ -148,22 +106,21 @@ def create_app(
         sessions=sessions,
         auth=auth or build_auth_chain(cfg),
         journal=journal,
-        tour=TourState(cfg.state_dir, cfg.default_tour),
         clock=clock,
     )
     if monitor.restart_guard is None:
         monitor.restart_guard = api.restart_guard
     app[JOURNAL] = journal
 
-    app.on_response_prepare.append(_no_cache)
-    app.router.add_get("/", _index)
-    app.router.add_static("/static", app["web_dir"])
-    app.router.add_get("/api/config", _config)
-    app.router.add_get("/api/promo", _promo_manifest)
-    app.router.add_get("/promo/{tail:.+}", _promo_file)
-    app.router.add_get("/api/stack/status", _stack_status)
     api.register(app)
-    app.router.add_route("*", "/ros/{tail:.*}", bridge.proxy)
+    from .system_settings import SystemSettings
+
+    app["system_settings"] = SystemSettings(api)
+    app["system_settings"].register(app)
+    register_reference(app, cfg, api)
+    docs = Path(__file__).resolve().parent / "spec"
+    if docs.is_dir():
+        app.router.add_static("/api/v1/docs", docs)
 
     if run_background:
         app.on_startup.append(_start_background)
@@ -172,7 +129,7 @@ def create_app(
 
 
 async def _start_background(app: web.Application) -> None:
-    for coro in (app[MONITOR].run_forever(), app[WATCHER].run_forever()):
+    for coro in (app[MONITOR].run_forever(), app[WATCHER].run_forever(), app["api"].events.run()):
         app[TASKS].append(asyncio.ensure_future(coro))
 
 
@@ -180,8 +137,10 @@ async def _stop_background(app: web.Application) -> None:
     """Остановить только фоновые задачи launcher; ROS-стек не трогаем."""
     for task in app[TASKS]:
         task.cancel()
-    for task in app[TASKS]:
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+    await asyncio.gather(*app[TASKS], return_exceptions=True)
+    for task in list(app["api"]._tasks):
+        task.cancel()
+    await asyncio.gather(*app["api"]._tasks, return_exceptions=True)
+    await app["api"].events.close()
     await app[BRIDGE].close()
     app[JOURNAL].close()

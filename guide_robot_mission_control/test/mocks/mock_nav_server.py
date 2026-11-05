@@ -61,7 +61,7 @@ class MockNavServer(Node):
         См. mock_say_server._ok(): голый rclpy.ok() под отдельным
         rclpy.Context() (harness.py) всегда False, а не "нода жива".
         """
-        return rclpy.ok(context=self.context)
+        return not getattr(self, "stopping", False) and rclpy.ok(context=self.context)
 
     def _execute(self, goal_handle: object) -> NavigateToPose.Result:
         request: NavigateToPose.Goal = goal_handle.request  # type: ignore[attr-defined]
@@ -78,7 +78,7 @@ class MockNavServer(Node):
                 time.sleep(_POLL_S)
             return NavigateToPose.Result()
 
-        while True:
+        while self._ok():
             elapsed = (self.get_clock().now() - start).nanoseconds / 1e9
             remaining_ratio = max(0.0, 1.0 - elapsed / self.duration_s)
 

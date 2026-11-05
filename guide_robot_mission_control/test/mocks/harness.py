@@ -92,7 +92,15 @@ class MissionTestHarness:
         self.location_server = MockLocationServer(
             self.fixtures, context=self.context, parameter_overrides=_USE_SIM_TIME
         )
+        from std_msgs.msg import String
+        from rclpy.qos import QoSProfile, DurabilityPolicy
+        self.localization = Node("mock_localization", context=self.context)
+        self.localization_status = '{"state":"ready","motion_blocked":false}'
+        pub = self.localization.create_publisher(String, "/localization/status",
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.localization.create_timer(.05, lambda: pub.publish(String(data=self.localization_status)))
         self._owned_nodes = [
+            self.localization,
             self.clock,
             self.say,
             self.nav,
@@ -114,6 +122,8 @@ class MissionTestHarness:
         """Добавить узел под тестом (например, narration_server) в общий executor."""
         self.executor.add_node(node)
         self._extra_nodes.append(node)
+        if hasattr(node, "_localization_received"):
+            wait_until(lambda: node._localization_received > 0)
 
     def make_client_node(self, name: str = "test_client") -> Node:
         """Создать вспомогательный узел-клиент (для ActionClient/ServiceClient в тесте)."""
@@ -130,6 +140,13 @@ class MissionTestHarness:
         `InvalidHandle: cannot use Destroyable because destruction was
         requested` (безобидно по сути, но шумит в выводе тестов).
         """
+        # Release simulated-time waiters before stopping /clock and destroying handles.
+        self.say.stopping = True
+        self.nav.stopping = True
+        for node in reversed(self._extra_nodes):
+            deactivate = getattr(node, "trigger_deactivate", None)
+            if deactivate is not None and getattr(node, "_active", False):
+                deactivate()
         self.executor.shutdown(timeout_sec=5.0)
         self._thread.join(timeout=5.0)
         for node in (*self._extra_nodes, *self._owned_nodes):

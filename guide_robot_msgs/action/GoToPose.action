@@ -1,0 +1,7 @@
+string map_version
+geometry_msgs/PoseStamped pose
+---
+uint8 outcome
+string detail
+---
+uint8 phase

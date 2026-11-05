@@ -67,19 +67,14 @@ sudo reboot
 перезагрузки: `udevadm control --reload`, затем unbind/bind интерфейса тача
 (`/sys/bus/usb/drivers/usbtouchscreen/`), чтобы weston пересоздал устройство.
 
-## operator_ui на HDMI-экране
+## Панель на HDMI-экране
 
-`/etc/guide-kiosk/url` = `http://127.0.0.1:8091` (`guide_robot_operator_ui`, порт из
-`config/operator_ui.yaml`). Нода запускается в dev-контейнере, отдельно от `hardware.launch`:
+`/etc/guide-kiosk/url-hdmi` = `http://127.0.0.1:8089` (хостовый сервис,
+опциональный `reference_ui`). Лицо использует `/etc/guide-kiosk/url` и порт 8090.
+Приватный `guide_robot_api` на 8091 не обслуживает браузерные страницы.
+См. [установку хостового сервиса](../jetson-launcher/README.md).
 
-```bash
-docker start robo-guide-jetson-1
-docker exec -d robo-guide-jetson-1 bash -c \
-  "cd /home/fabian/ros2_ws && source install/setup.bash && \
-   exec ros2 launch guide_robot_operator_ui operator_ui.launch.py > /tmp/operator_ui.log 2>&1"
-```
-
-## Известные проблемы
+## Исторические наблюдения до миграции API v1
 
 - Нода `operator_ui` не переживает перезагрузку Jetson: нет systemd-юнита, запуск руками.
 - В образе `fabook/iros:jetson` нет `pyserial`; RFID-бэкенд `operator_ui` упадёт на

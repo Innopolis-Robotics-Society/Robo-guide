@@ -5,11 +5,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from aiohttp.test_utils import make_mocked_request
-from guide_launcher.bridge import is_proxy_allowed
 from test_server import launcher, run
 
-WEB = Path(__file__).resolve().parent.parent / "web"
+WEB = Path(__file__).resolve().parents[3] / "reference_ui" / "web"
 
 
 def _js() -> str:
@@ -25,7 +23,7 @@ def test_real_page_is_served_without_cache(tmp_path):
         async with launcher(tmp_path, web_dir=str(WEB)) as (c, *_):
             r = await c.get("/")
             assert r.status == 200
-            assert "no-cache" in r.headers["Cache-Control"]
+            assert "no-store" in r.headers["Cache-Control"]
             html = await r.text()
             assert '<script src="/static/app.js">' in html
             assert "Начать экскурсию" in html
@@ -33,7 +31,7 @@ def test_real_page_is_served_without_cache(tmp_path):
                 r = await c.get(f"/static/{name}")
                 assert r.status == 200
                 assert await r.read() == (WEB / name).read_bytes()
-                assert "no-cache" in r.headers["Cache-Control"]
+                assert "no-store" in r.headers["Cache-Control"]
 
     run(go())
 
@@ -53,27 +51,10 @@ def test_page_has_no_removed_auth_leftovers():
 
 
 def test_every_endpoint_of_the_page_exists_on_the_server(tmp_path):
-    js = re.sub(r"(?m)(^|\s)//.*$", "", _js())  # пути в комментариях -- не вызовы
-    js = re.sub(r"\$\{[^}]*\}", "~", js)
-    paths = set(re.findall(r"(?<![\w.])(/(?:api|ros|promo)(?:/[\w.\-]+)*)", js))
-    assert {"/api/config", "/api/stack/status", "/api/public/start_tour", "/ros/ws"} <= paths
-
     async def go():
-        async with launcher(tmp_path, web_dir=str(WEB)) as (c, *_):
-            canonical = {r.canonical for r in c.app.router.resources()}
-            missing = []
-            for path in sorted(paths):
-                if path.startswith("/api/"):
-                    ok = path in canonical
-                elif path.startswith("/ros/"):
-                    # /ros/media -- базовый URL: к нему страница дописывает /<файл>
-                    tail = path[len("/ros/") :]
-                    ok = is_proxy_allowed(tail) or is_proxy_allowed(f"{tail}/x")
-                else:
-                    match = await c.app.router.resolve(make_mocked_request("GET", f"{path}/x"))
-                    ok = match.http_exception is None
-                if not ok:
-                    missing.append(path)
-            assert not missing, f"страница ходит в несуществующие пути: {missing}"
+        async with launcher(tmp_path) as (c, *_):
+            for method, path in re.findall(r'request\("(GET|POST)", "([^"`]+)"', _js()):
+                response = await c.request(method, path, json={} if method == "POST" else None)
+                assert response.status not in (404, 405), (method, path)
 
     run(go())

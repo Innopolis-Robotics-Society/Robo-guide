@@ -1,0 +1,9 @@
+# Temporary expression selected by the ROS aggregator. Empty state clears it.
+string state
+float32 gaze_az
+float32 duration_s
+---
+bool accepted
+string message
+string effective_state
+string source

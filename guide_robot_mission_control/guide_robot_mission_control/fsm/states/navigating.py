@@ -77,6 +77,7 @@ class NavigatingState(InterruptibleState):
         else:
             goal = NavigateToPose.Goal()
             goal.pose = self.ctx.resolve_pose(stop_id)
+            self.ctx.publish_target(goal.pose)
             self._send_future = self.ctx.nav_client.send_goal_async(goal)
             self._start_ns = self.ctx.now_ns()
         self._transit_fired = False

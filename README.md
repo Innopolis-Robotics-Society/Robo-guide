@@ -20,6 +20,7 @@ Target stack: ROS 2 Humble · Nav2 · SLAM Toolbox · `ros2_control` + `diff_dri
 | [`guide_robot_msgs`](guide_robot_msgs/README.md) | msg/srv (ament) | Shared interface definitions (currently just `SonarRanges.msg`, largely unused — see package README) |
 | [`guide_robot_navigation`](guide_robot_navigation/README.md) | Python (ament) | Nav2 + SLAM Toolbox configuration, maps, launch files, collision monitor |
 | [`guide_robot_simulation`](guide_robot_simulation/README.md) | Python (ament) | Gazebo Classic simulation launch, worlds, sonar/sensor plugins |
+| [`guide_robot_journal`](guide_robot_journal/README.md) | C++17 (ament_cmake) | Bounded state/event journal, full lidar messages, rotation and retention; opt-in configuration |
 | [`guide_robot_supervisor`](guide_robot_supervisor/README.md) | Python (ament) | Lifecycle-node supervisor and watchdogs for coordinated bring-up |
 | [`guide_robot_voice`](guide_robot_voice/README.md) | Python (ament) | Audio stack: `audio_frontend`, VAD, wakeword, ASR, TTS (`tts_node` exposes the `Say` action) |
 | [`guide_robot_semantic_map`](guide_robot_semantic_map/README.md) | Python (ament) | Locations, tours and exhibit content services |
@@ -108,3 +109,10 @@ See [`.docker/README.md`](.docker/README.md) for Jetson builds, bake targets, an
 ## License
 
 Innopolis Robotics Society
+
+## Независимый API управления
+
+ROS — ядро робота; заменяемые клиенты работают через локальный HTTP/WebSocket API v1.
+[Контракт и миграция](scripts/jetson-launcher/guide_launcher/spec/README.md),
+[хостовый сервис](scripts/jetson-launcher/README.md), [ROS-адаптер](guide_robot_api/README.md).
+Эталонная панель — `reference_ui`, независимый пример — `examples/api/client.py`.

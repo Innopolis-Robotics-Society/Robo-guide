@@ -66,6 +66,9 @@ class InterruptibleState:
 
     def _poll_loop(self, blackboard: Blackboard) -> str:
         while True:
+            if self.ctx.localization_blocked():
+                self.cancel_active_work(blackboard, outcomes.CANCELED)
+                return "localization_lost"
             if self.ctx.deactivating_event.is_set():
                 return outcomes.SHUTDOWN
             # A1: ~/request_stop делит исход с внешней отменой RunTour-goal-а --

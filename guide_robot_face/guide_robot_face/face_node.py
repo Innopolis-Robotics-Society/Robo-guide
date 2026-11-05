@@ -21,7 +21,6 @@ from rclpy.node import Node
 from guide_robot_face.face_server import THEME_COLOR_KEYS, FaceServer, apply_theme
 from guide_robot_face.lib.qos import QOS_FACE_STATE
 from guide_robot_msgs.msg import FaceState
-from guide_robot_msgs.srv import SetFaceState
 
 _SERVER_START_TIMEOUT_S = 10.0
 _SERVER_STOP_TIMEOUT_S = 5.0
@@ -74,12 +73,15 @@ class FaceNode(Node):
         self._server_thread = threading.Thread(
             target=self._run_server, args=(http_host, http_port), daemon=True
         )
+        self._server_error = None
         self._server_thread.start()
         if not self._loop_ready.wait(timeout=_SERVER_START_TIMEOUT_S):
             raise RuntimeError("face_server не поднялся за отведённое время")
 
+        if self._server_error:
+            raise RuntimeError("face server startup failed") from self._server_error
+
         self.create_subscription(FaceState, "/face/state", self._on_face_state, QOS_FACE_STATE)
-        self.create_service(SetFaceState, "/face/set_state", self._on_set_state)
 
         theme_name = states_doc["global"].get("theme", "")
         theme_colors = (states_doc["global"].get("themes") or {}).get(theme_name, {})
@@ -92,9 +94,16 @@ class FaceNode(Node):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop
-        loop.run_until_complete(self._server.start(host, port))
-        self._loop_ready.set()
-        loop.run_forever()
+        try:
+            loop.run_until_complete(self._server.start(host, port))
+            self._loop_ready.set()
+            loop.run_forever()
+        except Exception as exc:
+            self._server_error = exc
+            self._loop_ready.set()
+        finally:
+            loop.run_until_complete(self._server.stop())
+            loop.close()
 
     def _validate(self, state: str) -> bool:
         if state not in self._known_states:
@@ -110,33 +119,30 @@ class FaceNode(Node):
         self._last_gaze_az = gaze_az
         self._last_seq = seq
         assert self._loop is not None
-        asyncio.run_coroutine_threadsafe(self._server.push(state, gaze_az, seq), self._loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self._server.push(state, gaze_az, seq), self._loop
+        )
+        future.add_done_callback(self._push_done)
+
+    def _push_done(self, future):
+        try:
+            future.result()
+        except Exception as exc:
+            self.get_logger().error(f"Face broadcast failed: {exc}")
 
     def _on_face_state(self, msg: FaceState) -> None:
         if not self._validate(msg.state):
             return
         self._apply(msg.state, float(msg.gaze_az), int(msg.seq))
 
-    def _on_set_state(
-        self, request: SetFaceState.Request, response: SetFaceState.Response
-    ) -> SetFaceState.Response:
-        if not self._validate(request.state):
-            response.accepted = False
-            response.reason = f"unknown state: {request.state}"
-            return response
-        self._apply(request.state, float(request.gaze_az), int(request.seq))
-        response.accepted = True
-        response.reason = ""
-        return response
-
     def destroy_node(self) -> None:
         """Остановить FaceServer и его поток перед уничтожением ноды."""
-        if self._loop is not None:
+        if self._loop is not None and not self._loop.is_closed():
             stop_fut = asyncio.run_coroutine_threadsafe(self._server.stop(), self._loop)
             try:
                 stop_fut.result(timeout=_SERVER_STOP_TIMEOUT_S)
             except Exception:  # noqa: BLE001 -- не мешать остановке ноды
-                self.get_logger().warning("face_server: ошибка при остановке", exc_info=True)
+                self.get_logger().warning("face_server: ошибка при остановке")
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._server_thread.join(timeout=_SERVER_STOP_TIMEOUT_S)
         super().destroy_node()
@@ -152,7 +158,7 @@ def main(args: list[str] | None = None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

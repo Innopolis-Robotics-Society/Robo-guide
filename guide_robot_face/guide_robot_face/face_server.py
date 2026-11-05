@@ -91,7 +91,7 @@ class FaceServer:
         frame = {"state": state, "gaze_az": gaze_az, "seq": seq}
         self._last_frame = frame
         dead = []
-        for ws in self._clients:
+        for ws in list(self._clients):
             try:
                 await ws.send_json(frame)
             except ConnectionResetError:
