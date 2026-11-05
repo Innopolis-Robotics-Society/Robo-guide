@@ -74,3 +74,30 @@ def test_bad_tf_does_not_initialize_and_loss_does_not_self_clear():
     p.tick(1, moving=False, tf_ok=False, amcl_active=True)
     p.sample(cov(), 2)
     assert p.state == "lost"
+
+
+def test_recovery_can_converge_near_end_of_full_window():
+    p = LocalizationPolicy(latched=True)
+    p.reset(0)
+    p.costmaps_cleared = True
+    for t in (0.1, 1.2, 5, 11):
+        p.sample(cov(x=1, yaw=1), t)
+        p.tick(t, moving=False, tf_ok=True, amcl_active=True)
+        assert p.state == 'recovering' and p.latched
+    for t in (12, 13, 14.1):
+        p.sample(cov(), t)
+        p.tick(t, moving=False, tf_ok=True, amcl_active=True)
+    assert p.state == 'ready' and not p.latched
+
+
+def test_bad_recovery_uses_full_deadline_and_stays_blocked():
+    p = LocalizationPolicy(latched=True)
+    p.reset(0)
+    p.costmaps_cleared = True
+    for t in (0, 2, 10, 14.99):
+        p.sample(cov(x=1), t)
+        p.tick(t, moving=False, tf_ok=True, amcl_active=True)
+        assert p.state == 'recovering'
+        assert p.snapshot(t)['motion_blocked']
+    p.tick(15, moving=False, tf_ok=True, amcl_active=True)
+    assert p.state == 'lost' and p.reason == 'recovery_timeout' and p.latched

@@ -140,6 +140,10 @@
   const btnCharging = document.getElementById("btn-charging");
   const btnReset = document.getElementById("btn-reset");
   const btnCostmaps = document.getElementById("btn-costmaps");
+  const btnSystemShutdown = document.getElementById("btn-system-shutdown");
+  const btnSystemReboot = document.getElementById("btn-system-reboot");
+  const systemPowerMessage = document.getElementById("system-power-message");
+  let powerSubmitting = false;
   const robotSupervisor = document.getElementById("robot-supervisor");
   const robotEstop = document.getElementById("robot-estop");
   const rosStateEl = document.getElementById("ros-state");
@@ -170,10 +174,6 @@
   const pinKeypad = document.getElementById("pin-keypad");
   const btnPinBackspace = document.getElementById("btn-pin-backspace");
   const PIN_MAX_LEN = 20; // не защита, просто не даём полю расти бесконечно
-
-  // -- слой 3: плашки ----------------------------------------------------------
-  const estopOverlay = document.getElementById("estop-overlay");
-  const connLostOverlay = document.getElementById("conn-lost-overlay");
 
   // -- настройки launcher'а (/api/v1/reference/config) --------------------------------------
   let alwaysPromo = true;
@@ -364,6 +364,7 @@
   }
 
   async function pollStack() {
+    if (authed) await refreshPowerStatus();
     const [st, cur] = await Promise.all([
       request("GET", "/api/v1/stack/status"),
       request("GET", "/api/v1/reference/preferences"),
@@ -812,7 +813,6 @@
     updateStopButton();
     updateConfirmPanel();
     updateMediaLayer();
-    updateBadges();
     updateVideoPauseState();
   }
 
@@ -825,25 +825,28 @@
       alert = document.createElement('div');
       alert.id = 'localization-alert';
       alert.setAttribute('role', 'alert');
+      const text = document.createElement('span');
+      const button = document.createElement('button');
+      button.className = 'btn'; button.textContent = 'Открыть карту';
+      button.onclick = () => { localizationMapRequested = true; openFromCorner(); };
+      alert.append(text, button);
       document.body.append(alert);
     }
     const loc = frame.localization;
     if (loc?.state === "ready" && ["recovering", "lost"].includes(previousLocalization)) localizationRecoveredUntil = performance.now()+5000;
     previousLocalization = loc?.state;
-    alert.hidden = !loc?.motion_blocked && performance.now() >= localizationRecoveredUntil;
-    alert.replaceChildren();
+    // A stale stationary estimate is refreshed by ROS before a new command;
+    // it is not a lost-localization episode.
+    alert.hidden = (!loc?.motion_blocked || loc?.state === "ready") && performance.now() >= localizationRecoveredUntil;
     if (!alert.hidden) {
-      const text = document.createElement('span');
+      // Keep the button alive across state frames, including between pointer
+      // down and pointer up on a touchscreen.
+      const text = alert.querySelector('span');
       text.textContent = loc.state === 'ready' ? 'Локализация восстановлена. Можно запустить новую поездку.'
         : loc.state === 'initializing' ? 'Ожидание локализации. Движение запрещено.'
         : loc.state === 'recovering'
         ? 'Проверяется новое положение. Движение пока запрещено.'
         : 'Потеря локализации. Робот остановлен. Укажите его положение на карте.';
-      alert.append(text);
-      const button = document.createElement('button');
-      button.className = 'btn'; button.textContent = 'Открыть карту';
-      button.onclick = () => { localizationMapRequested = true; openFromCorner(); };
-      alert.append(button);
     }
     render();
   }
@@ -1156,21 +1159,6 @@
     maybePrefetchNext();
   }
 
-  // -- слой 3: плашки -- поверх ОБОИХ слоёв, независимо от меню ------------------
-  function updateBadges() {
-    const showEstopOverlay = estopOrFault();
-    estopOverlay.hidden = !showEstopOverlay;
-
-    // Пока стек не UP, кадров нет по определению и промо просто крутится без
-    // плашки. При живом стеке потеря /mission/state видна и поверх промо.
-    const connLost =
-      !latestFrame ||
-      latestFrame.mission_state_age_s === null ||
-      latestFrame.mission_state_age_s > MISSION_STALE_S;
-    // Не показывать обе плашки разом -- E-Stop важнее, конфликта смыслов нет.
-    connLostOverlay.hidden = showEstopOverlay || !connLost || stackState !== "UP";
-  }
-
   // -- пауза видео -- ОДИН источник истины: вызывается один раз, последней,
   // из render(), иначе последний вызов молча перезаписывал бы предыдущий. --
   function updateVideoPauseState() {
@@ -1243,6 +1231,60 @@
   btnCostmaps.addEventListener("click", () =>
     menuCommand("/api/v1/costmaps/clear", {}, "Костмапы очищены")
   );
+  async function refreshPowerStatus() {
+    const res = await request("GET", "/api/v1/system/power");
+    btnSystemShutdown.disabled = btnSystemReboot.disabled =
+      powerSubmitting || !res.ok || !res.data.enabled || res.data.pending;
+    if (!res.ok) {
+      systemPowerMessage.textContent = "Нет связи с системой. Не отключайте питание, пока не убедитесь, что Jetson выключен.";
+      return;
+    }
+    if (!res.data.enabled) {
+      systemPowerMessage.textContent = "Управление питанием не настроено на этом роботе.";
+    } else if (res.data.pending) {
+      systemPowerMessage.textContent = "Завершение работы запрошено. Не отключайте питание.";
+      if (res.data.operation_id) {
+        const op = await request("GET", "/api/v1/operations/" + res.data.operation_id);
+        if (op.ok && op.data.result?.scheduled) {
+          systemPowerMessage.textContent = op.data.result.action === "reboot"
+            ? "Перезагрузка системы запланирована. Дождитесь восстановления связи; питание не отключайте."
+            : "Выключение системы запланировано через минуту после принятия команды. Потеря связи ещё не означает завершение выключения.";
+        } else if (op.ok && op.data.status === "unknown") {
+          systemPowerMessage.textContent = "Результат команды неизвестен. Проверьте Jetson, не повторяйте команду вслепую.";
+        }
+      }
+    } else {
+      systemPowerMessage.textContent = "Выключение и перезагрузка доступны только при остановленном роботе.";
+      if (res.data.operation_id) {
+        const op = await request("GET", "/api/v1/operations/" + res.data.operation_id);
+        if (op.ok && op.data.status === "failed") {
+          systemPowerMessage.textContent = "Завершение работы не выполнено. Проверьте состояние ROS и настройку управления питанием.";
+        }
+      }
+    }
+  }
+
+  async function systemPower(action) {
+    if (powerSubmitting) return;
+    const shutdown = action === "shutdown";
+    const ok = await askConfirm(shutdown
+      ? "Выключить Jetson? ROS будет остановлен, выключение запланировано через минуту. Дождитесь полного выключения перед отключением питания робота."
+      : "Перезагрузить Jetson целиком? ROS будет остановлен, перезагрузка запланирована через минуту. Питание не отключайте.",
+      shutdown ? "Выключить систему" : "Перезагрузить систему");
+    if (!ok) return;
+    powerSubmitting = true;
+    btnSystemShutdown.disabled = btnSystemReboot.disabled = true;
+    const res = await request("POST", "/api/v1/system/" + action, {confirm: true});
+    powerSubmitting = false;
+    if (!res.ok) {
+      showMenuMessage(errorText(res));
+    } else {
+      showMenuMessage("Запрос принят. Идёт остановка ROS. Не отключайте питание.", "ok");
+    }
+    await refreshPowerStatus();
+  }
+  btnSystemShutdown.addEventListener("click", () => systemPower("shutdown"));
+  btnSystemReboot.addEventListener("click", () => systemPower("reboot"));
   btnReset.addEventListener("click", async () => {
     const ok = await askConfirm(
       "Убедитесь, что робот физически стоит на стоянке.",

@@ -198,6 +198,8 @@ class StackMonitor:
 
     async def start(self) -> None:
         """Запустить контейнер (если нужно) и выполнить start_cmd внутри."""
+        if getattr(self, "power_pending", lambda: False)():
+            raise StackError(409, "system_power_pending")
         self._begin()
         async with self._lock:
             state = await self._container_state()
@@ -263,6 +265,25 @@ class StackMonitor:
                 log.warning("%s: ros2 launch не завершился за %.0f с", name, GRACEFUL_STOP_WAIT_S)
                 return
             await self._sleep(0.5)
+
+    async def stop_for_power(self) -> None:
+        """Stop ROS and verify the container is stopped before host shutdown."""
+        if not self.control or self.transitioning:
+            raise StackError(409, "stack_not_ready")
+        async with self._lock:
+            state = await self._container_state()
+            if not self._container_state_known:
+                raise StackError(409, "stack_state_unknown")
+            if state is ContainerState.RUNNING:
+                await self._graceful_stop()
+                await self._docker(
+                    ["docker", "stop", "--timeout", "30", self._cfg.container],
+                    45.0, "docker stop",
+                )
+            state = await self._container_state()
+            if not self._container_state_known or state is ContainerState.RUNNING:
+                raise StackError(409, "stack_stop_unconfirmed")
+            self.state = StackState.DOWN
 
     async def _exec_start(self) -> None:
         cfg = self._cfg

@@ -60,7 +60,9 @@ class LocalizationPolicy:
             return
         self.last_sample = now
         bad = self.position_sigma > self.position_limit or self.yaw_sigma > self.yaw_limit
-        if bad:
+        # Recovery already blocks motion. Allow the full convergence window;
+        # ordinary one-second loss detection must not abort it prematurely.
+        if bad and self.state != "recovering":
             if self.bad_since is None:
                 self.bad_since = now
             if now - self.bad_since >= 1:

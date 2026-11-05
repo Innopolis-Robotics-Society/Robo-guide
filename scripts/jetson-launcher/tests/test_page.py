@@ -53,7 +53,7 @@ def test_page_has_no_removed_auth_leftovers():
 def test_every_endpoint_of_the_page_exists_on_the_server(tmp_path):
     async def go():
         async with launcher(tmp_path) as (c, *_):
-            for method, path in re.findall(r'request\("(GET|POST)", "([^"`]+)"', _js()):
+            for method, path in re.findall(r'request\("(GET|POST)", "([^"`]+)"\s*[,)]', _js()):
                 response = await c.request(method, path, json={} if method == "POST" else None)
                 assert response.status not in (404, 405), (method, path)
 

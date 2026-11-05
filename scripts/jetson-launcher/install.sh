@@ -209,6 +209,10 @@ write_if_changed() { # write_if_changed FILE CONTENT
 }
 
 echo "== Установка"
+if [ "${ENABLE_SYSTEM_POWER:-0}" = 1 ]; then
+  command -v visudo >/dev/null || die "для power helper нужен visudo"
+  [[ "$SERVICE_USER" =~ ^[a-z_][a-z0-9_-]*\$?$ ]] || die "неверное имя SERVICE_USER"
+fi
 OWNER="${SUDO_USER:-$(stat -c %U "$REPO_DIR")}"
 
 run mkdir -p "$OPT_DIR"
@@ -273,6 +277,26 @@ if [ -f "$ETC_DIR/guide-launcher/wifi.env" ]; then
   echo "Wi-Fi helper установлен; установите dbus-next и включите guide-wifi после проверки wifi.env."
 fi
 run systemctl daemon-reload
+if [ "${ENABLE_SYSTEM_POWER:-0}" = 1 ]; then
+  run install -o root -g root -m 755 "$SRC_DIR/helpers/guide-system-power" /usr/local/sbin/guide-system-power
+  if [ "$DRY_RUN" = 1 ]; then
+    echo "DRY: install restricted sudoers and enable power_control_enabled"
+  else
+    POWER_RULE="$(mktemp)"
+    printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/guide-system-power poweroff, /usr/local/sbin/guide-system-power reboot\n' "$SERVICE_USER" > "$POWER_RULE"
+    visudo -cf "$POWER_RULE" || { rm -f "$POWER_RULE"; die "неверное правило sudoers"; }
+    install -o root -g root -m 440 "$POWER_RULE" /etc/sudoers.d/guide-system-power
+    rm -f "$POWER_RULE"
+    "$HOST_PYTHON" - "$CONFIG" <<'PY'
+import sys, yaml
+from pathlib import Path
+path = Path(sys.argv[1])
+data = yaml.safe_load(path.read_text())
+data["power_control_enabled"] = True
+path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
+PY
+  fi
+fi
 run systemctl enable --now guide-launcher
 run systemctl restart guide-launcher
 run systemctl restart kiosk-hdmi

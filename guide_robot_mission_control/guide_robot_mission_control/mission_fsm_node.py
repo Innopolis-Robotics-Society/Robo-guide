@@ -152,6 +152,7 @@ class MissionFsmNode(LifecycleNode):
         self._localization_status = {}
         self._localization_received = 0.0
         self.create_subscription(String, "/localization/status", self._on_localization, 10)
+        self._localization_refresh = self.create_client(Trigger, "/localization/refresh")
         self.declare_parameter("answer_max_s", 45.0)
         self.declare_parameter("confirm_timeout_s", 20.0)
         self.declare_parameter("confirm_repeat_max", 1)
@@ -544,6 +545,22 @@ class MissionFsmNode(LifecycleNode):
     def localization_blocked(self):
         if not self.get_parameter("require_localization").value:
             return False
+        # Idle AMCL is refreshed only every five minutes. Before admitting a
+        # command, request a new observation and keep the final gate closed
+        # until the monitor confirms it. Faults cannot be cleared this way.
+        status = self._localization_status
+        if (time.monotonic() - self._localization_received <= .5
+                and status.get("state") == "ready"
+                and not status.get("fresh", False)
+                and self._localization_refresh.service_is_ready()):
+            future = self._localization_refresh.call_async(Trigger.Request())
+            if _wait_future(future, self.context, 1.) and future.result().success:
+                deadline = time.monotonic() + 2.
+                while rclpy.ok(context=self.context) and time.monotonic() < deadline:
+                    if (self._localization_status.get("state") != "ready"
+                            or not self._localization_status.get("motion_blocked", True)):
+                        break
+                    time.sleep(_POLL_S)
         return (time.monotonic()-self._localization_received > .5
                 or self._localization_status.get("motion_blocked", True))
 

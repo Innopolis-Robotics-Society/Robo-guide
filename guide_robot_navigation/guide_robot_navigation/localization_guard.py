@@ -65,10 +65,13 @@ class LocalizationGuard(Node):
         )
         self.create_service(Trigger, "/localization/prepare_reset", self.prepare)
         self.create_service(SetBool, "/localization/costmaps_cleared", self.cleared)
+        self.create_service(Trigger, "/localization/refresh", self.refresh)
         self.update = self.create_client(Empty, "/request_nomotion_update")
         self.active = self.create_client(GetState, "/amcl/get_state")
         self.say = ActionClient(self, Say, "/speech/say")
         self.moving_until = self.active_at = self.next_request = 0.0
+        self.last_update_request = -float("inf")
+        self.refresh_until = 0.0
         self.active_ok = False
         self.pending_update = self.pending_active = None
         self.update_started = self.active_started = 0.0
@@ -112,6 +115,14 @@ class LocalizationGuard(Node):
         self.policy.latched = True
         self.tick()
         response.success = True
+        return response
+
+    def refresh(self, request, response):
+        # A command may request a fresh stationary estimate, never clear a fault.
+        response.success = self.policy.state == "ready"
+        if response.success:
+            self.refresh_until = time.monotonic() + 3
+            self.last_update_request = -float("inf")
         return response
 
     def initial(self, msg):
@@ -175,11 +186,16 @@ class LocalizationGuard(Node):
             if self.active.service_is_ready() and self.pending_active is None:
                 self.active_started = now
                 self.pending_active = self.active.call_async(GetState.Request())
-            if self.update.service_is_ready() and (
-                self.pending_update is None or self.pending_update.done()
-            ):
-                self.update_started = now
-                self.pending_update = self.update.call_async(Empty.Request())
+        fast_update = (
+            self.policy.state in ("initializing", "recovering")
+            or self.navigation_active or now < self.moving_until or now < self.refresh_until
+        )
+        interval = 0.5 if fast_update else 300.0
+        if now - self.last_update_request >= interval and self.update.service_is_ready() and (
+            self.pending_update is None or self.pending_update.done()
+        ):
+            self.last_update_request = self.update_started = now
+            self.pending_update = self.update.call_async(Empty.Request())
         if self.policy.latched != self.persisted:
             try:
                 self.path.parent.mkdir(parents=True, exist_ok=True)

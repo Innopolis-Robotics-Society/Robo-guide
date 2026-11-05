@@ -265,3 +265,16 @@ def test_localization_blocks_motion_and_survives_ws_reconnect(tmp_path):
                 jsonschema.validate(event, json.loads((SPEC / "events.schema.json").read_text()))
                 await ws.close()
     run(go())
+
+
+def test_stale_ready_localization_delegates_refresh_to_ros(tmp_path):
+    async def go():
+        async with env(tmp_path) as e:
+            await e.login()
+            e.set_frame(localization=dict(state='ready', fresh=False,
+                        motion_blocked=True, reset_required=False))
+            response = await start(e)
+            assert response.status == 202
+            await settled(e)
+            assert e.calls
+    run(go())

@@ -10,6 +10,7 @@
       const identityBody = path === '/api/v1/wifi/connect' && body ? {...body, password: '[credential]'} : body;
       const identity = path + ':' + JSON.stringify(identityBody);
       const isAction = method === 'POST' && ['/api/v1/missions', '/api/v1/speech',
+        '/api/v1/system/shutdown', '/api/v1/system/reboot',
         '/api/v1/wifi/connect', '/api/v1/missions/go-to', '/api/v1/missions/go-to-pose', '/api/v1/public/start-tour'].includes(path);
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       if (isAction) {

@@ -61,12 +61,20 @@ class RobotApi(Api):
     def _controlled(self, handler):
         async def wrapped(request):
             async with self._control_lock:
+                power = request.app.get("power")
+                if power and power.pending:
+                    raise web.HTTPConflict(reason="system_power_pending")
                 movement_paths = {"missions", "missions/go-to-pose", "missions/go-to",
                                   "missions/return", "missions/resume", "missions/redirect", "missions/base"}
                 resource = request.path.removeprefix(PREFIX + "/")
                 observed = self.watcher.latest()
                 frame = observed.data if observed else {}
-                if resource in movement_paths and frame.get("localization", {}).get("motion_blocked"):
+                loc = frame.get("localization", {})
+                # ROS refreshes a stale idle estimate before admitting movement.
+                # A latched fault or unavailable monitor still rejects here.
+                idle_refresh = (loc.get("state") == "ready" and loc.get("fresh") is False
+                                and loc.get("reset_required") is False)
+                if resource in movement_paths and loc.get("motion_blocked") and not idle_refresh:
                     raise web.HTTPConflict(reason="localization_required")
                 settings = request.app.get("system_settings")
                 if (
@@ -278,6 +286,8 @@ class RobotApi(Api):
             raise web.HTTPNotFound()
         if op["_owner"] != request["owner"]:
             return web.json_response({"message": "operation_owner_required"}, status=403)
+        if op["kind"] == "system_power":
+            return web.json_response({"message": "operation_not_cancelable"}, status=409)
         if op["status"] not in ("pending", "running"):
             return web.json_response({"message": "operation_not_cancelable"}, status=409)
         status, data = await self.bridge.command(

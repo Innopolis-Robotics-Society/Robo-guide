@@ -2370,6 +2370,186 @@
           }
         ]
       }
+    },
+    "/system/shutdown": {
+      "post": {
+        "summary": "Schedule host shutdown",
+        "operationId": "post_system_shutdown",
+        "responses": {
+          "202": {
+            "description": "Operation reserved; observe result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "confirm"
+                ],
+                "properties": {
+                  "confirm": {
+                    "const": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "description": "Operator session, confirm=true and Idempotency-Key required. Rejects active mission or unknown state. Stops ROS/container, then schedules system power action in one minute. Operation success means scheduling only, not completed shutdown. No API cancellation. Further control commands are fenced."
+      }
+    },
+    "/system/reboot": {
+      "post": {
+        "summary": "Schedule host reboot",
+        "operationId": "post_system_reboot",
+        "responses": {
+          "202": {
+            "description": "Operation reserved; observe result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "confirm"
+                ],
+                "properties": {
+                  "confirm": {
+                    "const": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "description": "Operator session, confirm=true and Idempotency-Key required. Rejects active mission or unknown state. Stops ROS/container, then schedules system power action in one minute. Operation success means scheduling only, not completed shutdown. No API cancellation. Further control commands are fenced."
+      }
+    },
+    "/system/power": {
+      "get": {
+        "summary": "Host power control availability and pending request",
+        "operationId": "get_system_power",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Power control status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "enabled",
+                    "pending",
+                    "operation_id"
+                  ],
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "pending": {
+                      "type": "boolean"
+                    },
+                    "operation_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2477,7 +2657,8 @@
               "missions",
               "speech",
               "missions/go-to-pose",
-              "wifi"
+              "wifi",
+              "system_power"
             ]
           },
           "status": {
@@ -2507,6 +2688,9 @@
               },
               {
                 "$ref": "#/components/schemas/WifiFeedback"
+              },
+              {
+                "$ref": "#/components/schemas/PowerFeedback"
               }
             ]
           },
@@ -3539,6 +3723,20 @@
           "reset_required",
           "fresh"
         ]
+      },
+      "PowerFeedback": {
+        "type": "object",
+        "required": [
+          "phase"
+        ],
+        "properties": {
+          "phase": {
+            "enum": [
+              "stopping_ros",
+              "scheduling"
+            ]
+          }
+        }
       }
     }
   }

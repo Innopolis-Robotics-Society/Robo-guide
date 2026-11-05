@@ -117,6 +117,11 @@ def create_app(
 
     app["system_settings"] = SystemSettings(api)
     app["system_settings"].register(app)
+    from .power import PowerControl
+
+    app["power"] = PowerControl(api)
+    monitor.power_pending = lambda: app["power"].pending
+    app["power"].register(app)
     register_reference(app, cfg, api)
     docs = Path(__file__).resolve().parent / "spec"
     if docs.is_dir():

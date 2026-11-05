@@ -1,0 +1,19 @@
+#!/bin/sh
+# Installed root-owned. Only these two exact commands are granted in sudoers.
+set -eu
+[ "$#" -eq 1 ] || exit 2
+case "$1" in
+  poweroff) option=-P ;;
+  reboot) option=-r ;;
+  *) exit 2 ;;
+esac
+exec 9>/run/guide-system-power.lock
+/usr/bin/flock -n 9 || exit 1
+[ ! -e /run/guide-system-power.pending ] || exit 1
+umask 022
+printf '%s\n' "$1" > /run/guide-system-power.pending
+if /sbin/shutdown "$option" +1; then
+  exit 0
+fi
+rm -f /run/guide-system-power.pending
+exit 1

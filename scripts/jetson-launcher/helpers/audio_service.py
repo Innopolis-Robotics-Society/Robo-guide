@@ -66,9 +66,11 @@ class Audio:
 
     async def apply(self, desired):
         """Set the permitted hardware gain and mute state."""
-        await self.pactl(
-            "set-sink-volume", self.sink, str(desired["volume"] * self.maximum / 100) + "%"
-        )
+        # PulseAudio's native integer scale (65536 = 100%) avoids pactl versions
+        # interpreting decimal percentage strings as dB. Round down so the
+        # configured hardware ceiling is never exceeded.
+        raw_volume = int(desired["volume"] * self.maximum * 65536 / 10000)
+        await self.pactl("set-sink-volume", self.sink, str(raw_volume))
         await self.pactl("set-sink-mute", self.sink, "1" if desired["muted"] else "0")
 
     async def handle(self, request):

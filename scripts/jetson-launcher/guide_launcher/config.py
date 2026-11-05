@@ -51,6 +51,7 @@ class Config:
     web_dir: str = ""
     audio_socket: str = ""
     wifi_socket: str = ""
+    power_control_enabled: bool = False
     serve_ui: bool = False
     public_tours: tuple[str, ...] = ()
     allowed_origins: tuple[str, ...] = ()
@@ -108,6 +109,8 @@ def load_config(path: str | Path | None) -> Config:
     ):
         setattr(cfg, name, _expand(getattr(cfg, name)))
 
+    if not isinstance(cfg.power_control_enabled, bool):
+        raise ConfigError("power_control_enabled must be boolean")
     for name in ("audio_socket", "wifi_socket"):
         value = getattr(cfg, name)
         if not isinstance(value, str) or (value and not Path(value).is_absolute()):

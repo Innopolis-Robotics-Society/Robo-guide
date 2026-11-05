@@ -47,7 +47,7 @@ def test_audio_limit_and_persistence(monkeypatch, tmp_path):
             response = await client.post("/output", json={"volume": 50, "muted": False})
             assert response.status == 200
             assert (await response.json())["volume"] == 50
-            assert ("set-sink-volume", "test-speaker", "10.0%") in calls
+            assert ("set-sink-volume", "test-speaker", "6553") in calls
             assert json.loads((tmp_path / "volume.json").read_text())["volume"] == 50
             assert (await client.post("/output", json={"volume": 101})).status == 400
 

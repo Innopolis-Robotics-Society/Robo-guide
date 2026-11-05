@@ -273,35 +273,6 @@ h2 {
   min-height: 4.5rem;
 }
 
-/* -- слой 3: плашки (design E1) -- поверх ОБОИХ слоёв, включая открытую
-   панель: E-Stop/потеря связи обязаны быть видны оператору тоже, не
-   только посетителю, смотрящему на слайды. pointer-events: none -- сами
-   плашки ничего не перехватывают, под ними всё кликабельно. -- */
-#badges {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  pointer-events: none;
-}
-
-.overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 2rem;
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: #fff;
-  background: rgba(209, 55, 63, 0.85);
-}
-
-#conn-lost-overlay {
-  background: rgba(20, 24, 31, 0.9);
-}
-
 dialog {
   background: var(--panel-bg);
   color: var(--fg);

@@ -33,3 +33,4 @@ allowed_origins: []
 # Optional Unix sockets; see helpers/README.md before enabling.
 audio_socket: ""
 wifi_socket: ""
+power_control_enabled: false  # ENABLE_SYSTEM_POWER=1 sudo -E install.sh installs restricted helper

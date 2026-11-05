@@ -127,7 +127,8 @@
               "missions",
               "speech",
               "missions/go-to-pose",
-              "wifi"
+              "wifi",
+              "system_power"
             ]
           },
           "status": {
@@ -157,6 +158,9 @@
               },
               {
                 "$ref": "#/components/schemas/WifiFeedback"
+              },
+              {
+                "$ref": "#/components/schemas/PowerFeedback"
               }
             ]
           },
@@ -1189,6 +1193,20 @@
           "reset_required",
           "fresh"
         ]
+      },
+      "PowerFeedback": {
+        "type": "object",
+        "required": [
+          "phase"
+        ],
+        "properties": {
+          "phase": {
+            "enum": [
+              "stopping_ros",
+              "scheduling"
+            ]
+          }
+        }
       }
     }
   }
