@@ -198,3 +198,20 @@ After enabling the virtual keyboard seat, replace the former
 `99-guide-kiosk-keyboard.rules` with the current comment-only file and reload
 udev. Reconnect the physical keyboard (or send targeted remove/add udev events)
 to return it to GNOME/seat0. Do not remove the virtual keyboard rule.
+
+### Eyes in GNOME Web (Epiphany)
+
+`guide-kiosk-face` runs Epiphany in application mode with an isolated profile
+(`<old-service-profile>-epiphany`). It waits for the face HTTP server and GNOME
+X display, then sets only its own window fullscreen using `wmctrl` (Epiphany42
+has no fullscreen CLI flag). GNOME remains available; the Weston operator
+panel is unaffected. No forced software-rendering environment is applied.
+
+Dependencies on the host: `epiphany-browser wmctrl curl x11-utils x11-xserver-utils`.
+Install this script as `/usr/local/bin/guide-kiosk-face`, create the profile
+`/var/lib/guide-kiosk/face-epiphany` owned by the kiosk service user, and restart
+`kiosk-face.service`. Disable the duplicate GNOME autostart entry
+`~/.config/autostart/guide-robot-face.desktop` with `Hidden=true`; close any old
+Firefox instance started by that entry. Keep Firefox profiles for rollback.
+Only the system service should start eyes at boot. The compatibility script in
+`guide_robot_face/scripts/face_kiosk.sh` also delegates to this host wrapper.

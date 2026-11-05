@@ -1,0 +1,46 @@
+#!/bin/bash
+# One GNOME Web instance for the face, leaving GNOME and the operator seat intact.
+set -euo pipefail
+# Keep the historical argument for the service, but never reuse a Firefox profile.
+PROFILE="${FACE_WEB_PROFILE:-${1:-/var/lib/guide-kiosk/face}-epiphany}"
+AUTH="${XAUTHORITY:-/run/user/$(id -u)/gdm/Xauthority}"
+URL="${FACE_URL:-$(cat /etc/guide-kiosk/url 2>/dev/null || true)}"
+URL="${URL:-http://127.0.0.1:8090}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+export GDK_BACKEND=x11 GTK_USE_PORTAL=0
+unset MOZ_ENABLE_WAYLAND MOZ_WEBRENDER
+for ((i=0; i<120; i++)); do
+  if [[ -r "$AUTH" ]]; then
+    for sock in /tmp/.X11-unix/X*; do
+      [[ -S "$sock" ]] || continue
+      d=":${sock##*/X}"
+      if DISPLAY="$d" XAUTHORITY="$AUTH" xdpyinfo >/dev/null 2>&1; then
+        export DISPLAY="$d" XAUTHORITY="$AUTH"
+        break 2
+      fi
+    done
+  fi
+  sleep 1
+done
+: "${DISPLAY:?No usable GNOME X display}"
+until curl -fsS -o /dev/null --max-time 2 "$URL"; do sleep 1; done
+mkdir -p "$PROFILE"
+xset s off 2>/dev/null || true
+xset -dpms 2>/dev/null || true
+/usr/bin/epiphany --application-mode --profile="$PROFILE" "$URL" &
+browser=$!
+trap 'kill "$browser" 2>/dev/null || true; wait "$browser" 2>/dev/null || true' EXIT
+trap 'exit 0' TERM INT
+# Epiphany 42 has no --kiosk/--fullscreen flag. Target only our process window.
+for ((i=0; i<120; i++)); do
+  kill -0 "$browser" 2>/dev/null || { wait "$browser"; exit 1; }
+  window=$(wmctrl -lp | awk -v pid="$browser" '$3 == pid {print $1; exit}')
+  if [[ -n "$window" ]]; then
+    wmctrl -ir "$window" -b add,fullscreen
+    break
+  fi
+  sleep 1
+done
+[[ -n "${window:-}" ]] || { echo 'Face browser did not create a window' >&2; exit 1; }
+wait "$browser"
