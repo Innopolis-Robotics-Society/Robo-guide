@@ -537,10 +537,27 @@ dialog::backdrop {
 
 /* Touch settings: bounded keyboard grid and full-width network fields. */
 #system-settings label { display: block; margin: 14px 0; }
-#system-settings input:not([type=checkbox]) { width: 100%; box-sizing: border-box; font-size: 24px; padding: 12px; }
+#system-settings input:not([type=checkbox]):not([type=range]) { width: 100%; box-sizing: border-box; font-size: 24px; padding: 12px; }
 #wifi-keyboard { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; margin-top: 20px; }
 #wifi-keyboard .btn { min-width: 0; padding: 12px 2px; }
-#wifi-list { display: flex; flex-wrap: wrap; gap: 8px; }
+#wifi-list { overflow-x: auto; font-size: 16px; }
+.wifi-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.wifi-table th, .wifi-table td { padding: 8px 4px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
+.wifi-table th { font-size: 14px; color: var(--muted); }
+.wifi-table th:first-child { width: 40%; }
+.wifi-table th:nth-child(2) { width: 24%; }
+.wifi-table th:nth-child(3) { width: 20%; }
+.wifi-table th:last-child { width: 16%; }
+.wifi-table small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+#wifi-list .btn { font-size: 14px; padding: 8px 4px; min-width: 0; min-height: 44px; width: 100%; }
+#system-settings #output-volume { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 44px; margin: 8px 0; padding: 0; border: 0; border-radius: 0; cursor: pointer;
+ background: linear-gradient(to right, var(--accent) 0, var(--accent) var(--volume-fill), var(--border) var(--volume-fill), var(--border) 100%) center / 100% 8px no-repeat; }
+#output-volume::-webkit-slider-runnable-track { height: 8px; background: transparent; border: 0; }
+#output-volume::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -10px; border: 0; border-radius: 50%; background: var(--accent); }
+#output-volume::-moz-range-track { height: 8px; background: transparent; border: 0; }
+#output-volume::-moz-range-progress { background: transparent; }
+#output-volume::-moz-range-thumb { width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--accent); }
+#output-volume:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 
 #wifi-keyboard[hidden] { display: none; }
 
