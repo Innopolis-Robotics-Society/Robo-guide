@@ -2,6 +2,7 @@
 # Optional GTK3 text-input-v1 bridge. Does not restart Weston or touch ROS.
 set -euo pipefail
 REV=79b23b2487462e2f219e79b68afd75d14e671cf1
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 DEST=/opt/guide-kiosk-input
 DROP=/etc/systemd/system/kiosk-hdmi.service.d/30-textinput-v1.conf
 case "${1:-}" in
@@ -9,11 +10,15 @@ case "${1:-}" in
     BUILD=$(mktemp -d /tmp/guide-textinput-v1.XXXXXX)
     git clone https://github.com/ashie/gtk-wayland-textinputv1.git "$BUILD/source"
     git -C "$BUILD/source" checkout --detach "$REV"
+    git -C "$BUILD/source" apply "$SCRIPT_DIR/patches/0001-preedit-lifecycle.patch"
+    python3 "$SCRIPT_DIR/tests/test_preedit.py" "$BUILD/source"
     (cd "$BUILD/source"; autoreconf -fi; ./configure; make -j2)
     QUERY="$(pkg-config --variable=libdir gtk+-3.0)/libgtk-3-0/gtk-query-immodules-3.0"
     test -x "$QUERY"
     sudo install -d -m 755 "$DEST"
-    sudo install -m 644 "$BUILD/source/src/.libs/im-wltextinputv1.so" "$DEST/"
+    sudo install -m 644 "$BUILD/source/src/.libs/im-wltextinputv1.so" "$DEST/im-wltextinputv1.so.new"
+    sudo mv "$DEST/im-wltextinputv1.so.new" "$DEST/im-wltextinputv1.so"
+    sudo install -m 644 "$SCRIPT_DIR/patches/0001-preedit-lifecycle.patch" "$DEST/"
     sudo install -m 644 "$BUILD/source/COPYING" "$DEST/COPYING"
     printf '%s\n' "$REV" | sudo tee "$DEST/revision" >/dev/null
     "$QUERY" "$DEST/im-wltextinputv1.so" > "$BUILD/immodules.cache"

@@ -136,3 +136,14 @@ keyboard trial, not a touch-only solution: Weston 13's input-panel code requires
 a seat with keyboard focus to map the input-panel view. Jetson's current kernel
 has `CONFIG_INPUT_UINPUT` disabled. Keep the web keyboard until touch-only operation
 and the native keyboard's character coverage have been addressed.
+
+The installer applies `patches/0001-preedit-lifecycle.patch` to the pinned GTK
+module. Upstream emitted preedit-end for every non-empty preedit string, causing
+WebKit to discard the visible composition. The patch ends composition only on
+the non-empty → empty transition and releases old styling attributes. The
+headless regression `tests/test_preedit.py SOURCE_TREE` compiles the actual
+callbacks against GTK signals (only transport updates are stubbed); it fails
+on upstream and verifies typing, backspace, empty updates, UTF-8 commit,
+focus-out commit and stale serial rejection on the patched source. Installation
+runs it before building/replacing the module, and replaces the .so atomically
+so an existing kiosk process retains its original mapping until restart.

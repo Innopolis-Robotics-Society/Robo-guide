@@ -1,0 +1,25 @@
+--- a/src/gtkimcontextwayland.c
++++ b/src/gtkimcontextwayland.c
+@@ -308,6 +308,7 @@
+   if (check_serial (self, serial))
+     return;
+ 
++  g_clear_pointer (&priv->preedit_attrs, (GDestroyNotify) pango_attr_list_unref);
+   priv->preedit_attrs = priv->pending_preedit_attrs;
+   priv->pending_preedit_attrs = NULL;
+   priv->preedit_cursor = priv->pending_preedit_cursor;
+@@ -319,12 +320,12 @@
+   g_clear_pointer (&priv->preedit_commit, g_free);
+   priv->preedit_commit = g_strdup (commit);
+ 
+-  if (!old_preedit)
++  if (!old_preedit && priv->preedit_text && priv->preedit_text[0] != '\0')
+     g_signal_emit_by_name (self, "preedit-start");
+ 
+   g_signal_emit_by_name (self, "preedit-changed");
+ 
+-  if (priv->preedit_text && priv->preedit_text[0] != '\0')
++  if (old_preedit && (!priv->preedit_text || priv->preedit_text[0] == '\0'))
+     g_signal_emit_by_name (self, "preedit-end");
+ 
+   update_text_input_state (self);
