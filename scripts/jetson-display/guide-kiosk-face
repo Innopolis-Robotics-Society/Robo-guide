@@ -28,11 +28,11 @@ until curl -fsS -o /dev/null --max-time 2 "$URL"; do sleep 1; done
 mkdir -p "$PROFILE"
 touch "$PROFILE/.app"  # Required by Epiphany 42 to select web-app settings.
 # Epiphany application mode requires its desktop metadata inside the profile.
-cat > "$PROFILE/$(basename "$PROFILE").desktop" <<'DESKTOP'
+cat > "$PROFILE/$(basename "$PROFILE").desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Guide Robot Eyes
-Exec=/usr/local/bin/guide-kiosk-face
+Exec=epiphany --application-mode "--profile=$PROFILE" $URL
 Icon=org.gnome.Epiphany
 StartupNotify=false
 Terminal=false
