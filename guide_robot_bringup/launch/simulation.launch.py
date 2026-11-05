@@ -69,7 +69,7 @@ def generate_launch_description():
     )
     spawn_yaw_arg = DeclareLaunchArgument(
         name="spawn_yaw",
-        default_value="-0.218",
+        default_value="2.923592653589793",
         description="Yaw (rad) of base_footprint at spawn in Gazebo. Must match "
         "amcl.initial_pose.yaw in first_iter_nav2.yaml.in.",
     )

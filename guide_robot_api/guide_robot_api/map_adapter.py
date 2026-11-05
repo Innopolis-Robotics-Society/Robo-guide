@@ -46,7 +46,7 @@ class MapAdapter:
             self.node.get_logger().warning(str(exc))
 
     def state(self):
-        """Read public map or network state without credentials."""
+        """Report the Nav2/AMCL base_footprint pose (forward toward casters)."""
         snapshot = self.current
         if snapshot is None:
             return {"available": False, "robot_pose": None}
@@ -54,7 +54,7 @@ class MapAdapter:
         result["target"] = self.target
         result["robot_pose"] = None
         try:
-            transform = self.buffer.lookup_transform(snapshot.frame, "base_link", Time())
+            transform = self.buffer.lookup_transform(snapshot.frame, "base_footprint", Time())
             age = (
                 self.node.get_clock().now() - Time.from_msg(transform.header.stamp)
             ).nanoseconds / 1e9

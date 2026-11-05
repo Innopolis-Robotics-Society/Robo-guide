@@ -72,6 +72,7 @@ locations:
   # отдаются по category=charging -- кнопки «Стоянка»/«Подзарядка» operator UI
   # (mission_fsm ~/go_to_base) и «Сброс локализации» (берёт parking).
   # Позы сняты tf2_echo map base_link в симуляторе 2026-10-22.
+  # Parking yaw переведён в base_footprint (+pi) для AMCL/Nav2.
   #
   # «Начало экскурсии» (кнопка, бывшая «Домой») -- не локация, а mission.yaml
   # home_pose = expo_meeting: туда тур возвращается в конце.
@@ -80,7 +81,7 @@ locations:
   # (guide_robot_navigation/config/first_iter_nav2.yaml.in) и spawn в
   # Gazebo (guide_robot_bringup/launch/simulation.launch.py).
   - id: parking
-    pose: {x: 20.686, y: 1.027, yaw: -0.218}
+    pose: {x: 20.686, y: 1.027, yaw: 2.923592653589793}
     zone: innopark
     category: charging
     is_public: false
