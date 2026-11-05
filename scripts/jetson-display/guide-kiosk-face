@@ -10,6 +10,10 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 export GDK_BACKEND=x11 GTK_USE_PORTAL=0
 unset MOZ_ENABLE_WAYLAND MOZ_WEBRENDER
+# Jetson's NVIDIA EGL cannot initialize inside the WebKit web-process sandbox.
+# Keep sandboxing enabled; use the software renderer instead.
+export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
 for ((i=0; i<120; i++)); do
   if [[ -r "$AUTH" ]]; then
     for sock in /tmp/.X11-unix/X*; do

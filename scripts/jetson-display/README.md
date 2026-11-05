@@ -205,7 +205,8 @@ to return it to GNOME/seat0. Do not remove the virtual keyboard rule.
 (`org.gnome.Epiphany.WebApp-guideface` beside the old profile). It waits for the face HTTP server and GNOME
 X display, then sets only its own window fullscreen using `wmctrl` (Epiphany42
 has no fullscreen CLI flag). GNOME remains available; the Weston operator
-panel is unaffected. No forced software-rendering environment is applied.
+panel is unaffected. Software rendering is used on Jetson: NVIDIA EGL fails to initialize inside
+the WebKit sandbox. The sandbox remains enabled.
 
 Dependencies on the host: `epiphany-browser wmctrl curl x11-utils x11-xserver-utils`.
 Install this script as `/usr/local/bin/guide-kiosk-face`, create the profile
