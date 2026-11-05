@@ -538,8 +538,6 @@ dialog::backdrop {
 /* Touch settings: bounded keyboard grid and full-width network fields. */
 #system-settings label { display: block; margin: 14px 0; }
 #system-settings input:not([type=checkbox]):not([type=range]) { width: 100%; box-sizing: border-box; font-size: 24px; padding: 12px; }
-#wifi-keyboard { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; margin-top: 20px; }
-#wifi-keyboard .btn { min-width: 0; padding: 12px 2px; }
 #wifi-list { overflow-x: auto; font-size: 16px; }
 .wifi-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .wifi-table th, .wifi-table td { padding: 8px 4px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
@@ -559,7 +557,12 @@ dialog::backdrop {
 #output-volume::-moz-range-thumb { width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--accent); }
 #output-volume:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 
-#wifi-keyboard[hidden] { display: none; }
 
 #localization-alert {position:fixed;bottom:0;left:0;right:0;z-index:1000;background:#842323;color:white;padding:12px;display:flex;gap:16px;align-items:center;}
 #localization-alert[hidden]{display:none;}
+
+#wifi-dialog { width: min(560px, 94vw); max-height: 52vh; overflow-y: auto; margin: 4vh auto auto; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-bg); color: var(--fg); }
+#wifi-dialog::backdrop { background: rgba(0,0,0,.7); }
+#wifi-dialog h2 { margin: 0 0 12px; font-size: 24px; }
+#wifi-password-hint { font-size: 16px; color: var(--muted); }
+#wifi-dialog .row { flex-wrap: wrap; }
