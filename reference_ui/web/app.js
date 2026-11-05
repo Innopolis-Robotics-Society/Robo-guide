@@ -1254,7 +1254,7 @@
         }
       }
     } else {
-      systemPowerMessage.textContent = "Выключение и перезагрузка доступны только при остановленном роботе.";
+      systemPowerMessage.textContent = "Перед выключением или перезагрузкой система остановит ROS. Активную поездку сначала остановите.";
       if (res.data.operation_id) {
         const op = await request("GET", "/api/v1/operations/" + res.data.operation_id);
         if (op.ok && op.data.status === "failed") {

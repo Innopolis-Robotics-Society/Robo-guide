@@ -2432,7 +2432,7 @@
             }
           }
         ],
-        "description": "Operator session, confirm=true and Idempotency-Key required. Rejects active mission or unknown state. Stops ROS/container, then schedules system power action in one minute. Operation success means scheduling only, not completed shutdown. No API cancellation. Further control commands are fenced."
+        "description": "Operator session, confirm=true and Idempotency-Key required. Rejects a known active mission. Missing mission state is allowed only through verified container shutdown. Stops ROS/container, then schedules system power action in one minute. Operation success means scheduling only, not completed shutdown. No API cancellation. Further control commands are fenced."
       }
     },
     "/system/reboot": {
@@ -2496,7 +2496,7 @@
             }
           }
         ],
-        "description": "Operator session, confirm=true and Idempotency-Key required. Rejects active mission or unknown state. Stops ROS/container, then schedules system power action in one minute. Operation success means scheduling only, not completed shutdown. No API cancellation. Further control commands are fenced."
+        "description": "Operator session, confirm=true and Idempotency-Key required. Rejects a known active mission. Missing mission state is allowed only through verified container shutdown. Stops ROS/container, then schedules system power action in one minute. Operation success means scheduling only, not completed shutdown. No API cancellation. Further control commands are fenced."
       }
     },
     "/system/power": {

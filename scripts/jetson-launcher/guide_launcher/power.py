@@ -5,6 +5,7 @@ from pathlib import Path
 from aiohttp import web
 
 from . import validation as v
+from .api import mission_link_ok
 from .stack import StackError, default_run
 
 MARKER = Path("/run/guide-system-power.pending")
@@ -56,9 +57,12 @@ class PowerControl:
             if settings.lock.locked():
                 raise web.HTTPConflict(reason="network_transition_in_progress")
             reason = api.restart_guard()
-            if reason:
+            # Broken ROS must not prevent an orderly host shutdown. Unknown
+            # mission state is handled by stopping and verifying the container
+            # before scheduling power, never by treating it as confirmed idle.
+            if reason and reason != "mission_state_stale":
                 raise web.HTTPConflict(reason=reason)
-            if api.watcher.latest() is not None:
+            if mission_link_ok(api.watcher.latest()):
                 status, data = await api.bridge.command(
                     "/internal/missions/check-idle", {}, request["operator"])
                 if status != 200 or data.get("success") is not True:

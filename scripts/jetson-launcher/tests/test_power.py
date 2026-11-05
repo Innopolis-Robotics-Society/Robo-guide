@@ -55,12 +55,11 @@ def test_idle_power_stops_ros_before_scheduling_and_fences_commands(tmp_path, ac
     run(go())
 
 
-@pytest.mark.parametrize('frame', [None, {'state_name':'navigating','moving':True}])
-def test_unknown_or_moving_rejects_power(tmp_path, frame):
+def test_moving_rejects_power(tmp_path):
     async def go():
         async with env(tmp_path, power_control_enabled=True) as e:
             await e.login()
-            if frame: e.set_frame(**frame)
+            e.set_frame(state_name='navigating', moving=True)
             assert (await post(e)).status==409
             assert e.app['power'].operation is None
     run(go())
@@ -113,4 +112,35 @@ def test_pending_marker_survives_api_restart(tmp_path, monkeypatch):
             assert (await e.client.post('/api/v1/stack/start',json={})).status==409
             status=await (await e.client.get('/api/v1/system/power')).json()
             assert status['pending']
+    run(go())
+
+
+@pytest.mark.parametrize('fault_frame', [False, True])
+@pytest.mark.parametrize('stop_ok', [False, True])
+def test_missing_mission_requires_confirmed_container_stop(tmp_path, fault_frame, stop_ok):
+    async def go():
+        async with env(tmp_path, power_control_enabled=True) as e:
+            await e.login()
+            if fault_frame:
+                e.set_frame(state_name='unknown', supervisor_state='FAULT',
+                            mission_state_age_s=None, moving=False)
+            calls=[]
+            async def stop():
+                calls.append('stop')
+                if not stop_ok: raise StackError(409,'stack_stop_unconfirmed')
+            async def command(argv, timeout):
+                calls.append('schedule')
+                return RunResult(0,'')
+            async def forbidden(*args):
+                raise AssertionError('Do not depend on a broken mission service')
+            e.monitor.stop_for_power=stop
+            e.app['power'].run=command
+            e.app['api'].bridge.command=forbidden
+            response=await post(e)
+            assert response.status==202
+            op=await response.json()
+            await asyncio.gather(*list(e.app['api'].events.tasks))
+            result=await (await e.client.get('/api/v1/operations/'+op['id'])).json()
+            assert calls == (['stop','schedule'] if stop_ok else ['stop'])
+            assert result['status'] == ('succeeded' if stop_ok else 'failed')
     run(go())
