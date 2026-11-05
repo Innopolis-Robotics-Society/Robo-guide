@@ -26,6 +26,16 @@ done
 : "${DISPLAY:?No usable GNOME X display}"
 until curl -fsS -o /dev/null --max-time 2 "$URL"; do sleep 1; done
 mkdir -p "$PROFILE"
+# Epiphany application mode requires its desktop metadata inside the profile.
+cat > "$PROFILE/$(basename "$PROFILE").desktop" <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Guide Robot Eyes
+Exec=/usr/local/bin/guide-kiosk-face
+Icon=org.gnome.Epiphany
+StartupNotify=false
+Terminal=false
+DESKTOP
 xset s off 2>/dev/null || true
 xset -dpms 2>/dev/null || true
 /usr/bin/epiphany --application-mode --profile="$PROFILE" "$URL" &
