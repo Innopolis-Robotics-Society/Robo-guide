@@ -2,7 +2,7 @@
 # One GNOME Web instance for the face, leaving GNOME and the operator seat intact.
 set -euo pipefail
 # Keep the historical argument for the service, but never reuse a Firefox profile.
-PROFILE="${FACE_WEB_PROFILE:-${1:-/var/lib/guide-kiosk/face}-epiphany}"
+PROFILE="${FACE_WEB_PROFILE:-$(dirname "${1:-/var/lib/guide-kiosk/face}")/org.gnome.Epiphany.WebApp-guideface}"
 AUTH="${XAUTHORITY:-/run/user/$(id -u)/gdm/Xauthority}"
 URL="${FACE_URL:-$(cat /etc/guide-kiosk/url 2>/dev/null || true)}"
 URL="${URL:-http://127.0.0.1:8090}"
