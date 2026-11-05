@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euo pipefail
+src=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+build=$(mktemp -d)
+trap 'rm -rf "$build"' EXIT
+cc -std=gnu11 -O2 -Wall -Wextra -Werror "$src/guide-keyboard-seat.c" -o "$build/guide-keyboard-seat"
+sudo install -Dm755 "$build/guide-keyboard-seat" /usr/local/libexec/guide-keyboard-seat
+sudo install -m644 "$src/99-guide-keyboard-seat.rules" /etc/udev/rules.d/
+sudo install -m644 "$src/guide-keyboard-seat.service" /etc/systemd/system/
+printf 'uhid\n' | sudo tee /etc/modules-load.d/guide-keyboard-seat.conf >/dev/null
+sudo modprobe uhid
+sudo udevadm control --reload-rules
+sudo systemctl daemon-reload
+sudo systemctl enable guide-keyboard-seat
+sudo systemctl restart guide-keyboard-seat
+sudo udevadm settle
+sudo systemctl is-active guide-keyboard-seat

@@ -166,3 +166,30 @@ patch. After installation, terminate **only** the `weston-keyboard` client;
 Weston respawns it using the updated link. `install-direct-keyboard restore`
 restores the original link (restart only that client again). Physical keyboard
 focus is still required; this does not solve the touch-only seat restriction.
+
+### Touch-only keyboard seat
+
+`install-keyboard-seat` removes the physical-keyboard requirement on the
+Jetson kernel where UINPUT is disabled but UHID is available. It builds a tiny
+UHID device keeper, loads `uhid` at boot and installs `guide-keyboard-seat.service`.
+The device advertises keyboard capabilities but never emits input reports or
+keystrokes. An exact name/physical-path udev rule assigns it only to
+`seat-dlhdmi`. Weston discovers it live; do not restart Weston or ROS.
+
+Deploy from the robot checkout after git pull:
+
+```sh
+./scripts/jetson-display/install-keyboard-seat
+```
+
+Verify `guide-keyboard-seat` is active, the input event has
+`ID_SEAT=seat-dlhdmi`, and Weston logs its keyboard capability. Then disconnect
+the physical keyboard and check touch typing, field changes and Backspace.
+The existing GTK bridge and direct-input Weston keyboard are still required.
+This virtual device provides focus capability, not an alternative keyboard UI.
+
+Rollback: `sudo systemctl disable --now guide-keyboard-seat`; remove
+`/etc/udev/rules.d/99-guide-keyboard-seat.rules` and
+`/etc/modules-load.d/guide-keyboard-seat.conf`, then reload udev rules. Closing
+the service's UHID descriptor automatically removes its device. A physical
+keyboard is again required for the native on-screen keyboard on this Weston.

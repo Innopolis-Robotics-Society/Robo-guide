@@ -1,0 +1,2 @@
+# Exact virtual device only. Never move unrelated keyboards or touch devices.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Guide Operator Seat Keyboard", ATTRS{phys}=="guide/operator-seat", ENV{ID_INPUT_KEYBOARD}="1", ENV{ID_SEAT}="seat-dlhdmi", TAG+="seat"

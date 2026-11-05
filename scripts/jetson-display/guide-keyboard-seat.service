@@ -1,0 +1,21 @@
+[Unit]
+Description=Keyboard capability for the touch-only operator seat
+After=systemd-udevd.service systemd-modules-load.service
+
+[Service]
+ExecStart=/usr/local/libexec/guide-keyboard-seat
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+DevicePolicy=closed
+DeviceAllow=/dev/uhid rw
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target
