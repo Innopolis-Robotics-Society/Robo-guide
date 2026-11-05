@@ -116,3 +116,12 @@ field switching, keyboard dismissal and required languages/special characters.
 Retain the web keyboard until this acceptance succeeds. Upstream Weston keyboard
 layouts may not cover Russian or all password symbols. This is an opt-in trial,
 not part of the default launcher installer.
+
+Touch-only seats need the matching `guide-kiosk-hdmi` wrapper: GTK may report an
+inactive toplevel despite HTML focus. When `GTK_IM_MODULE=wltextinputv1`, the
+wrapper forwards top-frame editable DOM focus (a boolean, never field text) to
+WebKit's existing input method context. Other IM modules retain normal behavior.
+Install the wrapper from this repository to `/usr/local/bin/guide-kiosk-hdmi`
+with mode 755 before enabling the integration. The module-only first trial did
+not open the keyboard; an explicit WebKit IM focus probe produced
+show_input_panel/activate and a compositor enter acknowledgment.

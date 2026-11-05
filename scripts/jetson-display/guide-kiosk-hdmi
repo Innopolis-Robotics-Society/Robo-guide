@@ -14,6 +14,7 @@ web-процесс -- тоже перезагружаем.
 """
 
 from pathlib import Path
+import os
 
 import gi
 
@@ -65,6 +66,53 @@ except Exception:
     pass
 wv = WebKit2.WebView()
 wv.set_settings(settings)
+
+# A touch-only Weston seat has no keyboard focus, so GTK can leave the
+# toplevel inactive even while an HTML input is focused. Bridge editable DOM
+# focus to WebKit's own IM context, only for the opt-in text-input-v1 module.
+# Messages carry a boolean only: never send field contents/passwords to Python.
+if os.environ.get("GTK_IM_MODULE") == "wltextinputv1":
+    manager = wv.get_user_content_manager()
+
+    def on_editable_focus(_manager, result):
+        value = result.get_js_value()
+        if not value.is_boolean():
+            return
+        context = wv.get_input_method_context()
+        if context is None:
+            return
+        if value.to_boolean():
+            context.notify_focus_in()
+        else:
+            context.notify_focus_out()
+
+    manager.register_script_message_handler("guideEditableFocus")
+    manager.connect("script-message-received::guideEditableFocus", on_editable_focus)
+    manager.add_script(WebKit2.UserScript.new(
+        """(() => {
+          let previous = null;
+          function update() {
+            const el = document.activeElement;
+            const editable = !!el && !el.disabled && !el.readOnly && (
+              el.isContentEditable || el.tagName === 'TEXTAREA' ||
+              (el.tagName === 'INPUT' &&
+               /^(text|password|search|email|url|tel|number)$/.test(el.type)));
+            if (editable !== previous) {
+              previous = editable;
+              window.webkit.messageHandlers.guideEditableFocus.postMessage(editable);
+            }
+          }
+          document.addEventListener('focusin', () => setTimeout(update, 0), true);
+          document.addEventListener('focusout', () => setTimeout(update, 0), true);
+          window.addEventListener('pagehide', () => {
+            window.webkit.messageHandlers.guideEditableFocus.postMessage(false);
+          });
+          update();
+        })();""",
+        WebKit2.UserContentInjectedFrames.TOP_FRAME,
+        WebKit2.UserScriptInjectionTime.END,
+        None, None,
+    ))
 
 retry_pending = False
 
