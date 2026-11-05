@@ -11,4 +11,4 @@
 #   sudo udevadm control --reload-rules
 #   sudo udevadm trigger
 
-SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ATTRS{serial}=="guide-robot-rfid-01", SYMLINK+="rfid0", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ATTRS{serial}=="guide-robot-rfid-01", SYMLINK+="rfid0", GROUP="dialout", MODE="0660"

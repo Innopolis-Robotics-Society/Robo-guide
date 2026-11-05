@@ -193,3 +193,8 @@ Rollback: `sudo systemctl disable --now guide-keyboard-seat`; remove
 `/etc/modules-load.d/guide-keyboard-seat.conf`, then reload udev rules. Closing
 the service's UHID descriptor automatically removes its device. A physical
 keyboard is again required for the native on-screen keyboard on this Weston.
+
+After enabling the virtual keyboard seat, replace the former
+`99-guide-kiosk-keyboard.rules` with the current comment-only file and reload
+udev. Reconnect the physical keyboard (or send targeted remove/add udev events)
+to return it to GNOME/seat0. Do not remove the virtual keyboard rule.
