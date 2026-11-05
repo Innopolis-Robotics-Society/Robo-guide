@@ -183,9 +183,13 @@ class Wifi:
                     self.phase = "connecting"
                     previous = None
                     if props["ActiveConnection"] != "/":
-                        previous = (
+                        candidate = (
                             await self.props(props["ActiveConnection"], NM + ".Connection.Active")
                         )["Connection"]
+                        # Rollback obeys the same interface/security/mode policy
+                        # as explicit profile selection. Never restore a hotspot.
+                        if any(profile["path"] == candidate for profile in profiles):
+                            previous = candidate
                     if selected:
                         active = await manager.call_activate_connection(
                             selected["path"], path, "/"

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from aiohttp.test_utils import TestClient, TestServer
 from aiohttp import web
+import pytest
 
 HELPERS = Path(__file__).parents[1] / "helpers"
 
@@ -64,7 +65,9 @@ def test_wifi_excludes_service_interface(monkeypatch):
         load("wifi_service").Wifi()
 
 
-def test_wifi_failure_restores_previous_profile_without_leaking_secret(monkeypatch):
+@pytest.mark.parametrize("eligible", [True, False])
+@pytest.mark.parametrize("transport_error", [True, False])
+def test_wifi_failure_restores_previous_profile_without_leaking_secret(monkeypatch, eligible, transport_error):
     import pytest
 
     pytest.importorskip("dbus_next")
@@ -75,6 +78,8 @@ def test_wifi_failure_restores_previous_profile_without_leaking_secret(monkeypat
     class Manager:
         async def call_add_and_activate_connection(self, settings, path, specific):
             calls.append("connect")
+            if transport_error:
+                raise RuntimeError("password-123")
             return "/profile/new", "/active/new"
 
         async def call_activate_connection(self, profile, path, specific):
@@ -88,7 +93,8 @@ def test_wifi_failure_restores_previous_profile_without_leaking_secret(monkeypat
         return {"Connection": "/profile/old"}
 
     async def profiles():
-        return []
+        # profiles() only admits infrastructure profiles on the managed adapter.
+        return [{"id": "old", "path": "/profile/old"}] if eligible else []
 
     async def state():
         return {"networks": []}
@@ -111,11 +117,11 @@ def test_wifi_failure_restores_previous_profile_without_leaking_secret(monkeypat
             response = await client.post(
                 "/connect", json={"ssid": "test", "password": "password-123"}
             )
-            assert response.status == 409
+            assert response.status == (503 if transport_error else 409)
             data = await response.json()
-            assert data["restored_previous"] is True
+            assert data["restored_previous"] is eligible
             assert "password-123" not in str(data)
-            assert calls == ["connect", "/profile/old"]
+            assert calls == (["connect", "/profile/old"] if eligible else ["connect"])
 
     asyncio.run(run())
 
