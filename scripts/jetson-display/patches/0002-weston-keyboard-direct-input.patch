@@ -1,0 +1,29 @@
+--- a/clients/keyboard.c
++++ b/clients/keyboard.c
+@@ -562,19 +562,15 @@
+ 			keyboard->keyboard->preedit_string =
+ 				append(keyboard->keyboard->preedit_string,
+ 				       label);
+-			virtual_keyboard_send_preedit(keyboard->keyboard, -1);
++			virtual_keyboard_commit_preedit(keyboard->keyboard);
+ 			break;
+ 		case keytype_backspace:
+-			if (state != WL_POINTER_BUTTON_STATE_PRESSED)
+-				break;
+-
+-			if (strlen(keyboard->keyboard->preedit_string) == 0) {
+-				delete_before_cursor(keyboard->keyboard);
+-			} else {
+-				keyboard->keyboard->preedit_string[strlen(keyboard->keyboard->preedit_string) - 1] = '\0';
+-				virtual_keyboard_send_preedit(keyboard->keyboard, -1);
+-			}
+-			break;
++            /* WebKitGTK does not handle GtkIMContext delete-surrounding.
++             * Send a normal key, preserving selection and cursor semantics. */
++            zwp_input_method_context_v1_keysym(keyboard->keyboard->context,
++                display_get_serial(keyboard->keyboard->display), time,
++                XKB_KEY_BackSpace, key_state, 0);
++            break;
+ 		case keytype_enter:
+ 			virtual_keyboard_commit_preedit(keyboard->keyboard);
+ 			zwp_input_method_context_v1_keysym(keyboard->keyboard->context,

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Replace only the Weston input-method CLIENT. Never restart the compositor.
+set -euo pipefail
+HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+DEST=/opt/guide-kiosk-input
+LINK=/usr/lib/weston/weston-keyboard
+case "${1:-}" in
+install)
+  BUILD=$(mktemp -d /tmp/guide-direct-keyboard.XXXXXX)
+  curl -fsSL https://wayland.freedesktop.org/releases/weston-13.0.0.tar.xz -o "$BUILD/source.tar.xz"
+  printf '%s  %s\n' 52ff1d4aa2394a2e416c85a338b627ce97fa71d43eb762fd4aaf145d36fc795a "$BUILD/source.tar.xz" | sha256sum -c -
+  tar -xf "$BUILD/source.tar.xz" -C "$BUILD"
+  patch -d "$BUILD/weston-13.0.0" -p1 < "$HERE/patches/0002-weston-keyboard-direct-input.patch"
+  python3 "$HERE/build-direct-keyboard.py" "$BUILD/weston-13.0.0" "$BUILD/out"
+  test -L "$LINK"
+  sudo install -d -m 755 "$DEST"
+  if ! test -L "$DEST/weston-keyboard.original"; then
+    sudo cp -a --no-dereference "$LINK" "$DEST/weston-keyboard.original"
+  fi
+  sudo install -m 755 "$BUILD/out/weston-keyboard" "$DEST/weston-keyboard.new"
+  sudo mv "$DEST/weston-keyboard.new" "$DEST/weston-keyboard"
+  sudo install -m 644 "$BUILD/source.tar.xz" "$DEST/weston-13.0.0-source.tar.xz"
+  sudo install -m 644 "$HERE/patches/0002-weston-keyboard-direct-input.patch" "$DEST/"
+  sudo ln -sfn "$DEST/weston-keyboard" "$LINK.new"
+  sudo mv -Tf "$LINK.new" "$LINK"
+  echo 'Installed. Restart only weston-keyboard; Weston respawns its client.'
+  ;;
+restore)
+  test -L "$DEST/weston-keyboard.original"
+  sudo cp -a --no-dereference "$DEST/weston-keyboard.original" "$LINK.restore"
+  sudo mv -Tf "$LINK.restore" "$LINK"
+  echo 'Original client restored. Restart only weston-keyboard.'
+  ;;
+*) echo "Usage: $0 {install|restore}" >&2; exit 2;;
+esac

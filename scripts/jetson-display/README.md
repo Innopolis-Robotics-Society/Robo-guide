@@ -147,3 +147,22 @@ on upstream and verifies typing, backspace, empty updates, UTF-8 commit,
 focus-out commit and stale serial rejection on the patched source. Installation
 runs it before building/replacing the module, and replaces the .so atomically
 so an existing kiosk process retains its original mapping until restart.
+
+### Direct-input Weston keyboard client
+
+WebKitGTK 2.50.4's GTK input-method adapter does not connect GtkIMContext's
+`delete-surrounding` signal. The stock Weston keyboard uses that path for deleting
+committed text; composition across field changes also proved unreliable in the
+hardware trial. `install-direct-keyboard install` builds **only the client** from
+the checksum-pinned official Weston 13 archive. Its patch commits each character
+immediately and sends Backspace press/release as ordinary key events, so WebKit
+handles cursor/selection editing just as for a physical keyboard. An isolated
+C test exercises the actual key handler with mocked outbound protocol calls.
+No compositor, graphics driver or ROS package is built or replaced.
+
+The installer retains the original `/usr/lib/weston/weston-keyboard` symlink
+under `/opt/guide-kiosk-input/weston-keyboard.original`, plus upstream source and
+patch. After installation, terminate **only** the `weston-keyboard` client;
+Weston respawns it using the updated link. `install-direct-keyboard restore`
+restores the original link (restart only that client again). Physical keyboard
+focus is still required; this does not solve the touch-only seat restriction.
