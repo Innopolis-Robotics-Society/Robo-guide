@@ -1,9 +1,12 @@
-"""Host-owned audio and network API; privileged work stays behind Unix sockets."""
+"""Host-owned display, audio and network settings, independent of ROS."""
 
 import asyncio
 import hashlib
 import hmac
+import os
+from pathlib import Path
 import secrets
+import tempfile
 
 import aiohttp
 from aiohttp import web
@@ -19,6 +22,34 @@ class SystemSettings:
         self.api = api
         self.lock = asyncio.Lock()
         self.fingerprint_key = secrets.token_bytes(32)
+
+    async def face_cursor(self, request):
+        """Persist the face kiosk preference; its X11 helper applies it live."""
+        path = Path(self.api.cfg.state_dir).expanduser() / "face-cursor-visible"
+        temporary = None
+        try:
+            if request.method == "POST":
+                body = await request.json()
+                v.object_fields(body, ("visible",))
+                if not isinstance(body.get("visible"), bool):
+                    raise ValueError("Invalid visible")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as stream:
+                    temporary = Path(stream.name)
+                    stream.write("true\n" if body["visible"] else "false\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, path)
+            try:
+                visible = path.read_text().strip() == "true"
+            except (FileNotFoundError, UnicodeError):
+                visible = False
+        except OSError:
+            raise web.HTTPServiceUnavailable(reason="display_settings_unavailable") from None
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return web.json_response({"visible": visible})
 
     async def call(self, kind, method, path, body=None):
         """Call only a configured local helper endpoint."""
@@ -130,6 +161,10 @@ class SystemSettings:
 
     def register(self, app):
         """Register authenticated host settings routes."""
+        for method in ("GET", "POST"):
+            app.router.add_route(
+                method, "/api/v1/display/face-cursor", self.api._authed(self.face_cursor)
+            )
         app.router.add_route("GET", "/api/v1/audio/output", self.api._authed(self.audio))
         app.router.add_route("POST", "/api/v1/audio/output", self.api._authed(self.audio))
         app.router.add_get("/api/v1/wifi", self.api._authed(self.wifi))

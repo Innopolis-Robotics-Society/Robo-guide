@@ -27,7 +27,7 @@ def test_real_page_is_served_without_cache(tmp_path):
             html = await r.text()
             assert '<script src="/static/app.js">' in html
             assert "Начать экскурсию" in html
-            for name in ("app.js", "app.css"):
+            for name in ("app.js", "app.css", "map-panel.js", "wifi-profiles.js", "settings-panel.js"):
                 r = await c.get(f"/static/{name}")
                 assert r.status == 200
                 assert await r.read() == (WEB / name).read_bytes()

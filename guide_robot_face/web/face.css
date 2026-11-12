@@ -18,7 +18,9 @@ body {
   height: 100%;
   overflow: hidden;
   background: var(--bg-color);
-  cursor: none;
+  /* Physical kiosk visibility is controlled by guide-face-cursor (XFixes).
+     A blank CSS cursor would prevent its "show" setting from taking effect. */
+  cursor: default;
 }
 
 #face {

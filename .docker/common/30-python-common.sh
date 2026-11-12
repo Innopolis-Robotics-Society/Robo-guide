@@ -4,7 +4,8 @@
 # platform-specific (CUDA vs CPU vs Jetson wheels) and installed per-target.
 set -euxo pipefail
 
-python3 -m pip install --no-cache-dir -U pip setuptools wheel
+# colcon-core uses the setuptools API from before 80.
+python3 -m pip install --no-cache-dir -U pip "setuptools<80" wheel
 
 # protobuf pinned so onnxruntime can resolve later
 python3 -m pip install --no-cache-dir --index-url https://pypi.org/simple \

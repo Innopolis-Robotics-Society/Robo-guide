@@ -70,6 +70,9 @@ RUN bash /tmp/common/90-user-setup.sh
 COPY .docker/common/91-python-apps.sh /tmp/common/91-python-apps.sh
 RUN bash /tmp/common/91-python-apps.sh
 
+COPY .docker/common/95-runtime-check.sh /tmp/common/95-runtime-check.sh
+RUN bash /tmp/common/95-runtime-check.sh
+
 RUN rm -rf /tmp/common
 
 USER ${USERNAME}

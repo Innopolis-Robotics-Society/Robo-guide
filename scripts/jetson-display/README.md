@@ -162,10 +162,19 @@ No compositor, graphics driver or ROS package is built or replaced.
 
 The installer retains the original `/usr/lib/weston/weston-keyboard` symlink
 under `/opt/guide-kiosk-input/weston-keyboard.original`, plus upstream source and
-patch. After installation, terminate **only** the `weston-keyboard` client;
-Weston respawns it using the updated link. `install-direct-keyboard restore`
-restores the original link (restart only that client again). Physical keyboard
-focus is still required; this does not solve the touch-only seat restriction.
+patch. NVIDIA's `/etc/systemd/nv.sh` resets this link at every boot. The installer
+therefore enables `guide-direct-keyboard.service`, ordered after `nv.service`
+and before `weston-dlhdmi.service`, and wanted by the latter. It atomically
+selects the corrected executable without starting or restarting the compositor.
+Use `install-direct-keyboard enable` to apply this boot fix to an already built
+client without rebuilding it.
+
+After installation, terminate **only** the `weston-keyboard` client; Weston
+respawns it using the updated link. `install-direct-keyboard restore` disables
+the selector service and restores the original link (restart only that client
+again). Verify `systemctl is-enabled guide-direct-keyboard` and
+`readlink -f /usr/lib/weston/weston-keyboard`. Do not restart Weston for this
+change. The touch-only seat still needs `guide-keyboard-seat` below.
 
 ### Touch-only keyboard seat
 
@@ -223,8 +232,22 @@ localhost page loading on the robot) and password saving. These settings do
 not affect the ordinary GNOME browser profile. WebKit sandbox stays enabled.
 
 `guide-face-cursor` must also be installed executable in `/usr/local/bin/`.
-The wrapper starts it for its own X window. It uses libX11/libXfixes (Python
-ctypes, no extra Python packages) to hide the cursor while the pointer is over
-that window or its children; other GNOME windows retain their cursor. It polls
-at5Hz and only sends XFixes requests on transitions. Exit/connection-close
-releases cursor hiding. No desktop-wide cursor theme changes are needed.
+Install `guide-face-cursor.service` in `/etc/systemd/system/`, then run
+`systemctl daemon-reload` and `systemctl enable --now guide-face-cursor`.
+Its service user must match the GNOME session and launcher (default `jetson`).
+It discovers the accessible GNOME X display and retries until login is ready.
+The helper uses libX11/libXfixes (Python ctypes, no extra Python packages) for
+the entire native face display, including the desktop while ROS/browser is down.
+It polls at5Hz and only sends XFixes requests on transitions. Exit/connection-close
+releases cursor hiding. The browser wrapper must not launch a second helper.
+
+The operator panel has **Settings → Eyes display → Show cursor**. The authenticated
+`GET/POST /api/v1/display/face-cursor` endpoint stores the boolean in
+`<launcher state_dir>/face-cursor-visible` using an atomic replacement. The helper
+reads this file on each poll, so toggling takes effect without restarting the
+browser or ROS and survives reboot. Missing/invalid settings mean hidden.
+Both services run as the same user. For a non-default launcher `state_dir`, set
+`GUIDE_LAUNCHER_STATE_DIR` to that directory in `guide-face-cursor.service` as well;
+the default is `~/.guide_robot/launcher`. Deploy the matching `face.css`, which
+uses a normal cursor: XFixes owns visibility on the physical display. The HDMI
+operator kiosk runs on a separate Weston display and is unaffected.

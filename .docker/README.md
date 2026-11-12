@@ -17,7 +17,8 @@ docker/
     40-ml-jetson.sh     # torch L4T wheels + onnxruntime-gpu   (Jetson only)
     40-ml-jetson-cpu.sh # onnxruntime CPU only                 (arm64 CPU only)
     90-user-setup.sh    # user, sudo, rosdep, .bashrc, workspace
-    91-python-apps.sh   # aiohttp, rank_bm25 — слой после 90, без пересборки torch
+    91-python-apps.sh   # API/search/voice deps, numpy<2, pytest; после ML
+    95-runtime-check.sh # загрузка CycloneDDS и runtime Python-модулей
   Dockerfile.x86-gpu    # nvidia/cuda base       -> fabook/iros:x86-gpu
   Dockerfile.x86-cpu    # ubuntu:22.04 base      -> fabook/iros:x86-cpu   (lightweight)
   Dockerfile.jetson     # l4t-jetpack base       -> fabook/iros:jetson
@@ -100,11 +101,26 @@ docker run -it fabook/iros:jetson-cpu                  # arm64 CPU
 
 - Needed everywhere (heavy: open3d/cv/vosk) -> `common/30-python-common.sh`.
 - Workspace pip that is not in Ubuntu/rosdep (aiohttp, rank_bm25) ->
-  `common/91-python-apps.sh`. Jetson copies this script in its own layer
-  after 90 so bumping it does **not** rebuild torch.
+  `common/91-python-apps.sh`. Includes the voice dependencies `soxr`,
+  `sherpa-onnx`, `openwakeword==0.6.0`, scipy/scikit-learn/tqdm/requests and
+  the pytest 8.4.2 override for Ubuntu's older pytest. `setuptools<80` keeps
+  compatibility with colcon-core (also constrained in layer 30). Jetson copies this
+  script in its own layer after 90 so bumping it does **not** rebuild torch.
+  This final layer also restores `numpy<2` after platform ML installation.
 - GPU/CPU/Jetson-specific -> that platform's `40-ml-*.sh`.
 - Don't add torch to `30-python-common.sh` — it's platform-specific on purpose.
 
 The image does **not** `rosdep install` the mounted workspace. A
 `<depend>python3-aiohttp</depend>` in package.xml does nothing until the
 package is listed in `91-python-apps.sh` (or 30).
+
+All four build targets run `95-runtime-check.sh`: it loads CycloneDDS (including
+its shared-library dependencies), API/search/audio/ASR modules and the chosen
+ONNX Runtime/openWakeWord. The last two imports are skipped for Jetson with
+`WITH_ML=0`. The check uses no hardware, model files or cloud credentials.
+CycloneDDS itself is installed by `20-ros2-packages.sh`; apt resolves iceoryx
+and ACL dependencies. These checks do not replace a hardware or model test.
+
+Keyboard, Weston, cursor and NetworkManager helpers run on the Jetson host;
+their packages belong to `scripts/jetson-display/` and `scripts/jetson-launcher/`
+installation, not the ROS container.

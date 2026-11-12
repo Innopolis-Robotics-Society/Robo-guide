@@ -182,7 +182,8 @@ class RobotApiNode(CommandAdapter, Node):
             ResetLocalization, "/mission_fsm/reset_localization"
         )
         self.declare_parameter(
-            "localization_presets", ["parking", "home", "entrance", "robo_guide"]
+            "localization_presets",
+            ["parking", "home", "entrance", "robo_guide", "expo_meeting", "charging"],
         )
         self._operations = ActionRegistry()
         self._speech_state = None

@@ -1,6 +1,7 @@
 """Restricted NetworkManager D-Bus facade for one configured non-hotspot adapter."""
 
 import asyncio
+from copy import deepcopy
 import os
 import uuid
 from pathlib import Path
@@ -11,6 +12,16 @@ from dbus_next.aio import MessageBus
 
 NM = "org.freedesktop.NetworkManager"
 ROOT = "/org/freedesktop/NetworkManager"
+
+
+def unique_profiles(profiles, active_id=None):
+    """Prefer the active or most recently connected settings for each SSID."""
+    result = {}
+    for profile in sorted(profiles, key=lambda p: (
+        p["id"] != active_id, -p.get("last_connected", 0), p["id"]
+    )):
+        result.setdefault(profile["ssid"], profile)
+    return list(result.values())
 
 
 class Wifi:
@@ -75,6 +86,8 @@ class Wifi:
             result.append(
                 {
                     "id": conn["uuid"].value,
+                    "name": conn["id"].value,
+                    "last_connected": conn.get("timestamp", Variant("t", 0)).value,
                     "ssid": bytes(wifi["ssid"].value).decode("utf-8", "replace"),
                     "path": path,
                 }
@@ -114,14 +127,26 @@ class Wifi:
             current_ssid = bytes(
                 (await self.props(active_ap, NM + ".AccessPoint"))["Ssid"]
             ).decode("utf-8", "replace")
+        current_profile_id = None
+        if props.get("ActiveConnection", "/") != "/":
+            active = await self.props(props["ActiveConnection"], NM + ".Connection.Active")
+            current_profile_id = active.get("Uuid")
+        ipv4_addresses = []
+        ip4_config = props.get("Ip4Config", "/")
+        if current_ssid and props["State"] == 100 and ip4_config != "/":
+            addresses = await self.props(ip4_config, NM + ".IP4Config")
+            ipv4_addresses = [item["address"].value for item in addresses.get("AddressData", [])]
         return {
             "current_ssid": current_ssid,
+            "current_profile_id": current_profile_id,
+            "ipv4_addresses": ipv4_addresses,
             "available": True,
             "device": self.interface,
             "state": props["State"],
             "networks": networks,
             "profiles": [
-                {k: v for k, v in p.items() if k != "path"} for p in await self.profiles()
+                {k: v for k, v in p.items() if k != "path"}
+                for p in unique_profiles(await self.profiles(), current_profile_id)
             ],
         }
 
@@ -152,6 +177,15 @@ class Wifi:
         async with self.lock:
             previous = None
             rollback_attempted = False
+            updated_profile = None
+
+            async def restore_settings():
+                nonlocal updated_profile
+                if updated_profile is not None:
+                    profile, settings = updated_profile
+                    await profile.call_update(settings)
+                    updated_profile = None
+
             try:
                 manager, path, props = await self.device()
                 if request.method == "GET" and action == "status":
@@ -171,14 +205,19 @@ class Wifi:
                     return web.json_response(await self.state())
                 profiles = await self.profiles()
                 selected = next((p for p in profiles if p["id"] == body.get("profile_id")), None)
+                if body.get("profile_id") and selected is None:
+                    raise ValueError("profile_not_found")
                 if action == "disconnect":
                     device = await self.proxy(path, NM + ".Device")
                     await device.call_disconnect()
                 elif action == "forget":
-                    if selected is None:
+                    ssid = selected["ssid"] if selected else body.get("ssid")
+                    matches = [p for p in profiles if p["ssid"] == ssid]
+                    if not matches:
                         raise ValueError("profile_not_found")
-                    profile = await self.proxy(selected["path"], NM + ".Settings.Connection")
-                    await profile.call_delete()
+                    for item in matches:
+                        profile = await self.proxy(item["path"], NM + ".Settings.Connection")
+                        await profile.call_delete()
                 elif action == "connect":
                     self.phase = "connecting"
                     previous = None
@@ -190,24 +229,44 @@ class Wifi:
                         # as explicit profile selection. Never restore a hotspot.
                         if any(profile["path"] == candidate for profile in profiles):
                             previous = candidate
+                    ssid = selected["ssid"] if selected else body.get("ssid", "")
+                    password = body.get("password", "")
+                    if (
+                        not isinstance(ssid, str)
+                        or not 1 <= len(ssid.encode()) <= 32
+                        or not isinstance(password, str)
+                    ):
+                        raise ValueError("invalid_network")
+                    if password and not (
+                        8 <= len(password) <= 63
+                        or len(password) == 64
+                        and all(c in "0123456789abcdefABCDEF" for c in password)
+                    ):
+                        raise ValueError("invalid_password")
+                    active_id = next((p["id"] for p in profiles if p["path"] == previous), None)
+                    selected = next((p for p in unique_profiles(profiles, active_id)
+                                     if p["ssid"] == ssid), None)
                     if selected:
+                        if password:
+                            profile = await self.proxy(selected["path"], NM + ".Settings.Connection")
+                            original = await profile.call_get_settings()
+                            security_key = "802-11-wireless-security"
+                            if security_key in original:
+                                # Keep old credentials only in memory for failure rollback.
+                                secrets = await profile.call_get_secrets(security_key)
+                                original[security_key].update(secrets.get(security_key, {}))
+                            settings = deepcopy(original)
+                            security = settings.setdefault(security_key, {})
+                            if security.get("key-mgmt", Variant("s", "none")).value == "none":
+                                security["key-mgmt"] = Variant("s", "wpa-psk")
+                            security["psk"] = Variant("s", password)
+                            security["psk-flags"] = Variant("u", 0)
+                            updated_profile = profile, original
+                            await profile.call_update(settings)
                         active = await manager.call_activate_connection(
                             selected["path"], path, "/"
                         )
                     else:
-                        ssid, password = body.get("ssid", ""), body.get("password", "")
-                        if (
-                            not isinstance(ssid, str)
-                            or not 1 <= len(ssid.encode()) <= 32
-                            or not isinstance(password, str)
-                        ):
-                            raise ValueError("invalid_network")
-                        if password and not (
-                            8 <= len(password) <= 63
-                            or len(password) == 64
-                            and all(c in "0123456789abcdefABCDEF" for c in password)
-                        ):
-                            raise ValueError("invalid_password")
                         networks = (await self.state())["networks"]
                         network = next((n for n in networks if n["ssid"] == ssid), None)
                         if network and network["security"] in ("enterprise", "unsupported"):
@@ -240,6 +299,10 @@ class Wifi:
                         )
                     connected = await self.wait_active(path, active)
                     restored = False
+                    if connected:
+                        updated_profile = None
+                    else:
+                        await restore_settings()
                     if not connected and previous:
                         self.phase = "restoring"
                         rollback_attempted = True
@@ -257,13 +320,14 @@ class Wifi:
             except Exception:
                 # D-Bus errors may include a credential: never log exception text.
                 restored = False
-                if action == "connect" and previous and not rollback_attempted:
-                    self.phase = "restoring"
-                    try:
+                try:
+                    await restore_settings()
+                    if action == "connect" and previous and not rollback_attempted:
+                        self.phase = "restoring"
                         fallback = await manager.call_activate_connection(previous, path, "/")
                         restored = await self.wait_active(path, fallback)
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
                 return web.json_response(
                     {"message": "network_unavailable", "restored_previous": restored}, status=503
                 )

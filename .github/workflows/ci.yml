@@ -79,6 +79,9 @@ jobs:                    # ← оба job ВНУТРИ jobs:
           run: |
             python3 -m pip install aiohttp PyYAML jsonschema dbus-next
             python3 -m pytest src/Robo-guide/scripts/jetson-launcher/tests -q
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest \
+              src/Robo-guide/scripts/jetson-display/tests/test_keyboard_boot.py \
+              src/Robo-guide/scripts/jetson-display/tests/test_face_cursor.py -q
 
         - uses: actions/setup-node@v4
           with:

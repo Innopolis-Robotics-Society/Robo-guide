@@ -67,12 +67,16 @@
 
       <section id="section-map" class="menu-section" hidden>
         <div class="row"><button class="btn" id="map-plus">+</button><button class="btn" id="map-minus">−</button><button class="btn" id="map-center">Показать робота</button></div>
-        <div id="map-presets" class="row"></div>
+        <div id="map-presets" class="row" role="group" aria-label="Быстро указать положение">
+          <button class="btn" id="map-preset-start" disabled>Начало экскурсии</button>
+          <button class="btn" id="map-preset-parking" disabled>Стоянка</button>
+          <button class="btn" id="map-preset-charging" disabled>Подзарядка</button>
+        </div>
         <canvas id="robot-map" width="900" height="480" style="width:100%;touch-action:none;background:#ddd"></canvas>
         <div class="row"><button class="btn" id="map-locate">Указать положение робота</button><button class="btn" id="map-go">Отправить робота</button></div>
         <div class="row"><button class="btn" id="map-apply" disabled>Подтвердить</button><button class="btn" id="map-cancel">Отмена</button></div><p id="map-message" role="status"></p>
       </section>
-      <section id="section-settings" class="menu-section" hidden><h2>Звук и Wi-Fi</h2><div id="system-settings"></div></section>
+      <section id="section-settings" class="menu-section" hidden><h2>Настройки</h2><div id="system-settings"></div></section>
       <section id="section-tour" class="menu-section" hidden>
         <div class="ros-note" hidden>ROS не запущен</div>
         <h2>Текущий тур</h2>
@@ -104,7 +108,6 @@
         <div class="ros-note" hidden>ROS не запущен</div>
         <h2>Локализация и карты</h2>
         <div class="row">
-          <button id="btn-reset" type="button" class="btn" data-needs-ros>Сбросить локализацию</button>
           <button id="btn-costmaps" type="button" class="btn" data-needs-ros>Очистить костмапы</button>
         </div>
         <h2>Состояние</h2>
@@ -202,6 +205,7 @@
     <script src="/static/media-select.js"></script>
     <script src="/static/app.js"></script>
     <script src="/static/map-panel.js"></script>
+    <script src="/static/wifi-profiles.js"></script>
     <script src="/static/settings-panel.js"></script>
   </body>
 </html>

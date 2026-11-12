@@ -7,7 +7,7 @@
   ros__parameters:
     bind_host: "127.0.0.1"     # панель на самом роботе; только loopback
     http_port: 8091             # 8090 занят guide_robot_face
-    localization_presets: [parking, home, entrance, robo_guide]
+    localization_presets: [parking, home, entrance, robo_guide, expo_meeting, charging]
     service_timeout_s: 5.0
     mission_state_stale_s: 3.0  # heartbeat 1 Гц -- см. mission_fsm's config/mission.yaml
     initialpose_settle_s: 0.5

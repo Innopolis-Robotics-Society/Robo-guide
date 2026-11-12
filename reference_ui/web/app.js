@@ -138,7 +138,6 @@
   const btnHome = document.getElementById("btn-home");
   const btnParking = document.getElementById("btn-parking");
   const btnCharging = document.getElementById("btn-charging");
-  const btnReset = document.getElementById("btn-reset");
   const btnCostmaps = document.getElementById("btn-costmaps");
   const btnSystemShutdown = document.getElementById("btn-system-shutdown");
   const btnSystemReboot = document.getElementById("btn-system-reboot");
@@ -771,7 +770,7 @@
     for (const btn of [btnStart, btnStop, btnHome, btnParking, btnCharging]) {
       btn.disabled = blocked;
     }
-    for (const btn of [btnReset, btnCostmaps]) btn.disabled = !rosUp;
+    btnCostmaps.disabled = !rosUp;
 
     const current = findTour(currentTourId);
     btnStart.textContent = current ? `Старт: ${current.name || current.id}` : "Старт";
@@ -1233,6 +1232,7 @@
   );
   async function refreshPowerStatus() {
     const res = await request("GET", "/api/v1/system/power");
+    systemPowerMessage.hidden = false;
     btnSystemShutdown.disabled = btnSystemReboot.disabled =
       powerSubmitting || !res.ok || !res.data.enabled || res.data.pending;
     if (!res.ok) {
@@ -1254,7 +1254,7 @@
         }
       }
     } else {
-      systemPowerMessage.textContent = "Команды питания выполняются независимо от состояния ROS.";
+      systemPowerMessage.textContent = "";
       if (res.data.operation_id) {
         const op = await request("GET", "/api/v1/operations/" + res.data.operation_id);
         if (op.ok && op.data.status === "failed") {
@@ -1262,6 +1262,7 @@
         }
       }
     }
+    systemPowerMessage.hidden = !systemPowerMessage.textContent;
   }
 
   async function systemPower(action) {
@@ -1285,13 +1286,6 @@
   }
   btnSystemShutdown.addEventListener("click", () => systemPower("shutdown"));
   btnSystemReboot.addEventListener("click", () => systemPower("reboot"));
-  btnReset.addEventListener("click", async () => {
-    const ok = await askConfirm(
-      "Убедитесь, что робот физически стоит на стоянке.",
-      "Подтвердить сброс"
-    );
-    if (ok) await menuCommand("/api/v1/localization/reset", {confirm: true}, "Локализация сброшена");
-  });
 
   async function stackAction(path, question, label) {
     const ok = await askConfirm(question, label);

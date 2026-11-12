@@ -1,0 +1,19 @@
+[Unit]
+Description=Select the corrected Weston keyboard after NVIDIA boot setup
+After=nv.service
+Before=weston-dlhdmi.service
+ConditionFileIsExecutable=/opt/guide-kiosk-input/weston-keyboard
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/ln -sfn /opt/guide-kiosk-input/weston-keyboard /usr/lib/weston/weston-keyboard.guide-new
+ExecStart=/usr/bin/mv -Tf /usr/lib/weston/weston-keyboard.guide-new /usr/lib/weston/weston-keyboard
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/usr/lib/weston
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=weston-dlhdmi.service

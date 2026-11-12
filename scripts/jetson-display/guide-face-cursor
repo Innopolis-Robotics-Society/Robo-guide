@@ -1,17 +1,40 @@
 #!/usr/bin/env python3
-"""Hide the X cursor over the face window only, including browser chrome.
+"""Control the cursor on the native GNOME face display, independently of ROS.
 
 XFixes hide requests are released when this client's X connection closes.
-Other GNOME windows keep their normal pointer; no global theme is changed.
+The HDMI operator panel runs on a separate Weston display and is unaffected.
 """
 import ctypes as C
+import os
+from pathlib import Path
 import signal
-import sys
 import time
 
 
+def cursor_visible(state_dir):
+    """Missing/invalid preferences preserve the kiosk's hidden-cursor default."""
+    try:
+        return (state_dir / "face-cursor-visible").read_text().strip() == "true"
+    except (OSError, UnicodeError):
+        return False
+
+
+def open_display(x):
+    """Find this user's GNOME X display; systemd retries until login is ready."""
+    os.environ.setdefault("XAUTHORITY", f"/run/user/{os.getuid()}/gdm/Xauthority")
+    names = [os.environ["DISPLAY"]] if os.environ.get("DISPLAY") else [
+        ":" + path.name[1:] for path in sorted(Path("/tmp/.X11-unix").glob("X[0-9]*"))
+    ]
+    for name in names:
+        display = x.XOpenDisplay(name.encode())
+        if display:
+            print(f"Face cursor display: {name}", flush=True)
+            return display
+    raise SystemExit("Waiting for GNOME X display")
+
+
 def main():
-    target = int(sys.argv[1], 0)
+    state_dir = Path(os.environ.get("GUIDE_LAUNCHER_STATE_DIR", "~/.guide_robot/launcher")).expanduser()
     x = C.CDLL("libX11.so.6")
     fixes = C.CDLL("libXfixes.so.3")
     window = C.c_ulong
@@ -19,15 +42,11 @@ def main():
     x.XOpenDisplay.restype = C.c_void_p
     x.XDefaultRootWindow.argtypes = [C.c_void_p]
     x.XDefaultRootWindow.restype = window
-    x.XQueryPointer.argtypes = [C.c_void_p, window, C.POINTER(window), C.POINTER(window),
-                               C.POINTER(C.c_int), C.POINTER(C.c_int),
-                               C.POINTER(C.c_int), C.POINTER(C.c_int), C.POINTER(C.c_uint)]
     for name in ("XFixesHideCursor", "XFixesShowCursor"):
         getattr(fixes, name).argtypes = [C.c_void_p, window]
-    x.XFlush.argtypes = x.XCloseDisplay.argtypes = [C.c_void_p]
-    display = x.XOpenDisplay(None)
-    if not display:
-        raise SystemExit("Cannot open face display")
+    x.XSync.argtypes = [C.c_void_p, C.c_int]
+    x.XCloseDisplay.argtypes = [C.c_void_p]
+    display = open_display(x)
     root = x.XDefaultRootWindow(display)
     stopped = False
     hidden = False
@@ -39,30 +58,19 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
+        print("Face cursor control ready", flush=True)
         while not stopped:
-            current, over_face = root, False
-            for _ in range(32):
-                if current == target:
-                    over_face = True
-                    break
-                r, child = window(), window()
-                rx, ry, wx, wy = (C.c_int() for _ in range(4))
-                mask = C.c_uint()
-                ok = x.XQueryPointer(display, current, C.byref(r), C.byref(child),
-                                     C.byref(rx), C.byref(ry), C.byref(wx), C.byref(wy), C.byref(mask))
-                if not ok or not child.value:
-                    break
-                current = child.value
-            if over_face != hidden:
-                (fixes.XFixesHideCursor if over_face else fixes.XFixesShowCursor)(display, root)
-                x.XFlush(display)
-                hidden = over_face
-                print("Face cursor hidden" if hidden else "GNOME cursor restored", flush=True)
+            should_hide = not cursor_visible(state_dir)
+            if should_hide != hidden:
+                (fixes.XFixesHideCursor if should_hide else fixes.XFixesShowCursor)(display, root)
+                x.XSync(display, False)
+                hidden = should_hide
+                print("Face cursor hidden" if hidden else "Face cursor visible", flush=True)
             time.sleep(0.2)
     finally:
         if hidden:
             fixes.XFixesShowCursor(display, root)
-            x.XFlush(display)
+            x.XSync(display, False)
         x.XCloseDisplay(display)
 
 

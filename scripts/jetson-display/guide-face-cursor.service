@@ -1,0 +1,16 @@
+[Unit]
+Description=Cursor visibility on the native face display
+After=display-manager.service
+Wants=display-manager.service
+StartLimitIntervalSec=0
+
+[Service]
+User=jetson
+Group=jetson
+ExecStart=/usr/local/bin/guide-face-cursor
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical.target

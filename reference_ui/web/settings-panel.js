@@ -2,7 +2,10 @@
 (function(){
 'use strict';
 const root=document.getElementById('system-settings'),client=new RobotClient();
-root.innerHTML=`<label>Громкость <input id="output-volume" type="range" min="0" max="100" value="0"></label>
+root.innerHTML=`<h2>Экран с глазами</h2>
+<label class="switch-row"><input type="checkbox" id="face-cursor-visible" disabled><span>Показывать курсор</span></label>
+<p id="face-cursor-message" role="status"></p>
+<h2>Звук</h2><label>Громкость <input id="output-volume" type="range" min="0" max="100" value="0"></label>
 <label><input type="checkbox" id="output-muted">Без звука</label><button class="btn" id="audio-test">Проверить звук</button><p id="audio-test-message" role="status"></p><p id="audio-message" role="status"></p>
 <h2>Wi-Fi</h2><button class="btn" id="wifi-scan">Обновить сети</button><div id="wifi-list"></div>
 <div class="row"><button class="btn" id="wifi-manual">Другая сеть…</button><button class="btn" id="wifi-disconnect">Отключить</button></div>
@@ -16,14 +19,32 @@ root.innerHTML=`<label>Громкость <input id="output-volume" type="range"
 <label id="wifi-hidden-label"><input id="wifi-hidden" type="checkbox">Скрытая сеть</label>
 <div class="row"><button class="btn" type="submit" id="wifi-connect">Подключить</button><button class="btn" type="button" id="wifi-cancel">Отмена</button></div>
 </form></dialog>`;
-const el=id=>document.getElementById(id);let timer=null,pending=null,sending=false,selected=null;
-function closeWifi(){el('wifi-dialog').close();clearTimeout(revealTimer);el('wifi-password').value='';el('wifi-password').type='password';el('wifi-show').checked=false;selected=null;}
-function openWifi(ssid='',profile=null,security=null){
- selected=profile?.id||null;el('wifi-ssid').value=ssid;el('wifi-ssid').readOnly=!!ssid;
+const el=id=>document.getElementById(id);let timer=null,pending=null,sending=false;
+let cursorVisible=false;
+async function loadCursor(){
+ const r=await client.request('GET','/api/v1/display/face-cursor');
+ el('face-cursor-visible').disabled=!r.ok;
+ if(r.ok){cursorVisible=r.data.visible;el('face-cursor-visible').checked=cursorVisible;el('face-cursor-message').textContent='';}
+ else el('face-cursor-message').textContent=r.status===401?'Войдите в меню оператора':'Настройка курсора недоступна';
+}
+el('face-cursor-visible').onchange=async()=>{
+ const input=el('face-cursor-visible');input.disabled=true;
+ try{
+  const r=await client.request('POST','/api/v1/display/face-cursor',{visible:input.checked});
+  if(r.ok)cursorVisible=r.data.visible;
+  input.checked=cursorVisible;
+  el('face-cursor-message').textContent=r.ok?'Сохранено':r.status===401?'Войдите в меню оператора':'Не удалось сохранить настройку курсора';
+ }finally{input.disabled=false;}
+};
+function closeWifi(){el('wifi-dialog').close();clearTimeout(revealTimer);el('wifi-password').value='';el('wifi-password').type='password';el('wifi-show').checked=false;}
+function openWifi(ssid='',saved=false,security=null){
+ el('wifi-ssid').value=ssid;el('wifi-ssid').readOnly=!!ssid;
  el('wifi-password').value='';el('wifi-password').type='password';el('wifi-show').checked=false;
  el('wifi-hidden').checked=!ssid;el('wifi-hidden-label').hidden=!!ssid;
  el('wifi-password-label').hidden=security==='open';el('wifi-show-label').hidden=security==='open';
- el('wifi-password-hint').textContent=security==='open'?'Открытая сеть — пароль не нужен.':profile?'Пароль сохранён. Оставьте поле пустым, чтобы использовать его, или введите новый.':'Введите пароль сети.';
+ el('wifi-password-hint').textContent=security==='open'?'Открытая сеть — пароль не нужен.':saved?
+  'Сеть сохранена. Оставьте пароль пустым или введите новый.':'Введите пароль сети.';
+ el('wifi-password').placeholder=saved?'Использовать сохранённый пароль':'';
  el('wifi-dialog').showModal();(ssid&&security!=='open'?el('wifi-password'):el('wifi-ssid')).focus();
 }
 el('wifi-cancel').onclick=closeWifi;
@@ -54,26 +75,20 @@ function volume(){paintVolume();pending={volume:Number(el('output-volume').value
 el('output-volume').oninput=volume;el('output-volume').onchange=()=>{volume();clearTimeout(timer);sendVolume();};el('output-muted').onchange=()=>{volume();sendVolume();};
 function showNetworks(data){
  const list=el('wifi-list');list.replaceChildren();
- const current=document.createElement('p');current.textContent=data.current_ssid?'Подключено: '+data.current_ssid:'Нет подключения';list.append(current);
+ const current=document.createElement('p');current.textContent=WifiProfiles.connectionText(data);list.append(current);
  const table=document.createElement('table');table.className='wifi-table';
  const head=table.createTHead().insertRow();
  for(const title of ['Название сети','Подключить','Забыть','Сигнал']){const th=document.createElement('th');th.scope='col';th.textContent=title;head.append(th);}
- const body=table.createTBody(),profiles=data.profiles||[],networks=data.networks||[];
- // Show only discovered SSIDs; saved profiles annotate discovery, never add rows.
- const strongest=new Map();
- for(const n of networks){if(!strongest.has(n.ssid)||n.strength>strongest.get(n.ssid).strength)strongest.set(n.ssid,n);}
- const rows=profiles.filter(p=>strongest.has(p.ssid)).map(p=>({profile:p,network:strongest.get(p.ssid),ssid:p.ssid}));
- for(const n of strongest.values())if(!profiles.some(p=>p.ssid===n.ssid))rows.push({network:n,ssid:n.ssid});
- rows.sort((a,b)=>(b.network?.strength??-1)-(a.network?.strength??-1)||a.ssid.localeCompare(b.ssid));
- for(const {profile,network,ssid} of rows){
+ const body=table.createTBody(),rows=WifiProfiles.rows(data);
+ for(const {saved,network,ssid} of rows){
   const row=body.insertRow(),name=row.insertCell();name.textContent=ssid||'Скрытая сеть';
-  const detail=document.createElement('small');detail.textContent=[data.current_ssid===ssid?'Подключено':'',profile?'Сохранена':'',network?.security||''].filter(Boolean).join(' · ');name.append(detail);
+  const detail=document.createElement('small');detail.textContent=[data.current_ssid===ssid?'Подключено':'',saved?'Сохранена':'',network?.security||''].filter(Boolean).join(' · ');name.append(detail);
   const connect=document.createElement('button');connect.className='btn';connect.textContent='Подключить';connect.setAttribute('aria-label','Подключить '+ssid);
   connect.disabled=['enterprise','unsupported'].includes(network?.security);
-  connect.onclick=()=>openWifi(ssid,profile,network?.security);row.insertCell().append(connect);
+  connect.onclick=()=>openWifi(ssid,saved,network?.security);row.insertCell().append(connect);
   const forgetCell=row.insertCell();
-  if(profile){const forget=document.createElement('button');forget.className='btn';forget.textContent='Забыть';forget.setAttribute('aria-label','Забыть '+ssid);
-   forget.onclick=()=>{if(confirm('Удалить сохранённую сеть '+ssid+'?'))wifi('forget',{profile_id:profile.id});};forgetCell.append(forget);
+  if(saved){const forget=document.createElement('button');forget.className='btn';forget.textContent='Забыть';forget.setAttribute('aria-label','Забыть '+ssid);
+   forget.onclick=()=>{if(confirm('Забыть сеть «'+ssid+'»?'))wifi('forget',{ssid});};forgetCell.append(forget);
   }else forgetCell.textContent='—';
   row.insertCell().textContent=network?network.strength+'%':'—';
  }
@@ -88,8 +103,8 @@ async function scanWifi(){
 el('wifi-scan').onclick=scanWifi;el('wifi-disconnect').onclick=()=>wifi('disconnect');
 el('wifi-form').onsubmit=async event=>{event.preventDefault();
  const password=el('wifi-password').value;
- const body=selected&&!password?{profile_id:selected}:{ssid:el('wifi-ssid').value,password,hidden:el('wifi-hidden').checked};
+ const body={ssid:el('wifi-ssid').value,password,hidden:el('wifi-hidden').checked};
  closeWifi();await wifi('connect',body);
-};el('wifi-ssid').oninput=()=>{selected=null;};
-let visible=false;setInterval(async()=>{const show=!document.getElementById('section-settings').hidden&&!document.getElementById('menu-overlay').hidden;if(!show){if(visible)closeWifi();visible=false;return;}if(visible)return;visible=true;const r=await client.request('GET','/api/v1/audio/output');if(r.ok){el('output-volume').value=r.data.volume;paintVolume();el('output-muted').checked=r.data.muted;}else el('audio-message').textContent='Устройство звука недоступно';await wifi();await scanWifi();},500);
+};
+let visible=false;setInterval(async()=>{const show=!document.getElementById('section-settings').hidden&&!document.getElementById('menu-overlay').hidden;if(!show){if(visible)closeWifi();visible=false;return;}if(visible)return;visible=true;await loadCursor();const r=await client.request('GET','/api/v1/audio/output');if(r.ok){el('output-volume').value=r.data.volume;paintVolume();el('output-muted').checked=r.data.muted;}else el('audio-message').textContent='Устройство звука недоступно';await wifi();await scanWifi();},500);
 })();
